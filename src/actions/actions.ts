@@ -68,7 +68,7 @@ export async function generateAIResponse(prompt: string) {
             } else if (error.message.includes('timeout')) {
                 errorResponse = {
                     code: 'TIMEOUT_ERROR',
-                    message: 'Request timed out',
+                    message: 'Request timed out!',
                     details: error.message
                 };
             } else {
