@@ -1,12 +1,15 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { generateAIResponse } from '@/actions/actions';
+import { getRecentSearches } from '@/lib/services/searchService';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { Search } from '@/types/database';
+import { logger } from '@/lib/utilities';
 
 export default function Home() {
     const [prompt, setPrompt] = useState('');
@@ -14,6 +17,22 @@ export default function Home() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
+    const [recentSearches, setRecentSearches] = useState<Search[]>([]);
+
+    useEffect(() => {
+        loadRecentSearches();
+    }, []);
+
+    const loadRecentSearches = async () => {
+        try {
+            const searches = await getRecentSearches(5);
+            setRecentSearches(searches);
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Failed to load recent searches';
+            logger.error('Failed to load recent searches:', { error: errorMessage });
+            setError(errorMessage);
+        }
+    };
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,6 +45,8 @@ export default function Home() {
             setError(error);
         } else {
             setResponse(data!);
+            // Reload recent searches after new response
+            await loadRecentSearches();
         }
         
         setIsLoading(false);
@@ -118,6 +139,31 @@ export default function Home() {
                             </div>
                         </div>
                     )}
+
+                    {/* Recent Searches Section */}
+                    <div className="mt-8">
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+                            Recent Searches
+                        </h3>
+                        <div className="space-y-4">
+                            {recentSearches.map((search) => (
+                                <div 
+                                    key={search.id} 
+                                    className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md"
+                                >
+                                    <p className="font-medium text-gray-700 dark:text-gray-300">
+                                        Query: {search.user_query}
+                                    </p>
+                                    <p className="mt-2 text-gray-600 dark:text-gray-400">
+                                        Response: {search.response}
+                                    </p>
+                                    <p className="mt-2 text-sm text-gray-500">
+                                        {new Date(search.timestamp).toLocaleString()}
+                                    </p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </main>
         </div>
