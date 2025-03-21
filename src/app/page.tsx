@@ -3,6 +3,10 @@
 import { useState } from 'react';
 import { generateAIResponse } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
+import 'katex/dist/katex.min.css';
+import { InlineMath, BlockMath } from 'react-katex';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 export default function Home() {
     const [prompt, setPrompt] = useState('');
@@ -86,7 +90,20 @@ export default function Home() {
                             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
                                 {isMarkdownMode ? (
                                     <div className="prose dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
-                                        <ReactMarkdown>{response}</ReactMarkdown>
+                                        <ReactMarkdown
+                                            remarkPlugins={[remarkMath]}
+                                            rehypePlugins={[rehypeKatex]}
+                                            components={{
+                                                inlineMath: ({node, children}) => (
+                                                    <InlineMath math={String(children).replace(/\$/g, '')} />
+                                                ),
+                                                math: ({node, children}) => (
+                                                    <BlockMath math={String(children)} />
+                                                )
+                                            }}
+                                        >
+                                            {response}
+                                        </ReactMarkdown>
                                     </div>
                                 ) : (
                                     <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">

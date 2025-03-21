@@ -9,6 +9,8 @@ export function createExplanationPrompt(userInput: string): string {
 
 Rules:
 - Always format using Markdown
+- For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars 
+$$(expession)$$
 - Make sure to have a title, and section headers
 - Use lists and bullet points where necessary
 
