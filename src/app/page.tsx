@@ -2,12 +2,14 @@
 
 import { useState } from 'react';
 import { generateAIResponse } from '@/actions/actions';
+import ReactMarkdown from 'react-markdown';
 
 export default function Home() {
     const [prompt, setPrompt] = useState('');
     const [response, setResponse] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isMarkdownMode, setIsMarkdownMode] = useState(true);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -70,13 +72,27 @@ export default function Home() {
 
                     {response && (
                         <div className="mt-6">
-                            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-2">
-                                Response:
-                            </h3>
+                            <div className="flex items-center justify-between mb-2">
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                                    Response:
+                                </h3>
+                                <button
+                                    onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                    className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                >
+                                    {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
+                                </button>
+                            </div>
                             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
-                                <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                                    {response}
-                                </pre>
+                                {isMarkdownMode ? (
+                                    <div className="prose dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
+                                        <ReactMarkdown>{response}</ReactMarkdown>
+                                    </div>
+                                ) : (
+                                    <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                                        {response}
+                                    </pre>
+                                )}
                             </div>
                         </div>
                     )}
