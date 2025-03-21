@@ -89,11 +89,14 @@ export default function Home() {
                             </div>
                             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
                                 {isMarkdownMode ? (
-                                    <div className="prose dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
+                                    <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
                                         <ReactMarkdown
                                             remarkPlugins={[remarkMath]}
                                             rehypePlugins={[rehypeKatex]}
                                             components={{
+                                                p: ({node, children}) => (
+                                                    <div className="my-2">{children}</div>
+                                                ),
                                                 inlineMath: ({node, children}) => (
                                                     <InlineMath math={String(children).replace(/\$/g, '')} />
                                                 ),
@@ -104,7 +107,7 @@ export default function Home() {
                                         >
                                             {response}
                                         </ReactMarkdown>
-                                    </div>
+                                    </article>
                                 ) : (
                                     <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
                                         {response}
