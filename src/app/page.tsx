@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { generateAIResponse } from '@/actions/actions';
+import { generateAIResponse, saveSearch } from '@/actions/actions';
 import { getRecentSearches } from '@/lib/services/searchService';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
@@ -18,6 +18,7 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [recentSearches, setRecentSearches] = useState<Search[]>([]);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         loadRecentSearches();
@@ -50,6 +51,22 @@ export default function Home() {
         }
         
         setIsLoading(false);
+    };
+
+    const handleSave = async () => {
+        if (!prompt || !response) return;
+        
+        setIsSaving(true);
+        const { success, error } = await saveSearch(prompt, response);
+        
+        if (error) {
+            setError(error);
+        } else {
+            // Reload recent searches after successful save
+            await loadRecentSearches();
+        }
+        
+        setIsSaving(false);
     };
 
     return (
@@ -103,12 +120,21 @@ export default function Home() {
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
                                     Response:
                                 </h3>
-                                <button
-                                    onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                    className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                >
-                                    {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
-                                </button>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={handleSave}
+                                        disabled={isSaving}
+                                        className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                    >
+                                        {isSaving ? 'Saving...' : 'Save Response'}
+                                    </button>
+                                    <button
+                                        onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                        className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                    >
+                                        {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
+                                    </button>
+                                </div>
                             </div>
                             <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
                                 {isMarkdownMode ? (
@@ -143,7 +169,7 @@ export default function Home() {
                     {/* Recent Searches Section */}
                     <div className="mt-8">
                         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-                            Recent Searches
+                            Saved Searches
                         </h3>
                         <div className="space-y-4">
                             {recentSearches.map((search) => (
@@ -154,9 +180,20 @@ export default function Home() {
                                     <p className="font-medium text-gray-700 dark:text-gray-300">
                                         Query: {search.user_query}
                                     </p>
-                                    <p className="mt-2 text-gray-600 dark:text-gray-400">
-                                        Response: {search.response}
-                                    </p>
+                                    <div className="mt-2 text-gray-600 dark:text-gray-400">
+                                        <p>
+                                            Response: {search.response.slice(0, 100)}
+                                            {search.response.length > 100 && '...'}
+                                        </p>
+                                        {search.response.length > 100 && (
+                                            <button 
+                                                onClick={() => window.alert(search.response)} 
+                                                className="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                            >
+                                                Show full response
+                                            </button>
+                                        )}
+                                    </div>
                                     <p className="mt-2 text-sm text-gray-500">
                                         {new Date(search.timestamp).toLocaleString()}
                                     </p>

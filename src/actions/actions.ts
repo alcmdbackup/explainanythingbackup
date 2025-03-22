@@ -27,32 +27,6 @@ export async function generateAIResponse(prompt: string) {
         const formattedPrompt = createExplanationPrompt(prompt);
         const result = await callGPT4omini(formattedPrompt);
         
-        // Save the search to the database
-        try {
-            logger.info('Attempting to save search to database', {
-                prompt_length: prompt.length,
-                response_length: result.length
-            });
-            
-            await createSearch({
-                user_query: prompt,
-                response: result
-            });
-            
-            logger.info('Successfully saved search to database', {
-                user_query: prompt.substring(0, 50) + '...',  // Log truncated query for privacy/readability
-                timestamp: new Date().toISOString()
-            });
-        } catch (error: any) {  // Type as any since we don't know the exact error type from createSearch
-            // Log database error with more context
-            logger.error('Failed to save search to database', { 
-                error,
-                error_name: error?.name || 'UnknownError',
-                error_message: error?.message || 'No error message available',
-                user_query_length: prompt.length
-            });
-        }
-
         return { data: result, error: null };
     } catch (error) {
         let errorResponse: ErrorResponse;
@@ -93,6 +67,29 @@ export async function generateAIResponse(prompt: string) {
         return { 
             data: null, 
             error: errorResponse
+        };
+    }
+}
+
+export async function saveSearch(prompt: string, response: string) {
+    try {
+        await createSearch({
+            user_query: prompt,
+            response: response
+        });
+        
+        return { success: true, error: null };
+    } catch (error: any) {
+        logger.error('Failed to save search to database', { 
+            error,
+            error_name: error?.name || 'UnknownError',
+            error_message: error?.message || 'No error message available',
+            user_query_length: prompt.length
+        });
+        
+        return { 
+            success: false, 
+            error: 'Failed to save search'
         };
     }
 } 
