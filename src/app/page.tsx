@@ -8,7 +8,7 @@ import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { Search } from '@/types/database';
+import { type SearchFullDbType } from '@/lib/schemas/search';
 import { logger } from '@/lib/utilities';
 
 export default function Home() {
@@ -18,7 +18,7 @@ export default function Home() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
-    const [recentSearches, setRecentSearches] = useState<Search[]>([]);
+    const [recentSearches, setRecentSearches] = useState<SearchFullDbType[]>([]);
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {

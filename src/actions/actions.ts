@@ -4,8 +4,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createSearch } from '@/lib/services/searchService';
 import { logger } from '@/lib/utilities';
-import { searchSchema, type SearchInput } from '@/lib/schemas/search';
-import { type SearchInsert } from '@/types/database';
+import { searchInsertSchema, llmQuerySchema, type SearchInsertType } from '@/lib/schemas/search';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -27,10 +26,10 @@ export async function generateAIResponse(prompt: string) {
         }
 
         const formattedPrompt = createExplanationPrompt(prompt);
-        const result = await callGPT4omini(formattedPrompt, searchSchema, 'searchResult');
+        const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
         
         // Parse the result to ensure it matches our schema
-        const parsedResult = searchSchema.safeParse(JSON.parse(result));
+        const parsedResult = llmQuerySchema.safeParse(JSON.parse(result));
         
         if (!parsedResult.success) {
             return {
@@ -87,13 +86,13 @@ export async function generateAIResponse(prompt: string) {
     }
 }
 
-export async function saveSearch(prompt: string, searchData: SearchInsert) {
+export async function saveSearch(prompt: string, searchData: SearchInsertType) {
     try {
         // Validate the search data against our schema
-        const validatedData = searchSchema.safeParse({
+        const validatedData = searchInsertSchema.safeParse({
             title: searchData.title,
             content: searchData.content,
-            userQuery: searchData.user_query
+            user_query: searchData.user_query
         });
 
         if (!validatedData.success) {

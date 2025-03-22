@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { Search, SearchInsert } from '@/types/database';
+import { type SearchFullDbType, type SearchInsertType } from '@/lib/schemas/search';
 
 /**
  * Service for interacting with the searches table in Supabase
@@ -26,7 +26,7 @@ import { Search, SearchInsert } from '@/types/database';
  * @param search Search data to insert
  * @returns Created search record
  */
-export async function createSearch(search: SearchInsert): Promise<Search> {
+export async function createSearch(search: SearchInsertType): Promise<SearchFullDbType> {
   const { data, error } = await supabase
     .from('searches')
     .insert(search)
@@ -42,7 +42,7 @@ export async function createSearch(search: SearchInsert): Promise<Search> {
  * @param id Search record ID
  * @returns Search record if found
  */
-export async function getSearchById(id: number): Promise<Search | null> {
+export async function getSearchById(id: number): Promise<SearchFullDbType | null> {
   const { data, error } = await supabase
     .from('searches')
     .select()
@@ -57,14 +57,16 @@ export async function getSearchById(id: number): Promise<Search | null> {
  * Get recent searches with pagination
  * @param limit Number of records to return
  * @param offset Number of records to skip
- * @param userId Optional user ID to filter by
+ * @param orderBy Order by column
+ * @param order Order direction
  * @returns Array of search records
  */
 export async function getRecentSearches(
   limit: number = 10,
   offset: number = 0,
-  userId?: string
-): Promise<Search[]> {
+  orderBy: string = 'timestamp',
+  order: 'asc' | 'desc' = 'desc'
+): Promise<SearchFullDbType[]> {
   // Validate parameters
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
@@ -72,12 +74,8 @@ export async function getRecentSearches(
   let query = supabase
     .from('searches')
     .select()
-    .order('timestamp', { ascending: false })
+    .order(orderBy, { ascending: order === 'asc' })
     .range(offset, offset + limit - 1);
-
-  if (userId) {
-    query = query.eq('user_id', userId);
-  }
 
   const { data, error } = await query;
 
@@ -93,8 +91,8 @@ export async function getRecentSearches(
  */
 export async function updateSearch(
   id: number,
-  updates: Partial<SearchInsert>
-): Promise<Search> {
+  updates: Partial<SearchInsertType>
+): Promise<SearchFullDbType> {
   const { data, error } = await supabase
     .from('searches')
     .update(updates)
