@@ -13,7 +13,8 @@ import { logger } from '@/lib/utilities';
 
 export default function Home() {
     const [prompt, setPrompt] = useState('');
-    const [response, setResponse] = useState('');
+    const [title, setTitle] = useState('');
+    const [content, setContent] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
@@ -43,11 +44,12 @@ export default function Home() {
         const { data, error } = await generateAIResponse(prompt);
         
         if (error) {
-            setError(error);
+            setError(error.message);
+        } else if (!data?.title || !data?.content) {
+            setError('Invalid response: Missing title or content');
         } else {
-            // Format the response to include title as a markdown header
-            const formattedResponse = `# ${data!.title}\n\n${data!.content}`;
-            setResponse(formattedResponse);
+            setTitle(data.title);
+            setContent(data.content);
             // Reload recent searches after new response
             await loadRecentSearches();
         }
@@ -56,10 +58,11 @@ export default function Home() {
     };
 
     const handleSave = async () => {
-        if (!prompt || !response) return;
+        if (!prompt || !title || !content) return;
         
         setIsSaving(true);
-        const { success, error } = await saveSearch(prompt, response);
+        const formattedResponse = `## ${title}\n\n${content}`;
+        const { success, error } = await saveSearch(prompt, formattedResponse);
         
         if (error) {
             setError(error);
@@ -70,6 +73,9 @@ export default function Home() {
         
         setIsSaving(false);
     };
+
+    // Format the response for display
+    const formattedResponse = title && content ? `## ${title}\n\n${content}` : '';
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
@@ -104,10 +110,10 @@ export default function Home() {
                                 type="submit"
                                 disabled={isLoading}
                                 className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                    response ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                    title || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
                                 }`}
                             >
-                                {isLoading ? 'Generating...' : response ? 'Regenerate' : 'Generate'}
+                                {isLoading ? 'Generating...' : title || content ? 'Regenerate' : 'Generate'}
                             </button>
                         </form>
 
@@ -117,7 +123,7 @@ export default function Home() {
                             </div>
                         )}
 
-                        {response && (
+                        {(title || content) && (
                             <div className="mt-6">
                                 <div className="flex items-center justify-between mb-2">
                                     <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
@@ -126,7 +132,7 @@ export default function Home() {
                                     <div className="flex gap-2">
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving}
+                                            disabled={isSaving || !title || !content}
                                             className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                         >
                                             {isSaving ? 'Saving...' : 'Save Response'}
@@ -157,12 +163,12 @@ export default function Home() {
                                                     )
                                                 }}
                                             >
-                                                {response}
+                                                {formattedResponse}
                                             </ReactMarkdown>
                                         </article>
                                     ) : (
                                         <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                                            {response}
+                                            {formattedResponse}
                                         </pre>
                                     )}
                                 </div>
@@ -186,12 +192,15 @@ export default function Home() {
                                         </p>
                                         <div className="mt-2 text-gray-600 dark:text-gray-400">
                                             <p>
-                                                Response: {search.response.slice(0, 100)}
-                                                {search.response.length > 100 && '...'}
+                                                Title: {search.title}
                                             </p>
-                                            {search.response.length > 100 && (
+                                            <p className="mt-1">
+                                                Content: {search.content.slice(0, 100)}
+                                                {search.content.length > 100 && '...'}
+                                            </p>
+                                            {search.content.length > 100 && (
                                                 <button 
-                                                    onClick={() => window.alert(search.response)} 
+                                                    onClick={() => window.alert(`${search.title}\n\n${search.content}`)} 
                                                     className="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                                 >
                                                     Show full response
