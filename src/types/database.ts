@@ -1,7 +1,8 @@
 export interface Search {
   id: number
   user_query: string
-  response: string
+  title: string
+  content: string
   timestamp: string
 }
 

@@ -7,7 +7,11 @@ import { Search, SearchInsert } from '@/types/database';
  * Example usage:
  * ```typescript
  * // Create a search
- * const newSearch = await createSearch({ user_query: "What is React?", response: "React is..." });
+ * const newSearch = await createSearch({ 
+ *   user_query: "What is React?", 
+ *   title: "Introduction to React",
+ *   content: "React is a JavaScript library..." 
+ * });
  * 
  * // Get recent searches
  * const searches = await getRecentSearches(5);

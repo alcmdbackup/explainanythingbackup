@@ -4,6 +4,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createSearch } from '@/lib/services/searchService';
 import { logger } from '@/lib/utilities';
+import { searchSchema, type SearchInput } from '@/lib/schemas/search';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -25,9 +26,23 @@ export async function generateAIResponse(prompt: string) {
         }
 
         const formattedPrompt = createExplanationPrompt(prompt);
-        const result = await callGPT4omini(formattedPrompt);
+        const result = await callGPT4omini(formattedPrompt, searchSchema, 'searchResult');
         
-        return { data: result, error: null };
+        // Parse the result to ensure it matches our schema
+        const parsedResult = searchSchema.safeParse(JSON.parse(result));
+        
+        if (!parsedResult.success) {
+            return {
+                data: null,
+                error: {
+                    code: 'INVALID_RESPONSE',
+                    message: 'AI response did not match expected format',
+                    details: parsedResult.error
+                }
+            };
+        }
+
+        return { data: parsedResult.data, error: null };
     } catch (error) {
         let errorResponse: ErrorResponse;
 

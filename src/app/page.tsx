@@ -45,7 +45,9 @@ export default function Home() {
         if (error) {
             setError(error);
         } else {
-            setResponse(data!);
+            // Format the response to include title as a markdown header
+            const formattedResponse = `# ${data!.title}\n\n${data!.content}`;
+            setResponse(formattedResponse);
             // Reload recent searches after new response
             await loadRecentSearches();
         }
@@ -81,124 +83,127 @@ export default function Home() {
                     </p>
                 </div>
                 
-                <div className="w-full max-w-2xl mx-auto p-4">
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div>
-                            <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Enter your prompt
-                            </label>
-                            <textarea
-                                id="prompt"
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-                                rows={4}
-                                placeholder="Type your prompt here..."
-                            />
-                        </div>
-                        
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                response ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                        >
-                            {isLoading ? 'Generating...' : response ? 'Regenerate' : 'Generate'}
-                        </button>
-                    </form>
-
-                    {error && (
-                        <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
-                            {error}
-                        </div>
-                    )}
-
-                    {response && (
-                        <div className="mt-6">
-                            <div className="flex items-center justify-between mb-2">
-                                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                                    Response:
-                                </h3>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleSave}
-                                        disabled={isSaving}
-                                        className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        {isSaving ? 'Saving...' : 'Save Response'}
-                                    </button>
-                                    <button
-                                        onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                        className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                    >
-                                        {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
-                                    </button>
-                                </div>
+                <div className="flex flex-col md:flex-row justify-center items-start gap-8 max-w-6xl mx-auto">
+                    <div className="w-full md:w-2/3 max-w-2xl">
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Enter your prompt
+                                </label>
+                                <textarea
+                                    id="prompt"
+                                    value={prompt}
+                                    onChange={(e) => setPrompt(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                                    rows={4}
+                                    placeholder="Type your prompt here..."
+                                />
                             </div>
-                            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
-                                {isMarkdownMode ? (
-                                    <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkMath]}
-                                            rehypePlugins={[rehypeKatex]}
-                                            components={{
-                                                p: ({node, children}) => (
-                                                    <div className="my-2">{children}</div>
-                                                ),
-                                                inlineMath: ({node, children}) => (
-                                                    <InlineMath math={String(children).replace(/\$/g, '')} />
-                                                ),
-                                                math: ({node, children}) => (
-                                                    <BlockMath math={String(children)} />
-                                                )
-                                            }}
+                            
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    response ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                            >
+                                {isLoading ? 'Generating...' : response ? 'Regenerate' : 'Generate'}
+                            </button>
+                        </form>
+
+                        {error && (
+                            <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
+                                {error}
+                            </div>
+                        )}
+
+                        {response && (
+                            <div className="mt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                                        Response:
+                                    </h3>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleSave}
+                                            disabled={isSaving}
+                                            className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                         >
-                                            {response}
-                                        </ReactMarkdown>
-                                    </article>
-                                ) : (
-                                    <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                                        {response}
-                                    </pre>
-                                )}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Recent Searches Section */}
-                    <div className="mt-8">
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-                            Saved Searches
-                        </h3>
-                        <div className="space-y-4">
-                            {recentSearches.map((search) => (
-                                <div 
-                                    key={search.id} 
-                                    className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md"
-                                >
-                                    <p className="font-medium text-gray-700 dark:text-gray-300">
-                                        Query: {search.user_query}
-                                    </p>
-                                    <div className="mt-2 text-gray-600 dark:text-gray-400">
-                                        <p>
-                                            Response: {search.response.slice(0, 100)}
-                                            {search.response.length > 100 && '...'}
-                                        </p>
-                                        {search.response.length > 100 && (
-                                            <button 
-                                                onClick={() => window.alert(search.response)} 
-                                                className="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                                            >
-                                                Show full response
-                                            </button>
-                                        )}
+                                            {isSaving ? 'Saving...' : 'Save Response'}
+                                        </button>
+                                        <button
+                                            onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                            className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                        >
+                                            {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
+                                        </button>
                                     </div>
-                                    <p className="mt-2 text-sm text-gray-500">
-                                        {new Date(search.timestamp).toLocaleString()}
-                                    </p>
                                 </div>
-                            ))}
+                                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
+                                    {isMarkdownMode ? (
+                                        <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkMath]}
+                                                rehypePlugins={[rehypeKatex]}
+                                                components={{
+                                                    p: ({node, children}) => (
+                                                        <div className="my-2">{children}</div>
+                                                    ),
+                                                    inlineMath: ({node, children}) => (
+                                                        <InlineMath math={String(children).replace(/\$/g, '')} />
+                                                    ),
+                                                    math: ({node, children}) => (
+                                                        <BlockMath math={String(children)} />
+                                                    )
+                                                }}
+                                            >
+                                                {response}
+                                            </ReactMarkdown>
+                                        </article>
+                                    ) : (
+                                        <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                                            {response}
+                                        </pre>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="w-full md:w-1/3 max-w-sm">
+                        <div className="sticky top-8">
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
+                                Saved Searches
+                            </h3>
+                            <div className="space-y-4">
+                                {recentSearches.map((search) => (
+                                    <div 
+                                        key={search.id} 
+                                        className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md"
+                                    >
+                                        <p className="font-medium text-gray-700 dark:text-gray-300">
+                                            Query: {search.user_query}
+                                        </p>
+                                        <div className="mt-2 text-gray-600 dark:text-gray-400">
+                                            <p>
+                                                Response: {search.response.slice(0, 100)}
+                                                {search.response.length > 100 && '...'}
+                                            </p>
+                                            {search.response.length > 100 && (
+                                                <button 
+                                                    onClick={() => window.alert(search.response)} 
+                                                    className="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                                                >
+                                                    Show full response
+                                                </button>
+                                            )}
+                                        </div>
+                                        <p className="mt-2 text-sm text-gray-500">
+                                            {new Date(search.timestamp).toLocaleString()}
+                                        </p>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
