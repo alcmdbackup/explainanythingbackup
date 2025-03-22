@@ -61,8 +61,11 @@ export default function Home() {
         if (!prompt || !title || !content) return;
         
         setIsSaving(true);
-        const formattedResponse = `## ${title}\n\n${content}`;
-        const { success, error } = await saveSearch(prompt, formattedResponse);
+        const { success, error } = await saveSearch(prompt, {
+            user_query: prompt,
+            title: title,
+            content: content
+        });
         
         if (error) {
             setError(error);
@@ -75,7 +78,7 @@ export default function Home() {
     };
 
     // Format the response for display
-    const formattedResponse = title && content ? `## ${title}\n\n${content}` : '';
+    const formattedResponse = title && content ? `# ${title}\n\n${content}` : '';
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">

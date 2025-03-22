@@ -5,6 +5,7 @@ import { createExplanationPrompt } from '@/lib/prompts';
 import { createSearch } from '@/lib/services/searchService';
 import { logger } from '@/lib/utilities';
 import { searchSchema, type SearchInput } from '@/lib/schemas/search';
+import { type SearchInsert } from '@/types/database';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -86,12 +87,25 @@ export async function generateAIResponse(prompt: string) {
     }
 }
 
-export async function saveSearch(prompt: string, response: string) {
+export async function saveSearch(prompt: string, searchData: SearchInsert) {
     try {
-        await createSearch({
-            user_query: prompt,
-            response: response
+        // Validate the search data against our schema
+        const validatedData = searchSchema.safeParse({
+            title: searchData.title,
+            content: searchData.content,
+            userQuery: searchData.user_query
         });
+
+        if (!validatedData.success) {
+            return {
+                success: false,
+                error: `Invalid search data format: ${validatedData.error.errors.map(err => 
+                    `${err.path.join('.')} - ${err.message}`
+                ).join(', ')}`
+            };
+        }
+
+        await createSearch(searchData);
         
         return { success: true, error: null };
     } catch (error: any) {
