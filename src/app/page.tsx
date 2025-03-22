@@ -15,6 +15,7 @@ export default function Home() {
     const [prompt, setPrompt] = useState('');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
+    const [savedId, setSavedId] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
@@ -40,6 +41,7 @@ export default function Home() {
         e.preventDefault();
         setIsLoading(true);
         setError(null);
+        setSavedId(null);
         
         const { data, error } = await generateAIResponse(prompt);
         
@@ -58,7 +60,7 @@ export default function Home() {
     };
 
     const handleSave = async () => {
-        if (!prompt || !title || !content) return;
+        if (!prompt || !title || !content || savedId) return;
         
         setIsSaving(true);
         const { success, error } = await saveSearch(prompt, {
@@ -135,10 +137,10 @@ export default function Home() {
                                     <div className="flex gap-2">
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !title || !content}
+                                            disabled={isSaving || !title || !content || savedId !== null || isLoading}
                                             className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                         >
-                                            {isSaving ? 'Saving...' : 'Save Response'}
+                                            {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save Response'}
                                         </button>
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
@@ -203,7 +205,13 @@ export default function Home() {
                                             </p>
                                             {search.content.length > 100 && (
                                                 <button 
-                                                    onClick={() => window.alert(`${search.title}\n\n${search.content}`)} 
+                                                    onClick={() => {
+                                                        setTitle(search.title);
+                                                        setContent(search.content);
+                                                        setPrompt(search.user_query);
+                                                        setSavedId(search.id);
+                                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                    }} 
                                                     className="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                                 >
                                                     Show full response
