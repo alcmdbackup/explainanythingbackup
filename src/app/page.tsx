@@ -9,7 +9,7 @@ import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { type SearchFullDbType } from '@/lib/schemas/search';
-import { logger } from '@/lib/utilities';
+import { logger } from '@/lib/server_utilities';
 
 export default function Home() {
     const [prompt, setPrompt] = useState('');

@@ -1,5 +1,5 @@
 import OpenAI from 'openai';
-import { logger } from '@/lib/utilities';
+import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 // Define types

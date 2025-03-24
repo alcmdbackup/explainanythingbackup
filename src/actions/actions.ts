@@ -3,7 +3,7 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createSearch } from '@/lib/services/searchService';
-import { logger } from '@/lib/utilities';
+import { logger } from '@/lib/server_utilities';
 import { searchInsertSchema, llmQuerySchema, type SearchInsertType } from '@/lib/schemas/search';
 
 // Custom error types for better error handling
