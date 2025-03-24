@@ -2,22 +2,22 @@ import { supabase } from '@/lib/supabase';
 import { type SearchFullDbType, type SearchInsertType } from '@/lib/schemas/search';
 
 /**
- * Service for interacting with the searches table in Supabase
+ * Service for interacting with the explanations table in Supabase
  * 
  * Example usage:
  * ```typescript
- * // Create a search
- * const newSearch = await createSearch({ 
+ * // Create an explanation
+ * const newExplanation = await createSearch({ 
  *   user_query: "What is React?", 
  *   title: "Introduction to React",
  *   content: "React is a JavaScript library..." 
  * });
  * 
- * // Get recent searches
- * const searches = await getRecentSearches(5);
+ * // Get recent explanations
+ * const explanations = await getRecentSearches(5);
  * 
- * // Get search by ID
- * const search = await getSearchById(1);
+ * // Get explanation by ID
+ * const explanation = await getSearchById(1);
  * ```
  */
 
@@ -28,7 +28,7 @@ import { type SearchFullDbType, type SearchInsertType } from '@/lib/schemas/sear
  */
 export async function createSearch(search: SearchInsertType): Promise<SearchFullDbType> {
   const { data, error } = await supabase
-    .from('searches')
+    .from('explanations')
     .insert(search)
     .select()
     .single();
@@ -44,7 +44,7 @@ export async function createSearch(search: SearchInsertType): Promise<SearchFull
  */
 export async function getSearchById(id: number): Promise<SearchFullDbType | null> {
   const { data, error } = await supabase
-    .from('searches')
+    .from('explanations')
     .select()
     .eq('id', id)
     .single();
@@ -72,7 +72,7 @@ export async function getRecentSearches(
   if (offset < 0) offset = 0;
   
   let query = supabase
-    .from('searches')
+    .from('explanations')
     .select()
     .order(orderBy, { ascending: order === 'asc' })
     .range(offset, offset + limit - 1);
@@ -94,7 +94,7 @@ export async function updateSearch(
   updates: Partial<SearchInsertType>
 ): Promise<SearchFullDbType> {
   const { data, error } = await supabase
-    .from('searches')
+    .from('explanations')
     .update(updates)
     .eq('id', id)
     .select()
@@ -111,7 +111,7 @@ export async function updateSearch(
  */
 export async function deleteSearch(id: number): Promise<void> {
   const { error } = await supabase
-    .from('searches')
+    .from('explanations')
     .delete()
     .eq('id', id);
 

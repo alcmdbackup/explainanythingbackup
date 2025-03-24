@@ -2,7 +2,7 @@
 
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
-import { createSearch } from '@/lib/services/searchService';
+import { createSearch } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { searchInsertSchema, llmQuerySchema, type SearchInsertType } from '@/lib/schemas/search';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';

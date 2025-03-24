@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { generateAIResponse, saveSearch } from '@/actions/actions';
-import { getRecentSearches } from '@/lib/services/searchService';
+import { getRecentSearches } from '@/lib/services/explanations';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
@@ -19,20 +19,20 @@ export default function Home() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
-    const [recentSearches, setRecentSearches] = useState<SearchFullDbType[]>([]);
+    const [recentExplanations, setRecentExplanations] = useState<SearchFullDbType[]>([]);
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
-        loadRecentSearches();
+        loadRecentExplanations();
     }, []);
 
-    const loadRecentSearches = async () => {
+    const loadRecentExplanations = async () => {
         try {
-            const searches = await getRecentSearches(5);
-            setRecentSearches(searches);
+            const explanations = await getRecentSearches(5);
+            setRecentExplanations(explanations);
         } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Failed to load recent searches';
-            logger.error('Failed to load recent searches:', { error: errorMessage });
+            const errorMessage = error instanceof Error ? error.message : 'Failed to load recent explanations';
+            logger.error('Failed to load recent explanations:', { error: errorMessage });
             setError(errorMessage);
         }
     };
@@ -52,8 +52,8 @@ export default function Home() {
         } else {
             setTitle(data.title);
             setContent(data.content);
-            // Reload recent searches after new response
-            await loadRecentSearches();
+            // Reload recent explanations after new response
+            await loadRecentExplanations();
         }
         
         setIsLoading(false);
@@ -73,8 +73,8 @@ export default function Home() {
             setError(error);
         } else {
             setSavedId(id);
-            // Reload recent searches after successful save
-            await loadRecentSearches();
+            // Reload recent explanations after successful save
+            await loadRecentExplanations();
         }
         
         setIsSaving(false);
@@ -185,32 +185,32 @@ export default function Home() {
                     <div className="w-full md:w-1/3 max-w-sm">
                         <div className="sticky top-8">
                             <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">
-                                Saved Searches
+                                All Explanations
                             </h3>
                             <div className="space-y-4">
-                                {recentSearches.map((search) => (
+                                {recentExplanations.map((explanation) => (
                                     <div 
-                                        key={search.id} 
+                                        key={explanation.id} 
                                         className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md"
                                     >
                                         <p className="font-medium text-gray-700 dark:text-gray-300">
-                                            Query: {search.user_query}
+                                            Query: {explanation.user_query}
                                         </p>
                                         <div className="mt-2 text-gray-600 dark:text-gray-400">
                                             <p>
-                                                Title: {search.title}
+                                                Title: {explanation.title}
                                             </p>
                                             <p className="mt-1">
-                                                Content: {search.content.slice(0, 100)}
-                                                {search.content.length > 100 && '...'}
+                                                Content: {explanation.content.slice(0, 100)}
+                                                {explanation.content.length > 100 && '...'}
                                             </p>
-                                            {search.content.length > 100 && (
+                                            {explanation.content.length > 100 && (
                                                 <button 
                                                     onClick={() => {
-                                                        setTitle(search.title);
-                                                        setContent(search.content);
-                                                        setPrompt(search.user_query);
-                                                        setSavedId(search.id);
+                                                        setTitle(explanation.title);
+                                                        setContent(explanation.content);
+                                                        setPrompt(explanation.user_query);
+                                                        setSavedId(explanation.id);
                                                         window.scrollTo({ top: 0, behavior: 'smooth' });
                                                     }} 
                                                     className="mt-2 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
@@ -220,7 +220,7 @@ export default function Home() {
                                             )}
                                         </div>
                                         <p className="mt-2 text-sm text-gray-500">
-                                            {new Date(search.timestamp).toLocaleString()}
+                                            {new Date(explanation.timestamp).toLocaleString()}
                                         </p>
                                     </div>
                                 ))}
