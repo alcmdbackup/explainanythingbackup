@@ -5,6 +5,7 @@ import { createExplanationPrompt } from '@/lib/prompts';
 import { createSearch } from '@/lib/services/searchService';
 import { logger } from '@/lib/server_utilities';
 import { searchInsertSchema, llmQuerySchema, type SearchInsertType } from '@/lib/schemas/search';
+import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -104,6 +105,25 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
             };
         }
 
+        // Format content for embedding in the same way as displayed in the UI
+        const combinedContent = `# ${searchData.title}\n\n${searchData.content}`;
+        
+        // Create embeddings for the combined content
+        try {
+            await processContentToStoreEmbedding(combinedContent);
+        } catch (embeddingError) {
+            logger.error('Failed to create embeddings', {
+                error: embeddingError,
+                title_length: searchData.title.length,
+                content_length: searchData.content.length
+            });
+            return {
+                success: false,
+                error: 'Failed to process content for search'
+            };
+        }
+
+        // Save to database
         await createSearch(searchData);
         
         return { success: true, error: null };
