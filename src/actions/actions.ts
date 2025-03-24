@@ -101,7 +101,8 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
                 success: false,
                 error: `Invalid search data format: ${validatedData.error.errors.map(err => 
                     `${err.path.join('.')} - ${err.message}`
-                ).join(', ')}`
+                ).join(', ')}`,
+                id: null
             };
         }
 
@@ -119,14 +120,19 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
             });
             return {
                 success: false,
-                error: 'Failed to process content for search'
+                error: 'Failed to process content for search',
+                id: null
             };
         }
 
         // Save to database
-        await createSearch(searchData);
+        const savedSearch = await createSearch(searchData);
         
-        return { success: true, error: null };
+        return { 
+            success: true, 
+            error: null,
+            id: savedSearch.id 
+        };
     } catch (error: any) {
         logger.error('Failed to save search to database', { 
             error,
@@ -137,7 +143,8 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
         
         return { 
             success: false, 
-            error: 'Failed to save search'
+            error: 'Failed to save search',
+            id: null
         };
     }
 } 

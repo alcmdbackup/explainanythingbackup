@@ -63,7 +63,7 @@ export default function Home() {
         if (!prompt || !title || !content || savedId) return;
         
         setIsSaving(true);
-        const { success, error } = await saveSearch(prompt, {
+        const { success, error, id } = await saveSearch(prompt, {
             user_query: prompt,
             title: title,
             content: content
@@ -72,6 +72,7 @@ export default function Home() {
         if (error) {
             setError(error);
         } else {
+            setSavedId(id);
             // Reload recent searches after successful save
             await loadRecentSearches();
         }
@@ -128,7 +129,7 @@ export default function Home() {
                             </div>
                         )}
 
-                        {(title || content) && (
+                        {(title || content) && !isLoading && (
                             <div className="mt-6">
                                 <div className="flex items-center justify-between mb-2">
                                     <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
