@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { generateAIResponse, saveSearch } from '@/actions/actions';
-import { getRecentSearches } from '@/lib/services/explanations';
+import { generateAIResponse, saveExplanation, saveUserQuery } from '@/actions/actions';
+import { getRecentExplanations } from '@/lib/services/explanations';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { type SearchFullDbType } from '@/lib/schemas/search';
+import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/server_utilities';
 
 export default function Home() {
@@ -19,7 +19,7 @@ export default function Home() {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
-    const [recentExplanations, setRecentExplanations] = useState<SearchFullDbType[]>([]);
+    const [recentExplanations, setRecentExplanations] = useState<ExplanationFullDbType[]>([]);
     const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
@@ -28,7 +28,7 @@ export default function Home() {
 
     const loadRecentExplanations = async () => {
         try {
-            const explanations = await getRecentSearches(5);
+            const explanations = await getRecentExplanations(5);
             setRecentExplanations(explanations);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to load recent explanations';
@@ -52,6 +52,18 @@ export default function Home() {
         } else {
             setTitle(data.title);
             setContent(data.content);
+            
+            // Save user query
+            const { error: queryError } = await saveUserQuery(prompt, {
+                title: data.title,
+                content: data.content
+            });
+            
+            if (queryError) {
+                logger.error('Failed to save user query:', { error: queryError });
+                // Don't show this error to the user since it's not critical
+            }
+            
             // Reload recent explanations after new response
             await loadRecentExplanations();
         }
@@ -63,8 +75,7 @@ export default function Home() {
         if (!prompt || !title || !content || savedId) return;
         
         setIsSaving(true);
-        const { success, error, id } = await saveSearch(prompt, {
-            user_query: prompt,
+        const { success, error, id } = await saveExplanation(prompt, {
             title: title,
             content: content
         });
@@ -193,9 +204,6 @@ export default function Home() {
                                         key={explanation.id} 
                                         className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md"
                                     >
-                                        <p className="font-medium text-gray-700 dark:text-gray-300">
-                                            Query: {explanation.user_query}
-                                        </p>
                                         <div className="mt-2 text-gray-600 dark:text-gray-400">
                                             <p>
                                                 Title: {explanation.title}
@@ -209,7 +217,7 @@ export default function Home() {
                                                     onClick={() => {
                                                         setTitle(explanation.title);
                                                         setContent(explanation.content);
-                                                        setPrompt(explanation.user_query);
+                                                        setPrompt('');
                                                         setSavedId(explanation.id);
                                                         window.scrollTo({ top: 0, behavior: 'smooth' });
                                                     }} 

@@ -2,10 +2,13 @@
 
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
-import { createSearch } from '@/lib/services/explanations';
+import { createExplanation } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { searchInsertSchema, llmQuerySchema, type SearchInsertType } from '@/lib/schemas/search';
+import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
+import { type ZodIssue } from 'zod';
+import { createUserQuery } from '@/lib/services/userQueries';
+import { userQueryInsertSchema } from '@/lib/schemas/schemas';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -87,19 +90,18 @@ export async function generateAIResponse(prompt: string) {
     }
 }
 
-export async function saveSearch(prompt: string, searchData: SearchInsertType) {
+export async function saveExplanation(prompt: string, explanationData: ExplanationInsertType) {
     try {
-        // Validate the search data against our schema
-        const validatedData = searchInsertSchema.safeParse({
-            title: searchData.title,
-            content: searchData.content,
-            user_query: searchData.user_query
+        // Validate the explanation data against our schema
+        const validatedData = explanationInsertSchema.safeParse({
+            title: explanationData.title,
+            content: explanationData.content
         });
 
         if (!validatedData.success) {
             return {
                 success: false,
-                error: `Invalid search data format: ${validatedData.error.errors.map(err => 
+                error: `Invalid explanation data format: ${validatedData.error.errors.map((err: ZodIssue) => 
                     `${err.path.join('.')} - ${err.message}`
                 ).join(', ')}`,
                 id: null
@@ -107,7 +109,7 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
         }
 
         // Format content for embedding in the same way as displayed in the UI
-        const combinedContent = `# ${searchData.title}\n\n${searchData.content}`;
+        const combinedContent = `# ${explanationData.title}\n\n${explanationData.content}`;
         
         // Create embeddings for the combined content
         try {
@@ -115,26 +117,26 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
         } catch (embeddingError) {
             logger.error('Failed to create embeddings', {
                 error: embeddingError,
-                title_length: searchData.title.length,
-                content_length: searchData.content.length
+                title_length: explanationData.title.length,
+                content_length: explanationData.content.length
             });
             return {
                 success: false,
-                error: 'Failed to process content for search',
+                error: 'Failed to process content for explanation',
                 id: null
             };
         }
 
         // Save to database
-        const savedSearch = await createSearch(searchData);
+        const savedExplanation = await createExplanation(explanationData);
         
         return { 
             success: true, 
             error: null,
-            id: savedSearch.id 
+            id: savedExplanation.id 
         };
     } catch (error: any) {
-        logger.error('Failed to save search to database', { 
+        logger.error('Failed to save explanation to database', { 
             error,
             error_name: error?.name || 'UnknownError',
             error_message: error?.message || 'No error message available',
@@ -143,7 +145,52 @@ export async function saveSearch(prompt: string, searchData: SearchInsertType) {
         
         return { 
             success: false, 
-            error: 'Failed to save search',
+            error: 'Failed to save explanation',
+            id: null
+        };
+    }
+}
+
+export async function saveUserQuery(prompt: string, response: { title: string; content: string }) {
+    try {
+        const userQuery = {
+            user_query: prompt,
+            title: response.title,
+            content: response.content
+        };
+
+        // Validate the user query data against our schema
+        const validatedData = userQueryInsertSchema.safeParse(userQuery);
+
+        if (!validatedData.success) {
+            return {
+                success: false,
+                error: `Invalid user query data format: ${validatedData.error.errors.map((err: ZodIssue) => 
+                    `${err.path.join('.')} - ${err.message}`
+                ).join(', ')}`,
+                id: null
+            };
+        }
+
+        // Save to database
+        const savedQuery = await createUserQuery(validatedData.data);
+        
+        return { 
+            success: true, 
+            error: null,
+            id: savedQuery.id 
+        };
+    } catch (error: any) {
+        logger.error('Failed to save user query to database', { 
+            error,
+            error_name: error?.name || 'UnknownError',
+            error_message: error?.message || 'No error message available',
+            user_query_length: prompt.length
+        });
+        
+        return { 
+            success: false, 
+            error: 'Failed to save user query',
             id: null
         };
     }

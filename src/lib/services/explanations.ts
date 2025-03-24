@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { type SearchFullDbType, type SearchInsertType } from '@/lib/schemas/search';
+import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/schemas/schemas';
 
 /**
  * Service for interacting with the explanations table in Supabase
@@ -7,29 +7,29 @@ import { type SearchFullDbType, type SearchInsertType } from '@/lib/schemas/sear
  * Example usage:
  * ```typescript
  * // Create an explanation
- * const newExplanation = await createSearch({ 
+ * const newExplanation = await createExplanation({ 
  *   user_query: "What is React?", 
  *   title: "Introduction to React",
  *   content: "React is a JavaScript library..." 
  * });
  * 
  * // Get recent explanations
- * const explanations = await getRecentSearches(5);
+ * const explanations = await getRecentExplanations(5);
  * 
  * // Get explanation by ID
- * const explanation = await getSearchById(1);
+ * const explanation = await getExplanationById(1);
  * ```
  */
 
 /**
- * Create a new search record
- * @param search Search data to insert
- * @returns Created search record
+ * Create a new explanation record
+ * @param explanation Explanation data to insert
+ * @returns Created explanation record
  */
-export async function createSearch(search: SearchInsertType): Promise<SearchFullDbType> {
+export async function createExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
   const { data, error } = await supabase
     .from('explanations')
-    .insert(search)
+    .insert(explanation)
     .select()
     .single();
 
@@ -38,11 +38,11 @@ export async function createSearch(search: SearchInsertType): Promise<SearchFull
 }
 
 /**
- * Get a search record by ID
- * @param id Search record ID
- * @returns Search record if found
+ * Get an explanation record by ID
+ * @param id Explanation record ID
+ * @returns Explanation record if found
  */
-export async function getSearchById(id: number): Promise<SearchFullDbType | null> {
+export async function getExplanationById(id: number): Promise<ExplanationFullDbType | null> {
   const { data, error } = await supabase
     .from('explanations')
     .select()
@@ -54,19 +54,19 @@ export async function getSearchById(id: number): Promise<SearchFullDbType | null
 }
 
 /**
- * Get recent searches with pagination
+ * Get recent explanations with pagination
  * @param limit Number of records to return
  * @param offset Number of records to skip
  * @param orderBy Order by column
  * @param order Order direction
- * @returns Array of search records
+ * @returns Array of explanation records
  */
-export async function getRecentSearches(
+export async function getRecentExplanations(
   limit: number = 10,
   offset: number = 0,
   orderBy: string = 'timestamp',
   order: 'asc' | 'desc' = 'desc'
-): Promise<SearchFullDbType[]> {
+): Promise<ExplanationFullDbType[]> {
   // Validate parameters
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
@@ -84,15 +84,15 @@ export async function getRecentSearches(
 }
 
 /**
- * Update an existing search record
- * @param id Search record ID
- * @param updates Partial search data to update
- * @returns Updated search record
+ * Update an existing explanation record
+ * @param id Explanation record ID
+ * @param updates Partial explanation data to update
+ * @returns Updated explanation record
  */
-export async function updateSearch(
+export async function updateExplanation(
   id: number,
-  updates: Partial<SearchInsertType>
-): Promise<SearchFullDbType> {
+  updates: Partial<ExplanationInsertType>
+): Promise<ExplanationFullDbType> {
   const { data, error } = await supabase
     .from('explanations')
     .update(updates)
@@ -105,11 +105,11 @@ export async function updateSearch(
 }
 
 /**
- * Delete a search record
- * @param id Search record ID
+ * Delete an explanation record
+ * @param id Explanation record ID
  * @returns void
  */
-export async function deleteSearch(id: number): Promise<void> {
+export async function deleteExplanation(id: number): Promise<void> {
   const { error } = await supabase
     .from('explanations')
     .delete()
