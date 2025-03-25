@@ -89,7 +89,7 @@ export default function Home() {
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
-            <main className="container mx-auto px-4 py-8">
+            <main className="container mx-auto px-4 py-8 max-w-7xl">
                 <div className="text-center mb-12">
                     <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">
                         AI Text Generator
@@ -105,90 +105,123 @@ export default function Home() {
                     </Link>
                 </div>
                 
-                <div className="max-w-2xl mx-auto">
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                        <div>
-                            <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Enter your prompt
-                            </label>
-                            <textarea
-                                id="prompt"
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-                                rows={4}
-                                placeholder="Type your prompt here..."
-                            />
-                        </div>
-                        
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                title || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
-                            }`}
-                        >
-                            {isLoading ? 'Generating...' : title || content ? 'Regenerate' : 'Generate'}
-                        </button>
-                    </form>
+                <div className="flex gap-8 justify-center">
+                    <div className="w-full max-w-2xl">
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            <div>
+                                <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Enter your prompt
+                                </label>
+                                <textarea
+                                    id="prompt"
+                                    value={prompt}
+                                    onChange={(e) => setPrompt(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white"
+                                    rows={4}
+                                    placeholder="Type your prompt here..."
+                                />
+                            </div>
+                            
+                            <button
+                                type="submit"
+                                disabled={isLoading}
+                                className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                    title || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                            >
+                                {isLoading ? 'Generating...' : title || content ? 'Regenerate' : 'Generate'}
+                            </button>
+                        </form>
 
-                    {error && (
-                        <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
-                            {error}
-                        </div>
-                    )}
+                        {error && (
+                            <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
+                                {error}
+                            </div>
+                        )}
 
-                    {(title || content) && !isLoading && (
-                        <div className="mt-6">
-                            <div className="flex items-center justify-between mb-2">
-                                <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                                    Explanation:
-                                </h3>
-                                <div className="flex gap-2">
-                                    <button
-                                        onClick={handleSave}
-                                        disabled={isSaving || !title || !content || savedId !== null || isLoading}
-                                        className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                    >
-                                        {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}
-                                    </button>
-                                    <button
-                                        onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                        className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                    >
-                                        {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
-                                    </button>
+                        {(title || content) && !isLoading && (
+                            <div className="mt-6">
+                                <div className="flex items-center justify-between mb-2">
+                                    <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                                        Explanation:
+                                    </h3>
+                                    <div className="flex gap-2">
+                                        <button
+                                            onClick={handleSave}
+                                            disabled={isSaving || !title || !content || savedId !== null || isLoading}
+                                            className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                        >
+                                            {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}
+                                        </button>
+                                        <button
+                                            onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                            className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                        >
+                                            {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
+                                        </button>
+                                    </div>
+                                </div>
+                                <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
+                                    {isMarkdownMode ? (
+                                        <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkMath]}
+                                                rehypePlugins={[rehypeKatex]}
+                                                components={{
+                                                    p: ({node, children}) => (
+                                                        <div className="my-2">{children}</div>
+                                                    ),
+                                                    inlineMath: ({node, children}) => (
+                                                        <InlineMath math={String(children).replace(/\$/g, '')} />
+                                                    ),
+                                                    math: ({node, children}) => (
+                                                        <BlockMath math={String(children)} />
+                                                    )
+                                                }}
+                                            >
+                                                {formattedExplanation}
+                                            </ReactMarkdown>
+                                        </article>
+                                    ) : (
+                                        <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                                            {formattedExplanation}
+                                        </pre>
+                                    )}
                                 </div>
                             </div>
-                            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
-                                {isMarkdownMode ? (
-                                    <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkMath]}
-                                            rehypePlugins={[rehypeKatex]}
-                                            components={{
-                                                p: ({node, children}) => (
-                                                    <div className="my-2">{children}</div>
-                                                ),
-                                                inlineMath: ({node, children}) => (
-                                                    <InlineMath math={String(children).replace(/\$/g, '')} />
-                                                ),
-                                                math: ({node, children}) => (
-                                                    <BlockMath math={String(children)} />
-                                                )
-                                            }}
-                                        >
-                                            {formattedExplanation}
-                                        </ReactMarkdown>
-                                    </article>
-                                ) : (
-                                    <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                                        {formattedExplanation}
-                                    </pre>
+                        )}
+                    </div>
+
+                    {/* Sources Panel */}
+                    <div className="w-96">
+                        <div className="sticky top-8">
+                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                Sources
+                            </h2>
+                            <div className="space-y-4">
+                                {sources.map((source, index) => (
+                                    <div 
+                                        key={index}
+                                        className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm"
+                                    >
+                                        <div className="mb-2">
+                                            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
+                                            </span>
+                                        </div>
+                                        <p className="text-gray-600 dark:text-gray-400 text-sm">
+                                            {source.text}
+                                        </p>
+                                    </div>
+                                ))}
+                                {sources.length === 0 && (
+                                    <p className="text-gray-500 dark:text-gray-400 text-center italic">
+                                        No sources available yet. Generate an explanation to see related sources.
+                                    </p>
                                 )}
                             </div>
                         </div>
-                    )}
+                    </div>
                 </div>
             </main>
         </div>
