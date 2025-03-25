@@ -25,6 +25,26 @@ type VectorSearchResult = {
     similarity: number;
 };
 
+/**
+ * Enhances source data with current content from the database
+ * @param similarTexts - Array of similar text results from vector search
+ * @returns Promise<sourceWithCurrentContentType[]> - Array of enhanced sources with current content
+ */
+async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<sourceWithCurrentContentType[]> {
+    return Promise.all(similarTexts.map(async (result: any) => {
+        const explanation = await getExplanationById(result.metadata.explanation_id);
+        return {
+            text: result.metadata.text,
+            explanation_id: result.metadata.explanation_id,
+            current_title: explanation?.title || '',
+            current_content: explanation?.content || '',
+            ranking: {
+                similarity: result.score
+            }
+        };
+    }));
+}
+
 export async function generateAiExplanation(prompt: string) {
     try {
         if (!prompt.trim()) {
@@ -39,18 +59,7 @@ export async function generateAiExplanation(prompt: string) {
 
         // Get similar text snippets
         const similarTexts = await handleUserQuery(prompt);
-        const sources: sourceWithCurrentContentType[] = await Promise.all(similarTexts.map(async (result: any) => {
-            const explanation = await getExplanationById(result.metadata.explanation_id);
-            return {
-                text: result.metadata.text,
-                explanation_id: result.metadata.explanation_id,
-                current_title: explanation?.title || '',
-                current_content: explanation?.content || '',
-                ranking: {
-                    similarity: result.score
-                }
-            };
-        }));
+        const sources = await enhanceSourcesWithCurrentContent(similarTexts);
 
         const formattedPrompt = createExplanationPrompt(prompt);
         const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
