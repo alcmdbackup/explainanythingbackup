@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
 import { getRecentExplanations } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
+import Link from 'next/link';
 
 export default function ExplanationsPage() {
     const [recentExplanations, setRecentExplanations] = useState<ExplanationFullDbType[]>([]);
@@ -51,14 +52,12 @@ export default function ExplanationsPage() {
                                     {explanation.content}
                                 </p>
                                 {explanation.content.length > 100 && (
-                                    <button 
-                                        onClick={() => {
-                                            // TODO: Implement view full explanation functionality
-                                        }} 
+                                    <Link 
+                                        href={`/?explanation_id=${explanation.id}`}
                                         className="mt-4 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                     >
                                         View full explanation
-                                    </button>
+                                    </Link>
                                 )}
                             </div>
                             <p className="mt-4 text-sm text-gray-500">

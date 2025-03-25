@@ -28,63 +28,62 @@ export default function Home() {
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
 
-    useEffect(() => {
-        const loadExplanationById = async () => {
-            const explanationId = searchParams.get('explanation_id');
-            if (!explanationId) return;
-
-            try {
-                setIsLoading(true);
-                setError(null);
-                const explanation = await getExplanationById(parseInt(explanationId));
-                
-                if (!explanation) {
-                    setError('Explanation not found');
-                    return;
-                }
-
-                setTitle(explanation.title);
-                setContent(explanation.content);
-                setSavedId(explanation.id);
-                setPrompt('');
-
-                // If there are sources, enhance them with current content
-                if (explanation.sources?.length) {
-                    logger.debug('Found sources in explanation:', { 
-                        sourceCount: explanation.sources.length,
-                        sources: explanation.sources 
-                    }, FILE_DEBUG);
-                    
-                    const enhancedSources = await enhanceSourcesWithCurrentContent(
-                        explanation.sources.map(source => ({
-                            metadata: {
-                                explanation_id: source.explanation_id,
-                                text: source.text
-                            },
-                            score: source.ranking.similarity
-                        }))
-                    );
-                    
-                    logger.debug('Enhanced sources:', { 
-                        enhancedSourceCount: enhancedSources.length,
-                        enhancedSources 
-                    }, FILE_DEBUG);
-                    
-                    setSources(enhancedSources);
-                } else {
-                    logger.debug('No sources found in explanation', {}, FILE_DEBUG);
-                    setSources([]);
-                }
-            } catch (err) {
-                const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
-                setError(errorMessage);
-                logger.error('Failed to load explanation:', { error: errorMessage });
-            } finally {
-                setIsLoading(false);
+    const loadExplanation = async (explanationId: number) => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            const explanation = await getExplanationById(explanationId);
+            
+            if (!explanation) {
+                setError('Explanation not found');
+                return;
             }
-        };
 
-        loadExplanationById();
+            setTitle(explanation.title);
+            setContent(explanation.content);
+            setSavedId(explanation.id);
+            setPrompt('');
+
+            // If there are sources, enhance them with current content
+            if (explanation.sources?.length) {
+                logger.debug('Found sources in explanation:', { 
+                    sourceCount: explanation.sources.length,
+                    sources: explanation.sources 
+                }, FILE_DEBUG);
+                
+                const enhancedSources = await enhanceSourcesWithCurrentContent(
+                    explanation.sources.map(source => ({
+                        metadata: {
+                            explanation_id: source.explanation_id,
+                            text: source.text
+                        },
+                        score: source.ranking.similarity
+                    }))
+                );
+                
+                logger.debug('Enhanced sources:', { 
+                    enhancedSourceCount: enhancedSources.length,
+                    enhancedSources 
+                }, FILE_DEBUG);
+                
+                setSources(enhancedSources);
+            } else {
+                logger.debug('No sources found in explanation', {}, FILE_DEBUG);
+                setSources([]);
+            }
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
+            setError(errorMessage);
+            logger.error('Failed to load explanation:', { error: errorMessage });
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        const explanationId = searchParams.get('explanation_id');
+        if (!explanationId) return;
+        loadExplanation(parseInt(explanationId));
     }, [searchParams]);
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -274,12 +273,12 @@ export default function Home() {
                                                 <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
                                                     Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
                                                 </span>
-                                                <Link 
-                                                    href={`/explanations/${source.explanation_id}`}
+                                                <button 
+                                                    onClick={() => loadExplanation(source.explanation_id)}
                                                     className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                                 >
                                                     View →
-                                                </Link>
+                                                </button>
                                             </div>
                                             <h3 className="font-medium text-gray-900 dark:text-white mb-2">
                                                 {source.current_title || source.text}
