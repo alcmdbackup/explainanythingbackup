@@ -30,7 +30,7 @@ type VectorSearchResult = {
  * @param similarTexts - Array of similar text results from vector search
  * @returns Promise<sourceWithCurrentContentType[]> - Array of enhanced sources with current content
  */
-async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<sourceWithCurrentContentType[]> {
+export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<sourceWithCurrentContentType[]> {
     return Promise.all(similarTexts.map(async (result: any) => {
         const explanation = await getExplanationById(result.metadata.explanation_id);
         return {

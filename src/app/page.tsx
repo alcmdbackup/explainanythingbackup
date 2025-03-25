@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { generateAiExplanation, saveExplanation, saveUserQuery } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
@@ -8,10 +9,15 @@ import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { sourceWithCurrentContentType, type SourceType } from '@/lib/schemas/schemas';
-import { logger } from '@/lib/server_utilities';
+import { logger } from '@/lib/client_utilities';
 import Link from 'next/link';
+import { getExplanationById } from '@/lib/services/explanations';
+import { enhanceSourcesWithCurrentContent } from '@/actions/actions';
+
+const FILE_DEBUG = true;
 
 export default function Home() {
+    const searchParams = useSearchParams();
     const [prompt, setPrompt] = useState('');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
@@ -21,6 +27,65 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+
+    useEffect(() => {
+        const loadExplanationById = async () => {
+            const explanationId = searchParams.get('explanation_id');
+            if (!explanationId) return;
+
+            try {
+                setIsLoading(true);
+                setError(null);
+                const explanation = await getExplanationById(parseInt(explanationId));
+                
+                if (!explanation) {
+                    setError('Explanation not found');
+                    return;
+                }
+
+                setTitle(explanation.title);
+                setContent(explanation.content);
+                setSavedId(explanation.id);
+                setPrompt('');
+
+                // If there are sources, enhance them with current content
+                if (explanation.sources?.length) {
+                    logger.debug('Found sources in explanation:', { 
+                        sourceCount: explanation.sources.length,
+                        sources: explanation.sources 
+                    }, FILE_DEBUG);
+                    
+                    const enhancedSources = await enhanceSourcesWithCurrentContent(
+                        explanation.sources.map(source => ({
+                            metadata: {
+                                explanation_id: source.explanation_id,
+                                text: source.text
+                            },
+                            score: source.ranking.similarity
+                        }))
+                    );
+                    
+                    logger.debug('Enhanced sources:', { 
+                        enhancedSourceCount: enhancedSources.length,
+                        enhancedSources 
+                    }, FILE_DEBUG);
+                    
+                    setSources(enhancedSources);
+                } else {
+                    logger.debug('No sources found in explanation', {}, FILE_DEBUG);
+                    setSources([]);
+                }
+            } catch (err) {
+                const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
+                setError(errorMessage);
+                logger.error('Failed to load explanation:', { error: errorMessage });
+            } finally {
+                setIsLoading(false);
+            }
+        };
+
+        loadExplanationById();
+    }, [searchParams]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -199,31 +264,32 @@ export default function Home() {
                                 Sources
                             </h2>
                             <div className="space-y-4">
-                                {sources.map((source, index) => (
-                                    <div 
-                                        key={index}
-                                        className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                                    >
-                                        <div className="mb-2 flex items-center justify-between">
-                                            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
-                                            </span>
-                                            <Link 
-                                                href={`/explanations/${source.explanation_id}`}
-                                                className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                            >
-                                                View →
-                                            </Link>
+                                {sources && sources.length > 0 ? (
+                                    sources.map((source, index) => (
+                                        <div 
+                                            key={index}
+                                            className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                                        >
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                    Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
+                                                </span>
+                                                <Link 
+                                                    href={`/explanations/${source.explanation_id}`}
+                                                    className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                >
+                                                    View →
+                                                </Link>
+                                            </div>
+                                            <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                                {source.current_title || source.text}
+                                            </h3>
+                                            <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                                {source.current_content || source.text}
+                                            </p>
                                         </div>
-                                        <h3 className="font-medium text-gray-900 dark:text-white mb-2">
-                                            {source.current_title}
-                                        </h3>
-                                        <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
-                                            {source.current_content}
-                                        </p>
-                                    </div>
-                                ))}
-                                {sources.length === 0 && (
+                                    ))
+                                ) : (
                                     <p className="text-gray-500 dark:text-gray-400 text-center italic">
                                         No sources available yet. Generate an explanation to see related sources.
                                     </p>
