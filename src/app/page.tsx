@@ -8,13 +8,14 @@ import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { type ExplanationFullDbType, type SourceType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/server_utilities';
 
 export default function Home() {
     const [prompt, setPrompt] = useState('');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
+    const [sources, setSources] = useState<SourceType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -42,6 +43,7 @@ export default function Home() {
         setIsLoading(true);
         setError(null);
         setSavedId(null);
+        setSources([]);
         
         const { data, error } = await generateAIResponse(prompt);
         
@@ -52,6 +54,9 @@ export default function Home() {
         } else {
             setTitle(data.title);
             setContent(data.content);
+            if (data.sources) {
+                setSources(data.sources);
+            }
             
             // Save user query with sources
             const { error: queryError } = await saveUserQuery(prompt, {
@@ -88,7 +93,8 @@ export default function Home() {
         setIsSaving(true);
         const { success, error, id } = await saveExplanation(prompt, {
             title: title,
-            content: content
+            content: content,
+            sources: sources
         });
         
         if (error) {

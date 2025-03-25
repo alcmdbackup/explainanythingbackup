@@ -27,6 +27,25 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
 });
 
 /**
+ * Schema for individual source data
+ * @example
+ * {
+ *   text: "Original source text...",
+ *   explanation_id: 123,
+ *   ranking: {
+ *     similarity: 0.95
+ *   }
+ * }
+ */
+export const sourceSchema = z.object({
+    text: z.string(),
+    explanation_id: z.number(),
+    ranking: z.object({
+        similarity: z.number()
+    })
+});
+
+/**
  * Schema for inserting explanation data
  * @example
  * {
@@ -39,27 +58,12 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
  *       ranking: {
  *         similarity: 0.95
  *       }
- *     },
- *     {
- *       text: "Another source text...",
- *       explanation_id: 124,
- *       ranking: {
- *         similarity: 0.85
- *       }
  *     }
  *   ]
  * }
  */
 export const explanationInsertSchema = llmQuerySchema.extend({
-    sources: z.array(
-        z.object({
-            text: z.string(),
-            explanation_id: z.number(),
-            ranking: z.object({
-                similarity: z.number()
-            })
-        })
-    )
+    sources: z.array(sourceSchema)
 });
 
 /**
@@ -92,3 +96,6 @@ export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
 export type UserQueryFullDbType = z.infer<typeof userQueryFullDbSchema>;
+
+// Add new type for source
+export type SourceType = z.infer<typeof sourceSchema>;

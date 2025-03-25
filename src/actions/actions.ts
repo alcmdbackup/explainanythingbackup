@@ -120,7 +120,8 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
         // Validate the explanation data against our schema
         const validatedData = explanationInsertSchema.safeParse({
             title: explanationData.title,
-            content: explanationData.content
+            content: explanationData.content,
+            sources: explanationData.sources || []
         });
 
         if (!validatedData.success) {
