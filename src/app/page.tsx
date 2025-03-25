@@ -53,11 +53,22 @@ export default function Home() {
             setTitle(data.title);
             setContent(data.content);
             
-            // Save user query
+            // Save user query with sources
             const { error: queryError } = await saveUserQuery(prompt, {
                 title: data.title,
-                content: data.content
+                content: data.content,
+                // Note: we don't need to pass sources to saveUserQuery since its schema doesn't expect it
             });
+            
+            // Display sources if available
+            if (data.sources?.length) {
+                const sourcesSection = '\n\n## Related Sources\n' + 
+                    data.sources.map(source => 
+                        `- **Similarity: ${(source.ranking.similarity * 100).toFixed(1)}%**\n  ${source.text}`
+                    ).join('\n\n');
+                
+                setContent(data.content + sourcesSection);
+            }
             
             if (queryError) {
                 logger.error('Failed to save user query:', { error: queryError });

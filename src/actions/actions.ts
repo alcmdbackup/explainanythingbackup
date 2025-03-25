@@ -6,6 +6,7 @@ import { createExplanation } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
+import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
 import { createUserQuery } from '@/lib/services/userQueries';
 import { userQueryInsertSchema } from '@/lib/schemas/schemas';
@@ -15,6 +16,13 @@ type ErrorResponse = {
     code: string;
     message: string;
     details?: any;
+};
+
+// Type for vector search results
+type VectorSearchResult = {
+    text: string;
+    explanation_id: number;
+    similarity: number;
 };
 
 export async function generateAIResponse(prompt: string) {
@@ -28,6 +36,16 @@ export async function generateAIResponse(prompt: string) {
                 }
             };
         }
+
+        // Get similar text snippets
+        const similarTexts = await handleUserQuery(prompt);
+        const sources = similarTexts.map((result: any) => ({
+            text: result.metadata.text,
+            explanation_id: result.metadata.explanation_id,
+            ranking: {
+                similarity: result.score
+            }
+        }));
 
         const formattedPrompt = createExplanationPrompt(prompt);
         const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
@@ -46,7 +64,14 @@ export async function generateAIResponse(prompt: string) {
             };
         }
 
-        return { data: parsedResult.data, error: null };
+        // Include both the LLM response and similar sources in the result
+        return { 
+            data: {
+                ...parsedResult.data,
+                sources
+            }, 
+            error: null 
+        };
     } catch (error) {
         let errorResponse: ErrorResponse;
 
