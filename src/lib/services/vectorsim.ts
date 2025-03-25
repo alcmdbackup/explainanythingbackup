@@ -37,7 +37,7 @@ interface Vector {
  * @param {number} chunkOverlap - Number of characters to overlap (default: 200)
  * @returns {Promise<Array<{text: string, startIdx: number, length: number}>>}
  */
-async function splitTextWithMetadata(document: string, chunkSize: number = 1000, chunkOverlap: number = 200): Promise<TextChunk[]> {
+async function splitTextWithMetadata(document: string, chunkSize: number = 20000, chunkOverlap: number = 200): Promise<TextChunk[]> {
     // Initialize the text splitter
     const splitter = new RecursiveCharacterTextSplitter({
         chunkSize,

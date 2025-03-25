@@ -7,7 +7,7 @@ import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { type SourceType } from '@/lib/schemas/schemas';
+import { sourceWithCurrentContentType, type SourceType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/server_utilities';
 import Link from 'next/link';
 
@@ -15,7 +15,7 @@ export default function Home() {
     const [prompt, setPrompt] = useState('');
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
-    const [sources, setSources] = useState<SourceType[]>([]);
+    const [sources, setSources] = useState<sourceWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -202,15 +202,24 @@ export default function Home() {
                                 {sources.map((source, index) => (
                                     <div 
                                         key={index}
-                                        className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm"
+                                        className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
                                     >
-                                        <div className="mb-2">
+                                        <div className="mb-2 flex items-center justify-between">
                                             <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
                                                 Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
                                             </span>
+                                            <Link 
+                                                href={`/explanations/${source.explanation_id}`}
+                                                className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                            >
+                                                View →
+                                            </Link>
                                         </div>
-                                        <p className="text-gray-600 dark:text-gray-400 text-sm">
-                                            {source.text}
+                                        <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                            {source.current_title}
+                                        </h3>
+                                        <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                            {source.current_content}
                                         </p>
                                     </div>
                                 ))}

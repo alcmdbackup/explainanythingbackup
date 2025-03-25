@@ -2,9 +2,9 @@
 
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
-import { createExplanation } from '@/lib/services/explanations';
+import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type EnhancedSourceType, sourceWithCurrentContentType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -39,12 +39,17 @@ export async function generateAiExplanation(prompt: string) {
 
         // Get similar text snippets
         const similarTexts = await handleUserQuery(prompt);
-        const sources = similarTexts.map((result: any) => ({
-            text: result.metadata.text,
-            explanation_id: result.metadata.explanation_id,
-            ranking: {
-                similarity: result.score
-            }
+        const sources: sourceWithCurrentContentType[] = await Promise.all(similarTexts.map(async (result: any) => {
+            const explanation = await getExplanationById(result.metadata.explanation_id);
+            return {
+                text: result.metadata.text,
+                explanation_id: result.metadata.explanation_id,
+                current_title: explanation?.title || '',
+                current_content: explanation?.content || '',
+                ranking: {
+                    similarity: result.score
+                }
+            };
         }));
 
         const formattedPrompt = createExplanationPrompt(prompt);

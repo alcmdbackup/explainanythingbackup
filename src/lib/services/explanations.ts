@@ -116,4 +116,26 @@ export async function deleteExplanation(id: number): Promise<void> {
     .eq('id', id);
 
   if (error) throw error;
+}
+
+/**
+ * Get explanation records by IDs
+ * @param ids Array of explanation record IDs
+ * @returns Array of explanation records that were found
+ * 
+ * Example usage:
+ * ```typescript
+ * const explanations = await getExplanationsByIds([1, 2, 3]);
+ * // Returns: ExplanationFullDbType[] - array of found explanations
+ * // Note: May return fewer items than requested if some IDs don't exist
+ * ```
+ */
+export async function getExplanationsByIds(ids: number[]): Promise<ExplanationFullDbType[]> {
+  const { data, error } = await supabase
+    .from('explanations')
+    .select()
+    .in('id', ids);
+
+  if (error) throw error;
+  return data || [];
 } 
