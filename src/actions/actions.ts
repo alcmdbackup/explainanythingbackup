@@ -25,7 +25,7 @@ type VectorSearchResult = {
     similarity: number;
 };
 
-export async function generateAIResponse(prompt: string) {
+export async function generateAiExplanation(prompt: string) {
     try {
         if (!prompt.trim()) {
             return {

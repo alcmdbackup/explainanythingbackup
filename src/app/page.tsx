@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { generateAIResponse, saveExplanation, saveUserQuery } from '@/actions/actions';
+import { generateAiExplanation, saveExplanation, saveUserQuery } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
@@ -29,12 +29,12 @@ export default function Home() {
         setSavedId(null);
         setSources([]);
         
-        const { data, error } = await generateAIResponse(prompt);
+        const { data, error } = await generateAiExplanation(prompt);
         
         if (error) {
             setError(error.message);
         } else if (!data?.title || !data?.content) {
-            setError('Invalid response: Missing title or content');
+            setError('Invalid explanation: Missing title or content');
         } else {
             setTitle(data.title);
             setContent(data.content);
@@ -85,8 +85,7 @@ export default function Home() {
         setIsSaving(false);
     };
 
-    // Format the response for display
-    const formattedResponse = title && content ? `# ${title}\n\n${content}` : '';
+    const formattedExplanation = title && content ? `# ${title}\n\n${content}` : '';
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
@@ -96,7 +95,7 @@ export default function Home() {
                         AI Text Generator
                     </h1>
                     <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
-                        Enter your prompt below and let AI generate a response for you
+                        Enter your prompt below and let AI generate an explanation for you
                     </p>
                     <Link 
                         href="/explanations" 
@@ -143,7 +142,7 @@ export default function Home() {
                         <div className="mt-6">
                             <div className="flex items-center justify-between mb-2">
                                 <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                                    Response:
+                                    Explanation:
                                 </h3>
                                 <div className="flex gap-2">
                                     <button
@@ -151,7 +150,7 @@ export default function Home() {
                                         disabled={isSaving || !title || !content || savedId !== null || isLoading}
                                         className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                     >
-                                        {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save Response'}
+                                        {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}
                                     </button>
                                     <button
                                         onClick={() => setIsMarkdownMode(!isMarkdownMode)}
@@ -179,12 +178,12 @@ export default function Home() {
                                                 )
                                             }}
                                         >
-                                            {formattedResponse}
+                                            {formattedExplanation}
                                         </ReactMarkdown>
                                     </article>
                                 ) : (
                                     <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                                        {formattedResponse}
+                                        {formattedExplanation}
                                     </pre>
                                 )}
                             </div>
