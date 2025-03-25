@@ -108,12 +108,15 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
             };
         }
 
+        // Save to database
+        const savedExplanation = await createExplanation(explanationData);
+
         // Format content for embedding in the same way as displayed in the UI
         const combinedContent = `# ${explanationData.title}\n\n${explanationData.content}`;
         
         // Create embeddings for the combined content
         try {
-            await processContentToStoreEmbedding(combinedContent);
+            await processContentToStoreEmbedding(combinedContent, savedExplanation.id);
         } catch (embeddingError) {
             logger.error('Failed to create embeddings', {
                 error: embeddingError,
@@ -126,9 +129,6 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
                 id: null
             };
         }
-
-        // Save to database
-        const savedExplanation = await createExplanation(explanationData);
         
         return { 
             success: true, 

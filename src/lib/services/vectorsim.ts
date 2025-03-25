@@ -138,13 +138,15 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
  * Upserts embeddings into Pinecone index
  * @param {Array<{text: string, startIdx: number, length: number, embedding: number[]}>} embeddedChunks 
  * @param {string} namespace Optional namespace for multitenancy
+ * @param {number} explanation_id The ID of the explanation these embeddings belong to
  */
-async function upsertEmbeddings(embeddedChunks: EmbeddedChunk[], namespace: string = ''): Promise<void> {
+async function upsertEmbeddings(embeddedChunks: EmbeddedChunk[], namespace: string = '', explanation_id: number): Promise<void> {
   const index = pc.index(getRequiredEnvVar('PINECONE_INDEX_NAME'));
 
   logger.debug('Creating vectors for upsert:', {
     chunkCount: embeddedChunks.length,
-    namespace
+    namespace,
+    explanation_id
   }, FILE_DEBUG);
 
   const vectors = embeddedChunks.map((chunk, i) => ({
@@ -153,7 +155,8 @@ async function upsertEmbeddings(embeddedChunks: EmbeddedChunk[], namespace: stri
     metadata: {
       text: chunk.text,
       startIdx: chunk.startIdx,
-      length: chunk.length
+      length: chunk.length,
+      explanation_id
     }
   }));
 
@@ -264,6 +267,7 @@ async function handleUserQuery(query: string, topK: number = 5, namespace: strin
 /**
  * Processes text into embeddings and stores them in Pinecone
  * @param {string} markdown - The markdown text to process
+ * @param {number} explanation_id - The ID of the explanation these embeddings belong to
  * @param {boolean} debug - Whether to enable debug logging
  * @param {string} namespace - The namespace to store embeddings in (default: 'default')
  * @returns {Promise<Object>} Result object with embedding statistics
@@ -276,13 +280,21 @@ async function handleUserQuery(query: string, topK: number = 5, namespace: strin
  * }
  * @throws {Error} If embedding creation or storage fails
  */
-async function processContentToStoreEmbedding(markdown: string, debug: boolean = false, namespace: string = 'default'): Promise<{
+async function processContentToStoreEmbedding(
+  markdown: string,
+  explanation_id: number,
+  debug: boolean = false,
+  namespace: string = 'default'
+): Promise<{
   success: boolean;
   chunkCount: number;
   namespace: string;
 }> {
     if (!markdown) {
         throw new Error('Markdown text is required');
+    }
+    if (typeof explanation_id !== 'number') {
+        throw new Error('explanation_id must be a number');
     }
 
     // Split text into chunks with metadata
@@ -298,7 +310,7 @@ async function processContentToStoreEmbedding(markdown: string, debug: boolean =
     }, FILE_DEBUG);
 
     // Store in Pinecone
-    await upsertEmbeddings(embeddedChunks, namespace);
+    await upsertEmbeddings(embeddedChunks, namespace, explanation_id);
 
     return {
         success: true,

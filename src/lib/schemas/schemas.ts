@@ -31,10 +31,36 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
  * @example
  * {
  *   title: "Photosynthesis Process",
- *   content: "Photosynthesis is the process by which plants..."
+ *   content: "Photosynthesis is the process by which plants...",
+ *   sources: [
+ *     {
+ *       text: "Original source text...",
+ *       explanation_id: 123,
+ *       ranking: {
+ *         similarity: 0.95
+ *       }
+ *     },
+ *     {
+ *       text: "Another source text...",
+ *       explanation_id: 124,
+ *       ranking: {
+ *         similarity: 0.85
+ *       }
+ *     }
+ *   ]
  * }
  */
-export const explanationInsertSchema = llmQuerySchema;
+export const explanationInsertSchema = llmQuerySchema.extend({
+    sources: z.array(
+        z.object({
+            text: z.string(),
+            explanation_id: z.number(),
+            ranking: z.object({
+                similarity: z.number()
+            })
+        })
+    )
+});
 
 /**
  * Full explanation schema including database fields
