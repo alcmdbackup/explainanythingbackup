@@ -39,7 +39,7 @@ export default function Home() {
                 return;
             }
 
-            setTitle(explanation.title);
+            setTitle(explanation.explanation_title);
             setContent(explanation.content);
             setSavedId(explanation.id);
             setPrompt('');
@@ -135,7 +135,7 @@ export default function Home() {
         
         setIsSaving(true);
         const { success, error, id } = await saveExplanation(prompt, {
-            title: title,
+            explanation_title: title,
             content: content,
             sources: sources
         });

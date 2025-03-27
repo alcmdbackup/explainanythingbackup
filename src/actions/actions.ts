@@ -36,7 +36,7 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
         return {
             text: result.metadata.text,
             explanation_id: result.metadata.explanation_id,
-            current_title: explanation?.title || '',
+            current_title: explanation?.explanation_title || '',
             current_content: explanation?.content || '',
             ranking: {
                 similarity: result.score
@@ -133,7 +133,7 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
     try {
         // Validate the explanation data against our schema
         const validatedData = explanationInsertSchema.safeParse({
-            title: explanationData.title,
+            explanation_title: explanationData.explanation_title,
             content: explanationData.content,
             sources: explanationData.sources || []
         });
@@ -152,7 +152,7 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
         const savedExplanation = await createExplanation(explanationData);
 
         // Format content for embedding in the same way as displayed in the UI
-        const combinedContent = `# ${explanationData.title}\n\n${explanationData.content}`;
+        const combinedContent = `# ${explanationData.explanation_title}\n\n${explanationData.content}`;
         
         // Create embeddings for the combined content
         try {
@@ -160,7 +160,7 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
         } catch (embeddingError) {
             logger.error('Failed to create embeddings', {
                 error: embeddingError,
-                title_length: explanationData.title.length,
+                title_length: explanationData.explanation_title.length,
                 content_length: explanationData.content.length
             });
             return {

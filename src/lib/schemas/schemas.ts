@@ -49,7 +49,7 @@ export const sourceSchema = z.object({
  * Schema for inserting explanation data
  * @example
  * {
- *   title: "Photosynthesis Process",
+ *   explanation_title: "Photosynthesis Process",
  *   content: "Photosynthesis is the process by which plants...",
  *   sources: [
  *     {
@@ -63,8 +63,9 @@ export const sourceSchema = z.object({
  * }
  */
 export const explanationInsertSchema = llmQuerySchema.extend({
+    explanation_title: z.string(),
     sources: z.array(sourceSchema)
-});
+}).omit({ title: true });
 
 /**
  * Full explanation schema including database fields
@@ -136,3 +137,36 @@ export const sourceWithCurrentContentSchema = sourceSchema.extend({
 });
 
 export type sourceWithCurrentContentType = z.infer<typeof sourceWithCurrentContentSchema>;
+
+/**
+ * Schema for topic data
+ * @example
+ * {
+ *   topic_title: "Physics",
+ *   topic_description: "Fundamental science of matter and energy"
+ * }
+ */
+export const topicInsertSchema = z.object({
+    topic_title: z.string(),
+    topic_description: z.string().optional(),
+});
+
+/**
+ * Full topic schema including database fields
+ * @example
+ * {
+ *   id: 123,
+ *   topic_title: "Physics",
+ *   topic_description: "Fundamental science of matter and energy",
+ *   created_at: "2024-03-20T10:30:00Z",
+ *   updated_at: "2024-03-20T10:30:00Z"
+ * }
+ */
+export const topicFullDbSchema = topicInsertSchema.extend({
+    id: z.number(),
+    created_at: z.string(),
+    updated_at: z.string()
+});
+
+export type TopicInsertType = z.infer<typeof topicInsertSchema>;
+export type TopicFullDbType = z.infer<typeof topicFullDbSchema>;

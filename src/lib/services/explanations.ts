@@ -9,7 +9,7 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
  * // Create an explanation
  * const newExplanation = await createExplanation({ 
  *   user_query: "What is React?", 
- *   title: "Introduction to React",
+ *   explanation_title: "Introduction to React",
  *   content: "React is a JavaScript library..." 
  * });
  * 
