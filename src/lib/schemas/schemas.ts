@@ -4,26 +4,13 @@ import { z } from 'zod';
  * Base schema for LLM query data
  * @example
  * {
- *   title: "Photosynthesis Process",
+ *   explanation_title: "Photosynthesis Process",
  *   content: "Photosynthesis is the process by which plants..."
  * }
  */
 export const llmQuerySchema = z.object({
-    title: z.string(),
+    explanation_title: z.string(),
     content: z.string(),
-});
-
-/**
- * Schema for user query data, extends llmQuerySchema with user query
- * @example
- * {
- *   user_query: "How does photosynthesis work?",
- *   title: "Photosynthesis Process",
- *   content: "Photosynthesis is the process by which plants..."
- * }
- */
-export const userQueryInsertSchema = llmQuerySchema.extend({
-    user_query: z.string(),
 });
 
 /**
@@ -46,6 +33,19 @@ export const sourceSchema = z.object({
 });
 
 /**
+ * Schema for user query data, extends llmQuerySchema with user query
+ * @example
+ * {
+ *   user_query: "How does photosynthesis work?",
+ *   explanation_title: "Photosynthesis Process",
+ *   content: "Photosynthesis is the process by which plants..."
+ * }
+ */
+export const userQueryInsertSchema = llmQuerySchema.extend({
+    user_query: z.string(),
+});
+
+/**
  * Schema for inserting explanation data
  * @example
  * {
@@ -63,11 +63,10 @@ export const sourceSchema = z.object({
  * }
  */
 export const explanationInsertSchema = llmQuerySchema.extend({
-    explanation_title: z.string(),
     sources: z.array(sourceSchema),
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional()
-}).omit({ title: true });
+});
 
 /**
  * Full explanation schema including database fields
@@ -93,7 +92,7 @@ export const ExplanationFullDbSchema = explanationInsertSchema.extend({
  * {
  *   id: 123,
  *   timestamp: "2024-03-20T10:30:00Z",
- *   title: "Photosynthesis Process",
+ *   explanation_title: "Photosynthesis Process",
  *   content: "Photosynthesis is the process by which plants...",
  *   user_query: "How does photosynthesis work?"
  * }
@@ -113,7 +112,7 @@ export type UserQueryFullDbType = z.infer<typeof userQueryFullDbSchema>;
 // Add new type for source
 export type SourceType = z.infer<typeof sourceSchema>;
 
-export const llmResponseWithSourcesSchema = z.object({
+/*export const llmResponseWithSourcesSchema = z.object({
     title: z.string(),
     content: z.string(),
     sources: z.array(z.object({
@@ -127,7 +126,7 @@ export const llmResponseWithSourcesSchema = z.object({
     }))
 });
 
-export type LlmResponseWithSourcesType = z.infer<typeof llmResponseWithSourcesSchema>;
+export type LlmResponseWithSourcesType = z.infer<typeof llmResponseWithSourcesSchema>;*/
 
 /**
  * Schema for enhanced source data with title and content

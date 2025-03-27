@@ -45,7 +45,7 @@ export default function ExplanationsPage() {
                             className="p-6 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm"
                         >
                             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-                                {explanation.title}
+                                {explanation.explanation_title}
                             </h2>
                             <div className="text-gray-600 dark:text-gray-400">
                                 <p className="line-clamp-3">

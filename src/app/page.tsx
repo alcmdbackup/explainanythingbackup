@@ -19,7 +19,7 @@ const FILE_DEBUG = true;
 export default function Home() {
     const searchParams = useSearchParams();
     const [prompt, setPrompt] = useState('');
-    const [title, setTitle] = useState('');
+    const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
     const [sources, setSources] = useState<sourceWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
@@ -39,7 +39,7 @@ export default function Home() {
                 return;
             }
 
-            setTitle(explanation.explanation_title);
+            setExplanationTitle(explanation.explanation_title);
             setContent(explanation.content);
             setSavedId(explanation.id);
             setPrompt('');
@@ -97,10 +97,10 @@ export default function Home() {
         
         if (error) {
             setError(error.message);
-        } else if (!data?.title || !data?.content) {
+        } else if (!data?.explanation_title || !data?.content) {
             setError('Invalid explanation: Missing title or content');
         } else {
-            setTitle(data.title);
+            setExplanationTitle(data.explanation_title);
             setContent(data.content);
             if (data.sources) {
                 setSources(data.sources);
@@ -108,7 +108,7 @@ export default function Home() {
             
             // Save user query with sources
             const { error: queryError } = await saveUserQuery(prompt, {
-                title: data.title,
+                explanation_title: data.explanation_title,
                 content: data.content,
             });
             
@@ -131,11 +131,11 @@ export default function Home() {
     };
 
     const handleSave = async () => {
-        if (!prompt || !title || !content || savedId) return;
+        if (!prompt || !explanationTitle || !content || savedId) return;
         
         setIsSaving(true);
         const { success, error, id } = await saveExplanation(prompt, {
-            explanation_title: title,
+            explanation_title: explanationTitle,
             content: content,
             sources: sources
         });
@@ -149,7 +149,7 @@ export default function Home() {
         setIsSaving(false);
     };
 
-    const formattedExplanation = title && content ? `# ${title}\n\n${content}` : '';
+    const formattedExplanation = explanationTitle && content ? `# ${explanationTitle}\n\n${content}` : '';
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
@@ -198,10 +198,10 @@ export default function Home() {
                                     type="submit"
                                     disabled={isGeneratingExplanation || !prompt.trim()}
                                     className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                        title || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                        explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
                                     }`}
                                 >
-                                    {isGeneratingExplanation ? 'Generating...' : title || content ? 'Regenerate' : 'Generate'}
+                                    {isGeneratingExplanation ? 'Generating...' : explanationTitle || content ? 'Regenerate' : 'Generate'}
                                 </button>
                             </form>
 
@@ -211,7 +211,7 @@ export default function Home() {
                                 </div>
                             )}
 
-                            {(title || content) && !isGeneratingExplanation && (
+                            {(explanationTitle || content) && !isGeneratingExplanation && (
                                 <div className="mt-6">
                                     <div className="flex items-center justify-between mb-2">
                                         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
@@ -220,7 +220,7 @@ export default function Home() {
                                         <div className="flex gap-2">
                                             <button
                                                 onClick={handleSave}
-                                                disabled={isSaving || !title || !content || savedId !== null || isGeneratingExplanation}
+                                                disabled={isSaving || !explanationTitle || !content || savedId !== null || isGeneratingExplanation}
                                                 className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                                             >
                                                 {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}

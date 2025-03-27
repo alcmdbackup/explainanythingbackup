@@ -6,7 +6,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type EnhancedSourceType, sourceWithCurrentContentType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type EnhancedSourceType, sourceWithCurrentContentType, type LlmQueryType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -264,11 +264,11 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
     }
 }
 
-export async function saveUserQuery(prompt: string, response: { title: string; content: string }) {
+export async function saveUserQuery(prompt: string, response: LlmQueryType) {
     try {
         const userQuery = {
             user_query: prompt,
-            title: response.title,
+            explanation_title: response.explanation_title,
             content: response.content
         };
 
