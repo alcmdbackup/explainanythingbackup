@@ -64,11 +64,23 @@ export const sourceSchema = z.object({
  */
 export const explanationInsertSchema = llmQuerySchema.extend({
     explanation_title: z.string(),
-    sources: z.array(sourceSchema)
+    sources: z.array(sourceSchema),
+    primary_topic_id: z.number(),
+    secondary_topic_id: z.number().optional()
 }).omit({ title: true });
 
 /**
  * Full explanation schema including database fields
+ * @example
+ * {
+ *   id: 123,
+ *   timestamp: "2024-03-20T10:30:00Z",
+ *   explanation_title: "Photosynthesis Process",
+ *   content: "Photosynthesis is the process by which plants...",
+ *   sources: [...],
+ *   primary_topic_id: 1,
+ *   secondary_topic_id: 2
+ * }
  */
 export const ExplanationFullDbSchema = explanationInsertSchema.extend({
     id: z.number(),

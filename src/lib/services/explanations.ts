@@ -8,9 +8,11 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
  * ```typescript
  * // Create an explanation
  * const newExplanation = await createExplanation({ 
- *   user_query: "What is React?", 
  *   explanation_title: "Introduction to React",
- *   content: "React is a JavaScript library..." 
+ *   content: "React is a JavaScript library...",
+ *   sources: [],
+ *   primary_topic_id: 1,
+ *   secondary_topic_id: 2
  * });
  * 
  * // Get recent explanations
@@ -42,7 +44,7 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
  * @param id Explanation record ID
  * @returns Explanation record if found
  */
-export async function getExplanationById(id: number): Promise<ExplanationFullDbType | null> {
+export async function getExplanationById(id: number): Promise<ExplanationFullDbType> {
   const { data, error } = await supabase
     .from('explanations')
     .select()
@@ -50,6 +52,9 @@ export async function getExplanationById(id: number): Promise<ExplanationFullDbT
     .single();
 
   if (error) throw error;
+  if (!data) {
+    throw new Error(`Explanation not found for ID: ${id}`);
+  }
   return data;
 }
 
@@ -135,6 +140,35 @@ export async function getExplanationsByIds(ids: number[]): Promise<ExplanationFu
     .from('explanations')
     .select()
     .in('id', ids);
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get explanations by topic ID
+ * @param topicId Topic ID to search for in both primary and secondary topic fields
+ * @param limit Number of records to return
+ * @param offset Number of records to skip
+ * @returns Array of explanation records related to the topic
+ * 
+ * Example usage:
+ * ```typescript
+ * const explanations = await getExplanationsByTopicId(1);
+ * // Returns: ExplanationFullDbType[] - array of explanations with matching topic ID
+ * ```
+ */
+export async function getExplanationsByTopicId(
+  topicId: number,
+  limit: number = 10,
+  offset: number = 0
+): Promise<ExplanationFullDbType[]> {
+  const { data, error } = await supabase
+    .from('explanations')
+    .select()
+    .or(`primary_topic_id.eq.${topicId},secondary_topic_id.eq.${topicId}`)
+    .range(offset, offset + limit - 1)
+    .order('timestamp', { ascending: false });
 
   if (error) throw error;
   return data || [];
