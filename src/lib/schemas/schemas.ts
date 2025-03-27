@@ -32,6 +32,27 @@ export const sourceSchema = z.object({
     })
 });
 
+
+/**
+ * Schema for enhanced source data with title and content
+ * Extends the base sourceSchema with additional explanation details
+ * @example
+ * {
+ *   text: "Original source text...",
+ *   explanation_id: 123,
+ *   title: "Photosynthesis Process",
+ *   content: "Detailed explanation content...",
+ *   ranking: {
+ *     similarity: 0.95
+ *   }
+ * }
+ */
+export const sourceWithCurrentContentSchema = sourceSchema.extend({
+    current_title: z.string(),
+    current_content: z.string(),
+});
+
+
 /**
  * Schema for user query data, extends llmQuerySchema with user query
  * @example
@@ -42,6 +63,7 @@ export const sourceSchema = z.object({
  * }
  */
 export const userQueryInsertSchema = llmQuerySchema.extend({
+    sources: z.array(sourceWithCurrentContentSchema),
     user_query: z.string(),
 });
 
@@ -62,8 +84,7 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
  *   ]
  * }
  */
-export const explanationInsertSchema = llmQuerySchema.extend({
-    sources: z.array(sourceSchema),
+export const explanationInsertSchema = userQueryInsertSchema.omit({ user_query: true }).extend({
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional()
 });
@@ -104,13 +125,12 @@ export const userQueryFullDbSchema = userQueryInsertSchema.extend({
 
 // Derive types from schemas
 export type LlmQueryType = z.infer<typeof llmQuerySchema>;
+export type SourceType = z.infer<typeof sourceSchema>;
+export type sourceWithCurrentContentType = z.infer<typeof sourceWithCurrentContentSchema>;
 export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
 export type UserQueryFullDbType = z.infer<typeof userQueryFullDbSchema>;
-
-// Add new type for source
-export type SourceType = z.infer<typeof sourceSchema>;
 
 /*export const llmResponseWithSourcesSchema = z.object({
     title: z.string(),
@@ -127,27 +147,6 @@ export type SourceType = z.infer<typeof sourceSchema>;
 });
 
 export type LlmResponseWithSourcesType = z.infer<typeof llmResponseWithSourcesSchema>;*/
-
-/**
- * Schema for enhanced source data with title and content
- * Extends the base sourceSchema with additional explanation details
- * @example
- * {
- *   text: "Original source text...",
- *   explanation_id: 123,
- *   title: "Photosynthesis Process",
- *   content: "Detailed explanation content...",
- *   ranking: {
- *     similarity: 0.95
- *   }
- * }
- */
-export const sourceWithCurrentContentSchema = sourceSchema.extend({
-    current_title: z.string(),
-    current_content: z.string(),
-});
-
-export type sourceWithCurrentContentType = z.infer<typeof sourceWithCurrentContentSchema>;
 
 /**
  * Schema for topic data

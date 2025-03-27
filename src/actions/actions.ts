@@ -6,7 +6,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type EnhancedSourceType, sourceWithCurrentContentType, type LlmQueryType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type EnhancedSourceType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -70,7 +70,10 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
     }));
 }
 
-export async function generateAiExplanation(prompt: string) {
+export async function generateAiExplanation(prompt: string): Promise<{
+    data: UserQueryInsertType | null,
+    error: ErrorResponse | null
+}> {
     try {
         logger.debug('Starting generateAiExplanation', { prompt_length: prompt.length }, FILE_DEBUG);
 
@@ -133,12 +136,32 @@ export async function generateAiExplanation(prompt: string) {
             response_data_keys: Object.keys(parsedResult.data)
         }, FILE_DEBUG);
 
-        // Include both the LLM response and similar sources in the result
+        // Validate against userQueryInsertSchema before returning
+        const userQueryData = {
+            user_query: prompt,
+            explanation_title: parsedResult.data.explanation_title,
+            content: parsedResult.data.content,
+            sources: sources
+        };
+        
+        const validatedUserQuery = userQueryInsertSchema.safeParse(userQueryData);
+        
+        if (!validatedUserQuery.success) {
+            logger.debug('User query validation failed', { 
+                errors: validatedUserQuery.error.errors 
+            }, FILE_DEBUG);
+            return {
+                data: null,
+                error: {
+                    code: 'INVALID_USER_QUERY',
+                    message: 'Generated response does not match user query schema',
+                    details: validatedUserQuery.error
+                }
+            };
+        }
+
         return { 
-            data: {
-                ...parsedResult.data,
-                sources
-            }, 
+            data: validatedUserQuery.data,
             error: null 
         };
     } catch (error) {
@@ -264,14 +287,8 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
     }
 }
 
-export async function saveUserQuery(prompt: string, response: LlmQueryType) {
+export async function saveUserQuery(userQuery: UserQueryInsertType) {
     try {
-        const userQuery = {
-            user_query: prompt,
-            explanation_title: response.explanation_title,
-            content: response.content
-        };
-
         // Validate the user query data against our schema
         const validatedData = userQueryInsertSchema.safeParse(userQuery);
 

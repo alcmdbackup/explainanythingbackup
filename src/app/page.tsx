@@ -107,10 +107,7 @@ export default function Home() {
             }
             
             // Save user query with sources
-            const { error: queryError } = await saveUserQuery(prompt, {
-                explanation_title: data.explanation_title,
-                content: data.content,
-            });
+            const { error: queryError } = await saveUserQuery(data);
             
             // Display sources if available
             if (data.sources?.length) {
