@@ -1,18 +1,18 @@
 'use server';
 
-const FILE_DEBUG = false;
-
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type EnhancedSourceType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
 import { createUserQuery } from '@/lib/services/userQueries';
 import { userQueryInsertSchema } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
+
+const FILE_DEBUG = false;
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -37,20 +37,20 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
     logger.debug('Starting enhanceSourcesWithCurrentContent', {
         input_count: similarTexts?.length || 0,
         first_input: similarTexts?.[0]
-    }, FILE_DEBUG);
+    });
 
     return Promise.all(similarTexts.map(async (result: any) => {
         logger.debug('Processing source', {
             metadata: result.metadata,
             score: result.score
-        }, FILE_DEBUG);
+        });
 
         const explanation = await getExplanationById(result.metadata.explanation_id);
         logger.debug('Retrieved explanation', {
             explanation_id: result.metadata.explanation_id,
             found: !!explanation,
             title: explanation?.explanation_title
-        }, FILE_DEBUG);
+        });
 
         const enhancedSource = {
             text: result.metadata.text,
@@ -64,7 +64,7 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
 
         logger.debug('Enhanced source created', {
             source: enhancedSource
-        }, FILE_DEBUG);
+        });
 
         return enhancedSource;
     }));
@@ -75,10 +75,10 @@ export async function generateAiExplanation(prompt: string): Promise<{
     error: ErrorResponse | null
 }> {
     try {
-        logger.debug('Starting generateAiExplanation', { prompt_length: prompt.length }, FILE_DEBUG);
+        logger.debug('Starting generateAiExplanation', { prompt_length: prompt.length });
 
         if (!prompt.trim()) {
-            logger.debug('Empty prompt detected', null, FILE_DEBUG);
+            logger.debug('Empty prompt detected');
             return {
                 data: null,
                 error: {
@@ -89,38 +89,38 @@ export async function generateAiExplanation(prompt: string): Promise<{
         }
 
         // Get similar text snippets
-        logger.debug('Fetching similar texts from vector search', null, FILE_DEBUG);
+        logger.debug('Fetching similar texts from vector search');
         const similarTexts = await handleUserQuery(prompt);
         logger.debug('Vector search results', { 
             count: similarTexts?.length || 0,
             first_result: similarTexts?.[0] 
-        }, FILE_DEBUG);
+        });
 
         const sources = await enhanceSourcesWithCurrentContent(similarTexts);
         logger.debug('Enhanced sources', { 
             sources_count: sources?.length || 0,
             first_source: sources?.[0] 
-        }, FILE_DEBUG);
+        });
 
         const formattedPrompt = createExplanationPrompt(prompt);
         logger.debug('Created formatted prompt', { 
             formatted_prompt_length: formattedPrompt.length 
-        }, FILE_DEBUG);
+        });
 
-        logger.debug('Calling GPT-4', { prompt_length: formattedPrompt.length }, FILE_DEBUG);
+        logger.debug('Calling GPT-4', { prompt_length: formattedPrompt.length });
         const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
         logger.debug('Received GPT-4 response', { 
             response_length: result?.length || 0 
-        }, FILE_DEBUG);
+        });
         
         // Parse the result to ensure it matches our schema
-        logger.debug('Parsing LLM response with schema', null, FILE_DEBUG);
+        logger.debug('Parsing LLM response with schema');
         const parsedResult = llmQuerySchema.safeParse(JSON.parse(result));
         
         if (!parsedResult.success) {
             logger.debug('Schema validation failed', { 
                 errors: parsedResult.error.errors 
-            }, FILE_DEBUG);
+            });
             return {
                 data: null,
                 error: {
@@ -134,7 +134,7 @@ export async function generateAiExplanation(prompt: string): Promise<{
         logger.debug('Successfully generated AI explanation', {
             has_sources: !!sources?.length,
             response_data_keys: Object.keys(parsedResult.data)
-        }, FILE_DEBUG);
+        });
 
         // Validate against userQueryInsertSchema before returning
         const userQueryData = {
@@ -171,7 +171,7 @@ export async function generateAiExplanation(prompt: string): Promise<{
             error_type: error instanceof Error ? error.constructor.name : typeof error,
             error_message: error instanceof Error ? error.message : 'Unknown error',
             error_stack: error instanceof Error ? error.stack : undefined
-        }, FILE_DEBUG);
+        });
 
         if (error instanceof Error) {
             // Categorize different types of errors
@@ -204,7 +204,7 @@ export async function generateAiExplanation(prompt: string): Promise<{
         logger.error('Error in generateAIResponse', {
             prompt,
             error: errorResponse
-        }, FILE_DEBUG);
+        });
 
         return { 
             data: null, 
@@ -213,26 +213,23 @@ export async function generateAiExplanation(prompt: string): Promise<{
     }
 }
 
-export async function saveExplanation(prompt: string, explanationData: ExplanationInsertType) {
+export async function saveExplanationAndTopic(prompt: string, explanationData: UserQueryInsertType) {
     try {
-        // Create a topic first using the explanation title
+        // Create a topic first using the explanation title, if it doesn't already exist
         const topic = await createTopic({
             topic_title: explanationData.explanation_title
         });
 
         // Add the topic ID to the explanation data
-        const explanationWithTopic = {
-            ...explanationData,
+        const explanationWithTopic: ExplanationInsertType = {
+            explanation_title: explanationData.explanation_title,
+            content: explanationData.content,
+            sources: explanationData.sources,
             primary_topic_id: topic.id
         };
 
         // Validate the explanation data against our schema
-        const validatedData = explanationInsertSchema.safeParse({
-            explanation_title: explanationWithTopic.explanation_title,
-            content: explanationWithTopic.content,
-            sources: explanationWithTopic.sources || [],
-            primary_topic_id: explanationWithTopic.primary_topic_id
-        });
+        const validatedData = explanationInsertSchema.safeParse(explanationWithTopic);
 
         if (!validatedData.success) {
             return {
@@ -258,7 +255,7 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
                 error: embeddingError,
                 title_length: explanationData.explanation_title.length,
                 content_length: explanationData.content.length
-            }, FILE_DEBUG);
+            });
             return {
                 success: false,
                 error: 'Failed to process content for explanation',
@@ -277,7 +274,7 @@ export async function saveExplanation(prompt: string, explanationData: Explanati
             error_name: error?.name || 'UnknownError',
             error_message: error?.message || 'No error message available',
             user_query_length: prompt.length
-        }, FILE_DEBUG);
+        });
         
         return { 
             success: false, 
@@ -316,7 +313,7 @@ export async function saveUserQuery(userQuery: UserQueryInsertType) {
             error_name: error?.name || 'UnknownError',
             error_message: error?.message || 'No error message available',
             user_query_length: prompt.length
-        }, FILE_DEBUG);
+        });
         
         return { 
             success: false, 

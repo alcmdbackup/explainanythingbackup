@@ -2,13 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { generateAiExplanation, saveExplanation, saveUserQuery } from '@/actions/actions';
+import { generateAiExplanation, saveExplanationAndTopic, saveUserQuery } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { sourceWithCurrentContentType, type SourceType } from '@/lib/schemas/schemas';
+import { sourceWithCurrentContentType, type SourceType, UserQueryInsertType, ExplanationInsertType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Link from 'next/link';
 import { getExplanationById } from '@/lib/services/explanations';
@@ -23,6 +23,7 @@ export default function Home() {
     const [content, setContent] = useState('');
     const [sources, setSources] = useState<sourceWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
+    const [explanationData, setExplanationData] = useState<UserQueryInsertType | null>(null);
     const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
     const [isLoadingPageFromExplanationId, setIsLoadingPageFromExplanationId] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -92,6 +93,7 @@ export default function Home() {
         setError(null);
         setSavedId(null);
         setSources([]);
+        setExplanationData(null);
         
         const { data, error } = await generateAiExplanation(prompt);
         
@@ -100,6 +102,7 @@ export default function Home() {
         } else if (!data?.explanation_title || !data?.content) {
             setError('Invalid explanation: Missing title or content');
         } else {
+            setExplanationData(data);
             setExplanationTitle(data.explanation_title);
             setContent(data.content);
             if (data.sources) {
@@ -128,14 +131,11 @@ export default function Home() {
     };
 
     const handleSave = async () => {
-        if (!prompt || !explanationTitle || !content || savedId) return;
+        if (!prompt || !explanationTitle || !content || savedId || !explanationData) return;
         
         setIsSaving(true);
-        const { success, error, id } = await saveExplanation(prompt, {
-            explanation_title: explanationTitle,
-            content: content,
-            sources: sources
-        });
+        
+        const { success, error, id } = await saveExplanationAndTopic(prompt, explanationData);
         
         if (error) {
             setError(error);
