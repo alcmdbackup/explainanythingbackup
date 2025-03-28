@@ -4,7 +4,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, matchingSourceSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceType} from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -27,6 +27,124 @@ type VectorSearchResult = {
     explanation_id: number;
     similarity: number;
 };
+
+/**
+ * Formats top 5 sources with numbered prefixes for LLM ranking
+ * @param sources - Array of sources with content
+ * @returns string - Formatted sources as a numbered list
+ * Sample output format: "1. [Title 1] Content excerpt...\n2. [Title 2] Content excerpt...\n..."
+ */
+function formatTopSources(sources: sourceWithCurrentContentType[]): string {
+    const topSources = sources.slice(0, 5);
+    
+    return topSources.map((source, index) => {
+      const number = index + 1;
+      const title = source.current_title || 'Untitled';
+      // Truncate content if it's too long to keep prompt size reasonable
+      const contentPreview = source.current_content.substring(0, 1000) + 
+        (source.current_content.length > 150 ? '...' : '');
+      
+      return `${number}. [${title}] ${contentPreview}`;
+    }).join('\n\n');
+  }
+  
+  /**
+   * Creates a prompt for source selection
+   * @param userQuery - The original user query
+   * @param formattedSources - The numbered list of sources
+   * @returns string - Complete prompt for the LLM
+   */
+  function createSourceSelectionPrompt(userQuery: string, formattedSources: string): string {
+    return `
+  User Query: "${userQuery}"
+  
+  Below are the top 5 potential sources that might answer this query:
+  
+  ${formattedSources}
+  
+  Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
+  Choose only the number of the most relevant source. If there is no match, then answer with 0.
+  
+  Your response must be a single integer between 0 and 5.
+  `;
+  }
+  
+  /**
+   * Uses LLM to select the best source from the top 5 based on user query
+   * @param userQuery - The original user query
+   * @param sources - Array of potential sources
+   * @returns Promise<number> - Index (1-5) of the selected source
+   * Sample output: 3
+   */
+  export async function selectBestSource(
+    userQuery: string, 
+    sources: sourceWithCurrentContentType[]
+  ): Promise<{ 
+    selectedIndex: number | null,
+    error: ErrorResponse | null 
+  }> {
+    try {
+      if (!sources || sources.length === 0) {
+        return {
+          selectedIndex: null,
+          error: {
+            code: 'NO_SOURCES',
+            message: 'No sources available for selection'
+          }
+        };
+      }
+  
+      // Format the top sources with numbers
+      const formattedSources = formatTopSources(sources);
+      
+      // Create the prompt for source selection
+      const selectionPrompt = createSourceSelectionPrompt(userQuery, formattedSources);
+      
+      // Call the LLM with the schema to force an integer response
+      logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
+      const result = await callGPT4omini(selectionPrompt, matchingSourceSchema, 'sourceSelection');
+      
+      // Parse the result
+      const parsedResult = matchingSourceSchema.safeParse(JSON.parse(result));
+      
+      if (!parsedResult.success) {
+        logger.debug('Source selection schema validation failed', { 
+          errors: parsedResult.error.errors 
+        });
+        return {
+          selectedIndex: null,
+          error: {
+            code: 'INVALID_RESPONSE',
+            message: 'AI response for source selection did not match expected format',
+            details: parsedResult.error
+          }
+        };
+      }
+      
+      logger.debug('Successfully selected source', {
+        selected_index: parsedResult.data.selectedSourceIndex
+      });
+      
+      return { 
+        selectedIndex: parsedResult.data.selectedSourceIndex, 
+        error: null 
+      };
+    } catch (error) {
+      logger.error('Error in selectBestSource', {
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+        user_query: userQuery
+      });
+      
+      return {
+        selectedIndex: null,
+        error: {
+          code: 'SOURCE_SELECTION_ERROR',
+          message: 'Failed to select best source',
+          details: error instanceof Error ? error.message : 'Unknown error'
+        }
+      };
+    }
+  }
 
 /**
  * Enhances source data with current content from the database
@@ -70,53 +188,71 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
     }));
 }
 
-export async function generateAiExplanation(prompt: string): Promise<{
+export async function generateAiExplanation(userQuery: string): Promise<{
     data: UserQueryInsertType | null,
     error: ErrorResponse | null
 }> {
     try {
-        logger.debug('Starting generateAiExplanation', { prompt_length: prompt.length });
+        logger.debug('Starting generateAiExplanation', { userQuery_length: userQuery.length }, FILE_DEBUG);
 
-        if (!prompt.trim()) {
-            logger.debug('Empty prompt detected');
+        if (!userQuery.trim()) {
+            logger.debug('Empty userQuery detected');
             return {
                 data: null,
                 error: {
                     code: 'INVALID_INPUT',
-                    message: 'Prompt cannot be empty'
+                    message: 'userQuery cannot be empty'
                 }
             };
         }
 
         // Get similar text snippets
         logger.debug('Fetching similar texts from vector search');
-        const similarTexts = await handleUserQuery(prompt);
+        const similarTexts = await handleUserQuery(userQuery);
         logger.debug('Vector search results', { 
             count: similarTexts?.length || 0,
             first_result: similarTexts?.[0] 
-        });
+        }, FILE_DEBUG);
 
         const sources = await enhanceSourcesWithCurrentContent(similarTexts);
         logger.debug('Enhanced sources', { 
             sources_count: sources?.length || 0,
             first_source: sources?.[0] 
-        });
+        }, FILE_DEBUG);
 
-        const formattedPrompt = createExplanationPrompt(prompt);
+        //Try passing in the article into selectBestSource, to provide more text to embed
+        const formattedPrompt = createExplanationPrompt(userQuery);
         logger.debug('Created formatted prompt', { 
             formatted_prompt_length: formattedPrompt.length 
-        });
+        }, FILE_DEBUG);
 
         logger.debug('Calling GPT-4', { prompt_length: formattedPrompt.length });
         const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
         logger.debug('Received GPT-4 response', { 
             response_length: result?.length || 0 
-        });
+        }, FILE_DEBUG);
         
         // Parse the result to ensure it matches our schema
-        logger.debug('Parsing LLM response with schema');
+        logger.debug('Parsing LLM response with schema', {}, FILE_DEBUG);
         const parsedResult = llmQuerySchema.safeParse(JSON.parse(result));
         
+        // Create an enhanced query by concatenating the original query with the generated content
+        const enhancedQuery = `${userQuery} ${parsedResult.success ? parsedResult.data.explanation_title : ''} ${parsedResult.success ? parsedResult.data.content : ''}`;
+        
+        // Use the enhanced query for source selection
+        const bestSourceResult = await selectBestSource(
+            parsedResult.success ? enhancedQuery : userQuery, 
+            sources
+        );
+
+        // Add the call to selectBestSource here
+        //const bestSourceResult = await selectBestSource(userQuery, sources);
+        logger.debug('Best source selection result', {
+            selectedIndex: bestSourceResult.selectedIndex,
+            hasError: !!bestSourceResult.error,
+            errorCode: bestSourceResult.error?.code
+        }, true);
+
         if (!parsedResult.success) {
             logger.debug('Schema validation failed', { 
                 errors: parsedResult.error.errors 
@@ -138,7 +274,7 @@ export async function generateAiExplanation(prompt: string): Promise<{
 
         // Validate against userQueryInsertSchema before returning
         const userQueryData = {
-            user_query: prompt,
+            user_query: userQuery,
             explanation_title: parsedResult.data.explanation_title,
             content: parsedResult.data.content,
             sources: sources
@@ -202,7 +338,7 @@ export async function generateAiExplanation(prompt: string): Promise<{
 
         // Log the error with full context
         logger.error('Error in generateAIResponse', {
-            prompt,
+            userQuery,
             error: errorResponse
         });
 
@@ -213,7 +349,7 @@ export async function generateAiExplanation(prompt: string): Promise<{
     }
 }
 
-export async function saveExplanationAndTopic(prompt: string, explanationData: UserQueryInsertType) {
+export async function saveExplanationAndTopic(userQuery: string, explanationData: UserQueryInsertType) {
     try {
         // Create a topic first using the explanation title, if it doesn't already exist
         const topic = await createTopic({
@@ -273,7 +409,7 @@ export async function saveExplanationAndTopic(prompt: string, explanationData: U
             error,
             error_name: error?.name || 'UnknownError',
             error_message: error?.message || 'No error message available',
-            user_query_length: prompt.length
+            user_query_length: userQuery.length
         });
         
         return { 
@@ -312,7 +448,7 @@ export async function saveUserQuery(userQuery: UserQueryInsertType) {
             error,
             error_name: error?.name || 'UnknownError',
             error_message: error?.message || 'No error message available',
-            user_query_length: prompt.length
+            user_query_length: userQuery.length
         });
         
         return { 

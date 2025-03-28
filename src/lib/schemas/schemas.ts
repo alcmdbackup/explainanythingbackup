@@ -180,3 +180,10 @@ export const topicFullDbSchema = topicInsertSchema.extend({
 
 export type TopicInsertType = z.infer<typeof topicInsertSchema>;
 export type TopicFullDbType = z.infer<typeof topicFullDbSchema>;
+
+
+export const matchingSourceSchema = z.object({
+    selectedSourceIndex: z.number().int()
+  });
+  
+export type matchingSourceType = z.infer<typeof matchingSourceSchema>;

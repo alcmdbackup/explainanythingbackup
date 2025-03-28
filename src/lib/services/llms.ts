@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
-const FILE_DEBUG = true;
+const FILE_DEBUG = false;
 if (!process.env.OPENAI_API_KEY) {
     throw new Error('OPENAI_API_KEY not found in environment variables. Please check your .env file exists and contains a valid API key.');
 }
@@ -50,11 +50,11 @@ async function callGPT4omini(
         const completion = await openai.chat.completions.create(requestOptions);
         const response = completion.choices[0].message.content;
         if (debug) {
-            logger.debug("API call successful");
+            logger.debug("API call successful", {}, FILE_DEBUG);
             logger.debug("GPT4omini Response", {
                 prompt,
                 response
-            });
+            }, FILE_DEBUG);
         }
         if (!response) {
             throw new Error('No response received from OpenAI');
