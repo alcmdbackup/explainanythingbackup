@@ -27,6 +27,7 @@ export const llmQuerySchema = z.object({
 export const sourceSchema = z.object({
     text: z.string(),
     explanation_id: z.number(),
+    topic_id: z.number(),
     ranking: z.object({
         similarity: z.number()
     })

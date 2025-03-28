@@ -12,7 +12,7 @@ import { createUserQuery } from '@/lib/services/userQueries';
 import { userQueryInsertSchema } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
 
-const FILE_DEBUG = false;
+const FILE_DEBUG = true;
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -76,17 +76,21 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
    * @returns Promise<number> - Index (1-5) of the selected source
    * Sample output: 3
    */
-  export async function selectBestSource(
+  export async function findMatchingSource(
     userQuery: string, 
     sources: sourceWithCurrentContentType[]
   ): Promise<{ 
     selectedIndex: number | null,
+    explanationId: number | null,
+    topicId: number | null,
     error: ErrorResponse | null 
   }> {
     try {
       if (!sources || sources.length === 0) {
         return {
           selectedIndex: null,
+          explanationId: null,
+          topicId: null,
           error: {
             code: 'NO_SOURCES',
             message: 'No sources available for selection'
@@ -107,12 +111,16 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
       // Parse the result
       const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
       
+
+
       if (!parsedResult.success) {
         logger.debug('Source selection schema validation failed', { 
           errors: parsedResult.error.errors 
         });
         return {
           selectedIndex: null,
+          explanationId: null,
+          topicId: null,
           error: {
             code: 'INVALID_RESPONSE',
             message: 'AI response for source selection did not match expected format',
@@ -121,22 +129,40 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
         };
       }
       
+      const selectedIndex = parsedResult.data.selectedSourceIndex;
+      
+      // If a valid source was selected (not 0), get its explanation ID and topic ID
+      const explanationId = selectedIndex > 0 && selectedIndex <= sources.length 
+        ? sources[selectedIndex - 1].explanation_id 
+        : null;
+
+      // Get topic ID from metadata if available
+      const topicId = selectedIndex > 0 && selectedIndex <= sources.length
+        ? sources[selectedIndex - 1].topic_id || null
+        : null;
+
       logger.debug('Successfully selected source', {
-        selected_index: parsedResult.data.selectedSourceIndex
+        selected_index: selectedIndex,
+        explanation_id: explanationId,
+        topic_id: topicId
       });
       
       return { 
-        selectedIndex: parsedResult.data.selectedSourceIndex, 
+        selectedIndex, 
+        explanationId,
+        topicId,
         error: null 
       };
     } catch (error) {
-      logger.error('Error in selectBestSource', {
+      logger.error('Error in findMatchingSource', {
         error_message: error instanceof Error ? error.message : 'Unknown error',
         user_query: userQuery
       });
       
       return {
         selectedIndex: null,
+        explanationId: null,
+        topicId: null,
         error: {
           code: 'SOURCE_SELECTION_ERROR',
           message: 'Failed to select best source',
@@ -173,6 +199,7 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
         const enhancedSource = {
             text: result.metadata.text,
             explanation_id: result.metadata.explanation_id,
+            topic_id: result.metadata.topic_id,
             current_title: explanation?.explanation_title || '',
             current_content: explanation?.content || '',
             ranking: {
@@ -221,9 +248,11 @@ export async function generateAiExplanation(userQuery: string): Promise<{
         }, FILE_DEBUG);
 
         // Add the call to selectBestSource here
-        const bestSourceResult = await selectBestSource(userQuery, sources);
+        const bestSourceResult = await findMatchingSource(userQuery, sources);
         logger.debug('Best source selection result', {
             selectedIndex: bestSourceResult.selectedIndex,
+            explanationId: bestSourceResult.explanationId,
+            topicId: bestSourceResult.topicId,
             hasError: !!bestSourceResult.error,
             errorCode: bestSourceResult.error?.code
         }, FILE_DEBUG);
