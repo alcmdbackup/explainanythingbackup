@@ -95,32 +95,36 @@ export default function Home() {
         setSources([]);
         setExplanationData(null);
         
-        const { data, error } = await generateAiExplanation(prompt);
+        const { data, error } = await generateAiExplanation(prompt, savedId);
         
         if (error) {
             setError(error.message);
-        } else if (!data?.explanation_title || !data?.content) {
-            setError('Invalid explanation: Missing title or content');
+        } else if (!data) {
+            setError('No response received');
+        } else if (data.match_found) {
+            // Found existing explanation - load it directly
+            await loadExplanation(data.data.explanation_id);
         } else {
-            setExplanationData(data);
-            setExplanationTitle(data.explanation_title);
-            setContent(data.content);
-            if (data.sources) {
-                setSources(data.sources);
-            }
+            // New explanation generated - set the data
+            const explanationData = data.data; // This contains the UserQueryInsertType data
+            setExplanationData(explanationData);
+            setExplanationTitle(explanationData.explanation_title);
+            setContent(explanationData.content);
             
-            // Save user query with sources
-            const { error: queryError } = await saveUserQuery(data);
-            
-            // Display sources if available
-            if (data.sources?.length) {
+            if (explanationData.sources) {
+                setSources(explanationData.sources);
+                
+                // Display sources if available
                 const sourcesSection = '\n\n## Related Sources\n' + 
-                    data.sources.map(source => 
+                    explanationData.sources.map(source => 
                         `- **Similarity: ${(source.ranking.similarity * 100).toFixed(1)}%**\n  ${source.text}`
                     ).join('\n\n');
                 
-                setContent(data.content + sourcesSection);
+                setContent(explanationData.content + sourcesSection);
             }
+            
+            // Save user query with sources
+            const { error: queryError } = await saveUserQuery(explanationData);
             
             if (queryError) {
                 logger.error('Failed to save user query:', { error: queryError });

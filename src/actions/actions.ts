@@ -4,7 +4,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType} from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType, type QueryResponseType, matchingSourceReturnSchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -215,12 +215,18 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
     }));
 }
 
-export async function generateAiExplanation(userQuery: string): Promise<{
-    data: UserQueryInsertType | null,
+export async function generateAiExplanation(
+    userQuery: string,
+    savedId?: number | null
+): Promise<{
+    data: QueryResponseType | null,
     error: ErrorResponse | null
 }> {
     try {
-        logger.debug('Starting generateAiExplanation', { userQuery_length: userQuery.length }, FILE_DEBUG);
+        logger.debug('Starting generateAiExplanation', { 
+            userQuery_length: userQuery.length,
+            savedId 
+        }, FILE_DEBUG);
 
         if (!userQuery.trim()) {
             logger.debug('Empty userQuery detected');
@@ -241,10 +247,16 @@ export async function generateAiExplanation(userQuery: string): Promise<{
             first_result: similarTexts?.[0] 
         }, FILE_DEBUG);
 
-        const sources = await enhanceSourcesWithCurrentContent(similarTexts);
+        // Filter out sources with matching savedId if provided
+        const filteredSimilarTexts = savedId 
+            ? similarTexts.filter(text => text.metadata.explanation_id !== savedId)
+            : similarTexts;
+
+        const sources = await enhanceSourcesWithCurrentContent(filteredSimilarTexts);
         logger.debug('Enhanced sources', { 
             sources_count: sources?.length || 0,
-            first_source: sources?.[0] 
+            first_source: sources?.[0],
+            filtered_out: similarTexts.length - filteredSimilarTexts.length
         }, FILE_DEBUG);
 
         // Add the call to selectBestSource here
@@ -256,6 +268,24 @@ export async function generateAiExplanation(userQuery: string): Promise<{
             hasError: !!bestSourceResult.error,
             errorCode: bestSourceResult.error?.code
         }, FILE_DEBUG);
+
+        // If we found a matching source, return early with that data
+        if (bestSourceResult.selectedIndex && 
+            bestSourceResult.selectedIndex > 0 && 
+            bestSourceResult.explanationId && 
+            bestSourceResult.topicId) {
+            
+            return {
+                data: {
+                    match_found: true,
+                    data: {
+                        explanation_id: bestSourceResult.explanationId,
+                        topic_id: bestSourceResult.topicId
+                    }
+                },
+                error: null
+            };
+        }
 
         const formattedPrompt = createExplanationPrompt(userQuery);
         logger.debug('Created formatted prompt', { 
@@ -315,9 +345,12 @@ export async function generateAiExplanation(userQuery: string): Promise<{
             };
         }
 
-        return { 
-            data: validatedUserQuery.data,
-            error: null 
+        return {
+            data: {
+                match_found: false,
+                data: validatedUserQuery.data
+            },
+            error: null
         };
     } catch (error) {
         let errorResponse: ErrorResponse;
