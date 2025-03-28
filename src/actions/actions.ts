@@ -220,6 +220,14 @@ export async function generateAiExplanation(userQuery: string): Promise<{
             first_source: sources?.[0] 
         }, FILE_DEBUG);
 
+        // Add the call to selectBestSource here
+        const bestSourceResult = await selectBestSource(userQuery, sources);
+        logger.debug('Best source selection result', {
+            selectedIndex: bestSourceResult.selectedIndex,
+            hasError: !!bestSourceResult.error,
+            errorCode: bestSourceResult.error?.code
+        }, true);
+
         //Try passing in the article into selectBestSource, to provide more text to embed
         const formattedPrompt = createExplanationPrompt(userQuery);
         logger.debug('Created formatted prompt', { 
@@ -235,23 +243,6 @@ export async function generateAiExplanation(userQuery: string): Promise<{
         // Parse the result to ensure it matches our schema
         logger.debug('Parsing LLM response with schema', {}, FILE_DEBUG);
         const parsedResult = llmQuerySchema.safeParse(JSON.parse(result));
-        
-        // Create an enhanced query by concatenating the original query with the generated content
-        const enhancedQuery = `${userQuery} ${parsedResult.success ? parsedResult.data.explanation_title : ''} ${parsedResult.success ? parsedResult.data.content : ''}`;
-        
-        // Use the enhanced query for source selection
-        const bestSourceResult = await selectBestSource(
-            parsedResult.success ? enhancedQuery : userQuery, 
-            sources
-        );
-
-        // Add the call to selectBestSource here
-        //const bestSourceResult = await selectBestSource(userQuery, sources);
-        logger.debug('Best source selection result', {
-            selectedIndex: bestSourceResult.selectedIndex,
-            hasError: !!bestSourceResult.error,
-            errorCode: bestSourceResult.error?.code
-        }, true);
 
         if (!parsedResult.success) {
             logger.debug('Schema validation failed', { 
