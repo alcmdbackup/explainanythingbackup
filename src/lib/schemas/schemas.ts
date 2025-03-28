@@ -182,8 +182,15 @@ export type TopicInsertType = z.infer<typeof topicInsertSchema>;
 export type TopicFullDbType = z.infer<typeof topicFullDbSchema>;
 
 
-export const matchingSourceSchema = z.object({
+export const matchingSourceLLMSchema = z.object({
     selectedSourceIndex: z.number().int()
   });
   
-export type matchingSourceType = z.infer<typeof matchingSourceSchema>;
+export type matchingSourceLLMType = z.infer<typeof matchingSourceLLMSchema>;
+
+export const matchingSourceTopicSchema = z.object({
+    topic_id: z.number().int(),
+    explanation_id: z.number().int()
+});
+
+export type MatchingSourceTopicType = z.infer<typeof matchingSourceTopicSchema>;

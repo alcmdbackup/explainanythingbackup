@@ -4,7 +4,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, matchingSourceSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceType} from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType} from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -102,10 +102,10 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, matchingSourceSchema, 'sourceSelection');
+      const result = await callGPT4omini(selectionPrompt, matchingSourceLLMSchema, 'sourceSelection');
       
       // Parse the result
-      const parsedResult = matchingSourceSchema.safeParse(JSON.parse(result));
+      const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
       
       if (!parsedResult.success) {
         logger.debug('Source selection schema validation failed', { 
@@ -226,7 +226,7 @@ export async function generateAiExplanation(userQuery: string): Promise<{
             selectedIndex: bestSourceResult.selectedIndex,
             hasError: !!bestSourceResult.error,
             errorCode: bestSourceResult.error?.code
-        }, true);
+        }, FILE_DEBUG);
 
         //Try passing in the article into selectBestSource, to provide more text to embed
         const formattedPrompt = createExplanationPrompt(userQuery);
