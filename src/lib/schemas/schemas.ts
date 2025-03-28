@@ -188,9 +188,46 @@ export const matchingSourceLLMSchema = z.object({
   
 export type matchingSourceLLMType = z.infer<typeof matchingSourceLLMSchema>;
 
-export const matchingSourceTopicSchema = z.object({
+export const matchingSourceReturnSchema = z.object({
     topic_id: z.number().int(),
     explanation_id: z.number().int()
 });
 
-export type MatchingSourceTopicType = z.infer<typeof matchingSourceTopicSchema>;
+export type MatchingSourceReturnType = z.infer<typeof matchingSourceReturnSchema>;
+
+/**
+ * Schema for query response that either contains a new explanation or a matching source
+ * @example
+ * // When no match is found:
+ * {
+ *   match_found: false,
+ *   data: {
+ *     user_query: "How does photosynthesis work?",
+ *     explanation_title: "Photosynthesis Process",
+ *     content: "...",
+ *     sources: [...]
+ *   }
+ * }
+ * 
+ * // When match is found:
+ * {
+ *   match_found: true,
+ *   data: {
+ *     topic_id: 123,
+ *     explanation_id: 456
+ *   }
+ * }
+ */
+export const queryResponseSchema = z.discriminatedUnion('match_found', [
+  z.object({
+    match_found: z.literal(false),
+    data: userQueryInsertSchema
+  }),
+  z.object({
+    match_found: z.literal(true),
+    data: matchingSourceReturnSchema
+  })
+]);
+
+export type QueryResponseType = z.infer<typeof queryResponseSchema>;
+

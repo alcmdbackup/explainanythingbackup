@@ -228,7 +228,6 @@ export async function generateAiExplanation(userQuery: string): Promise<{
             errorCode: bestSourceResult.error?.code
         }, FILE_DEBUG);
 
-        //Try passing in the article into selectBestSource, to provide more text to embed
         const formattedPrompt = createExplanationPrompt(userQuery);
         logger.debug('Created formatted prompt', { 
             formatted_prompt_length: formattedPrompt.length 
@@ -376,7 +375,7 @@ export async function saveExplanationAndTopic(userQuery: string, explanationData
         
         // Create embeddings for the combined content
         try {
-            await processContentToStoreEmbedding(combinedContent, savedExplanation.id);
+            await processContentToStoreEmbedding(combinedContent, savedExplanation.id, topic.id);
         } catch (embeddingError) {
             logger.error('Failed to create embeddings', {
                 error: embeddingError,
