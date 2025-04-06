@@ -78,7 +78,8 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
    */
   export async function findMatchingSource(
     userQuery: string, 
-    sources: sourceWithCurrentContentType[]
+    sources: sourceWithCurrentContentType[],
+    matchMode: MatchMode
   ): Promise<{ 
     selectedIndex: number | null,
     explanationId: number | null,
@@ -111,7 +112,18 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
       // Parse the result
       const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
       
-
+      // If in force mode and we have sources, always return the first source
+      if (matchMode === MatchMode.Force && sources.length > 0) {
+        logger.debug('Force mode: returning first source', {
+          source: sources[0]
+        });
+        return {
+          selectedIndex: 1, // First source has index 1
+          explanationId: sources[0].explanation_id,
+          topicId: sources[0].topic_id || null,
+          error: null
+        };
+      }
 
       if (!parsedResult.success) {
         logger.debug('Source selection schema validation failed', { 
@@ -262,7 +274,7 @@ export async function generateAiExplanation(
         }, FILE_DEBUG);
 
         // Add the call to selectBestSource here
-        const bestSourceResult = await findMatchingSource(userQuery, sources);
+        const bestSourceResult = await findMatchingSource(userQuery, sources, matchMode);
         logger.debug('Best source selection result', {
             selectedIndex: bestSourceResult.selectedIndex,
             explanationId: bestSourceResult.explanationId,
@@ -273,7 +285,7 @@ export async function generateAiExplanation(
         }, FILE_DEBUG);
 
         // Update the match condition to use matchMode
-        if (matchMode === MatchMode.Normal && 
+        if ((matchMode === MatchMode.Normal || matchMode === MatchMode.Force) && 
             bestSourceResult.selectedIndex && 
             bestSourceResult.selectedIndex > 0 && 
             bestSourceResult.explanationId && 
