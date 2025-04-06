@@ -87,7 +87,7 @@ export default function Home() {
         setIsLoadingPageFromExplanationId(false);
     }, [searchParams]);
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent, skipMatch: boolean = false) => {
         e.preventDefault();
         setIsGeneratingExplanation(true);
         setError(null);
@@ -95,7 +95,7 @@ export default function Home() {
         setSources([]);
         setExplanationData(null);
         
-        const { data, error } = await generateAiExplanation(prompt, savedId);
+        const { data, error } = await generateAiExplanation(prompt, savedId, skipMatch);
         
         if (error) {
             setError(error.message);
@@ -180,7 +180,7 @@ export default function Home() {
                     
                     <div className="flex gap-8 justify-center">
                         <div className="w-full max-w-2xl">
-                            <form onSubmit={handleSubmit} className="space-y-4">
+                            <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-4">
                                 <div>
                                     <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                         Enter your prompt
@@ -195,15 +195,26 @@ export default function Home() {
                                     />
                                 </div>
                                 
-                                <button
-                                    type="submit"
-                                    disabled={isGeneratingExplanation || !prompt.trim()}
-                                    className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                        explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
-                                    }`}
-                                >
-                                    {isGeneratingExplanation ? 'Generating...' : explanationTitle || content ? 'Regenerate' : 'Generate'}
-                                </button>
+                                <div className="space-y-2">
+                                    <button
+                                        type="submit"
+                                        disabled={isGeneratingExplanation || !prompt.trim()}
+                                        className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                            explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                        }`}
+                                    >
+                                        {isGeneratingExplanation ? 'Generating...' : explanationTitle || content ? 'Regenerate' : 'Generate'}
+                                    </button>
+                                    
+                                    <button
+                                        type="button"
+                                        onClick={(e) => handleSubmit(e, true)}
+                                        disabled={isGeneratingExplanation || !prompt.trim()}
+                                        className="w-full px-4 py-2 text-white bg-gray-600 hover:bg-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Force new result
+                                    </button>
+                                </div>
                             </form>
 
                             {error && (

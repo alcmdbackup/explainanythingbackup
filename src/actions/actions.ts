@@ -217,7 +217,8 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
 
 export async function generateAiExplanation(
     userQuery: string,
-    savedId?: number | null
+    savedId: number | null,
+    skipMatch: boolean
 ): Promise<{
     data: QueryResponseType | null,
     error: ErrorResponse | null
@@ -225,7 +226,8 @@ export async function generateAiExplanation(
     try {
         logger.debug('Starting generateAiExplanation', { 
             userQuery_length: userQuery.length,
-            savedId 
+            savedId,
+            skipMatch
         }, FILE_DEBUG);
 
         if (!userQuery.trim()) {
@@ -266,11 +268,13 @@ export async function generateAiExplanation(
             explanationId: bestSourceResult.explanationId,
             topicId: bestSourceResult.topicId,
             hasError: !!bestSourceResult.error,
-            errorCode: bestSourceResult.error?.code
+            errorCode: bestSourceResult.error?.code,
+            skipmatch: skipMatch
         }, FILE_DEBUG);
 
-        // If we found a matching source, return early with that data
-        if (bestSourceResult.selectedIndex && 
+        // If we found a matching source and we're not skipping matches, return early with that data
+        if (!skipMatch && 
+            bestSourceResult.selectedIndex && 
             bestSourceResult.selectedIndex > 0 && 
             bestSourceResult.explanationId && 
             bestSourceResult.topicId) {
