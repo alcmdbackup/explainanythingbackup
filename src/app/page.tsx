@@ -29,6 +29,7 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isPromptModified, setIsPromptModified] = useState(false);
 
     const loadExplanation = async (explanationId: number) => {
         try {
@@ -44,6 +45,7 @@ export default function Home() {
             setContent(explanation.content);
             setSavedId(explanation.id);
             setPrompt('');
+            setIsPromptModified(false);
 
             // If there are sources, enhance them with current content
             if (explanation.sources?.length) {
@@ -87,8 +89,16 @@ export default function Home() {
         setIsLoadingPageFromExplanationId(false);
     }, [searchParams]);
 
+    const handlePromptChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        setPrompt(e.target.value);
+        if (explanationTitle || content) {
+            setIsPromptModified(true);
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent, skipMatch: boolean = false) => {
         e.preventDefault();
+        setIsPromptModified(false);
         setIsGeneratingExplanation(true);
         setError(null);
         setSavedId(null);
@@ -188,7 +198,7 @@ export default function Home() {
                                     <textarea
                                         id="prompt"
                                         value={prompt}
-                                        onChange={(e) => setPrompt(e.target.value)}
+                                        onChange={handlePromptChange}
                                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white"
                                         rows={4}
                                         placeholder="Type your prompt here..."
@@ -203,7 +213,12 @@ export default function Home() {
                                             explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
                                         }`}
                                     >
-                                        {isGeneratingExplanation ? 'Generating...' : explanationTitle || content ? 'Regenerate' : 'Generate'}
+                                        {isGeneratingExplanation 
+                                            ? 'Generating...' 
+                                            : (explanationTitle || content) && !isPromptModified 
+                                                ? 'Regenerate' 
+                                                : 'Generate'
+                                        }
                                     </button>
                                     
                                     <button
