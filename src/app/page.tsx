@@ -31,7 +31,7 @@ export default function Home() {
     const [isSaving, setIsSaving] = useState(false);
     const [isPromptModified, setIsPromptModified] = useState(false);
 
-    const loadExplanation = async (explanationId: number) => {
+    const loadExplanation = async (explanationId: number, clearPrompt: boolean) => {
         try {
             setError(null);
             const explanation = await getExplanationById(explanationId);
@@ -44,7 +44,9 @@ export default function Home() {
             setExplanationTitle(explanation.explanation_title);
             setContent(explanation.content);
             setSavedId(explanation.id);
-            setPrompt('');
+            if (clearPrompt) {
+                setPrompt('');
+            }
             setIsPromptModified(false);
 
             // If there are sources, enhance them with current content
@@ -85,7 +87,7 @@ export default function Home() {
         const explanationId = searchParams.get('explanation_id');
         if (!explanationId) return;
         setIsLoadingPageFromExplanationId(true);
-        loadExplanation(parseInt(explanationId));
+        loadExplanation(parseInt(explanationId), true);
         setIsLoadingPageFromExplanationId(false);
     }, [searchParams]);
 
@@ -117,7 +119,7 @@ export default function Home() {
             setError('No response received');
         } else if (data.match_found) {
             // Found existing explanation - load it directly
-            await loadExplanation(data.data.explanation_id);
+            await loadExplanation(data.data.explanation_id, false);
         } else {
             // New explanation generated - set the data
             const explanationData = data.data; // This contains the UserQueryInsertType data
@@ -322,7 +324,7 @@ export default function Home() {
                                                         Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
                                                     </span>
                                                     <button 
-                                                        onClick={() => loadExplanation(source.explanation_id)}
+                                                        onClick={() => loadExplanation(source.explanation_id, true)}
                                                         className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
                                                     >
                                                         View →
