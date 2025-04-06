@@ -4,7 +4,7 @@ import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType, type QueryResponseType, matchingSourceReturnSchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType, type QueryResponseType, matchingSourceReturnSchema, MatchMode } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -218,7 +218,7 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
 export async function generateAiExplanation(
     userQuery: string,
     savedId: number | null,
-    skipMatch: boolean
+    matchMode: MatchMode
 ): Promise<{
     data: QueryResponseType | null,
     error: ErrorResponse | null
@@ -227,7 +227,7 @@ export async function generateAiExplanation(
         logger.debug('Starting generateAiExplanation', { 
             userQuery_length: userQuery.length,
             savedId,
-            skipMatch
+            matchMode
         }, FILE_DEBUG);
 
         if (!userQuery.trim()) {
@@ -269,11 +269,11 @@ export async function generateAiExplanation(
             topicId: bestSourceResult.topicId,
             hasError: !!bestSourceResult.error,
             errorCode: bestSourceResult.error?.code,
-            skipmatch: skipMatch
+            matchMode: matchMode
         }, FILE_DEBUG);
 
-        // If we found a matching source and we're not skipping matches, return early with that data
-        if (!skipMatch && 
+        // Update the match condition to use matchMode
+        if (matchMode === MatchMode.Normal && 
             bestSourceResult.selectedIndex && 
             bestSourceResult.selectedIndex > 0 && 
             bestSourceResult.explanationId && 

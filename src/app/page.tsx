@@ -8,7 +8,7 @@ import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { sourceWithCurrentContentType, type SourceType, UserQueryInsertType, ExplanationInsertType } from '@/lib/schemas/schemas';
+import { sourceWithCurrentContentType, type SourceType, UserQueryInsertType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Link from 'next/link';
 import { getExplanationById } from '@/lib/services/explanations';
@@ -96,7 +96,7 @@ export default function Home() {
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent, skipMatch: boolean = false) => {
+    const handleSubmit = async (e: React.FormEvent, matchMode: MatchMode = MatchMode.Normal) => {
         e.preventDefault();
         setIsPromptModified(false);
         setIsGeneratingExplanation(true);
@@ -105,7 +105,11 @@ export default function Home() {
         setSources([]);
         setExplanationData(null);
         
-        const { data, error } = await generateAiExplanation(prompt, savedId, skipMatch);
+        const { data, error } = await generateAiExplanation(
+            prompt, 
+            savedId, 
+            matchMode
+        );
         
         if (error) {
             setError(error.message);
@@ -190,7 +194,7 @@ export default function Home() {
                     
                     <div className="flex gap-8 justify-center">
                         <div className="w-full max-w-2xl">
-                            <form onSubmit={(e) => handleSubmit(e, false)} className="space-y-4">
+                            <form onSubmit={(e) => handleSubmit(e, MatchMode.Normal)} className="space-y-4">
                                 <div>
                                     <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                         Enter your prompt
@@ -223,7 +227,7 @@ export default function Home() {
                                     
                                     <button
                                         type="button"
-                                        onClick={(e) => handleSubmit(e, true)}
+                                        onClick={(e) => handleSubmit(e, MatchMode.Skip)}
                                         disabled={isGeneratingExplanation || !prompt.trim()}
                                         className="w-full px-4 py-2 text-white bg-gray-600 hover:bg-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >

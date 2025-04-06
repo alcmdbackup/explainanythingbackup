@@ -1,5 +1,11 @@
 import { z } from 'zod';
 
+// Add near the top with other type definitions
+export enum MatchMode {
+  Normal = "normal",
+  Skip = "skip"
+}
+
 /**
  * Base schema for LLM query data
  * @example
