@@ -107,11 +107,16 @@ export default function Home() {
         setSources([]);
         setExplanationData(null);
         
-        const { data, error } = await generateAiExplanation(
+        const { data, error, enhancedUserQuery } = await generateAiExplanation(
             prompt, 
             savedId, 
             matchMode
         );
+        
+        // Update the prompt with the enhanced query
+        if (enhancedUserQuery && enhancedUserQuery !== prompt) {
+            setPrompt(enhancedUserQuery);
+        }
         
         if (error) {
             setError(error.message);

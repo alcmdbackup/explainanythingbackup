@@ -227,13 +227,37 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
     }));
 }
 
+/**
+ * Enhances a user query by making it more detailed while preserving the original intent
+ * @param userQuery - The original user query string
+ * @returns Promise<string> - The enhanced, more detailed query
+ * Sample output: "Original: 'How does photosynthesis work?' 
+ *                Enhanced: 'Can you explain in detail how the process of photosynthesis works, including the light-dependent and light-independent reactions, and how plants convert sunlight into energy?'"
+ */
+async function enhanceQueryDetails(userQuery: string): Promise<string> {
+    try {
+        const prompt = `Make each sentence in this user query more detailed and precise while keeping the intent the same. Write concisely and do not add filler words: "${userQuery}"`;
+        const enhancedQuery = await callGPT4omini(prompt, null, null, FILE_DEBUG);
+        return enhancedQuery.trim();
+    } catch (error) {
+        logger.error('Error enhancing query details', {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            userQuery
+        });
+        // Return original query if enhancement fails
+        return userQuery;
+    }
+}
+
 export async function generateAiExplanation(
     userQuery: string,
     savedId: number | null,
     matchMode: MatchMode
 ): Promise<{
     data: QueryResponseType | null,
-    error: ErrorResponse | null
+    error: ErrorResponse | null,
+    originalUserQuery: string,
+    enhancedUserQuery: string
 }> {
     try {
         logger.debug('Starting generateAiExplanation', { 
@@ -253,9 +277,16 @@ export async function generateAiExplanation(
             };
         }
 
-        // Get similar text snippets
+        // Enhance the user query
+        const enhancedUserQuery = await enhanceQueryDetails(userQuery);
+        logger.debug('Enhanced user query', {
+            original_length: userQuery.length,
+            enhanced_length: enhancedUserQuery.length
+        }, FILE_DEBUG);
+
+        // Get similar text snippets using enhanced query
         logger.debug('Fetching similar texts from vector search');
-        const similarTexts = await handleUserQuery(userQuery);
+        const similarTexts = await handleUserQuery(enhancedUserQuery);
         logger.debug('Vector search results', { 
             count: similarTexts?.length || 0,
             first_result: similarTexts?.[0] 
@@ -274,7 +305,7 @@ export async function generateAiExplanation(
         }, FILE_DEBUG);
 
         // Add the call to selectBestSource here
-        const bestSourceResult = await findMatchingSource(userQuery, sources, matchMode);
+        const bestSourceResult = await findMatchingSource(enhancedUserQuery, sources, matchMode);
         logger.debug('Best source selection result', {
             selectedIndex: bestSourceResult.selectedIndex,
             explanationId: bestSourceResult.explanationId,
@@ -299,11 +330,13 @@ export async function generateAiExplanation(
                         topic_id: bestSourceResult.topicId
                     }
                 },
-                error: null
+                error: null,
+                originalUserQuery: userQuery,
+                enhancedUserQuery: enhancedUserQuery
             };
         }
 
-        const formattedPrompt = createExplanationPrompt(userQuery);
+        const formattedPrompt = createExplanationPrompt(enhancedUserQuery);
         logger.debug('Created formatted prompt', { 
             formatted_prompt_length: formattedPrompt.length 
         }, FILE_DEBUG);
@@ -328,7 +361,9 @@ export async function generateAiExplanation(
                     code: 'INVALID_RESPONSE',
                     message: 'AI response did not match expected format',
                     details: parsedResult.error
-                }
+                },
+                originalUserQuery: userQuery,
+                enhancedUserQuery: enhancedUserQuery
             };
         }
 
@@ -339,7 +374,7 @@ export async function generateAiExplanation(
 
         // Validate against userQueryInsertSchema before returning
         const userQueryData = {
-            user_query: userQuery,
+            user_query: enhancedUserQuery,
             explanation_title: parsedResult.data.explanation_title,
             content: parsedResult.data.content,
             sources: sources
@@ -357,7 +392,9 @@ export async function generateAiExplanation(
                     code: 'INVALID_USER_QUERY',
                     message: 'Generated response does not match user query schema',
                     details: validatedUserQuery.error
-                }
+                },
+                originalUserQuery: userQuery,
+                enhancedUserQuery: enhancedUserQuery
             };
         }
 
@@ -366,7 +403,9 @@ export async function generateAiExplanation(
                 match_found: false,
                 data: validatedUserQuery.data
             },
-            error: null
+            error: null,
+            originalUserQuery: userQuery,
+            enhancedUserQuery: enhancedUserQuery
         };
     } catch (error) {
         let errorResponse: ErrorResponse;
@@ -412,7 +451,9 @@ export async function generateAiExplanation(
 
         return { 
             data: null, 
-            error: errorResponse
+            error: errorResponse,
+            originalUserQuery: userQuery,
+            enhancedUserQuery: userQuery
         };
     }
 }
