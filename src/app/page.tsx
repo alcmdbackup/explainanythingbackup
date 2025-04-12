@@ -103,7 +103,6 @@ export default function Home() {
         setIsPromptModified(false);
         setIsGeneratingExplanation(true);
         setError(null);
-        setSavedId(null);
         setSources([]);
         setExplanationData(null);
         
@@ -112,6 +111,9 @@ export default function Home() {
             savedId, 
             matchMode
         );
+        
+        // Clear savedId after the API call
+        setSavedId(null);
         
         // Update the prompt with the enhanced query
         if (enhancedUserQuery && enhancedUserQuery !== prompt) {

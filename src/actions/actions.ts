@@ -230,13 +230,16 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
 /**
  * Enhances a user query by making it more detailed while preserving the original intent
  * @param userQuery - The original user query string
- * @returns Promise<string> - The enhanced, more detailed query
+ * @param fullResponse - If true, uses the original query as prompt for a full response. If false, enhances the query details.
+ * @returns Promise<string> - The enhanced, more detailed query or full response
  * Sample output: "Original: 'How does photosynthesis work?' 
  *                Enhanced: 'Can you explain in detail how the process of photosynthesis works, including the light-dependent and light-independent reactions, and how plants convert sunlight into energy?'"
  */
-async function enhanceQueryDetails(userQuery: string): Promise<string> {
+async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Promise<string> {
     try {
-        const prompt = `Make each sentence in this user query more detailed and precise while keeping the intent the same. Write concisely and do not add filler words: "${userQuery}"`;
+        const prompt = fullResponse 
+            ? userQuery 
+            : `Make each sentence in this user query more detailed and precise while keeping the intent the same. Write concisely and do not add filler words: "${userQuery}"`;
         const enhancedQuery = await callGPT4omini(prompt, null, null, FILE_DEBUG);
         return enhancedQuery.trim();
     } catch (error) {
@@ -278,7 +281,7 @@ export async function generateAiExplanation(
         }
 
         // Enhance the user query
-        const enhancedUserQuery = await enhanceQueryDetails(userQuery);
+        const enhancedUserQuery = await enhanceQueryDetails(userQuery, true);
         logger.debug('Enhanced user query', {
             original_length: userQuery.length,
             enhanced_length: enhancedUserQuery.length

@@ -110,7 +110,7 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
     }, FILE_DEBUG);
 
     const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
+      model: "text-embedding-3-large",
       input: chunk.text,
     });
     
