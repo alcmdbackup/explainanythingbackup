@@ -240,7 +240,7 @@ export default function Home() {
                                         disabled={isGeneratingExplanation || !prompt.trim()}
                                         className="w-full px-4 py-2 text-white bg-yellow-600 hover:bg-yellow-700 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Force existing match
+                                        Force existing match (skips "saved_id")
                                     </button>
                                     
                                     <button

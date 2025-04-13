@@ -29,23 +29,29 @@ type VectorSearchResult = {
 };
 
 /**
- * Formats top 5 sources with numbered prefixes for LLM ranking
+ * Formats top 5 sources with numbered prefixes for LLM ranking, excluding any source matching savedId
  * @param sources - Array of sources with content
+ * @param savedId - The explanation_id to exclude from the results
  * @returns string - Formatted sources as a numbered list
  * Sample output format: "1. [Title 1] Content excerpt...\n2. [Title 2] Content excerpt...\n..."
  */
-function formatTopSources(sources: sourceWithCurrentContentType[]): string {
+function formatTopSources(sources: sourceWithCurrentContentType[], savedId: number | null): string {
     const topSources = sources.slice(0, 5);
     
     return topSources.map((source, index) => {
-      const number = index + 1;
+      // Skip if this source matches savedId
+      if (source.explanation_id === savedId) {
+        return null;
+      }
+
+      const number = index + 1; // Use original array index
       const title = source.current_title || 'Untitled';
       // Truncate content if it's too long to keep prompt size reasonable
       const contentPreview = source.current_content.substring(0, 1000) + 
         (source.current_content.length > 150 ? '...' : '');
       
       return `${number}. [${title}] ${contentPreview}`;
-    }).join('\n\n');
+    }).filter(Boolean).join('\n\n');
   }
   
   /**
@@ -79,7 +85,8 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
   export async function findMatchingSource(
     userQuery: string, 
     sources: sourceWithCurrentContentType[],
-    matchMode: MatchMode
+    matchMode: MatchMode,
+    savedId: number | null
   ): Promise<{ 
     selectedIndex: number | null,
     explanationId: number | null,
@@ -99,8 +106,24 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
         };
       }
   
+      // If in force mode and we have sources, return the first source that's not savedId
+      if (matchMode === MatchMode.Force) {
+        const firstNonSavedSource = sources.find(source => source.explanation_id !== savedId);
+        if (firstNonSavedSource) {
+          logger.debug('Force mode: returning first non-saveid source', {
+            source: firstNonSavedSource
+          });
+          return {
+            selectedIndex: sources.indexOf(firstNonSavedSource) + 1, // Convert to 1-based index
+            explanationId: firstNonSavedSource.explanation_id,
+            topicId: firstNonSavedSource.topic_id || null,
+            error: null
+          };
+        }
+      }
+
       // Format the top sources with numbers
-      const formattedSources = formatTopSources(sources);
+      const formattedSources = formatTopSources(sources, savedId);
       
       // Create the prompt for source selection
       const selectionPrompt = createSourceSelectionPrompt(userQuery, formattedSources);
@@ -111,19 +134,6 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
       
       // Parse the result
       const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
-      
-      // If in force mode and we have sources, always return the first source
-      if (matchMode === MatchMode.Force && sources.length > 0) {
-        logger.debug('Force mode: returning first source', {
-          source: sources[0]
-        });
-        return {
-          selectedIndex: 1, // First source has index 1
-          explanationId: sources[0].explanation_id,
-          topicId: sources[0].topic_id || null,
-          error: null
-        };
-      }
 
       if (!parsedResult.success) {
         logger.debug('Source selection schema validation failed', { 
@@ -141,7 +151,21 @@ function formatTopSources(sources: sourceWithCurrentContentType[]): string {
         };
       }
       
-      const selectedIndex = parsedResult.data.selectedSourceIndex;
+      let selectedIndex = parsedResult.data.selectedSourceIndex;
+      
+      // If the selected source matches savedId, find the next best match
+      if (selectedIndex > 0 && selectedIndex <= sources.length && 
+          sources[selectedIndex - 1].explanation_id === savedId) {
+        // Find the next best source that's not savedId
+        const nextBestSource = sources.find((source, index) => 
+          source.explanation_id !== savedId && index !== selectedIndex - 1
+        );
+        if (nextBestSource) {
+          selectedIndex = sources.indexOf(nextBestSource) + 1;
+        } else {
+          selectedIndex = 0; // No valid match found
+        }
+      }
       
       // If a valid source was selected (not 0), get its explanation ID and topic ID
       const explanationId = selectedIndex > 0 && selectedIndex <= sources.length 
@@ -295,20 +319,14 @@ export async function generateAiExplanation(
             first_result: similarTexts?.[0] 
         }, FILE_DEBUG);
 
-        // Filter out sources with matching savedId if provided
-        const filteredSimilarTexts = savedId 
-            ? similarTexts.filter(text => text.metadata.explanation_id !== savedId)
-            : similarTexts;
-
-        const sources = await enhanceSourcesWithCurrentContent(filteredSimilarTexts);
+        const sources = await enhanceSourcesWithCurrentContent(similarTexts);
         logger.debug('Enhanced sources', { 
             sources_count: sources?.length || 0,
-            first_source: sources?.[0],
-            filtered_out: similarTexts.length - filteredSimilarTexts.length
+            first_source: sources?.[0]
         }, FILE_DEBUG);
 
         // Add the call to selectBestSource here
-        const bestSourceResult = await findMatchingSource(enhancedUserQuery, sources, matchMode);
+        const bestSourceResult = await findMatchingSource(enhancedUserQuery, sources, matchMode, savedId);
         logger.debug('Best source selection result', {
             selectedIndex: bestSourceResult.selectedIndex,
             explanationId: bestSourceResult.explanationId,
