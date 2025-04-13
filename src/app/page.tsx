@@ -22,6 +22,7 @@ export default function Home() {
     const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
     const [sources, setSources] = useState<sourceWithCurrentContentType[]>([]);
+    const [matches, setMatches] = useState<sourceWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<UserQueryInsertType | null>(null);
     const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
@@ -104,6 +105,7 @@ export default function Home() {
         setIsGeneratingExplanation(true);
         setError(null);
         setSources([]);
+        setMatches([]);
         setExplanationData(null);
         
         const { data, error, enhancedUserQuery } = await generateAiExplanation(
@@ -136,6 +138,7 @@ export default function Home() {
             
             if (explanationData.sources) {
                 setSources(explanationData.sources);
+                setMatches(explanationData.sources); // Set matches to the same sources initially
                 
                 // Display sources if available
                 const sourcesSection = '\n\n## Related Sources\n' + 
@@ -202,6 +205,47 @@ export default function Home() {
                     </div>
                     
                     <div className="flex gap-8 justify-center">
+                        {/* Matches Panel */}
+                        <div className="w-96">
+                            <div className="sticky top-8">
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                    Matches
+                                </h2>
+                                <div className="space-y-4">
+                                    {matches && matches.length > 0 ? (
+                                        matches.map((match, index) => (
+                                            <div 
+                                                key={index}
+                                                className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                                            >
+                                                <div className="mb-2 flex items-center justify-between">
+                                                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                        Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
+                                                    </span>
+                                                    <button 
+                                                        onClick={() => loadExplanation(match.explanation_id, true)}
+                                                        className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                    >
+                                                        View →
+                                                    </button>
+                                                </div>
+                                                <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                                    {match.current_title || match.text}
+                                                </h3>
+                                                <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                                    {match.current_content || match.text}
+                                                </p>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p className="text-gray-500 dark:text-gray-400 text-center italic">
+                                            No matches available yet. Generate an explanation to see related matches.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
                         <div className="w-full max-w-2xl">
                             <form onSubmit={(e) => handleSubmit(e, MatchMode.Normal)} className="space-y-4">
                                 <div>
