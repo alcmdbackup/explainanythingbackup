@@ -198,7 +198,8 @@ export type matchingSourceLLMType = z.infer<typeof matchingSourceLLMSchema>;
 
 export const matchingSourceReturnSchema = z.object({
     topic_id: z.number().int(),
-    explanation_id: z.number().int()
+    explanation_id: z.number().int(),
+    sources: z.array(sourceWithCurrentContentSchema).optional()
 });
 
 export type MatchingSourceReturnType = z.infer<typeof matchingSourceReturnSchema>;

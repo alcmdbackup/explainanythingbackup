@@ -300,7 +300,9 @@ export async function generateAiExplanation(
                 error: {
                     code: 'INVALID_INPUT',
                     message: 'userQuery cannot be empty'
-                }
+                },
+                originalUserQuery: userQuery,
+                enhancedUserQuery: userQuery
             };
         }
 
@@ -348,7 +350,8 @@ export async function generateAiExplanation(
                     match_found: true,
                     data: {
                         explanation_id: bestSourceResult.explanationId,
-                        topic_id: bestSourceResult.topicId
+                        topic_id: bestSourceResult.topicId,
+                        sources: sources
                     }
                 },
                 error: null,
@@ -398,7 +401,7 @@ export async function generateAiExplanation(
             user_query: enhancedUserQuery,
             explanation_title: parsedResult.data.explanation_title,
             content: parsedResult.data.content,
-            sources: sources
+            sources: sources // Include the sources from vector search
         };
         
         const validatedUserQuery = userQueryInsertSchema.safeParse(userQueryData);

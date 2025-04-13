@@ -127,7 +127,9 @@ export default function Home() {
         } else if (!data) {
             setError('No response received');
         } else if (data.match_found) {
-            // Found existing explanation - load it directly
+            if (data.data.sources) {
+                setMatches(data.data.sources);
+            }
             await loadExplanation(data.data.explanation_id, false);
         } else {
             // New explanation generated - set the data
@@ -137,16 +139,7 @@ export default function Home() {
             setContent(explanationData.content);
             
             if (explanationData.sources) {
-                setSources(explanationData.sources);
-                setMatches(explanationData.sources); // Set matches to the same sources initially
-                
-                // Display sources if available
-                const sourcesSection = '\n\n## Related Sources\n' + 
-                    explanationData.sources.map(source => 
-                        `- **Similarity: ${(source.ranking.similarity * 100).toFixed(1)}%**\n  ${source.text}`
-                    ).join('\n\n');
-                
-                setContent(explanationData.content + sourcesSection);
+                setMatches(explanationData.sources); // Only set matches
             }
             
             // Save user query with sources
