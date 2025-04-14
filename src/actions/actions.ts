@@ -109,7 +109,7 @@ function formatTopSources(sources: sourceWithCurrentContentType[], savedId: numb
       }
   
       // If in force mode and we have sources, return the first source that's not savedId
-      if (matchMode === MatchMode.Force) {
+      if (matchMode === MatchMode.ForceMatch) {
         const firstNonSavedSource = sources.find(source => source.explanation_id !== savedId);
         if (firstNonSavedSource) {
           logger.debug('Force mode: returning first non-saveid source', {
@@ -350,7 +350,7 @@ export async function generateAiExplanation(
         }, FILE_DEBUG);
 
         // Update the match condition to use matchMode
-        if ((matchMode === MatchMode.Normal || matchMode === MatchMode.Force) && 
+        if ((matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
             bestSourceResult.selectedIndex && 
             bestSourceResult.selectedIndex > 0 && 
             bestSourceResult.explanationId && 

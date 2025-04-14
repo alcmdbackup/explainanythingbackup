@@ -201,10 +201,13 @@ export default function Home() {
                         {/* Matches Panel */}
                         <div className="w-96">
                             <div className="sticky top-8">
-                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                                     Matches
                                 </h2>
-                                <div className="space-y-4">
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                                    Explanations in the database that most closely matched the query
+                                </p>
+                                <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                                     {matches && matches.length > 0 ? (
                                         matches.map((match, index) => (
                                             <div 
@@ -273,7 +276,7 @@ export default function Home() {
                                     
                                     <button
                                         type="button"
-                                        onClick={(e) => handleSubmit(e, MatchMode.Force)}
+                                        onClick={(e) => handleSubmit(e, MatchMode.ForceMatch)}
                                         disabled={isGeneratingExplanation || !prompt.trim()}
                                         className="w-full px-4 py-2 text-white bg-yellow-600 hover:bg-yellow-700 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
@@ -282,11 +285,11 @@ export default function Home() {
                                     
                                     <button
                                         type="button"
-                                        onClick={(e) => handleSubmit(e, MatchMode.Skip)}
+                                        onClick={(e) => handleSubmit(e, MatchMode.SkipMatch)}
                                         disabled={isGeneratingExplanation || !prompt.trim()}
                                         className="w-full px-4 py-2 text-white bg-gray-600 hover:bg-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Force new result
+                                        Force new result (skip match)
                                     </button>
                                 </div>
                             </form>
@@ -353,10 +356,13 @@ export default function Home() {
                         {/* Sources Panel */}
                         <div className="w-96">
                             <div className="sticky top-8">
-                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                                     Sources
                                 </h2>
-                                <div className="space-y-4">
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                                    This will later contain the sources used to generate the explanation
+                                </p>
+                                <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
                                     {sources && sources.length > 0 ? (
                                         sources.map((source, index) => (
                                             <div 
@@ -388,6 +394,9 @@ export default function Home() {
                                         </p>
                                     )}
                                 </div>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+                                    Currently, this is only populated for saved explanations, where it shows the matches found at time of generation (which are not used to generate an explanation)
+                                </p>
                             </div>
                         </div>
                     </div>
