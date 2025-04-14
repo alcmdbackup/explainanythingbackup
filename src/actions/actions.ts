@@ -29,11 +29,11 @@ type VectorSearchResult = {
 };
 
 /**
- * Formats top 5 sources with numbered prefixes for LLM ranking, excluding any source matching savedId
- * @param sources - Array of sources with content
- * @param savedId - The explanation_id to exclude from the results
- * @returns string - Formatted sources as a numbered list
- * Sample output format: "1. [Title 1] Content excerpt...\n2. [Title 2] Content excerpt...\n..."
+ * Key points:
+ * - Formats top 5 sources into a numbered list
+ * - Excludes any source matching savedId
+ * - Truncates content to 1000 chars for prompt size
+ * - Used by findMatchingSource for LLM ranking
  */
 function formatTopSources(sources: sourceWithCurrentContentType[], savedId: number | null): string {
     const topSources = sources.slice(0, 5);
@@ -55,10 +55,11 @@ function formatTopSources(sources: sourceWithCurrentContentType[], savedId: numb
   }
   
   /**
-   * Creates a prompt for source selection
-   * @param userQuery - The original user query
-   * @param formattedSources - The numbered list of sources
-   * @returns string - Complete prompt for the LLM
+   * Key points:
+   * - Creates a prompt for LLM to select best source
+   * - Uses numbered list from formatTopSources
+   * - Forces single integer response (0-5)
+   * - Used by findMatchingSource for source selection
    */
   function createSourceSelectionPrompt(userQuery: string, formattedSources: string): string {
     return `
@@ -76,11 +77,12 @@ function formatTopSources(sources: sourceWithCurrentContentType[], savedId: numb
   }
   
   /**
-   * Uses LLM to select the best source from the top 5 based on user query
-   * @param userQuery - The original user query
-   * @param sources - Array of potential sources
-   * @returns Promise<number> - Index (1-5) of the selected source
-   * Sample output: 3
+   * Key points:
+   * - Uses LLM to select best matching source from top 5
+   * - Handles force mode to bypass LLM selection
+   * - Excludes sources matching savedId
+   * - Called by generateAiExplanation for source matching
+   * - Uses formatTopSources and createSourceSelectionPrompt
    */
   export async function findMatchingSource(
     userQuery: string, 
@@ -209,9 +211,11 @@ function formatTopSources(sources: sourceWithCurrentContentType[], savedId: numb
   }
 
 /**
- * Enhances source data with current content from the database
- * @param similarTexts - Array of similar text results from vector search
- * @returns Promise<sourceWithCurrentContentType[]> - Array of enhanced sources with current content
+ * Key points:
+ * - Adds current content from database to vector search results
+ * - Maps over results to fetch full explanations
+ * - Used by generateAiExplanation to enrich source data
+ * - Calls getExplanationById for each source
  */
 export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<sourceWithCurrentContentType[]> {
     logger.debug('Starting enhanceSourcesWithCurrentContent', {
@@ -252,12 +256,11 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
 }
 
 /**
- * Enhances a user query by making it more detailed while preserving the original intent
- * @param userQuery - The original user query string
- * @param fullResponse - If true, uses the original query as prompt for a full response. If false, enhances the query details.
- * @returns Promise<string> - The enhanced, more detailed query or full response
- * Sample output: "Original: 'How does photosynthesis work?' 
- *                Enhanced: 'Can you explain in detail how the process of photosynthesis works, including the light-dependent and light-independent reactions, and how plants convert sunlight into energy?'"
+ * Key points:
+ * - Enhances user query for better matching
+ * - Uses LLM to add detail while preserving intent
+ * - Called by generateAiExplanation for query improvement
+ * - Uses callGPT4omini for enhancement
  */
 async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Promise<string> {
     try {
@@ -276,6 +279,14 @@ async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Pr
     }
 }
 
+/**
+ * Key points:
+ * - Main function for generating AI explanations
+ * - Handles both matching and new explanation generation
+ * - Uses vector search and LLM for content creation
+ * - Called by saveExplanationAndTopic for new explanations
+ * - Uses enhanceQueryDetails, handleUserQuery, enhanceSourcesWithCurrentContent, findMatchingSource
+ */
 export async function generateAiExplanation(
     userQuery: string,
     savedId: number | null,
@@ -482,6 +493,13 @@ export async function generateAiExplanation(
     }
 }
 
+/**
+ * Key points:
+ * - Saves new explanations and topics to database
+ * - Creates embeddings for vector search
+ * - Called after generateAiExplanation for new content
+ * - Uses createTopic, createExplanation, processContentToStoreEmbedding
+ */
 export async function saveExplanationAndTopic(userQuery: string, explanationData: UserQueryInsertType) {
     try {
         // Create a topic first using the explanation title, if it doesn't already exist
@@ -553,6 +571,13 @@ export async function saveExplanationAndTopic(userQuery: string, explanationData
     }
 }
 
+/**
+ * Key points:
+ * - Saves user queries to database
+ * - Validates query data against schema
+ * - Called by generateAiExplanation for query tracking
+ * - Uses createUserQuery for database storage
+ */
 export async function saveUserQuery(userQuery: UserQueryInsertType) {
     try {
         // Validate the user query data against our schema
