@@ -1,0 +1,81 @@
+digraph G {
+    // Graph settings
+    rankdir=TB;
+    node [shape=box, style=filled, fillcolor=lightblue];
+    edge [color=blue];
+
+    // User Interface
+    UI [label="User Interface\n(page.tsx)", shape=box, fillcolor=lightgreen];
+    
+    // Main Process Flow
+    UI -> handleSubmit;
+    handleSubmit -> generateAiExplanation;
+    
+    // generateAiExplanation Process
+    generateAiExplanation -> enhanceQueryDetails;
+    generateAiExplanation -> handleUserQuery;
+    handleUserQuery -> enhanceSourcesWithCurrentContent;
+    enhanceSourcesWithCurrentContent -> getExplanationById;
+    generateAiExplanation -> findMatchingSource;
+    findMatchingSource -> formatTopSources;
+    findMatchingSource -> createSourceSelectionPrompt;
+    findMatchingSource -> callGPT4omini;
+    
+    // Decision Points
+    subgraph cluster_0 {
+        label="Match Found?";
+        style=filled;
+        color=lightgrey;
+        node [style=filled, fillcolor=white];
+        match_found [label="Match Found", shape=diamond];
+        no_match [label="No Match", shape=diamond];
+    }
+    
+    generateAiExplanation -> match_found;
+    match_found -> loadExplanation [label="Yes"];
+    match_found -> no_match [label="No"];
+    
+    // New Explanation Flow
+    no_match -> createExplanationPrompt;
+    createExplanationPrompt -> callGPT4omini;
+    callGPT4omini -> saveUserQuery;
+    
+    // Save Flow
+    UI -> handleSave;
+    handleSave -> saveExplanationAndTopic;
+    saveExplanationAndTopic -> createTopic;
+    saveExplanationAndTopic -> createExplanation;
+    saveExplanationAndTopic -> processContentToStoreEmbedding;
+    
+    // Database Operations
+    subgraph cluster_1 {
+        label="Database Operations";
+        style=filled;
+        color=lightgrey;
+        node [style=filled, fillcolor=white];
+        createTopic;
+        createExplanation;
+        createUserQuery;
+        getExplanationById;
+    }
+    
+    // Vector Operations
+    subgraph cluster_2 {
+        label="Vector Operations";
+        style=filled;
+        color=lightgrey;
+        node [style=filled, fillcolor=white];
+        handleUserQuery;
+        processContentToStoreEmbedding;
+    }
+    
+    // LLM Operations
+    subgraph cluster_3 {
+        label="LLM Operations";
+        style=filled;
+        color=lightgrey;
+        node [style=filled, fillcolor=white];
+        callGPT4omini;
+        enhanceQueryDetails;
+    }
+}

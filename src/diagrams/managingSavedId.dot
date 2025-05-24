@@ -1,0 +1,39 @@
+digraph G {
+    // Initialization
+    node [shape=box, style=filled, fillcolor=lightblue];
+    "URL Check" [fillcolor=lightyellow];
+    "Load Explanation" [fillcolor=lightpink];
+    "Generate Explanation" [fillcolor=lightcyan];
+
+    // State changes
+    node [shape=ellipse, style=filled, fillcolor=white];
+    "savedId = null" [fillcolor=lightgreen];
+    "savedId = explanation_id" [fillcolor=lightyellow];
+    "savedId = null" [fillcolor=lightpink];
+    "savedId = new_id" [fillcolor=lightgray];
+
+    // User actions
+    node [shape=diamond, style=filled, fillcolor=lightgreen];
+    "User visits page" -> "URL Check";
+    "User clicks generate" -> "Generate Explanation";
+    "User clicks save" -> "savedId = new_id";
+    "User clicks view" -> "Load Explanation";
+
+    // Flow
+    "URL Check" -> "savedId = null" [label="No explanation_id"];
+    "URL Check" -> "Load Explanation" [label="Has explanation_id"];
+    "Load Explanation" -> "savedId = explanation_id" [label="2. Set from URL"];
+
+    "Generate Explanation" -> "User clicks save" [label="clear previous savedId"];
+
+    // Layout
+    rankdir=LR;
+    {rank=same; "URL Check" "Generate Explanation"}
+    {rank=same; "Load Explanation" "User clicks save"}
+    
+    // Force layout positions
+    "Load Explanation" [pos="0,0!"];
+    "URL Check" [pos="2,0!"];
+    "Generate Explanation" [pos="4,0!"];
+    "User clicks save" [pos="6,0!"];
+}

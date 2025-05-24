@@ -152,7 +152,7 @@ async function upsertEmbeddings(embeddedChunks: EmbeddedChunk[], namespace: stri
   }, FILE_DEBUG);
 
   const vectors = embeddedChunks.map((chunk, i) => ({
-    id: `chunk_${i}`,
+    id: `chunk_${explanation_id}_${topic_id}_${i}`,
     values: chunk.embedding,
     metadata: {
       text: chunk.text,

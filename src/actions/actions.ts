@@ -268,7 +268,7 @@ async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Pr
             ? userQuery 
             : `Make each sentence in this user query more detailed and precise while keeping the intent the same. Write concisely and do not add filler words: "${userQuery}"`;
         const enhancedQuery = await callGPT4omini(prompt, null, null, FILE_DEBUG);
-        return enhancedQuery.trim();
+        return enhancedQuery.trim().replace(/^"|"$/g, '');
     } catch (error) {
         logger.error('Error enhancing query details', {
             error: error instanceof Error ? error.message : 'Unknown error',
@@ -318,7 +318,7 @@ export async function generateAiExplanation(
         }
 
         // Enhance the user query
-        const enhancedUserQuery = await enhanceQueryDetails(userQuery, true);
+        const enhancedUserQuery = await enhanceQueryDetails(userQuery, false);
         logger.debug('Enhanced user query', {
             original_length: userQuery.length,
             enhanced_length: enhancedUserQuery.length

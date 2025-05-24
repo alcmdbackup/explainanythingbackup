@@ -356,8 +356,14 @@ export default function Home() {
                         {/* Sources Panel */}
                         <div className="w-96">
                             <div className="sticky top-8">
-                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 group relative inline-block">
                                     Sources
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block ml-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span className="absolute left-0 top-full mt-2 w-64 p-2 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                                        Currently, this is only populated for saved explanations, where it shows the matches found at time of generation (which are not used to generate an explanation)
+                                    </span>
                                 </h2>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                                     This will later contain the sources used to generate the explanation
@@ -394,9 +400,6 @@ export default function Home() {
                                         </p>
                                     )}
                                 </div>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
-                                    Currently, this is only populated for saved explanations, where it shows the matches found at time of generation (which are not used to generate an explanation)
-                                </p>
                             </div>
                         </div>
                     </div>
