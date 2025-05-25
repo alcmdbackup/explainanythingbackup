@@ -21,6 +21,21 @@ export const llmQuerySchema = z.object({
 });
 
 /**
+ * Schema for title query results: requires 3 article titles as strings
+ * @example
+ * {
+ *   title1: "Photosynthesis Process",
+ *   title2: "Photosynthesis Process",
+ *   title3: "Photosynthesis Process"
+ * }
+ */
+export const titleQuerySchema = z.object({
+    title1: z.string(),
+    title2: z.string(),
+    title3: z.string(),
+});
+
+/**
  * Schema for individual source data
  * @example
  * {

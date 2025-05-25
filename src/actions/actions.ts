@@ -1,10 +1,10 @@
 'use server';
 
 import { callGPT4omini } from '@/lib/services/llms';
-import { createExplanationPrompt } from '@/lib/prompts';
+import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation, getExplanationById} from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType, type QueryResponseType, matchingSourceReturnSchema, MatchMode } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, matchingSourceLLMSchema, type ExplanationInsertType, sourceWithCurrentContentType, type LlmQueryType, type UserQueryInsertType, type matchingSourceLLMType, type QueryResponseType, matchingSourceReturnSchema, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { type ZodIssue } from 'zod';
@@ -266,7 +266,7 @@ async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Pr
     try {
         const prompt = fullResponse 
             ? userQuery 
-            : `Make each sentence in this user query more detailed and precise while keeping the intent the same. Write concisely and do not add filler words: "${userQuery}"`;
+            : `Make this user query more detailed and precise while keeping the intent the same. Write concisely and do not add additional sentences: "${userQuery}"`;
         const enhancedQuery = await callGPT4omini(prompt, null, null, FILE_DEBUG);
         return enhancedQuery.trim().replace(/^"|"$/g, '');
     } catch (error) {
@@ -323,6 +323,21 @@ export async function generateAiExplanation(
             original_length: userQuery.length,
             enhanced_length: enhancedUserQuery.length
         }, FILE_DEBUG);
+
+        // Generate article titles using the title prompt and schema
+        const titlePrompt = createTitlePrompt(enhancedUserQuery);
+        logger.debug('Created title prompt', { title_prompt_length: titlePrompt.length }, FILE_DEBUG);
+        const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
+        const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
+        if (parsedTitles.success) {
+            logger.debug('Generated article titles', {
+                title1: parsedTitles.data.title1,
+                title2: parsedTitles.data.title2,
+                title3: parsedTitles.data.title3
+            }, FILE_DEBUG);
+        } else {
+            logger.debug('Failed to parse article titles', { errors: parsedTitles.error.errors }, FILE_DEBUG);
+        }
 
         // Get similar text snippets using enhanced query
         logger.debug('Fetching similar texts from vector search');
