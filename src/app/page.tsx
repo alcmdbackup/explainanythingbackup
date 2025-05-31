@@ -13,6 +13,7 @@ import { logger } from '@/lib/client_utilities';
 import Link from 'next/link';
 import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceSourcesWithCurrentContent } from '@/actions/actions';
+import type { Components } from 'react-markdown';
 
 const FILE_DEBUG = true;
 
@@ -31,6 +32,8 @@ export default function Home() {
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [isPromptModified, setIsPromptModified] = useState(false);
+    const [activeTab, setActiveTab] = useState<'output' | 'matches'>('output');
+    const [dropdownOpen, setDropdownOpen] = useState(false);
 
     const loadExplanation = async (explanationId: number, clearPrompt: boolean) => {
         try {
@@ -205,211 +208,157 @@ export default function Home() {
                             View all explanations →
                         </Link>
                     </div>
-                    
-                    <div className="flex gap-8 justify-center">
-                        {/* Matches Panel */}
-                        <div className="w-96">
-                            <div className="sticky top-8">
-                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
-                                    Matches
-                                </h2>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                    Explanations in the database that most closely matched the query
-                                </p>
-                                <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                                    {matches && matches.length > 0 ? (
-                                        matches.map((match, index) => (
-                                            <div 
-                                                key={index}
-                                                className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                                            >
-                                                <div className="mb-2 flex items-center justify-between">
-                                                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                        Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
-                                                    </span>
-                                                    <button 
-                                                        onClick={() => loadExplanation(match.explanation_id, true)}
-                                                        className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                                    >
-                                                        View →
-                                                    </button>
-                                                </div>
-                                                <h3 className="font-medium text-gray-900 dark:text-white mb-2">
-                                                    {match.current_title || match.text}
-                                                </h3>
-                                                <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
-                                                    {match.current_content || match.text}
-                                                </p>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <p className="text-gray-500 dark:text-gray-400 text-center italic">
-                                            No matches available yet. Generate an explanation to see related matches.
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-
+                    <div className="flex flex-col items-center">
                         <div className="w-full max-w-2xl">
                             <form onSubmit={(e) => handleSubmit(e, MatchMode.Normal)} className="space-y-4">
                                 <div>
                                     <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                         Enter your prompt
                                     </label>
-                                    <textarea
-                                        id="prompt"
-                                        value={prompt}
-                                        onChange={handlePromptChange}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white"
-                                        rows={4}
-                                        placeholder="Type your prompt here..."
-                                    />
-                                </div>
-                                
-                                <div className="space-y-2">
-                                    <button
-                                        type="submit"
-                                        disabled={isGeneratingExplanation || !prompt.trim()}
-                                        className={`w-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                            explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
-                                        }`}
-                                    >
-                                        {isGeneratingExplanation 
-                                            ? 'Generating...' 
-                                            : (explanationTitle || content) && !isPromptModified 
-                                                ? 'Regenerate' 
-                                                : 'Generate'
-                                        }
-                                    </button>
-                                    
-                                    <button
-                                        type="button"
-                                        onClick={(e) => handleSubmit(e, MatchMode.ForceMatch)}
-                                        disabled={isGeneratingExplanation || !prompt.trim()}
-                                        className="w-full px-4 py-2 text-white bg-yellow-600 hover:bg-yellow-700 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Force existing match (skips "saved_id")
-                                    </button>
-                                    
-                                    <button
-                                        type="button"
-                                        onClick={(e) => handleSubmit(e, MatchMode.SkipMatch)}
-                                        disabled={isGeneratingExplanation || !prompt.trim()}
-                                        className="w-full px-4 py-2 text-white bg-gray-600 hover:bg-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Force new result (skip match)
-                                    </button>
+                                    <div className="flex items-start gap-2">
+                                        <textarea
+                                            id="prompt"
+                                            value={prompt}
+                                            onChange={handlePromptChange}
+                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white resize-none"
+                                            rows={1}
+                                            maxLength={150}
+                                            placeholder="Type your prompt here..."
+                                        />
+                                        <div className="min-w-[140px]">
+                                            <button
+                                                type="button"
+                                                disabled={isGeneratingExplanation || !prompt.trim()}
+                                                onClick={(e) => handleSubmit(e as any, MatchMode.Normal)}
+                                                className={`w-full h-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+                                                    explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                                } flex justify-center items-center`}
+                                            >
+                                                {isGeneratingExplanation ? 'Generating...' : 'Search Topic'}
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </form>
-
                             {error && (
                                 <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
                                     {error}
                                 </div>
                             )}
-
-                            {(explanationTitle || content) && !isGeneratingExplanation && (
-                                <div className="mt-6">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                                            Explanation:
-                                        </h3>
-                                        <div className="flex gap-2">
-                                            <button
-                                                onClick={handleSave}
-                                                disabled={isSaving || !explanationTitle || !content || savedId !== null || isGeneratingExplanation}
-                                                className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                                            >
-                                                {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}
-                                            </button>
-                                            <button
-                                                onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                                className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
-                                            >
-                                                {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
-                                            </button>
+                        </div>
+                        {/* Tabs */}
+                        <div className="w-full max-w-4xl mt-8">
+                            <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+                                <button
+                                    className={`px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
+                                    onClick={() => setActiveTab('output')}
+                                >
+                                    Generated Output
+                                </button>
+                                <button
+                                    className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
+                                    onClick={() => setActiveTab('matches')}
+                                >
+                                    Matches
+                                </button>
+                            </div>
+                            {/* Tab Content */}
+                            {activeTab === 'output' && (
+                                (explanationTitle || content) && !isGeneratingExplanation && (
+                                    <div className="mt-2">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                                                Explanation:
+                                            </h3>
+                                            <div className="flex gap-2">
+                                                {(explanationTitle || content) && !isGeneratingExplanation && (
+                                                    <div className="relative min-w-[140px]">
+                                                        <button
+                                                            type="button"
+                                                            disabled={isGeneratingExplanation || !prompt.trim()}
+                                                            onClick={(e) => handleSubmit(e as any, MatchMode.Normal)}
+                                                            className="px-3 py-1 text-sm bg-blue-700 hover:bg-blue-800 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-between w-full"
+                                                        >
+                                                            Regenerate
+                                                            <svg className="ml-2 h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.293l3.71-4.06a.75.75 0 111.08 1.04l-4.25 4.65a.75.75 0 01-1.08 0l-4.25-4.65a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                                <button
+                                                    onClick={handleSave}
+                                                    disabled={isSaving || !explanationTitle || !content || savedId !== null || isGeneratingExplanation}
+                                                    className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}
+                                                </button>
+                                                <button
+                                                    onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                                    className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                                >
+                                                    {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
+                                            {isMarkdownMode ? (
+                                                <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
+                                                    <ReactMarkdown
+                                                        remarkPlugins={[remarkMath]}
+                                                        rehypePlugins={[rehypeKatex]}
+                                                        components={{
+                                                            p: (props: React.PropsWithChildren<{}>) => (
+                                                                <div className="my-2">{props.children}</div>
+                                                            )
+                                                        }}
+                                                    >
+                                                        {formattedExplanation}
+                                                    </ReactMarkdown>
+                                                </article>
+                                            ) : (
+                                                <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
+                                                    {formattedExplanation}
+                                                </pre>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
-                                        {isMarkdownMode ? (
-                                            <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
-                                                <ReactMarkdown
-                                                    remarkPlugins={[remarkMath]}
-                                                    rehypePlugins={[rehypeKatex]}
-                                                    components={{
-                                                        p: ({node, children}) => (
-                                                            <div className="my-2">{children}</div>
-                                                        ),
-                                                        inlineMath: ({node, children}) => (
-                                                            <InlineMath math={String(children).replace(/\$/g, '')} />
-                                                        ),
-                                                        math: ({node, children}) => (
-                                                            <BlockMath math={String(children)} />
-                                                        )
-                                                    }}
+                                )
+                            )}
+                            {activeTab === 'matches' && (
+                                <div className="mt-2">
+                                    <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                                        {matches && matches.length > 0 ? (
+                                            matches.map((match, index) => (
+                                                <div 
+                                                    key={index}
+                                                    className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
                                                 >
-                                                    {formattedExplanation}
-                                                </ReactMarkdown>
-                                            </article>
+                                                    <div className="mb-2 flex items-center justify-between">
+                                                        <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                            Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
+                                                        </span>
+                                                        <button 
+                                                            onClick={() => loadExplanation(match.explanation_id, true)}
+                                                            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                        >
+                                                            View →
+                                                        </button>
+                                                    </div>
+                                                    <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                                        {match.current_title || match.text}
+                                                    </h3>
+                                                    <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                                        {match.current_content || match.text}
+                                                    </p>
+                                                </div>
+                                            ))
                                         ) : (
-                                            <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300">
-                                                {formattedExplanation}
-                                            </pre>
+                                            <p className="text-gray-500 dark:text-gray-400 text-center italic">
+                                                No matches available yet. Generate an explanation to see related matches.
+                                            </p>
                                         )}
                                     </div>
                                 </div>
                             )}
-                        </div>
-
-                        {/* Sources Panel */}
-                        <div className="w-96">
-                            <div className="sticky top-8">
-                                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-2 group relative inline-block">
-                                    Sources
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 inline-block ml-2 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                    </svg>
-                                    <span className="absolute left-0 top-full mt-2 w-64 p-2 bg-gray-900 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity z-10">
-                                        Currently, this is only populated for saved explanations, where it shows the matches found at time of generation (which are not used to generate an explanation)
-                                    </span>
-                                </h2>
-                                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                                    This will later contain the sources used to generate the explanation
-                                </p>
-                                <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
-                                    {sources && sources.length > 0 ? (
-                                        sources.map((source, index) => (
-                                            <div 
-                                                key={index}
-                                                className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
-                                            >
-                                                <div className="mb-2 flex items-center justify-between">
-                                                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                        Similarity: {(source.ranking.similarity * 100).toFixed(1)}%
-                                                    </span>
-                                                    <button 
-                                                        onClick={() => loadExplanation(source.explanation_id, true)}
-                                                        className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                                                    >
-                                                        View →
-                                                    </button>
-                                                </div>
-                                                <h3 className="font-medium text-gray-900 dark:text-white mb-2">
-                                                    {source.current_title || source.text}
-                                                </h3>
-                                                <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
-                                                    {source.current_content || source.text}
-                                                </p>
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <p className="text-gray-500 dark:text-gray-400 text-center italic">
-                                            No sources available yet. Generate an explanation to see related sources.
-                                        </p>
-                                    )}
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </main>
