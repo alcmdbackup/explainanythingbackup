@@ -99,6 +99,14 @@ export default function Home() {
         }
     };
 
+    /**
+     * handleSubmit
+     * - Handles form submission for generating or matching explanations.
+     * - Calls generateAiExplanation and processes its result.
+     * - Updates state for prompt, matches, explanation data, errors, and loading flags.
+     * - Handles saving user queries if a new explanation is generated.
+     * - Used as the onSubmit handler for the main form and match mode buttons.
+     */
     const handleSubmit = async (e: React.FormEvent, matchMode: MatchMode = MatchMode.Normal) => {
         e.preventDefault();
         setIsPromptModified(false);
@@ -108,18 +116,19 @@ export default function Home() {
         setMatches([]);
         setExplanationData(null);
         
-        const { data, error, enhancedUserQuery } = await generateAiExplanation(
+        const { data, error, originalUserQuery } = await generateAiExplanation(
             prompt, 
             savedId, 
             matchMode
         );
+        logger.debug('generateAiExplanation result:', { data, error, originalUserQuery }, FILE_DEBUG);
         
         // Clear savedId after the API call
         setSavedId(null);
         
-        // Update the prompt with the enhanced query
-        if (enhancedUserQuery && enhancedUserQuery !== prompt) {
-            setPrompt(enhancedUserQuery);
+        // Update the prompt with the original user query (if needed)
+        if (originalUserQuery && originalUserQuery !== prompt) {
+            setPrompt(originalUserQuery);
         }
         
         if (error) {

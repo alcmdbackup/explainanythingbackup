@@ -284,6 +284,8 @@ async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Pr
  * - Main function for generating AI explanations
  * - Handles both matching and new explanation generation
  * - Uses vector search and LLM for content creation
+ * - Generates article titles using the original user query (not enhanced)
+ * - Uses the first generated title for vector search (handleUserQuery)
  * - Called by saveExplanationAndTopic for new explanations
  * - Uses enhanceQueryDetails, handleUserQuery, enhanceSourcesWithCurrentContent, findMatchingSource
  */
@@ -292,10 +294,9 @@ export async function generateAiExplanation(
     savedId: number | null,
     matchMode: MatchMode
 ): Promise<{
-    data: QueryResponseType | null,
+    data: (QueryResponseType & { title: string }) | null,
     error: ErrorResponse | null,
-    originalUserQuery: string,
-    enhancedUserQuery: string
+    originalUserQuery: string
 }> {
     try {
         logger.debug('Starting generateAiExplanation', { 
@@ -312,20 +313,12 @@ export async function generateAiExplanation(
                     code: 'INVALID_INPUT',
                     message: 'userQuery cannot be empty'
                 },
-                originalUserQuery: userQuery,
-                enhancedUserQuery: userQuery
+                originalUserQuery: userQuery
             };
         }
 
-        // Enhance the user query
-        const enhancedUserQuery = await enhanceQueryDetails(userQuery, false);
-        logger.debug('Enhanced user query', {
-            original_length: userQuery.length,
-            enhanced_length: enhancedUserQuery.length
-        }, FILE_DEBUG);
-
-        // Generate article titles using the title prompt and schema
-        const titlePrompt = createTitlePrompt(enhancedUserQuery);
+        // Generate article titles using the ORIGINAL user query
+        const titlePrompt = createTitlePrompt(userQuery);
         logger.debug('Created title prompt', { title_prompt_length: titlePrompt.length }, FILE_DEBUG);
         const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
         const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
@@ -339,9 +332,23 @@ export async function generateAiExplanation(
             logger.debug('Failed to parse article titles', { errors: parsedTitles.error.errors }, FILE_DEBUG);
         }
 
-        // Get similar text snippets using enhanced query
+        // Get similar text snippets using the FIRST TITLE if available, else throw error
         logger.debug('Fetching similar texts from vector search');
-        const similarTexts = await handleUserQuery(enhancedUserQuery);
+       
+        if (!parsedTitles.success || !parsedTitles.data.title1) {
+            logger.debug('No valid title1 found in parsedTitles', { parsedTitles }, FILE_DEBUG);
+            return {
+                data: null,
+                error: {
+                    code: 'NO_TITLE_FOR_VECTOR_SEARCH',
+                    message: 'No valid title1 found for vector search. Cannot proceed.'
+                },
+                originalUserQuery: userQuery
+            };
+        }
+        
+        const firstTitle = parsedTitles.data.title1;
+        const similarTexts = await handleUserQuery(firstTitle);
         logger.debug('Vector search results', { 
             count: similarTexts?.length || 0,
             first_result: similarTexts?.[0] 
@@ -354,7 +361,7 @@ export async function generateAiExplanation(
         }, FILE_DEBUG);
 
         // Add the call to selectBestSource here
-        const bestSourceResult = await findMatchingSource(enhancedUserQuery, sources, matchMode, savedId);
+        const bestSourceResult = await findMatchingSource(firstTitle, sources, matchMode, savedId);
         logger.debug('Best source selection result', {
             selectedIndex: bestSourceResult.selectedIndex,
             explanationId: bestSourceResult.explanationId,
@@ -378,15 +385,15 @@ export async function generateAiExplanation(
                         explanation_id: bestSourceResult.explanationId,
                         topic_id: bestSourceResult.topicId,
                         sources: sources
-                    }
+                    },
+                    title: firstTitle
                 },
                 error: null,
-                originalUserQuery: userQuery,
-                enhancedUserQuery: enhancedUserQuery
+                originalUserQuery: userQuery
             };
         }
 
-        const formattedPrompt = createExplanationPrompt(enhancedUserQuery);
+        const formattedPrompt = createExplanationPrompt(firstTitle);
         logger.debug('Created formatted prompt', { 
             formatted_prompt_length: formattedPrompt.length 
         }, FILE_DEBUG);
@@ -412,8 +419,7 @@ export async function generateAiExplanation(
                     message: 'AI response did not match expected format',
                     details: parsedResult.error
                 },
-                originalUserQuery: userQuery,
-                enhancedUserQuery: enhancedUserQuery
+                originalUserQuery: userQuery
             };
         }
 
@@ -424,8 +430,8 @@ export async function generateAiExplanation(
 
         // Validate against userQueryInsertSchema before returning
         const userQueryData = {
-            user_query: enhancedUserQuery,
-            explanation_title: parsedResult.data.explanation_title,
+            user_query: userQuery,
+            explanation_title: firstTitle,
             content: parsedResult.data.content,
             sources: sources // Include the sources from vector search
         };
@@ -443,19 +449,18 @@ export async function generateAiExplanation(
                     message: 'Generated response does not match user query schema',
                     details: validatedUserQuery.error
                 },
-                originalUserQuery: userQuery,
-                enhancedUserQuery: enhancedUserQuery
+                originalUserQuery: userQuery
             };
         }
 
         return {
             data: {
                 match_found: false,
-                data: validatedUserQuery.data
+                data: validatedUserQuery.data,
+                title: firstTitle
             },
             error: null,
-            originalUserQuery: userQuery,
-            enhancedUserQuery: enhancedUserQuery
+            originalUserQuery: userQuery
         };
     } catch (error) {
         let errorResponse: ErrorResponse;
@@ -502,8 +507,7 @@ export async function generateAiExplanation(
         return { 
             data: null, 
             error: errorResponse,
-            originalUserQuery: userQuery,
-            enhancedUserQuery: userQuery
+            originalUserQuery: userQuery
         };
     }
 }
