@@ -138,30 +138,37 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
  * Upserts embeddings into Pinecone index
  * @param {Array<{text: string, startIdx: number, length: number, embedding: number[]}>} embeddedChunks 
  * @param {string} namespace Optional namespace for multitenancy
- * @param {number} explanation_id The ID of the explanation these embeddings belong to
- * @param {number} topic_id The ID of the topic these embeddings belong to
+ * @param {string} pineconeIndexEnvVar The environment variable for the Pinecone index
+ * @param {object} metadata Metadata object containing explanation_id, topic_id, etc.
  */
-async function upsertEmbeddings(embeddedChunks: EmbeddedChunk[], namespace: string = '', explanation_id: number, topic_id: number): Promise<void> {
-  const index = pc.index(getRequiredEnvVar('PINECONE_INDEX_NAME'));
+async function upsertEmbeddings(
+  embeddedChunks: EmbeddedChunk[],
+  namespace: string = '',
+  pineconeIndexEnvVar: string,
+  metadata: { explanation_id: number; topic_id: number }
+): Promise<void> {
+  const index = pc.index(getRequiredEnvVar(pineconeIndexEnvVar));
 
   logger.debug('Creating vectors for upsert:', {
     chunkCount: embeddedChunks.length,
     namespace,
-    explanation_id,
-    topic_id
+    ...metadata
   }, FILE_DEBUG);
 
-  const vectors = embeddedChunks.map((chunk, i) => ({
-    id: `chunk_${explanation_id}_${topic_id}_${i}`,
-    values: chunk.embedding,
-    metadata: {
-      text: chunk.text,
-      startIdx: chunk.startIdx,
-      length: chunk.length,
-      explanation_id,
-      topic_id
-    }
-  }));
+  const vectors = embeddedChunks.map((chunk, i) => {
+    // Generate a unique id by joining all metadata values and the chunk index
+    const metaValues = Object.values(metadata).join('_');
+    return {
+      id: `chunk_${metaValues}_${i}`,
+      values: chunk.embedding,
+      metadata: {
+        text: chunk.text,
+        startIdx: chunk.startIdx,
+        length: chunk.length,
+        ...metadata
+      }
+    };
+  });
 
   // Modify the batching logic to process multiple batches concurrently
   const batchSize = 100;
@@ -214,7 +221,7 @@ async function searchForSimilarVectors(queryEmbedding: number[], topK: number = 
         namespace
     }, FILE_DEBUG);
 
-    const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME'));
+    const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
 
     const queryResponse = await index.namespace(namespace).query({
         vector: queryEmbedding,
@@ -318,7 +325,12 @@ async function processContentToStoreEmbedding(
     }, FILE_DEBUG);
 
     // Store in Pinecone
-    await upsertEmbeddings(embeddedChunks, namespace, explanation_id, topic_id);
+    await upsertEmbeddings(
+      embeddedChunks,
+      namespace,
+      'PINECONE_INDEX_NAME_ALL',
+      { explanation_id, topic_id }
+    );
 
     return {
         success: true,

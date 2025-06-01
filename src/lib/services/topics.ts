@@ -21,11 +21,25 @@ import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schema
  */
 
 /**
- * Create a new topic record
- * @param topic Topic data to insert
- * @returns Created topic record
+ * Create a new topic record only if it does not already exist (by topic_title)
+ * - Checks for an existing topic with the same topic_title
+ * - If found, returns the existing topic
+ * - If not found, inserts a new topic and returns it
+ * - Used by saveExplanationAndTopic and other topic creation flows
+ * - Calls supabase topics table for both select and insert
  */
 export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbType> {
+  // Check if topic with the same title exists
+  const { data: existing, error: selectError } = await supabase
+    .from('topics')
+    .select()
+    .eq('topic_title', topic.topic_title)
+    .single();
+
+  if (selectError && selectError.code !== 'PGRST116') throw selectError; // PGRST116: No rows found
+  if (existing) return existing;
+
+  // Insert if not found
   const { data, error } = await supabase
     .from('topics')
     .insert(topic)
