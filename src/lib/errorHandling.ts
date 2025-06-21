@@ -1,0 +1,122 @@
+import { logger } from '@/lib/server_utilities';
+
+// Error codes as constants for consistency
+export const ERROR_CODES = {
+  INVALID_INPUT: 'INVALID_INPUT',
+  NO_TITLE_FOR_VECTOR_SEARCH: 'NO_TITLE_FOR_VECTOR_SEARCH',
+  INVALID_RESPONSE: 'INVALID_RESPONSE',
+  INVALID_USER_QUERY: 'INVALID_USER_QUERY',
+  LLM_API_ERROR: 'LLM_API_ERROR',
+  TIMEOUT_ERROR: 'TIMEOUT_ERROR',
+  UNKNOWN_ERROR: 'UNKNOWN_ERROR',
+  DATABASE_ERROR: 'DATABASE_ERROR',
+  EMBEDDING_ERROR: 'EMBEDDING_ERROR',
+  VALIDATION_ERROR: 'VALIDATION_ERROR'
+} as const;
+
+export type ErrorCode = typeof ERROR_CODES[keyof typeof ERROR_CODES];
+
+// Standard error response type
+export type ErrorResponse = {
+  code: ErrorCode;
+  message: string;
+  details?: any;
+};
+
+// Error categorization logic
+function categorizeError(error: unknown): ErrorResponse {
+  if (!(error instanceof Error)) {
+    return {
+      code: ERROR_CODES.UNKNOWN_ERROR,
+      message: 'An unexpected error occurred'
+    };
+  }
+
+  const message = error.message.toLowerCase();
+  
+  if (message.includes('api') || message.includes('openai')) {
+    return {
+      code: ERROR_CODES.LLM_API_ERROR,
+      message: 'Error communicating with AI service',
+      details: error.message
+    };
+  }
+  
+  if (message.includes('timeout')) {
+    return {
+      code: ERROR_CODES.TIMEOUT_ERROR,
+      message: 'Request timed out!',
+      details: error.message
+    };
+  }
+  
+  if (message.includes('database') || message.includes('sql')) {
+    return {
+      code: ERROR_CODES.DATABASE_ERROR,
+      message: 'Database operation failed',
+      details: error.message
+    };
+  }
+  
+  if (message.includes('embedding') || message.includes('pinecone')) {
+    return {
+      code: ERROR_CODES.EMBEDDING_ERROR,
+      message: 'Failed to process embeddings',
+      details: error.message
+    };
+  }
+  
+  if (message.includes('validation') || message.includes('schema')) {
+    return {
+      code: ERROR_CODES.VALIDATION_ERROR,
+      message: 'Data validation failed',
+      details: error.message
+    };
+  }
+  
+  return {
+    code: ERROR_CODES.UNKNOWN_ERROR,
+    message: error.message
+  };
+}
+
+// Main error handler function
+export function handleError(
+  error: unknown, 
+  context: string, 
+  additionalData?: Record<string, any>
+): ErrorResponse {
+  const errorResponse = categorizeError(error);
+  
+  // Log error with context
+  logger.error(`Error in ${context}`, {
+    error: errorResponse,
+    ...additionalData
+  });
+  
+  return errorResponse;
+}
+
+// Utility function for creating specific error responses
+export function createError(
+  code: ErrorCode, 
+  message: string, 
+  details?: any
+): ErrorResponse {
+  return { code, message, details };
+}
+
+// Utility function for validation errors
+export function createValidationError(
+  message: string, 
+  details?: any
+): ErrorResponse {
+  return createError(ERROR_CODES.VALIDATION_ERROR, message, details);
+}
+
+// Utility function for input validation errors
+export function createInputError(
+  message: string
+): ErrorResponse {
+  return createError(ERROR_CODES.INVALID_INPUT, message);
+} 

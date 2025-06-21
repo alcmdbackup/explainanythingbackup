@@ -5,14 +5,30 @@ import { zodResponseFormat } from "openai/helpers/zod";
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
-if (!process.env.OPENAI_API_KEY) {
-    throw new Error('OPENAI_API_KEY not found in environment variables. Please check your .env file exists and contains a valid API key.');
+
+// Initialize OpenAI client lazily to avoid client-side environment variable access
+let openai: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+    if (typeof window !== 'undefined') {
+        throw new Error('OpenAI client cannot be used on the client side');
+    }
+    
+    if (!process.env.OPENAI_API_KEY) {
+        throw new Error('OPENAI_API_KEY not found in environment variables. Please check your .env file exists and contains a valid API key.');
+    }
+    
+    if (!openai) {
+        openai = new OpenAI({
+            apiKey: process.env.OPENAI_API_KEY,
+            maxRetries: 3,
+            timeout: 30000
+        });
+    }
+    
+    return openai;
 }
-const openai = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
-    maxRetries: 3,
-    timeout: 30000
-});
+
 /**
  * Makes a call to GPT-4-mini model with structured output support
  * @param prompt - The input prompt to send to the model
@@ -47,7 +63,7 @@ async function callGPT4omini(
         if (response_obj && response_obj_name) {
             requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
         }
-        const completion = await openai.chat.completions.create(requestOptions);
+        const completion = await getOpenAIClient().chat.completions.create(requestOptions);
         const response = completion.choices[0].message.content;
         if (debug) {
             logger.debug("API call successful", {}, FILE_DEBUG);

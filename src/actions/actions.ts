@@ -11,15 +11,10 @@ import { type ZodIssue } from 'zod';
 import { createUserQuery } from '@/lib/services/userQueries';
 import { userQueryInsertSchema } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
+import { findMatchingSource, enhanceSourcesWithCurrentContent } from '@/lib/services/fileMatching';
+import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 
 const FILE_DEBUG = true;
-
-// Custom error types for better error handling
-type ErrorResponse = {
-    code: string;
-    message: string;
-    details?: any;
-};
 
 // Type for vector search results
 type VectorSearchResult = {
@@ -30,264 +25,13 @@ type VectorSearchResult = {
 
 /**
  * Key points:
- * - Formats top 5 sources into a numbered list
- * - Excludes any source matching savedId
- * - Truncates content to 1000 chars for prompt size
- * - Used by findMatchingSource for LLM ranking
- */
-function formatTopSources(sources: sourceWithCurrentContentType[], savedId: number | null): string {
-    const topSources = sources.slice(0, 5);
-    
-    return topSources.map((source, index) => {
-      // Skip if this source matches savedId
-      if (source.explanation_id === savedId) {
-        return null;
-      }
-
-      const number = index + 1; // Use original array index
-      const title = source.current_title || 'Untitled';
-      // Truncate content if it's too long to keep prompt size reasonable
-      const contentPreview = source.current_content.substring(0, 1000) + 
-        (source.current_content.length > 150 ? '...' : '');
-      
-      return `${number}. [${title}] ${contentPreview}`;
-    }).filter(Boolean).join('\n\n');
-  }
-  
-  /**
-   * Key points:
-   * - Creates a prompt for LLM to select best source
-   * - Uses numbered list from formatTopSources
-   * - Forces single integer response (0-5)
-   * - Used by findMatchingSource for source selection
-   */
-  function createSourceSelectionPrompt(userQuery: string, formattedSources: string): string {
-    return `
-  User Query: "${userQuery}"
-  
-  Below are the top 5 potential sources that might answer this query:
-  
-  ${formattedSources}
-  
-  Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
-  Choose only the number of the most relevant source. If there is no match, then answer with 0.
-  
-  Your response must be a single integer between 0 and 5.
-  `;
-  }
-  
-  /**
-   * Key points:
-   * - Uses LLM to select best matching source from top 5
-   * - Handles force mode to bypass LLM selection
-   * - Excludes sources matching savedId
-   * - Called by generateAiExplanation for source matching
-   * - Uses formatTopSources and createSourceSelectionPrompt
-   */
-  export async function findMatchingSource(
-    userQuery: string, 
-    sources: sourceWithCurrentContentType[],
-    matchMode: MatchMode,
-    savedId: number | null
-  ): Promise<{ 
-    selectedIndex: number | null,
-    explanationId: number | null,
-    topicId: number | null,
-    error: ErrorResponse | null 
-  }> {
-    try {
-      if (!sources || sources.length === 0) {
-        return {
-          selectedIndex: null,
-          explanationId: null,
-          topicId: null,
-          error: {
-            code: 'NO_SOURCES',
-            message: 'No sources available for selection'
-          }
-        };
-      }
-  
-      // If in force mode and we have sources, return the first source that's not savedId
-      if (matchMode === MatchMode.ForceMatch) {
-        const firstNonSavedSource = sources.find(source => source.explanation_id !== savedId);
-        if (firstNonSavedSource) {
-          logger.debug('Force mode: returning first non-saveid source', {
-            source: firstNonSavedSource
-          });
-          return {
-            selectedIndex: sources.indexOf(firstNonSavedSource) + 1, // Convert to 1-based index
-            explanationId: firstNonSavedSource.explanation_id,
-            topicId: firstNonSavedSource.topic_id || null,
-            error: null
-          };
-        }
-      }
-
-      // Format the top sources with numbers
-      const formattedSources = formatTopSources(sources, savedId);
-      
-      // Create the prompt for source selection
-      const selectionPrompt = createSourceSelectionPrompt(userQuery, formattedSources);
-      
-      // Call the LLM with the schema to force an integer response
-      logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, matchingSourceLLMSchema, 'sourceSelection');
-      
-      // Parse the result
-      const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
-
-      if (!parsedResult.success) {
-        logger.debug('Source selection schema validation failed', { 
-          errors: parsedResult.error.errors 
-        });
-        return {
-          selectedIndex: null,
-          explanationId: null,
-          topicId: null,
-          error: {
-            code: 'INVALID_RESPONSE',
-            message: 'AI response for source selection did not match expected format',
-            details: parsedResult.error
-          }
-        };
-      }
-      
-      let selectedIndex = parsedResult.data.selectedSourceIndex;
-      
-      // If the selected source matches savedId, find the next best match
-      if (selectedIndex > 0 && selectedIndex <= sources.length && 
-          sources[selectedIndex - 1].explanation_id === savedId) {
-        // Find the next best source that's not savedId
-        const nextBestSource = sources.find((source, index) => 
-          source.explanation_id !== savedId && index !== selectedIndex - 1
-        );
-        if (nextBestSource) {
-          selectedIndex = sources.indexOf(nextBestSource) + 1;
-        } else {
-          selectedIndex = 0; // No valid match found
-        }
-      }
-      
-      // If a valid source was selected (not 0), get its explanation ID and topic ID
-      const explanationId = selectedIndex > 0 && selectedIndex <= sources.length 
-        ? sources[selectedIndex - 1].explanation_id 
-        : null;
-
-      // Get topic ID from metadata if available
-      const topicId = selectedIndex > 0 && selectedIndex <= sources.length
-        ? sources[selectedIndex - 1].topic_id || null
-        : null;
-
-      logger.debug('Successfully selected source', {
-        selected_index: selectedIndex,
-        explanation_id: explanationId,
-        topic_id: topicId
-      });
-      
-      return { 
-        selectedIndex, 
-        explanationId,
-        topicId,
-        error: null 
-      };
-    } catch (error) {
-      logger.error('Error in findMatchingSource', {
-        error_message: error instanceof Error ? error.message : 'Unknown error',
-        user_query: userQuery
-      });
-      
-      return {
-        selectedIndex: null,
-        explanationId: null,
-        topicId: null,
-        error: {
-          code: 'SOURCE_SELECTION_ERROR',
-          message: 'Failed to select best source',
-          details: error instanceof Error ? error.message : 'Unknown error'
-        }
-      };
-    }
-  }
-
-/**
- * Key points:
- * - Adds current content from database to vector search results
- * - Maps over results to fetch full explanations
- * - Used by generateAiExplanation to enrich source data
- * - Calls getExplanationById for each source
- */
-export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<sourceWithCurrentContentType[]> {
-    logger.debug('Starting enhanceSourcesWithCurrentContent', {
-        input_count: similarTexts?.length || 0,
-        first_input: similarTexts?.[0]
-    });
-
-    return Promise.all(similarTexts.map(async (result: any) => {
-        logger.debug('Processing source', {
-            metadata: result.metadata,
-            score: result.score
-        });
-
-        const explanation = await getExplanationById(result.metadata.explanation_id);
-        logger.debug('Retrieved explanation', {
-            explanation_id: result.metadata.explanation_id,
-            found: !!explanation,
-            title: explanation?.explanation_title
-        });
-
-        const enhancedSource = {
-            text: result.metadata.text,
-            explanation_id: result.metadata.explanation_id,
-            topic_id: result.metadata.topic_id,
-            current_title: explanation?.explanation_title || '',
-            current_content: explanation?.content || '',
-            ranking: {
-                similarity: result.score
-            }
-        };
-
-        logger.debug('Enhanced source created', {
-            source: enhancedSource
-        });
-
-        return enhancedSource;
-    }));
-}
-
-/**
- * Key points:
- * - Enhances user query for better matching
- * - Uses LLM to add detail while preserving intent
- * - Called by generateAiExplanation for query improvement
- * - Uses callGPT4omini for enhancement
- */
-async function enhanceQueryDetails(userQuery: string, fullResponse: boolean): Promise<string> {
-    try {
-        const prompt = fullResponse 
-            ? userQuery 
-            : `Make this user query more detailed and precise while keeping the intent the same. Write concisely and do not add additional sentences: "${userQuery}"`;
-        const enhancedQuery = await callGPT4omini(prompt, null, null, FILE_DEBUG);
-        return enhancedQuery.trim().replace(/^"|"$/g, '');
-    } catch (error) {
-        logger.error('Error enhancing query details', {
-            error: error instanceof Error ? error.message : 'Unknown error',
-            userQuery
-        });
-        // Return original query if enhancement fails
-        return userQuery;
-    }
-}
-
-/**
- * Key points:
  * - Main function for generating AI explanations
  * - Handles both matching and new explanation generation
  * - Uses vector search and LLM for content creation
  * - Generates article titles using the original user query (not enhanced)
  * - Uses the first generated title for vector search (handleUserQuery)
  * - Called by saveExplanationAndTopic for new explanations
- * - Uses enhanceQueryDetails, handleUserQuery, enhanceSourcesWithCurrentContent, findMatchingSource
+ * - Uses handleUserQuery, enhanceSourcesWithCurrentContent, findMatchingSource
  */
 export async function generateAiExplanation(
     userQuery: string,
@@ -309,10 +53,7 @@ export async function generateAiExplanation(
             logger.debug('Empty userQuery detected');
             return {
                 data: null,
-                error: {
-                    code: 'INVALID_INPUT',
-                    message: 'userQuery cannot be empty'
-                },
+                error: createInputError('userQuery cannot be empty'),
                 originalUserQuery: userQuery
             };
         }
@@ -339,10 +80,7 @@ export async function generateAiExplanation(
             logger.debug('No valid title1 found in parsedTitles', { parsedTitles }, FILE_DEBUG);
             return {
                 data: null,
-                error: {
-                    code: 'NO_TITLE_FOR_VECTOR_SEARCH',
-                    message: 'No valid title1 found for vector search. Cannot proceed.'
-                },
+                error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
                 originalUserQuery: userQuery
             };
         }
@@ -414,11 +152,7 @@ export async function generateAiExplanation(
             });
             return {
                 data: null,
-                error: {
-                    code: 'INVALID_RESPONSE',
-                    message: 'AI response did not match expected format',
-                    details: parsedResult.error
-                },
+                error: createValidationError('AI response did not match expected format', parsedResult.error),
                 originalUserQuery: userQuery
             };
         }
@@ -444,11 +178,7 @@ export async function generateAiExplanation(
             }, FILE_DEBUG);
             return {
                 data: null,
-                error: {
-                    code: 'INVALID_USER_QUERY',
-                    message: 'Generated response does not match user query schema',
-                    details: validatedUserQuery.error
-                },
+                error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
                 originalUserQuery: userQuery
             };
         }
@@ -463,47 +193,8 @@ export async function generateAiExplanation(
             originalUserQuery: userQuery
         };
     } catch (error) {
-        let errorResponse: ErrorResponse;
-
-        logger.debug('Error details', {
-            error_type: error instanceof Error ? error.constructor.name : typeof error,
-            error_message: error instanceof Error ? error.message : 'Unknown error',
-            error_stack: error instanceof Error ? error.stack : undefined
-        });
-
-        if (error instanceof Error) {
-            // Categorize different types of errors
-            if (error.message.includes('API')) {
-                errorResponse = {
-                    code: 'LLM_API_ERROR',
-                    message: 'Error communicating with AI service',
-                    details: error.message
-                };
-            } else if (error.message.includes('timeout')) {
-                errorResponse = {
-                    code: 'TIMEOUT_ERROR',
-                    message: 'Request timed out!',
-                    details: error.message
-                };
-            } else {
-                errorResponse = {
-                    code: 'UNKNOWN_ERROR',
-                    message: error.message
-                };
-            }
-        } else {
-            errorResponse = {
-                code: 'UNKNOWN_ERROR',
-                message: 'An unexpected error occurred'
-            };
-        }
-
-        // Log the error with full context
-        logger.error('Error in generateAIResponse', {
-            userQuery,
-            error: errorResponse
-        });
-
+        const errorResponse = handleError(error, 'generateAiExplanation', { userQuery });
+        
         return { 
             data: null, 
             error: errorResponse,
@@ -625,7 +316,7 @@ export async function saveUserQuery(userQuery: UserQueryInsertType) {
             error,
             error_name: error?.name || 'UnknownError',
             error_message: error?.message || 'No error message available',
-            user_query_length: userQuery.length
+            user_query_length: userQuery.user_query.length
         });
         
         return { 
