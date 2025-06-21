@@ -11,7 +11,7 @@ import { sourceWithCurrentContentType, type SourceType, UserQueryInsertType, Exp
 import { logger } from '@/lib/client_utilities';
 import Link from 'next/link';
 import { getExplanationById } from '@/lib/services/explanations';
-import { enhanceSourcesWithCurrentContent } from '@/lib/services/fileMatching';
+import { enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
 
 const FILE_DEBUG = true;
 
