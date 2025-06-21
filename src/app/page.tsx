@@ -184,9 +184,9 @@ export default function Home() {
     const formattedExplanation = explanationTitle && content ? `# ${explanationTitle}\n\n${content}` : '';
 
     return (
-        <div className="min-h-screen bg-white dark:bg-gray-900">
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
             {isLoadingPageFromExplanationId ? (
-                <div className="fixed inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
+                <div className="fixed inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
                     <div className="text-center">
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
                         <p className="text-gray-600 dark:text-gray-300">Loading explanation...</p>
@@ -196,25 +196,16 @@ export default function Home() {
                 <main className="container mx-auto px-4 py-8 max-w-7xl">
                     <div className="text-center mb-12">
                         <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">
-                            AI Text Generator
+                            Explain Anything
                         </h1>
                         <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
-                            Enter your prompt below and let AI generate an explanation for you
+                            Learn about any topic
                         </p>
-                        <Link 
-                            href="/explanations" 
-                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                        >
-                            View all explanations →
-                        </Link>
                     </div>
                     <div className="flex flex-col items-center">
                         <div className="w-full max-w-2xl">
                             <form onSubmit={(e) => handleSubmit(e, MatchMode.Normal)} className="space-y-4">
                                 <div>
-                                    <label htmlFor="prompt" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                        Enter your prompt
-                                    </label>
                                     <div className="flex items-start gap-2">
                                         <textarea
                                             id="prompt"
@@ -248,28 +239,33 @@ export default function Home() {
                         </div>
                         {/* Tabs */}
                         <div className="w-full max-w-4xl mt-8">
-                            <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
-                                <button
-                                    className={`px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
-                                    onClick={() => setActiveTab('output')}
+                            <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 justify-between items-center">
+                                <div className="flex">
+                                    <button
+                                        className={`px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
+                                        onClick={() => setActiveTab('output')}
+                                    >
+                                        Generated Output
+                                    </button>
+                                    <button
+                                        className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
+                                        onClick={() => setActiveTab('matches')}
+                                    >
+                                        Matches
+                                    </button>
+                                </div>
+                                <Link 
+                                    href="/explanations" 
+                                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm"
                                 >
-                                    Generated Output
-                                </button>
-                                <button
-                                    className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
-                                    onClick={() => setActiveTab('matches')}
-                                >
-                                    Matches
-                                </button>
+                                    View all explanations →
+                                </Link>
                             </div>
                             {/* Tab Content */}
                             {activeTab === 'output' && (
                                 (explanationTitle || content) && !isGeneratingExplanation && (
                                     <div className="mt-2">
                                         <div className="flex items-center justify-between mb-2">
-                                            <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
-                                                Explanation:
-                                            </h3>
                                             <div className="flex gap-2">
                                                 {(explanationTitle || content) && !isGeneratingExplanation && (
                                                     <div className="relative min-w-[140px]">
