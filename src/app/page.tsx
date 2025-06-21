@@ -194,11 +194,11 @@ export default function Home() {
                 </div>
             ) : (
                 <main className="container mx-auto px-4 py-8 max-w-7xl">
-                    <div className="text-center mb-12">
-                        <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-4">
+                    <div className="text-center mb-8">
+                        <h1 className="text-4xl font-semibold text-gray-900 dark:text-white mb-2 tracking-wide font-proxima">
                             Explain Anything
                         </h1>
-                        <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
+                        <p className="text-base text-gray-600 dark:text-gray-300">
                             Learn about any topic
                         </p>
                     </div>
@@ -211,7 +211,7 @@ export default function Home() {
                                             id="prompt"
                                             value={prompt}
                                             onChange={handlePromptChange}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:border-gray-600 dark:text-white resize-none"
+                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:shadow-lg dark:shadow-black/20 resize-none"
                                             rows={1}
                                             maxLength={150}
                                             placeholder="Type your prompt here..."
@@ -221,8 +221,8 @@ export default function Home() {
                                                 type="button"
                                                 disabled={isGeneratingExplanation || !prompt.trim()}
                                                 onClick={(e) => handleSubmit(e as any, MatchMode.Normal)}
-                                                className={`w-full h-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed ${
-                                                    explanationTitle || content ? 'bg-blue-700 hover:bg-blue-800' : 'bg-blue-600 hover:bg-blue-700'
+                                                className={`w-full h-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${
+                                                    explanationTitle || content ? 'bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg' : 'bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md'
                                                 } flex justify-center items-center`}
                                             >
                                                 {isGeneratingExplanation ? 'Generating...' : 'Search Topic'}
@@ -232,7 +232,7 @@ export default function Home() {
                                 </div>
                             </form>
                             {error && (
-                                <div className="mt-4 p-4 bg-red-100 text-red-700 rounded-md">
+                                <div className="mt-4 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
                                     {error}
                                 </div>
                             )}
@@ -242,13 +242,13 @@ export default function Home() {
                             <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 justify-between items-center">
                                 <div className="flex">
                                     <button
-                                        className={`px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
+                                        className={`px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
                                         onClick={() => setActiveTab('output')}
                                     >
                                         Generated Output
                                     </button>
                                     <button
-                                        className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300'}`}
+                                        className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
                                         onClick={() => setActiveTab('matches')}
                                     >
                                         Matches
@@ -256,7 +256,7 @@ export default function Home() {
                                 </div>
                                 <Link 
                                     href="/explanations" 
-                                    className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 text-sm"
+                                    className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
                                 >
                                     View all explanations →
                                 </Link>
@@ -273,7 +273,7 @@ export default function Home() {
                                                             type="button"
                                                             disabled={isGeneratingExplanation || !prompt.trim()}
                                                             onClick={(e) => handleSubmit(e as any, MatchMode.Normal)}
-                                                            className="px-3 py-1 text-sm bg-blue-700 hover:bg-blue-800 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-between w-full"
+                                                            className="px-3 py-1 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 flex items-center justify-between w-full"
                                                         >
                                                             Regenerate
                                                             <svg className="ml-2 h-4 w-4" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.293l3.71-4.06a.75.75 0 111.08 1.04l-4.25 4.65a.75.75 0 01-1.08 0l-4.25-4.65a.75.75 0 01.02-1.06z" clipRule="evenodd" /></svg>
@@ -283,19 +283,19 @@ export default function Home() {
                                                 <button
                                                     onClick={handleSave}
                                                     disabled={isSaving || !explanationTitle || !content || savedId !== null || isGeneratingExplanation}
-                                                    className="px-3 py-1 text-sm bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                                    className="px-3 py-1 text-sm bg-emerald-600 hover:bg-emerald-700 text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2"
                                                 >
                                                     {isSaving ? 'Saving...' : savedId !== null ? 'Already Saved' : 'Save'}
                                                 </button>
                                                 <button
                                                     onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                                    className="px-3 py-1 text-sm bg-gray-200 dark:bg-gray-700 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+                                                    className="px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded-md transition-all duration-200 shadow-sm hover:shadow-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2"
                                                 >
                                                     {isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}
                                                 </button>
                                             </div>
                                         </div>
-                                        <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-md">
+                                        <div className="p-4 bg-white dark:bg-gray-800 rounded-md shadow-sm border border-gray-200 dark:border-gray-700 dark:shadow-lg dark:shadow-black/20">
                                             {isMarkdownMode ? (
                                                 <article className="prose dark:prose-invert max-w-none prose-headings:my-4 prose-ul:my-2 prose-li:my-1 prose-pre:my-2">
                                                     <ReactMarkdown
@@ -321,12 +321,12 @@ export default function Home() {
                             )}
                             {activeTab === 'matches' && (
                                 <div className="mt-2">
-                                    <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                                    <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
                                         {matches && matches.length > 0 ? (
                                             matches.map((match, index) => (
                                                 <div 
                                                     key={index}
-                                                    className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg shadow-sm hover:shadow-md transition-shadow"
+                                                    className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
                                                 >
                                                     <div className="mb-2 flex items-center justify-between">
                                                         <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
@@ -334,7 +334,7 @@ export default function Home() {
                                                         </span>
                                                         <button 
                                                             onClick={() => loadExplanation(match.explanation_id, true)}
-                                                            className="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                                            className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
                                                         >
                                                             View →
                                                         </button>
