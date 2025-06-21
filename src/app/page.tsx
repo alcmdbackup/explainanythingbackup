@@ -206,28 +206,26 @@ export default function Home() {
                         <div className="w-full max-w-2xl">
                             <form onSubmit={(e) => handleSubmit(e, MatchMode.Normal)} className="space-y-4">
                                 <div>
-                                    <div className="flex items-start gap-2">
+                                    <div className="flex items-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-full shadow-sm focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-blue-600 dark:focus-within:ring-blue-500 dark:focus-within:border-blue-500 transition-all duration-200">
                                         <textarea
                                             id="prompt"
                                             value={prompt}
                                             onChange={handlePromptChange}
-                                            className="flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-blue-600 dark:bg-gray-800 dark:border-gray-600 dark:text-white dark:shadow-lg dark:shadow-black/20 resize-none"
+                                            className="flex-1 px-4 py-2.5 bg-transparent border-0 rounded-l-full focus:outline-none focus:ring-0 resize-none dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
                                             rows={1}
                                             maxLength={150}
-                                            placeholder="Type your prompt here..."
+                                            placeholder="Ask me anything..."
                                         />
-                                        <div className="min-w-[140px]">
-                                            <button
-                                                type="button"
-                                                disabled={isGeneratingExplanation || !prompt.trim()}
-                                                onClick={(e) => handleSubmit(e as any, MatchMode.Normal)}
-                                                className={`w-full h-full px-4 py-2 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${
-                                                    explanationTitle || content ? 'bg-blue-600 hover:bg-blue-700 shadow-md hover:shadow-lg' : 'bg-blue-600 hover:bg-blue-700 shadow-sm hover:shadow-md'
-                                                } flex justify-center items-center`}
-                                            >
-                                                {isGeneratingExplanation ? 'Generating...' : 'Search Topic'}
-                                            </button>
-                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={isGeneratingExplanation || !prompt.trim()}
+                                            onClick={(e) => handleSubmit(e as any, MatchMode.Normal)}
+                                            className={`px-6 py-2.5 text-white rounded-r-full focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 ${
+                                                explanationTitle || content ? 'bg-blue-600 hover:bg-blue-700' : 'bg-blue-600 hover:bg-blue-700'
+                                            }`}
+                                        >
+                                            {isGeneratingExplanation ? 'Generating...' : 'Search Topic'}
+                                        </button>
                                     </div>
                                 </div>
                             </form>
