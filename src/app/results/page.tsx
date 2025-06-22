@@ -164,7 +164,7 @@ export default function ResultsPage() {
         const { success, error, id } = await saveExplanationAndTopic(prompt, explanationData);
         
         if (error) {
-            setError(error);
+            setError(error.message);
         } else {
             setSavedId(id);
         }
@@ -176,6 +176,39 @@ export default function ResultsPage() {
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+            {/* Top Navigation Bar */}
+            <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                    <div className="flex justify-between items-center h-14">
+                        <h1 className="text-xl font-medium text-gray-900 dark:text-white tracking-wide font-proxima">
+                            Explain Anything
+                        </h1>
+                        <div className="flex items-center space-x-6">
+                            <Link 
+                                href="/" 
+                                className="text-gray-700 hover:text-blue-700 dark:text-gray-300 dark:hover:text-blue-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
+                            >
+                                Home
+                            </Link>
+                            <Link 
+                                href="/explanations" 
+                                className="text-gray-700 hover:text-blue-700 dark:text-gray-300 dark:hover:text-blue-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
+                            >
+                                All topics
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+                <div className="h-px bg-gradient-to-r from-transparent via-gray-300/50 to-transparent dark:via-gray-600/50"></div>
+            </nav>
+
+            {/* Progress Bar */}
+            {(isGeneratingExplanation || isLoadingPageFromExplanationId) && (
+                <div className="w-full bg-gray-200 dark:bg-gray-700">
+                    <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
+                </div>
+            )}
+
             {isLoadingPageFromExplanationId ? (
                 <div className="fixed inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
                     <div className="text-center">
@@ -186,15 +219,6 @@ export default function ResultsPage() {
             ) : (
                 <main className="container mx-auto px-4 py-8 max-w-7xl">
                     <div className="text-center mb-8">
-                        <Link 
-                            href="/" 
-                            className="inline-flex items-center text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mb-4 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                        >
-                            ← Back to Search
-                        </Link>
-                        <h1 className="text-4xl font-semibold text-gray-900 dark:text-white mb-2 tracking-wide font-proxima">
-                            Explain Anything
-                        </h1>
                         <p className="text-base text-gray-600 dark:text-gray-300">
                             Results for your query
                         </p>
@@ -208,27 +232,19 @@ export default function ResultsPage() {
                     
                     {/* Tabs */}
                     <div className="w-full max-w-4xl mx-auto">
-                        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4 justify-between items-center">
-                            <div className="flex">
-                                <button
-                                    className={`px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                                    onClick={() => setActiveTab('output')}
-                                >
-                                    Generated Output
-                                </button>
-                                <button
-                                    className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                                    onClick={() => setActiveTab('matches')}
-                                >
-                                    Matches
-                                </button>
-                            </div>
-                            <Link 
-                                href="/explanations" 
-                                className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
+                        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+                            <button
+                                className={`px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
+                                onClick={() => setActiveTab('output')}
                             >
-                                View all explanations →
-                            </Link>
+                                Generated Output
+                            </button>
+                            <button
+                                className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
+                                onClick={() => setActiveTab('matches')}
+                            >
+                                Matches
+                            </button>
                         </div>
                         {/* Tab Content */}
                         {activeTab === 'output' && (
