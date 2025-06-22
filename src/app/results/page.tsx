@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { generateAiExplanation, saveExplanationAndTopic, saveUserQuery } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
@@ -17,6 +17,7 @@ const FILE_DEBUG = true;
 
 export default function ResultsPage() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const [prompt, setPrompt] = useState('');
     const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
@@ -174,6 +175,16 @@ export default function ResultsPage() {
 
     const formattedExplanation = explanationTitle && content ? `# ${explanationTitle}\n\n${content}` : '';
 
+    const handleSearchSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!prompt.trim()) return;
+        router.push(`/results?q=${encodeURIComponent(prompt)}`);
+    };
+
+    const handlePromptChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setPrompt(e.target.value);
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
             {/* Top Navigation Bar */}
@@ -183,6 +194,30 @@ export default function ResultsPage() {
                         <h1 className="text-xl font-medium text-gray-900 dark:text-white tracking-wide font-proxima">
                             Explain Anything
                         </h1>
+                        
+                        {/* Miniaturized Search Bar */}
+                        <div className="flex-1 max-w-md mx-8">
+                            <form onSubmit={handleSearchSubmit} className="w-full">
+                                <div className="flex items-center bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-blue-600 dark:focus-within:ring-blue-500 dark:focus-within:border-blue-500 transition-all duration-200">
+                                    <input
+                                        type="text"
+                                        value={prompt}
+                                        onChange={handlePromptChange}
+                                        className="flex-1 px-3 py-1.5 bg-transparent border-0 rounded-l-lg focus:outline-none focus:ring-0 text-sm dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+                                        placeholder="Search any topic..."
+                                        maxLength={100}
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={!prompt.trim()}
+                                        className="px-3 py-1.5 text-white rounded-r-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 bg-blue-600 hover:bg-blue-700 text-sm"
+                                    >
+                                        Search
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                        
                         <div className="flex items-center space-x-6">
                             <Link 
                                 href="/" 
@@ -218,12 +253,6 @@ export default function ResultsPage() {
                 </div>
             ) : (
                 <main className="container mx-auto px-4 py-8 max-w-7xl">
-                    <div className="text-center mb-8">
-                        <p className="text-base text-gray-600 dark:text-gray-300">
-                            Results for your query
-                        </p>
-                    </div>
-                    
                     {error && (
                         <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
                             {error}
