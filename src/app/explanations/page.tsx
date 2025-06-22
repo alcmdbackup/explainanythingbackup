@@ -53,7 +53,7 @@ export default function ExplanationsPage() {
                                 </p>
                                 {explanation.content.length > 100 && (
                                     <Link 
-                                        href={`/?explanation_id=${explanation.id}`}
+                                        href={`/results?explanation_id=${explanation.id}`}
                                         className="mt-4 text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
                                     >
                                         View full explanation

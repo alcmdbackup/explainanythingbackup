@@ -33,6 +33,19 @@ export default function ResultsPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'output' | 'matches'>('output');
 
+    /**
+     * Loads an explanation by ID and updates the UI state
+     * 
+     * • Fetches explanation data from the database using getExplanationById
+     * • Updates explanation title, content, and saved ID in component state
+     * • Updates browser URL to reflect the current explanation being viewed
+     * • Enhances sources with current content if available
+     * • Optionally clears the prompt based on clearPrompt parameter
+     * • Resets tab to "Generated Output" to show the loaded content
+     * 
+     * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
+     * Calls: getExplanationById, enhanceSourcesWithCurrentContent, router.push
+     */
     const loadExplanation = async (explanationId: number, clearPrompt: boolean) => {
         try {
             setError(null);
@@ -49,6 +62,12 @@ export default function ResultsPage() {
             if (clearPrompt) {
                 setPrompt('');
             }
+
+            // Reset tab to "Generated Output" to show the loaded content
+            setActiveTab('output');
+
+            // Update the URL to reflect the current explanation being viewed
+            router.push(`/results?explanation_id=${explanationId}`, { scroll: false });
 
             // If there are sources, enhance them with current content
             if (explanation.sources?.length) {
@@ -102,6 +121,18 @@ export default function ResultsPage() {
         }
     }, [searchParams]);
 
+    /**
+     * Generates AI explanation for a query or regenerates existing explanation
+     * 
+     * • Calls generateAiExplanation with the search query and current savedId
+     * • Handles both new explanations and existing matches
+     * • Updates UI state with explanation data and sources
+     * • Saves user query to database for new explanations
+     * • Manages loading states and error handling
+     * 
+     * Used by: useEffect (initial query), Regenerate button, direct function calls
+     * Calls: generateAiExplanation, loadExplanation, saveUserQuery
+     */
     const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal) => {
         const searchQuery = query || prompt;
         if (!searchQuery.trim()) return;
@@ -158,6 +189,17 @@ export default function ResultsPage() {
         setIsGeneratingExplanation(false);
     };
 
+    /**
+     * Saves the current explanation and topic to the database
+     * 
+     * • Validates required data (prompt, title, content, explanationData)
+     * • Calls saveExplanationAndTopic to persist data
+     * • Updates savedId state on successful save
+     * • Handles error states and loading indicators
+     * 
+     * Used by: Save button in the UI
+     * Calls: saveExplanationAndTopic
+     */
     const handleSave = async () => {
         if (!prompt || !explanationTitle || !content || savedId || !explanationData) return;
         
@@ -176,6 +218,16 @@ export default function ResultsPage() {
 
     const formattedExplanation = explanationTitle && content ? `# ${explanationTitle}\n\n${content}` : '';
 
+    /**
+     * Handles search form submission and navigates to results page
+     * 
+     * • Validates search query is not empty
+     * • Navigates to results page with query parameter
+     * • Triggers new explanation generation on page load
+     * 
+     * Used by: SearchBar component in navigation
+     * Calls: router.push
+     */
     const handleSearchSubmit = (query: string) => {
         if (!query.trim()) return;
         router.push(`/results?q=${encodeURIComponent(query)}`);
@@ -356,7 +408,7 @@ export default function ResultsPage() {
                                                         Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
                                                     </span>
                                                     <button 
-                                                        onClick={() => loadExplanation(match.explanation_id, true)}
+                                                        onClick={() => loadExplanation(match.explanation_id, false)}
                                                         className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
                                                     >
                                                         View →
