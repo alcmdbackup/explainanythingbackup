@@ -5,10 +5,13 @@ import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
 import { getRecentExplanations } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import Link from 'next/link';
+import Navigation from '@/components/Navigation';
+import { useRouter } from 'next/navigation';
 
 export default function ExplanationsPage() {
     const [recentExplanations, setRecentExplanations] = useState<ExplanationFullDbType[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const router = useRouter();
 
     useEffect(() => {
         loadRecentExplanations();
@@ -25,8 +28,21 @@ export default function ExplanationsPage() {
         }
     };
 
+    const handleSearchSubmit = (query: string) => {
+        if (!query.trim()) return;
+        router.push(`/results?q=${encodeURIComponent(query)}`);
+    };
+
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
+            <Navigation 
+                showSearchBar={true}
+                searchBarProps={{
+                    placeholder: "Search any topic...",
+                    maxLength: 100,
+                    onSearch: handleSearchSubmit
+                }}
+            />
             <main className="container mx-auto px-4 py-8">
                 <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">
                     All Explanations
