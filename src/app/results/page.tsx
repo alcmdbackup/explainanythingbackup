@@ -9,10 +9,9 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { sourceWithCurrentContentType, type SourceType, UserQueryInsertType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
-import Link from 'next/link';
 import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
-import SearchBar from '@/components/SearchBar';
+import Navigation from '@/components/Navigation';
 
 const FILE_DEBUG = true;
 
@@ -236,42 +235,15 @@ export default function ResultsPage() {
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
             {/* Top Navigation Bar */}
-            <nav className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 shadow-sm">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-                    <div className="flex justify-between items-center h-14">
-                        <h1 className="text-xl font-medium text-gray-900 dark:text-white tracking-wide font-proxima">
-                            Explain Anything
-                        </h1>
-                        
-                        {/* Miniaturized Search Bar */}
-                        <div className="flex-1 max-w-md mx-8">
-                            <SearchBar 
-                                variant="nav"
-                                placeholder="Search any topic..."
-                                maxLength={100}
-                                initialValue={prompt}
-                                onSearch={handleSearchSubmit}
-                            />
-                        </div>
-                        
-                        <div className="flex items-center space-x-6">
-                            <Link 
-                                href="/" 
-                                className="text-gray-700 hover:text-blue-700 dark:text-gray-300 dark:hover:text-blue-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                            >
-                                Home
-                            </Link>
-                            <Link 
-                                href="/explanations" 
-                                className="text-gray-700 hover:text-blue-700 dark:text-gray-300 dark:hover:text-blue-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                            >
-                                All topics
-                            </Link>
-                        </div>
-                    </div>
-                </div>
-                <div className="h-px bg-gradient-to-r from-transparent via-gray-300/50 to-transparent dark:via-gray-600/50"></div>
-            </nav>
+            <Navigation 
+                showSearchBar={true}
+                searchBarProps={{
+                    placeholder: "Search any topic...",
+                    maxLength: 100,
+                    initialValue: prompt,
+                    onSearch: handleSearchSubmit
+                }}
+            />
 
             {/* Progress Bar */}
             {(isGeneratingExplanation || isLoadingPageFromExplanationId) && (
