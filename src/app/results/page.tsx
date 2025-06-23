@@ -68,15 +68,15 @@ export default function ResultsPage() {
             // Update the URL to reflect the current explanation being viewed
             router.push(`/results?explanation_id=${explanationId}`, { scroll: false });
 
-            // If there are sources, enhance them with current content
-            if (explanation.sources?.length) {
-                logger.debug('Found sources in explanation:', { 
-                    sourceCount: explanation.sources.length,
-                    sources: explanation.sources 
+            // If there are matches, enhance them with current content
+            if (explanation.matches?.length) {
+                logger.debug('Found matches in explanation:', {
+                    sourceCount: explanation.matches.length,
+                    matches: explanation.matches
                 }, FILE_DEBUG);
                 
                 const enhancedSources = await enhanceSourcesWithCurrentContent(
-                    explanation.sources.map(source => ({
+                    explanation.matches.map((source: any) => ({
                         metadata: {
                             explanation_id: source.explanation_id,
                             text: source.text
@@ -173,11 +173,11 @@ export default function ResultsPage() {
             setExplanationTitle(explanationData.explanation_title);
             setContent(explanationData.content);
             
-            if (explanationData.sources) {
-                setMatches(explanationData.sources); // Only set matches
+            if (explanationData.matches) {
+                setMatches(explanationData.matches); // Only set matches
             }
             
-            // Save user query with sources
+            // Save user query with matches
             const { error: queryError } = await saveUserQuery(explanationData);
             
             if (queryError) {

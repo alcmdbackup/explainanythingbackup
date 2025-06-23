@@ -10,8 +10,9 @@ import { type UserQueryInsertType } from '@/lib/schemas/schemas';
  * // Create a user query record
  * const newQuery = await createUserQuery({ 
  *   user_query: "What is React?", 
- *   title: "Introduction to React",
- *   content: "React is a JavaScript library..." 
+ *   explanation_title: "Introduction to React",
+ *   content: "React is a JavaScript library...",
+ *   matches: [...]
  * });
  * ```
  */

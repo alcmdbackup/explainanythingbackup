@@ -111,7 +111,7 @@ export const generateAiExplanation = withLogging(
                 user_query: userQuery,
                 explanation_title: firstTitle,
                 content: parsedResult.data.content,
-                sources: sources // Include the sources from vector search
+                matches: sources // Include the matches from vector search
             };
             
             const validatedUserQuery = userQueryInsertSchema.safeParse(userQueryData);

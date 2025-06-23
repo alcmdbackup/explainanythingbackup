@@ -86,7 +86,7 @@ export const sourceWithCurrentContentSchema = sourceSchema.extend({
  * }
  */
 export const userQueryInsertSchema = llmQuerySchema.extend({
-    sources: z.array(sourceWithCurrentContentSchema),
+    matches: z.array(sourceWithCurrentContentSchema),
     user_query: z.string(),
 });
 
@@ -96,18 +96,24 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
  * {
  *   explanation_title: "Photosynthesis Process",
  *   content: "Photosynthesis is the process by which plants...",
- *   sources: [
+ *   matches: [
  *     {
  *       text: "Original source text...",
  *       explanation_id: 123,
+ *       topic_id: 456,
+ *       current_title: "Photosynthesis Process",
+ *       current_content: "Detailed explanation content...",
  *       ranking: {
  *         similarity: 0.95
  *       }
  *     }
- *   ]
+ *   ],
+ *   primary_topic_id: 1,
+ *   secondary_topic_id: 2
  * }
  */
-export const explanationInsertSchema = userQueryInsertSchema.omit({ user_query: true }).extend({
+export const explanationInsertSchema = llmQuerySchema.extend({
+    sources: z.array(sourceWithCurrentContentSchema),
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional()
 });
