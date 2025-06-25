@@ -210,7 +210,6 @@ export const saveExplanationAndTopic = withLogging(
             const explanationWithTopic: ExplanationInsertType = {
                 explanation_title: explanationData.explanation_title,
                 content: explanationData.content,
-                matches: explanationData.matches,
                 primary_topic_id: topic.id
             };
 
@@ -218,7 +217,6 @@ export const saveExplanationAndTopic = withLogging(
             console.log('🔍 [saveExplanationAndTopic] Validating explanation data:', {
                 explanation_title: explanationWithTopic.explanation_title,
                 content_length: explanationWithTopic.content?.length,
-                sources_count: explanationWithTopic.sources?.length,
                 primary_topic_id: explanationWithTopic.primary_topic_id
             });
 

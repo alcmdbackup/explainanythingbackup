@@ -114,7 +114,6 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
  * }
  */
 export const explanationInsertSchema = llmQuerySchema.extend({
-    matches: z.array(sourceWithCurrentContentSchema),
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional()
 });

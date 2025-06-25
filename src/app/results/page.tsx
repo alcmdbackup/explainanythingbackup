@@ -69,7 +69,7 @@ export default function ResultsPage() {
             router.push(`/results?explanation_id=${explanationId}`, { scroll: false });
 
             // If there are matches, enhance them with current content
-            if (explanation.matches?.length) {
+            /*if (explanation.matches?.length) {
                 logger.debug('Found matches in explanation:', {
                     sourceCount: explanation.matches.length,
                     matches: explanation.matches
@@ -94,7 +94,7 @@ export default function ResultsPage() {
             } else {
                 logger.debug('No sources found in explanation', {}, FILE_DEBUG);
                 setSources([]);
-            }
+            }*/
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
             setError(errorMessage);
