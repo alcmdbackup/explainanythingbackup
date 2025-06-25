@@ -203,20 +203,20 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
     logger.debug('Starting enhanceSourcesWithCurrentContent', {
         input_count: similarTexts?.length || 0,
         first_input: similarTexts?.[0]
-    });
+    }, true);
 
     return Promise.all(similarTexts.map(async (result: any) => {
         logger.debug('Processing source', {
             metadata: result.metadata,
             score: result.score
-        });
+        }, true);
 
         const explanation = await getExplanationById(result.metadata.explanation_id);
         logger.debug('Retrieved explanation', {
             explanation_id: result.metadata.explanation_id,
             found: !!explanation,
             title: explanation?.explanation_title
-        });
+        }, true);
 
         const enhancedSource = {
             text: result.metadata.text,
@@ -231,7 +231,7 @@ export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Pro
 
         logger.debug('Enhanced source created', {
             source: enhancedSource
-        });
+        }, true);
 
         return enhancedSource;
     }));

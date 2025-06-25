@@ -39,8 +39,11 @@ export const generateAiExplanation = withLogging(
         error: ErrorResponse | null,
         originalUserQuery: string
     }> {
+        console.log('🔍 [generateAiExplanation] Starting with:', { userQuery, savedId, matchMode });
+        
         try {
             if (!userQuery.trim()) {
+                console.log('❌ [generateAiExplanation] Empty user query detected');
                 return {
                     data: null,
                     error: createInputError('userQuery cannot be empty'),
@@ -48,13 +51,20 @@ export const generateAiExplanation = withLogging(
                 };
             }
 
+            console.log('📝 [generateAiExplanation] Generating article titles...');
             // Generate article titles using the ORIGINAL user query
             const titlePrompt = createTitlePrompt(userQuery);
             const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
+            console.log('📋 [generateAiExplanation] Title generation result:', { 
+                success: parsedTitles.success, 
+                titles: parsedTitles.success ? parsedTitles.data : null 
+            });
+
             // Get similar text snippets using the FIRST TITLE if available, else throw error
             if (!parsedTitles.success || !parsedTitles.data.title1) {
+                console.log('❌ [generateAiExplanation] No valid title1 found for vector search');
                 return {
                     data: null,
                     error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
@@ -63,11 +73,23 @@ export const generateAiExplanation = withLogging(
             }
             
             const firstTitle = parsedTitles.data.title1;
+            console.log('🔍 [generateAiExplanation] Using first title for vector search:', firstTitle);
+            
+            console.log('🔎 [generateAiExplanation] Starting vector search...');
             const similarTexts = await handleUserQuery(firstTitle);
+            console.log('📊 [generateAiExplanation] Vector search found', similarTexts.length, 'similar texts');
+            
             const sources = await enhanceSourcesWithCurrentContent(similarTexts);
+            console.log('📚 [generateAiExplanation] Enhanced sources count:', sources.length);
 
             // Add the call to selectBestSource here
+            console.log('🎯 [generateAiExplanation] Finding best matching source...');
             const bestSourceResult = await findMatchingSource(firstTitle, sources, matchMode, savedId);
+            console.log('🎯 [generateAiExplanation] Best source result:', {
+                selectedIndex: bestSourceResult.selectedIndex,
+                explanationId: bestSourceResult.explanationId,
+                topicId: bestSourceResult.topicId
+            });
 
             // Check if we should return a match based on matchMode and source quality
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
@@ -76,7 +98,15 @@ export const generateAiExplanation = withLogging(
                 bestSourceResult.explanationId !== null && 
                 bestSourceResult.topicId !== null;
 
+            console.log('🤔 [generateAiExplanation] Match decision:', {
+                matchMode,
+                shouldReturnMatch,
+                selectedIndex: bestSourceResult.selectedIndex,
+                minSimilarityIndex: MIN_SIMILARITY_INDEX
+            });
+
             if (shouldReturnMatch) {
+                console.log('✅ [generateAiExplanation] Returning existing match');
                 return {
                     data: {
                         match_found: true,
@@ -92,13 +122,20 @@ export const generateAiExplanation = withLogging(
                 };
             }
 
+            console.log('🤖 [generateAiExplanation] Generating new explanation with LLM...');
             const formattedPrompt = createExplanationPrompt(firstTitle);
             const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
             
             // Parse the result to ensure it matches our schema
             const parsedResult = llmQuerySchema.safeParse(JSON.parse(result));
 
+            console.log('📝 [generateAiExplanation] LLM response parsing:', {
+                success: parsedResult.success,
+                contentLength: parsedResult.success ? parsedResult.data.content.length : null
+            });
+
             if (!parsedResult.success) {
+                console.log('❌ [generateAiExplanation] LLM response parsing failed:', parsedResult.error);
                 return {
                     data: null,
                     error: createValidationError('AI response did not match expected format', parsedResult.error),
@@ -114,9 +151,11 @@ export const generateAiExplanation = withLogging(
                 matches: sources // Include the matches from vector search
             };
             
+            console.log('✅ [generateAiExplanation] Validating user query data...');
             const validatedUserQuery = userQueryInsertSchema.safeParse(userQueryData);
             
             if (!validatedUserQuery.success) {
+                console.log('❌ [generateAiExplanation] User query validation failed:', validatedUserQuery.error);
                 return {
                     data: null,
                     error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
@@ -124,6 +163,7 @@ export const generateAiExplanation = withLogging(
                 };
             }
 
+            console.log('✅ [generateAiExplanation] Successfully generated new explanation');
             return {
                 data: {
                     match_found: false,
@@ -134,6 +174,7 @@ export const generateAiExplanation = withLogging(
                 originalUserQuery: userQuery
             };
         } catch (error) {
+            console.error('💥 [generateAiExplanation] Unexpected error:', error);
             return {
                 data: null,
                 error: handleError(error, 'generateAiExplanation', { userQuery, matchMode, savedId }),
@@ -169,9 +210,17 @@ export const saveExplanationAndTopic = withLogging(
             const explanationWithTopic: ExplanationInsertType = {
                 explanation_title: explanationData.explanation_title,
                 content: explanationData.content,
-                sources: explanationData.sources,
+                sources: explanationData.matches,
                 primary_topic_id: topic.id
             };
+
+            // Debug log the data being validated
+            console.log('🔍 [saveExplanationAndTopic] Validating explanation data:', {
+                explanation_title: explanationWithTopic.explanation_title,
+                content_length: explanationWithTopic.content?.length,
+                sources_count: explanationWithTopic.sources?.length,
+                primary_topic_id: explanationWithTopic.primary_topic_id
+            });
 
             // Validate the explanation data against our schema
             const validatedData = explanationInsertSchema.safeParse(explanationWithTopic);

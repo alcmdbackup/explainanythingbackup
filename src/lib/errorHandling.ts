@@ -111,7 +111,19 @@ export function createValidationError(
   message: string, 
   details?: any
 ): ErrorResponse {
-  return createError(ERROR_CODES.VALIDATION_ERROR, message, details);
+  // Format Zod validation errors for better readability
+  let formattedDetails = details;
+  if (details && typeof details === 'object' && 'errors' in details) {
+    formattedDetails = {
+      validationErrors: details.errors.map((err: any) => ({
+        path: err.path.join('.'),
+        message: err.message,
+        code: err.code
+      }))
+    };
+  }
+  
+  return createError(ERROR_CODES.VALIDATION_ERROR, message, formattedDetails);
 }
 
 // Utility function for input validation errors
