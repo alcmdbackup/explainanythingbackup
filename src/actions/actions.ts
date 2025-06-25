@@ -210,7 +210,7 @@ export const saveExplanationAndTopic = withLogging(
             const explanationWithTopic: ExplanationInsertType = {
                 explanation_title: explanationData.explanation_title,
                 content: explanationData.content,
-                sources: explanationData.matches,
+                matches: explanationData.matches,
                 primary_topic_id: topic.id
             };
 

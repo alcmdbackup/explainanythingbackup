@@ -1,3 +1,4 @@
+import { matchesGlob } from 'node:path/posix';
 import { z } from 'zod';
 
 // Add near the top with other type definitions
@@ -113,7 +114,7 @@ export const userQueryInsertSchema = llmQuerySchema.extend({
  * }
  */
 export const explanationInsertSchema = llmQuerySchema.extend({
-    sources: z.array(sourceWithCurrentContentSchema),
+    matches: z.array(sourceWithCurrentContentSchema),
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional()
 });
