@@ -31,6 +31,7 @@ export default function ResultsPage() {
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'output' | 'matches'>('output');
+    const [explanationId, setExplanationId] = useState<number | null>(null);
 
     /**
      * Loads an explanation by ID and updates the UI state
@@ -166,6 +167,13 @@ export default function ResultsPage() {
                 setMatches(data.data.sources);
             }
             await loadExplanation(data.data.explanation_id, false);
+            // Save user query for match_found case
+            if (explanationData && data.data.explanation_id != null) {
+                const { error: userQueryError } = await saveUserQuery(explanationData, data.data.explanation_id);
+                if (userQueryError) {
+                    logger.error('Failed to save user query:', { error: userQueryError });
+                }
+            }
         } else {
             // New explanation generated - set the data
             const explanationData = data.data; // This contains the UserQueryInsertType data
@@ -178,12 +186,20 @@ export default function ResultsPage() {
             }
             
             // Save user query with matches
-            const { error: explanationTopicError } = await saveExplanationAndTopic(prompt, explanationData);
+            const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(prompt, explanationData);
             if (explanationTopicError) {
                 logger.error('Failed to save explanation and topic:', { error: explanationTopicError });
+            } else {
+                setExplanationId(newExplanationId);
             }
             
-            const { error: userQueryError } = await saveUserQuery(explanationData);
+            if (newExplanationId == null) {
+                setError('Failed to save explanation: missing explanation ID.');
+                setIsGeneratingExplanation(false);
+                return;
+            }
+            
+            const { error: userQueryError } = await saveUserQuery(explanationData, newExplanationId);
             if (userQueryError) {
                 logger.error('Failed to save user query:', { error: userQueryError });
             }

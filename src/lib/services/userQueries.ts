@@ -20,12 +20,14 @@ import { type UserQueryInsertType } from '@/lib/schemas/schemas';
 /**
  * Create a new user query record
  * @param query Query data to insert
+ * @param explanationId (optional) Explanation ID to associate
  * @returns Created user query record
  */
-export async function createUserQuery(query: UserQueryInsertType) {
+export async function createUserQuery(query: UserQueryInsertType, explanationId?: number) {
+  const insertObj = explanationId != null ? { ...query, explanation_id: explanationId } : query;
   const { data, error } = await supabase
     .from('userQueries')
-    .insert(query)
+    .insert(insertObj)
     .select()
     .single();
 

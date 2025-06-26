@@ -272,10 +272,12 @@ export const saveExplanationAndTopic = withLogging(
  * - Uses createUserQuery for database storage
  */
 export const saveUserQuery = withLogging(
-    async function saveUserQuery(userQuery: UserQueryInsertType) {
+    async function saveUserQuery(userQuery: UserQueryInsertType, explanationId: number) {
         try {
+            // Add explanationId to the userQuery object
+            const userQueryWithId = { ...userQuery, explanation_id: explanationId };
             // Validate the user query data against our schema
-            const validatedData = userQueryInsertSchema.safeParse(userQuery);
+            const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
 
             if (!validatedData.success) {
                 return {
@@ -286,7 +288,7 @@ export const saveUserQuery = withLogging(
             }
 
             // Save to database
-            const savedQuery = await createUserQuery(validatedData.data);
+            const savedQuery = await createUserQuery(validatedData.data, explanationId);
             
             return { 
                 success: true, 
