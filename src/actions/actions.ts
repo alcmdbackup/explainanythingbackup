@@ -232,7 +232,8 @@ export const saveExplanationAndTopic = withLogging(
             }
 
             // Save to database
-            const savedExplanation = await createExplanation(explanationWithTopic);
+            console.log('💾 [saveExplanationAndTopic] Saving explanation to database:', JSON.stringify(validatedData.data, null, 2));
+            const savedExplanation = await createExplanation(validatedData.data);
 
             // Format content for embedding in the same way as displayed in the UI
             const combinedContent = CONTENT_FORMAT_TEMPLATE

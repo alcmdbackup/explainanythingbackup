@@ -29,13 +29,26 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
  * @returns Created explanation record
  */
 export async function createExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
+  console.log('Creating explanation with data:', explanation);
+  
   const { data, error } = await supabase
     .from('explanations')
     .insert(explanation)
-    .select()
+    .select('id, explanation_title, content, timestamp, primary_topic_id, secondary_topic_id')
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error('Error creating explanation:', error);
+    console.error('Error details:', {
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      code: error.code
+    });
+    throw error;
+  }
+  
+  console.log('Successfully created explanation:', data);
   return data;
 }
 
