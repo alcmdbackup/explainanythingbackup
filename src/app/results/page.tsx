@@ -178,10 +178,14 @@ export default function ResultsPage() {
             }
             
             // Save user query with matches
-            const { error: queryError } = await saveUserQuery(explanationData);
+            const { error: explanationTopicError } = await saveExplanationAndTopic(prompt, explanationData);
+            if (explanationTopicError) {
+                logger.error('Failed to save explanation and topic:', { error: explanationTopicError });
+            }
             
-            if (queryError) {
-                logger.error('Failed to save user query:', { error: queryError });
+            const { error: userQueryError } = await saveUserQuery(explanationData);
+            if (userQueryError) {
+                logger.error('Failed to save user query:', { error: userQueryError });
             }
         }
         
