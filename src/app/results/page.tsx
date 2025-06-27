@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { sourceWithCurrentContentType, type SourceType, UserQueryInsertType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
+import { sourceWithCurrentContentType, type SourceType, UserQueryDataType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
@@ -24,7 +24,7 @@ export default function ResultsPage() {
     const [sources, setSources] = useState<sourceWithCurrentContentType[]>([]);
     const [matches, setMatches] = useState<sourceWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
-    const [explanationData, setExplanationData] = useState<UserQueryInsertType | null>(null);
+    const [explanationData, setExplanationData] = useState<UserQueryDataType | null>(null);
     const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
     const [isLoadingPageFromExplanationId, setIsLoadingPageFromExplanationId] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -176,7 +176,7 @@ export default function ResultsPage() {
             }
         } else {
             // New explanation generated - set the data
-            const explanationData = data.data; // This contains the UserQueryInsertType data
+            const explanationData = data.data; // This contains the UserQueryDataType data
             setExplanationData(explanationData);
             setExplanationTitle(explanationData.explanation_title);
             setContent(explanationData.content);

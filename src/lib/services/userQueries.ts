@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { type UserQueryInsertType } from '@/lib/schemas/schemas';
+import { querystring } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
 
 /**
  * Service for interacting with the user_queries table in Supabase
@@ -23,11 +24,10 @@ import { type UserQueryInsertType } from '@/lib/schemas/schemas';
  * @param explanationId (optional) Explanation ID to associate
  * @returns Created user query record
  */
-export async function createUserQuery(query: UserQueryInsertType, explanationId?: number) {
-  const insertObj = explanationId != null ? { ...query, explanation_id: explanationId } : query;
+export async function createUserQuery(query: UserQueryInsertType) {
   const { data, error } = await supabase
     .from('userQueries')
-    .insert(insertObj)
+    .insert(query)
     .select()
     .single();
 

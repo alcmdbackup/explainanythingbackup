@@ -3,11 +3,11 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type UserQueryInsertType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { handleUserQuery } from '@/lib/services/vectorsim';
 import { createUserQuery } from '@/lib/services/userQueries';
-import { userQueryInsertSchema } from '@/lib/schemas/schemas';
+import { userQueryDataSchema, userQueryInsertSchema } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
 import { findMatchingSource, enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
@@ -143,7 +143,7 @@ export const generateAiExplanation = withLogging(
                 };
             }
 
-            // Validate against userQueryInsertSchema before returning
+            // Validate against userQueryDataSchema before returning
             const userQueryData = {
                 user_query: userQuery,
                 explanation_title: firstTitle,
@@ -152,7 +152,7 @@ export const generateAiExplanation = withLogging(
             };
             
             console.log('✅ [generateAiExplanation] Validating user query data...');
-            const validatedUserQuery = userQueryInsertSchema.safeParse(userQueryData);
+            const validatedUserQuery = userQueryDataSchema.safeParse(userQueryData);
             
             if (!validatedUserQuery.success) {
                 console.log('❌ [generateAiExplanation] User query validation failed:', validatedUserQuery.error);
@@ -199,7 +199,7 @@ export const generateAiExplanation = withLogging(
  * - Uses createTopic, createExplanation, processContentToStoreEmbedding
  */
 export const saveExplanationAndTopic = withLogging(
-    async function saveExplanationAndTopic(userQuery: string, explanationData: UserQueryInsertType) {
+    async function saveExplanationAndTopic(userQuery: string, explanationData: UserQueryDataType) {
         try {
             // Create a topic first using the explanation title, if it doesn't already exist
             const topic = await createTopic({
@@ -272,7 +272,7 @@ export const saveExplanationAndTopic = withLogging(
  * - Uses createUserQuery for database storage
  */
 export const saveUserQuery = withLogging(
-    async function saveUserQuery(userQuery: UserQueryInsertType, explanationId: number) {
+    async function saveUserQuery(userQuery: UserQueryDataType, explanationId: number) {
         try {
             // Add explanationId to the userQuery object
             const userQueryWithId = { ...userQuery, explanation_id: explanationId };
@@ -288,7 +288,7 @@ export const saveUserQuery = withLogging(
             }
 
             // Save to database
-            const savedQuery = await createUserQuery(validatedData.data, explanationId);
+            const savedQuery = await createUserQuery(validatedData.data);
             
             return { 
                 success: true, 

@@ -86,9 +86,24 @@ export const sourceWithCurrentContentSchema = sourceSchema.extend({
  *   content: "Photosynthesis is the process by which plants..."
  * }
  */
-export const userQueryInsertSchema = llmQuerySchema.extend({
+export const userQueryDataSchema = llmQuerySchema.extend({
     matches: z.array(sourceWithCurrentContentSchema),
     user_query: z.string(),
+});
+
+/**
+ * Schema for inserting user query data, extends userQueryDataSchema with explanation_id
+ * @example
+ * {
+ *   user_query: "How does photosynthesis work?",
+ *   explanation_title: "Photosynthesis Process",
+ *   content: "Photosynthesis is the process by which plants...",
+ *   matches: [...],
+ *   explanation_id: 123
+ * }
+ */
+export const userQueryInsertSchema = userQueryDataSchema.extend({
+    explanation_id: z.number(),
 });
 
 /**
@@ -147,7 +162,7 @@ export const ExplanationFullDbSchema = explanationInsertSchema.extend({
  *   user_query: "How does photosynthesis work?"
  * }
  */
-export const userQueryFullDbSchema = userQueryInsertSchema.extend({
+export const userQueryFullDbSchema = userQueryDataSchema.extend({
     id: z.number(),
     timestamp: z.string(), // or z.date() if you prefer working with Date objects
 });
@@ -156,10 +171,11 @@ export const userQueryFullDbSchema = userQueryInsertSchema.extend({
 export type LlmQueryType = z.infer<typeof llmQuerySchema>;
 export type SourceType = z.infer<typeof sourceSchema>;
 export type sourceWithCurrentContentType = z.infer<typeof sourceWithCurrentContentSchema>;
-export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
+export type UserQueryDataType = z.infer<typeof userQueryDataSchema>;
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
 export type UserQueryFullDbType = z.infer<typeof userQueryFullDbSchema>;
+export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
 
 /*export const llmResponseWithSourcesSchema = z.object({
     title: z.string(),
@@ -251,7 +267,7 @@ export type MatchingSourceReturnType = z.infer<typeof matchingSourceReturnSchema
 export const queryResponseSchema = z.discriminatedUnion('match_found', [
   z.object({
     match_found: z.literal(false),
-    data: userQueryInsertSchema
+    data: userQueryDataSchema
   }),
   z.object({
     match_found: z.literal(true),
