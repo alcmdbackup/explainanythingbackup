@@ -112,8 +112,7 @@ export const generateAiExplanation = withLogging(
                         match_found: true,
                         data: {
                             explanation_id: bestSourceResult.explanationId!,
-                            topic_id: bestSourceResult.topicId!,
-                            sources: sources
+                            topic_id: bestSourceResult.topicId!
                         },
                         title: firstTitle
                     },

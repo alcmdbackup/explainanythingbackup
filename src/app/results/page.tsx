@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { sourceWithCurrentContentType, type SourceType, UserQueryDataType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, UserQueryDataType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
@@ -21,8 +21,8 @@ export default function ResultsPage() {
     const [prompt, setPrompt] = useState('');
     const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
-    const [sources, setSources] = useState<sourceWithCurrentContentType[]>([]);
-    const [matches, setMatches] = useState<sourceWithCurrentContentType[]>([]);
+    const [sources, setSources] = useState<matchWithCurrentContentType[]>([]);
+    const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<UserQueryDataType | null>(null);
     const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
@@ -163,9 +163,6 @@ export default function ResultsPage() {
         } else if (!data) {
             setError('No response received');
         } else if (data.match_found) {
-            if (data.data.sources) {
-                setMatches(data.data.sources);
-            }
             await loadExplanation(data.data.explanation_id, false);
             // Save user query for match_found case
             if (explanationData && data.data.explanation_id != null) {

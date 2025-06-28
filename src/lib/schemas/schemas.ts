@@ -47,7 +47,7 @@ export const titleQuerySchema = z.object({
  *   }
  * }
  */
-export const sourceSchema = z.object({
+export const matchSchema = z.object({
     text: z.string(),
     explanation_id: z.number(),
     topic_id: z.number(),
@@ -59,7 +59,7 @@ export const sourceSchema = z.object({
 
 /**
  * Schema for enhanced source data with title and content
- * Extends the base sourceSchema with additional explanation details
+ * Extends the base matchSchema with additional explanation details
  * @example
  * {
  *   text: "Original source text...",
@@ -71,7 +71,7 @@ export const sourceSchema = z.object({
  *   }
  * }
  */
-export const sourceWithCurrentContentSchema = sourceSchema.extend({
+export const matchWithCurrentContentSchema = matchSchema.extend({
     current_title: z.string(),
     current_content: z.string(),
 });
@@ -87,7 +87,7 @@ export const sourceWithCurrentContentSchema = sourceSchema.extend({
  * }
  */
 export const userQueryDataSchema = llmQuerySchema.extend({
-    matches: z.array(sourceWithCurrentContentSchema),
+    matches: z.array(matchWithCurrentContentSchema),
     user_query: z.string(),
 });
 
@@ -141,7 +141,6 @@ export const explanationInsertSchema = llmQuerySchema.extend({
  *   timestamp: "2024-03-20T10:30:00Z",
  *   explanation_title: "Photosynthesis Process",
  *   content: "Photosynthesis is the process by which plants...",
- *   sources: [...],
  *   primary_topic_id: 1,
  *   secondary_topic_id: 2
  * }
@@ -169,29 +168,13 @@ export const userQueryFullDbSchema = userQueryDataSchema.extend({
 
 // Derive types from schemas
 export type LlmQueryType = z.infer<typeof llmQuerySchema>;
-export type SourceType = z.infer<typeof sourceSchema>;
-export type sourceWithCurrentContentType = z.infer<typeof sourceWithCurrentContentSchema>;
+export type MatchType = z.infer<typeof matchSchema>;
+export type matchWithCurrentContentType = z.infer<typeof matchWithCurrentContentSchema>;
 export type UserQueryDataType = z.infer<typeof userQueryDataSchema>;
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
 export type UserQueryFullDbType = z.infer<typeof userQueryFullDbSchema>;
 export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
-
-/*export const llmResponseWithSourcesSchema = z.object({
-    title: z.string(),
-    content: z.string(),
-    sources: z.array(z.object({
-        text: z.string(),
-        explanation_id: z.number(),
-        title: z.string(),
-        content: z.string(),
-        ranking: z.object({
-            similarity: z.number()
-        })
-    }))
-});
-
-export type LlmResponseWithSourcesType = z.infer<typeof llmResponseWithSourcesSchema>;*/
 
 /**
  * Schema for topic data
@@ -236,7 +219,6 @@ export type matchingSourceLLMType = z.infer<typeof matchingSourceLLMSchema>;
 export const matchingSourceReturnSchema = z.object({
     topic_id: z.number().int(),
     explanation_id: z.number().int(),
-    sources: z.array(sourceWithCurrentContentSchema).optional()
 });
 
 export type MatchingSourceReturnType = z.infer<typeof matchingSourceReturnSchema>;
@@ -251,7 +233,7 @@ export type MatchingSourceReturnType = z.infer<typeof matchingSourceReturnSchema
  *     user_query: "How does photosynthesis work?",
  *     explanation_title: "Photosynthesis Process",
  *     content: "...",
- *     sources: [...]
+ *     matches: [...]
  *   }
  * }
  * 

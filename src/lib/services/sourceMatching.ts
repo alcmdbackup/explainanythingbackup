@@ -1,7 +1,7 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { matchingSourceLLMSchema, type sourceWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
+import { matchingSourceLLMSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -17,7 +17,7 @@ type ErrorResponse = {
  * - Truncates content to 1000 chars for prompt size
  * - Used by findMatchingSource for LLM ranking
  */
-function formatTopSources(sources: sourceWithCurrentContentType[], savedId: number | null): string {
+function formatTopSources(sources: matchWithCurrentContentType[], savedId: number | null): string {
     const topSources = sources.slice(0, 5);
     
     return topSources.map((source, index) => {
@@ -68,7 +68,7 @@ function formatTopSources(sources: sourceWithCurrentContentType[], savedId: numb
    */
   export async function findMatchingSource(
     userQuery: string, 
-    sources: sourceWithCurrentContentType[],
+    sources: matchWithCurrentContentType[],
     matchMode: MatchMode,
     savedId: number | null
   ): Promise<{ 
@@ -199,7 +199,7 @@ function formatTopSources(sources: sourceWithCurrentContentType[], savedId: numb
  * - Used by generateAiExplanation to enrich source data
  * - Calls getExplanationById for each source
  */
-export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<sourceWithCurrentContentType[]> {
+export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<matchWithCurrentContentType[]> {
     logger.debug('Starting enhanceSourcesWithCurrentContent', {
         input_count: similarTexts?.length || 0,
         first_input: similarTexts?.[0]
