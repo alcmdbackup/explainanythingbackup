@@ -10,7 +10,7 @@ import rehypeKatex from 'rehype-katex';
 import { matchWithCurrentContentType, UserQueryDataType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById } from '@/lib/services/explanations';
-import { enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
+import { enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import Navigation from '@/components/Navigation';
 
 const FILE_DEBUG = true;

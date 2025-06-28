@@ -12,25 +12,25 @@ type ErrorResponse = {
 
 /**
  * Key points:
- * - Formats top 5 sources into a numbered list
- * - Excludes any source matching savedId
+ * - Formats top 5 matches into a numbered list
+ * - Excludes any match matching savedId
  * - Truncates content to 1000 chars for prompt size
- * - Used by findMatchingSource for LLM ranking
+ * - Used by findMatches for LLM ranking
  */
-function formatTopSources(sources: matchWithCurrentContentType[], savedId: number | null): string {
-    const topSources = sources.slice(0, 5);
+function formatTopMatches(matches: matchWithCurrentContentType[], savedId: number | null): string {
+    const topMatches = matches.slice(0, 5);
     
-    return topSources.map((source, index) => {
+    return topMatches.map((match, index) => {
       // Skip if this source matches savedId
-      if (source.explanation_id === savedId) {
+      if (match.explanation_id === savedId) {
         return null;
       }
 
       const number = index + 1; // Use original array index
-      const title = source.current_title || 'Untitled';
+      const title = match.current_title || 'Untitled';
       // Truncate content if it's too long to keep prompt size reasonable
-      const contentPreview = source.current_content.substring(0, 1000) + 
-        (source.current_content.length > 150 ? '...' : '');
+      const contentPreview = match.current_content.substring(0, 1000) + 
+        (match.current_content.length > 150 ? '...' : '');
       
       return `${number}. [${title}] ${contentPreview}`;
     }).filter(Boolean).join('\n\n');
@@ -38,18 +38,18 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
   
   /**
    * Key points:
-   * - Creates a prompt for LLM to select best source
-   * - Uses numbered list from formatTopSources
+   * - Creates a prompt for LLM to select best match
+   * - Uses numbered list from formatTopMatches
    * - Forces single integer response (0-5)
-   * - Used by findMatchingSource for source selection
+   * - Used by findMatches for match selection
    */
-  function createSourceSelectionPrompt(userQuery: string, formattedSources: string): string {
+  function createMatchSelectionPrompt(userQuery: string, formattedMatches: string): string {
     return `
   User Query: "${userQuery}"
   
   Below are the top 5 potential sources that might answer this query:
   
-  ${formattedSources}
+  ${formattedMatches}
   
   Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
   Choose only the number of the most relevant source. If there is no match, then answer with 0.
@@ -60,15 +60,15 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
   
   /**
    * Key points:
-   * - Uses LLM to select best matching source from top 5
+   * - Uses LLM to select best match from top 5
    * - Handles force mode to bypass LLM selection
-   * - Excludes sources matching savedId
-   * - Called by generateAiExplanation for source matching
-   * - Uses formatTopSources and createSourceSelectionPrompt
+   * - Excludes those matching savedId
+   * - Called by generateAiExplanation for matching
+   * - Uses formatTopMatches and createMatchSelectionPrompt
    */
-  export async function findMatchingSource(
+  export async function findMatches(
     userQuery: string, 
-    sources: matchWithCurrentContentType[],
+    matches: matchWithCurrentContentType[],
     matchMode: MatchMode,
     savedId: number | null
   ): Promise<{ 
@@ -78,27 +78,27 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
     error: ErrorResponse | null 
   }> {
     try {
-      if (!sources || sources.length === 0) {
+      if (!matches || matches.length === 0) {
         return {
           selectedIndex: null,
           explanationId: null,
           topicId: null,
           error: {
-            code: 'NO_SOURCES',
-            message: 'No sources available for selection'
+            code: 'NO_MATCHES',
+            message: 'No matches available for selection'
           }
         };
       }
   
       // If in force mode and we have sources, return the first source that's not savedId
       if (matchMode === MatchMode.ForceMatch) {
-        const firstNonSavedSource = sources.find(source => source.explanation_id !== savedId);
+        const firstNonSavedSource = matches.find(match => match.explanation_id !== savedId);
         if (firstNonSavedSource) {
-          logger.debug('Force mode: returning first non-saveid source', {
+          logger.debug('Force mode: returning first non-saveid match', {
             source: firstNonSavedSource
           });
           return {
-            selectedIndex: sources.indexOf(firstNonSavedSource) + 1, // Convert to 1-based index
+            selectedIndex: matches.indexOf(firstNonSavedSource) + 1, // Convert to 1-based index
             explanationId: firstNonSavedSource.explanation_id,
             topicId: firstNonSavedSource.topic_id || null,
             error: null
@@ -107,20 +107,20 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
       }
 
       // Format the top sources with numbers
-      const formattedSources = formatTopSources(sources, savedId);
+      const formattedSources = formatTopMatches(matches, savedId);
       
       // Create the prompt for source selection
-      const selectionPrompt = createSourceSelectionPrompt(userQuery, formattedSources);
+      const selectionPrompt = createMatchSelectionPrompt(userQuery, formattedSources);
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, matchingSourceLLMSchema, 'sourceSelection');
+      const result = await callGPT4omini(selectionPrompt, matchingSourceLLMSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
 
       if (!parsedResult.success) {
-        logger.debug('Source selection schema validation failed', { 
+        logger.debug('Match selection schema validation failed', { 
           errors: parsedResult.error.errors 
         });
         return {
@@ -129,7 +129,7 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
           topicId: null,
           error: {
             code: 'INVALID_RESPONSE',
-            message: 'AI response for source selection did not match expected format',
+            message: 'AI response for match selection did not match expected format',
             details: parsedResult.error
           }
         };
@@ -138,30 +138,30 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
       let selectedIndex = parsedResult.data.selectedSourceIndex;
       
       // If the selected source matches savedId, find the next best match
-      if (selectedIndex > 0 && selectedIndex <= sources.length && 
-          sources[selectedIndex - 1].explanation_id === savedId) {
+      if (selectedIndex > 0 && selectedIndex <= matches.length && 
+          matches[selectedIndex - 1].explanation_id === savedId) {
         // Find the next best source that's not savedId
-        const nextBestSource = sources.find((source, index) => 
-          source.explanation_id !== savedId && index !== selectedIndex - 1
+        const nextBestSource = matches.find((match, index) => 
+          match.explanation_id !== savedId && index !== selectedIndex - 1
         );
         if (nextBestSource) {
-          selectedIndex = sources.indexOf(nextBestSource) + 1;
+          selectedIndex = matches.indexOf(nextBestSource) + 1;
         } else {
           selectedIndex = 0; // No valid match found
         }
       }
       
       // If a valid source was selected (not 0), get its explanation ID and topic ID
-      const explanationId = selectedIndex > 0 && selectedIndex <= sources.length 
-        ? sources[selectedIndex - 1].explanation_id 
+      const explanationId = selectedIndex > 0 && selectedIndex <= matches.length 
+        ? matches[selectedIndex - 1].explanation_id 
         : null;
 
       // Get topic ID from metadata if available
-      const topicId = selectedIndex > 0 && selectedIndex <= sources.length
-        ? sources[selectedIndex - 1].topic_id || null
+      const topicId = selectedIndex > 0 && selectedIndex <= matches.length
+        ? matches[selectedIndex - 1].topic_id || null
         : null;
 
-      logger.debug('Successfully selected source', {
+      logger.debug('Successfully selected match', {
         selected_index: selectedIndex,
         explanation_id: explanationId,
         topic_id: topicId
@@ -174,7 +174,7 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
         error: null 
       };
     } catch (error) {
-      logger.error('Error in findMatchingSource', {
+      logger.error('Error in findMatches', {
         error_message: error instanceof Error ? error.message : 'Unknown error',
         user_query: userQuery
       });
@@ -184,8 +184,8 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
         explanationId: null,
         topicId: null,
         error: {
-          code: 'SOURCE_SELECTION_ERROR',
-          message: 'Failed to select best source',
+          code: 'MATCH_SELECTION_ERROR',
+          message: 'Failed to select best match',
           details: error instanceof Error ? error.message : 'Unknown error'
         }
       };
@@ -199,8 +199,8 @@ function formatTopSources(sources: matchWithCurrentContentType[], savedId: numbe
  * - Used by generateAiExplanation to enrich source data
  * - Calls getExplanationById for each source
  */
-export async function enhanceSourcesWithCurrentContent(similarTexts: any[]): Promise<matchWithCurrentContentType[]> {
-    logger.debug('Starting enhanceSourcesWithCurrentContent', {
+export async function enhanceMatchesWithCurrentContent(similarTexts: any[]): Promise<matchWithCurrentContentType[]> {
+    logger.debug('Starting enhanceMatchesWithCurrentContent', {
         input_count: similarTexts?.length || 0,
         first_input: similarTexts?.[0]
     }, true);

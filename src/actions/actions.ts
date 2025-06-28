@@ -9,7 +9,7 @@ import { handleUserQuery } from '@/lib/services/vectorsim';
 import { createUserQuery } from '@/lib/services/userQueries';
 import { userQueryDataSchema, userQueryInsertSchema } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
-import { findMatchingSource, enhanceSourcesWithCurrentContent } from '@/lib/services/sourceMatching';
+import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/functionLogger';
 
@@ -79,12 +79,12 @@ export const generateAiExplanation = withLogging(
             const similarTexts = await handleUserQuery(firstTitle);
             console.log('📊 [generateAiExplanation] Vector search found', similarTexts.length, 'similar texts');
             
-            const sources = await enhanceSourcesWithCurrentContent(similarTexts);
+            const sources = await enhanceMatchesWithCurrentContent(similarTexts);
             console.log('📚 [generateAiExplanation] Enhanced sources count:', sources.length);
 
             // Add the call to selectBestSource here
             console.log('🎯 [generateAiExplanation] Finding best matching source...');
-            const bestSourceResult = await findMatchingSource(firstTitle, sources, matchMode, savedId);
+            const bestSourceResult = await findMatches(firstTitle, sources, matchMode, savedId);
             console.log('🎯 [generateAiExplanation] Best source result:', {
                 selectedIndex: bestSourceResult.selectedIndex,
                 explanationId: bestSourceResult.explanationId,
