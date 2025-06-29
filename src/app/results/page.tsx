@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { generateAiExplanation, saveExplanationAndTopic, saveUserQuery } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
@@ -31,6 +31,8 @@ export default function ResultsPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'output' | 'matches'>('output');
     const [explanationId, setExplanationId] = useState<number | null>(null);
+
+    const isFirstRun = useRef(true);
 
     /**
      * Loads an explanation by ID and updates the UI state
@@ -76,6 +78,12 @@ export default function ResultsPage() {
     };
 
     useEffect(() => {
+        //Prevent this from double running in dev due to React strict mode
+        if (isFirstRun.current) {
+            isFirstRun.current = false; // Mark as mounted
+            return; // Skip running on mount
+        }
+
         const explanationId = searchParams.get('explanation_id');
         const query = searchParams.get('q');
         
@@ -88,7 +96,7 @@ export default function ResultsPage() {
             loadExplanation(parseInt(explanationId), true);
             setIsLoadingPageFromExplanationId(false);
         } else if (query) {
-            // Generate explanation for the query
+            logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
             handleSubmit(query);
         }
     }, [searchParams]);
@@ -106,6 +114,7 @@ export default function ResultsPage() {
      * Calls: generateAiExplanation, loadExplanation, saveUserQuery
      */
     const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal) => {
+        logger.debug('handleSubmit called', { query, matchMode, prompt, savedId }, FILE_DEBUG);
         const searchQuery = query || prompt;
         if (!searchQuery.trim()) return;
         
