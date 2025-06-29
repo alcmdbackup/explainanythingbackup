@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { generateAiExplanation, saveExplanationAndTopic, saveUserQuery } from '@/actions/actions';
+import { generateExplanation, saveExplanationAndTopic, saveUserQuery } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -104,14 +104,14 @@ export default function ResultsPage() {
     /**
      * Generates AI explanation for a query or regenerates existing explanation
      * 
-     * • Calls generateAiExplanation with the search query and current savedId
+     * • Calls generateExplanation with the search query and current savedId
      * • Handles both new explanations and existing matches
      * • Updates UI state with explanation data and matches
      * • Saves user query to database for new explanations
      * • Manages loading states and error handling
      * 
      * Used by: useEffect (initial query), Regenerate button, direct function calls
-     * Calls: generateAiExplanation, loadExplanation, saveUserQuery
+     * Calls: generateExplanation, loadExplanation, saveUserQuery
      */
     const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal) => {
         logger.debug('handleSubmit called', { query, matchMode, prompt, savedId }, FILE_DEBUG);
@@ -123,12 +123,12 @@ export default function ResultsPage() {
         setMatches([]);
         setExplanationData(null);
         
-        const { data, error, originalUserQuery } = await generateAiExplanation(
+        const { data, error, originalUserQuery } = await generateExplanation(
             searchQuery, 
             savedId, 
             matchMode
         );
-        logger.debug('generateAiExplanation result:', { data, error, originalUserQuery }, FILE_DEBUG);
+        logger.debug('generateExplanation result:', { data, error, originalUserQuery }, FILE_DEBUG);
         
         // Clear savedId after the API call
         setSavedId(null);
@@ -143,7 +143,6 @@ export default function ResultsPage() {
         } else if (!data) {
             setError('No response received');
         } else if (data.match_found) {
-            await loadExplanation(data.data.explanation_id, false);
             // Save user query for match_found case
             if (explanationData && data.data.explanation_id != null) {
                 const { error: userQueryError } = await saveUserQuery(explanationData, data.data.explanation_id);
@@ -151,6 +150,7 @@ export default function ResultsPage() {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 }
             }
+            await loadExplanation(data.data.explanation_id, false);
         } else {
             // New explanation generated - set the data
             const explanationData = data.data; // This contains the UserQueryDataType data
