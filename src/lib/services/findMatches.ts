@@ -1,7 +1,7 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { matchingSourceLLMSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
+import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -90,34 +90,33 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
         };
       }
   
-      // If in force mode and we have sources, return the first source that's not savedId
+      // If in force mode and we have matches, return the first match that's not savedId
       if (matchMode === MatchMode.ForceMatch) {
-        const firstNonSavedSource = matches.find(match => match.explanation_id !== savedId);
-        if (firstNonSavedSource) {
+        const firstNonSavedMatch = matches.find(match => match.explanation_id !== savedId);
+        if (firstNonSavedMatch) {
           logger.debug('Force mode: returning first non-saveid match', {
-            source: firstNonSavedSource
+            source: firstNonSavedMatch
           });
           return {
-            selectedIndex: matches.indexOf(firstNonSavedSource) + 1, // Convert to 1-based index
-            explanationId: firstNonSavedSource.explanation_id,
-            topicId: firstNonSavedSource.topic_id || null,
+            selectedIndex: matches.indexOf(firstNonSavedMatch) + 1, // Convert to 1-based index
+            explanationId: firstNonSavedMatch.explanation_id,
+            topicId: firstNonSavedMatch.topic_id || null,
             error: null
           };
         }
       }
 
-      // Format the top sources with numbers
-      const formattedSources = formatTopMatches(matches, savedId);
+      const formattedMatches = formatTopMatches(matches, savedId);
       
       // Create the prompt for source selection
-      const selectionPrompt = createMatchSelectionPrompt(userQuery, formattedSources);
+      const selectionPrompt = createMatchSelectionPrompt(userQuery, formattedMatches);
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, matchingSourceLLMSchema, 'matchSelection');
+      const result = await callGPT4omini(selectionPrompt, matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
-      const parsedResult = matchingSourceLLMSchema.safeParse(JSON.parse(result));
+      const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));
 
       if (!parsedResult.success) {
         logger.debug('Match selection schema validation failed', { 

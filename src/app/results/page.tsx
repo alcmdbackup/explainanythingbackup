@@ -21,7 +21,6 @@ export default function ResultsPage() {
     const [prompt, setPrompt] = useState('');
     const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
-    const [sources, setSources] = useState<matchWithCurrentContentType[]>([]);
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<UserQueryDataType | null>(null);
@@ -39,12 +38,12 @@ export default function ResultsPage() {
      * • Fetches explanation data from the database using getExplanationById
      * • Updates explanation title, content, and saved ID in component state
      * • Updates browser URL to reflect the current explanation being viewed
-     * • Enhances sources with current content if available
+     * • Enhances matches with current content if available
      * • Optionally clears the prompt based on clearPrompt parameter
      * • Resets tab to "Generated Output" to show the loaded content
      * 
      * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
-     * Calls: getExplanationById, enhanceSourcesWithCurrentContent, router.push
+     * Calls: getExplanationById, enhanceMatchesWithCurrentContent, router.push
      */
     const loadExplanation = async (explanationId: number, clearPrompt: boolean) => {
         try {
@@ -69,33 +68,6 @@ export default function ResultsPage() {
             // Update the URL to reflect the current explanation being viewed
             router.push(`/results?explanation_id=${explanationId}`, { scroll: false });
 
-            // If there are matches, enhance them with current content
-            /*if (explanation.matches?.length) {
-                logger.debug('Found matches in explanation:', {
-                    sourceCount: explanation.matches.length,
-                    matches: explanation.matches
-                }, FILE_DEBUG);
-                
-                const enhancedSources = await enhanceSourcesWithCurrentContent(
-                    explanation.matches.map((source: any) => ({
-                        metadata: {
-                            explanation_id: source.explanation_id,
-                            text: source.text
-                        },
-                        score: source.ranking.similarity
-                    }))
-                );
-                
-                logger.debug('Enhanced sources:', { 
-                    enhancedSourceCount: enhancedSources.length,
-                    enhancedSources 
-                }, FILE_DEBUG);
-                
-                setSources(enhancedSources);
-            } else {
-                logger.debug('No sources found in explanation', {}, FILE_DEBUG);
-                setSources([]);
-            }*/
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
             setError(errorMessage);
@@ -126,7 +98,7 @@ export default function ResultsPage() {
      * 
      * • Calls generateAiExplanation with the search query and current savedId
      * • Handles both new explanations and existing matches
-     * • Updates UI state with explanation data and sources
+     * • Updates UI state with explanation data and matches
      * • Saves user query to database for new explanations
      * • Manages loading states and error handling
      * 
@@ -139,7 +111,6 @@ export default function ResultsPage() {
         
         setIsGeneratingExplanation(true);
         setError(null);
-        setSources([]);
         setMatches([]);
         setExplanationData(null);
         

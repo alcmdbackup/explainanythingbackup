@@ -210,11 +210,11 @@ export type TopicInsertType = z.infer<typeof topicInsertSchema>;
 export type TopicFullDbType = z.infer<typeof topicFullDbSchema>;
 
 
-export const matchingSourceLLMSchema = z.object({
+export const matchFoundFromListSchema = z.object({
     selectedSourceIndex: z.number().int()
   });
   
-export type matchingSourceLLMType = z.infer<typeof matchingSourceLLMSchema>;
+export type matchFoundFromListType = z.infer<typeof matchFoundFromListSchema>;
 
 export const matchingSourceReturnSchema = z.object({
     topic_id: z.number().int(),

@@ -10,7 +10,6 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
  * const newExplanation = await createExplanation({ 
  *   explanation_title: "Introduction to React",
  *   content: "React is a JavaScript library...",
- *   sources: [],
  *   primary_topic_id: 1,
  *   secondary_topic_id: 2
  * });

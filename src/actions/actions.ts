@@ -27,7 +27,7 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
  * - Generates article titles using the original user query (not enhanced)
  * - Uses the first generated title for vector search (handleUserQuery)
  * - Called by saveExplanationAndTopic for new explanations
- * - Uses handleUserQuery, enhanceSourcesWithCurrentContent, findMatchingSource
+ * - Uses handleUserQuery, enhanceMatchesWithCurrentContent, findMatchingSource
  */
 export const generateAiExplanation = withLogging(
     async function generateAiExplanation(
@@ -79,12 +79,12 @@ export const generateAiExplanation = withLogging(
             const similarTexts = await handleUserQuery(firstTitle);
             console.log('📊 [generateAiExplanation] Vector search found', similarTexts.length, 'similar texts');
             
-            const sources = await enhanceMatchesWithCurrentContent(similarTexts);
-            console.log('📚 [generateAiExplanation] Enhanced sources count:', sources.length);
+            const matches = await enhanceMatchesWithCurrentContent(similarTexts);
+            console.log('📚 [generateAiExplanation] Enhanced matches count:', matches.length);
 
             // Add the call to selectBestSource here
             console.log('🎯 [generateAiExplanation] Finding best matching source...');
-            const bestSourceResult = await findMatches(firstTitle, sources, matchMode, savedId);
+            const bestSourceResult = await findMatches(firstTitle, matches, matchMode, savedId);
             console.log('🎯 [generateAiExplanation] Best source result:', {
                 selectedIndex: bestSourceResult.selectedIndex,
                 explanationId: bestSourceResult.explanationId,
@@ -147,7 +147,7 @@ export const generateAiExplanation = withLogging(
                 user_query: userQuery,
                 explanation_title: firstTitle,
                 content: parsedResult.data.content,
-                matches: sources // Include the matches from vector search
+                matches: matches // Include the matches from vector search
             };
             
             console.log('✅ [generateAiExplanation] Validating user query data...');
