@@ -47,7 +47,7 @@ export default function ResultsPage() {
      * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
      * Calls: getExplanationById, enhanceMatchesWithCurrentContent, router.push
      */
-    const loadExplanation = async (explanationId: number, clearPrompt: boolean) => {
+    const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
             setError(null);
             const explanation = await getExplanationById(explanationId);
@@ -60,6 +60,9 @@ export default function ResultsPage() {
             setExplanationTitle(explanation.explanation_title);
             setContent(explanation.content);
             setSavedId(explanation.id);
+            if (matches) {
+                setMatches(matches);
+            }
             if (clearPrompt) {
                 setPrompt('');
             }
@@ -123,7 +126,7 @@ export default function ResultsPage() {
         setMatches([]);
         setExplanationData(null);
         
-        const { data, error, originalUserQuery } = await generateExplanation(
+        const { data, error, originalUserQuery, matches} = await generateExplanation(
             searchQuery, 
             savedId, 
             matchMode
@@ -150,7 +153,7 @@ export default function ResultsPage() {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 }
             }
-            await loadExplanation(data.data.explanation_id, false);
+            await loadExplanation(data.data.explanation_id, false, matches);
         } else {
             // New explanation generated - set the data
             const explanationData = data.data; // This contains the UserQueryDataType data

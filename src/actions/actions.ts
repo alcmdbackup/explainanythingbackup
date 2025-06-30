@@ -3,11 +3,11 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, llmQuerySchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
-import { handleUserQuery } from '@/lib/services/vectorsim';
+import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { createUserQuery } from '@/lib/services/userQueries';
-import { userQueryDataSchema, userQueryInsertSchema } from '@/lib/schemas/schemas';
+import { userQueryDataSchema, userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
@@ -37,7 +37,8 @@ export const generateExplanation = withLogging(
     ): Promise<{
         data: (QueryResponseType & { title: string }) | null,
         error: ErrorResponse | null,
-        originalUserQuery: string
+        originalUserQuery: string,
+        matches: matchWithCurrentContentType[]
     }> {
         console.log('🔍 [generateExplanation] Starting with:', { userQuery, savedId, matchMode });
         
@@ -47,7 +48,8 @@ export const generateExplanation = withLogging(
                 return {
                     data: null,
                     error: createInputError('userQuery cannot be empty'),
-                    originalUserQuery: userQuery
+                    originalUserQuery: userQuery,
+                    matches: []
                 };
             }
 
@@ -68,7 +70,8 @@ export const generateExplanation = withLogging(
                 return {
                     data: null,
                     error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
-                    originalUserQuery: userQuery
+                    originalUserQuery: userQuery,
+                    matches: []
                 };
             }
             
@@ -76,7 +79,7 @@ export const generateExplanation = withLogging(
             console.log('🔍 [generateExplanation] Using first title for vector search:', firstTitle);
             
             console.log('🔎 [generateExplanation] Starting vector search...');
-            const similarTexts = await handleUserQuery(firstTitle);
+            const similarTexts = await findMatchesInVectorDb(firstTitle);
             console.log('📊 [generateExplanation] Vector search found', similarTexts.length, 'similar texts');
             
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
@@ -117,16 +120,17 @@ export const generateExplanation = withLogging(
                         title: firstTitle
                     },
                     error: null,
-                    originalUserQuery: userQuery
+                    originalUserQuery: userQuery, 
+                    matches: matches
                 };
             }
 
             console.log('🤖 [generateExplanation] Generating new explanation with LLM...');
             const formattedPrompt = createExplanationPrompt(firstTitle);
-            const result = await callGPT4omini(formattedPrompt, llmQuerySchema, 'llmQuery');
+            const result = await callGPT4omini(formattedPrompt, explanationBaseSchema, 'llmQuery');
             
             // Parse the result to ensure it matches our schema
-            const parsedResult = llmQuerySchema.safeParse(JSON.parse(result));
+            const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 
             console.log('📝 [generateExplanation] LLM response parsing:', {
                 success: parsedResult.success,
@@ -138,7 +142,8 @@ export const generateExplanation = withLogging(
                 return {
                     data: null,
                     error: createValidationError('AI response did not match expected format', parsedResult.error),
-                    originalUserQuery: userQuery
+                    originalUserQuery: userQuery,
+                    matches: matches
                 };
             }
 
@@ -158,7 +163,8 @@ export const generateExplanation = withLogging(
                 return {
                     data: null,
                     error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
-                    originalUserQuery: userQuery
+                    originalUserQuery: userQuery,
+                    matches: matches
                 };
             }
 
@@ -170,14 +176,16 @@ export const generateExplanation = withLogging(
                     title: firstTitle
                 },
                 error: null,
-                originalUserQuery: userQuery
+                originalUserQuery: userQuery,
+                matches: matches
             };
         } catch (error) {
             console.error('💥 [generateExplanation] Unexpected error:', error);
             return {
                 data: null,
                 error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId }),
-                originalUserQuery: userQuery
+                originalUserQuery: userQuery,
+                matches: []
             };
         }
     },

@@ -262,7 +262,7 @@ async function createQueryEmbedding(query: string): Promise<number[]> {
  * @param {string} namespace Optional namespace to search in (default: '')
  * @returns {Promise<Array>} Array of matching results with their metadata
  */
-async function handleUserQuery(query: string, topK: number = 5, namespace: string = 'default'): Promise<any[]> {
+async function findMatchesInVectorDb(query: string, topK: number = 5, namespace: string = 'default'): Promise<any[]> {
   const embedding = await createQueryEmbedding(query);
   
   logger.debug('Query details:', {
@@ -340,6 +340,6 @@ async function processContentToStoreEmbedding(
 }
 
 export { 
-  handleUserQuery,
+  findMatchesInVectorDb,
   processContentToStoreEmbedding
 };

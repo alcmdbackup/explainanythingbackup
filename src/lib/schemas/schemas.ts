@@ -16,7 +16,7 @@ export enum MatchMode {
  *   content: "Photosynthesis is the process by which plants..."
  * }
  */
-export const llmQuerySchema = z.object({
+export const explanationBaseSchema = z.object({
     explanation_title: z.string(),
     content: z.string(),
 });
@@ -86,7 +86,7 @@ export const matchWithCurrentContentSchema = matchSchema.extend({
  *   content: "Photosynthesis is the process by which plants..."
  * }
  */
-export const userQueryDataSchema = llmQuerySchema.extend({
+export const userQueryDataSchema = explanationBaseSchema.extend({
     matches: z.array(matchWithCurrentContentSchema),
     user_query: z.string(),
 });
@@ -128,7 +128,7 @@ export const userQueryInsertSchema = userQueryDataSchema.extend({
  *   secondary_topic_id: 2
  * }
  */
-export const explanationInsertSchema = llmQuerySchema.extend({
+export const explanationInsertSchema = explanationBaseSchema.extend({
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional()
 });
@@ -167,7 +167,7 @@ export const userQueryFullDbSchema = userQueryDataSchema.extend({
 });
 
 // Derive types from schemas
-export type LlmQueryType = z.infer<typeof llmQuerySchema>;
+export type LlmQueryType = z.infer<typeof explanationBaseSchema>;
 export type MatchType = z.infer<typeof matchSchema>;
 export type matchWithCurrentContentType = z.infer<typeof matchWithCurrentContentSchema>;
 export type UserQueryDataType = z.infer<typeof userQueryDataSchema>;
