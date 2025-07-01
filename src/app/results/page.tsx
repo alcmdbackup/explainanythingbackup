@@ -126,12 +126,12 @@ export default function ResultsPage() {
         setMatches([]);
         setExplanationData(null);
         
-        const { data, error, originalUserQuery, matches} = await generateExplanation(
+        const { data, error, originalUserQuery, matches, explanationId } = await generateExplanation(
             searchQuery, 
             savedId, 
             matchMode
         );
-        logger.debug('generateExplanation result:', { data, error, originalUserQuery }, FILE_DEBUG);
+        logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId }, FILE_DEBUG);
         
         // Clear savedId after the API call
         setSavedId(null);
@@ -165,23 +165,15 @@ export default function ResultsPage() {
                 setMatches(explanationData.matches); // Only set matches
             }
             
-            // Save user query with matches
-            const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(prompt, explanationData);
-            if (explanationTopicError) {
-                logger.error('Failed to save explanation and topic:', { error: explanationTopicError });
-            } else {
-                setExplanationId(newExplanationId);
-            }
+            // Set the explanation ID from the generateExplanation response
+            setExplanationId(explanationId);
             
-            if (newExplanationId == null) {
-                setError('Failed to save explanation: missing explanation ID.');
-                setIsGeneratingExplanation(false);
-                return;
-            }
-            
-            const { error: userQueryError } = await saveUserQuery(explanationData, newExplanationId);
-            if (userQueryError) {
-                logger.error('Failed to save user query:', { error: userQueryError });
+            // Save user query with the explanation ID
+            if (explanationId) {
+                const { error: userQueryError } = await saveUserQuery(explanationData, explanationId);
+                if (userQueryError) {
+                    logger.error('Failed to save user query:', { error: userQueryError });
+                }
             }
         }
         

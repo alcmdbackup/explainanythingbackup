@@ -26,8 +26,9 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
  * - Uses vector search and LLM for content creation
  * - Generates article titles using the original user query (not enhanced)
  * - Uses the first generated title for vector search (handleUserQuery)
- * - Called by saveExplanationAndTopic for new explanations
- * - Uses handleUserQuery, enhanceMatchesWithCurrentContent, findMatchingSource
+ * - Automatically saves new explanations to database with embeddings
+ * - Returns explanation ID for both new and matched explanations
+ * - Uses handleUserQuery, enhanceMatchesWithCurrentContent, findMatchingSource, saveExplanationAndTopic
  */
 export const generateExplanation = withLogging(
     async function generateExplanation(
@@ -38,7 +39,8 @@ export const generateExplanation = withLogging(
         data: (QueryResponseType & { title: string }) | null,
         error: ErrorResponse | null,
         originalUserQuery: string,
-        matches: matchWithCurrentContentType[]
+        matches: matchWithCurrentContentType[],
+        explanationId: number | null
     }> {
         console.log('🔍 [generateExplanation] Starting with:', { userQuery, savedId, matchMode });
         
@@ -49,7 +51,8 @@ export const generateExplanation = withLogging(
                     data: null,
                     error: createInputError('userQuery cannot be empty'),
                     originalUserQuery: userQuery,
-                    matches: []
+                    matches: [],
+                    explanationId: null
                 };
             }
 
@@ -71,7 +74,8 @@ export const generateExplanation = withLogging(
                     data: null,
                     error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
                     originalUserQuery: userQuery,
-                    matches: []
+                    matches: [],
+                    explanationId: null
                 };
             }
             
@@ -121,7 +125,8 @@ export const generateExplanation = withLogging(
                     },
                     error: null,
                     originalUserQuery: userQuery, 
-                    matches: matches
+                    matches: matches,
+                    explanationId: bestSourceResult.explanationId
                 };
             }
 
@@ -143,7 +148,8 @@ export const generateExplanation = withLogging(
                     data: null,
                     error: createValidationError('AI response did not match expected format', parsedResult.error),
                     originalUserQuery: userQuery,
-                    matches: matches
+                    matches: matches,
+                    explanationId: null
                 };
             }
 
@@ -164,11 +170,37 @@ export const generateExplanation = withLogging(
                     data: null,
                     error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
                     originalUserQuery: userQuery,
-                    matches: matches
+                    matches: matches,
+                    explanationId: null
                 };
             }
 
-            console.log('✅ [generateExplanation] Successfully generated new explanation');
+            console.log('💾 [generateExplanation] Saving new explanation to database...');
+            const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userQuery, validatedUserQuery.data);
+            
+            if (explanationTopicError) {
+                console.log('❌ [generateExplanation] Failed to save explanation:', explanationTopicError);
+                return {
+                    data: null,
+                    error: explanationTopicError,
+                    originalUserQuery: userQuery,
+                    matches: matches,
+                    explanationId: null
+                };
+            }
+
+            if (newExplanationId == null) {
+                console.log('❌ [generateExplanation] Missing explanation ID after save');
+                return {
+                    data: null,
+                    error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
+                    originalUserQuery: userQuery,
+                    matches: matches,
+                    explanationId: null
+                };
+            }
+
+            console.log('✅ [generateExplanation] Successfully generated and saved new explanation');
             return {
                 data: {
                     match_found: false,
@@ -177,7 +209,8 @@ export const generateExplanation = withLogging(
                 },
                 error: null,
                 originalUserQuery: userQuery,
-                matches: matches
+                matches: matches,
+                explanationId: newExplanationId
             };
         } catch (error) {
             console.error('💥 [generateExplanation] Unexpected error:', error);
@@ -185,7 +218,8 @@ export const generateExplanation = withLogging(
                 data: null,
                 error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId }),
                 originalUserQuery: userQuery,
-                matches: []
+                matches: [],
+                explanationId: null
             };
         }
     },
@@ -202,7 +236,7 @@ export const generateExplanation = withLogging(
  * Key points:
  * - Saves new explanations and topics to database
  * - Creates embeddings for vector search
- * - Called after generateExplanation for new content
+ * - Called internally by generateExplanation for new content
  * - Uses createTopic, createExplanation, processContentToStoreEmbedding
  */
 export const saveExplanationAndTopic = withLogging(
