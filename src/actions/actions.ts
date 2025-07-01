@@ -36,85 +36,57 @@ export const generateExplanation = withLogging(
         savedId: number | null,
         matchMode: MatchMode
     ): Promise<{
-        data: (QueryResponseType & { title: string }) | null,
-        error: ErrorResponse | null,
         originalUserQuery: string,
+        match_found: Boolean | null,
+        error: ErrorResponse | null,
+        explanationId: number | null,
         matches: matchWithCurrentContentType[],
-        explanationId: number | null
+        data: (QueryResponseType & { title: string }) | null
     }> {
-        console.log('🔍 [generateExplanation] Starting with:', { userQuery, savedId, matchMode });
-        
         try {
             if (!userQuery.trim()) {
-                console.log('❌ [generateExplanation] Empty user query detected');
                 return {
-                    data: null,
-                    error: createInputError('userQuery cannot be empty'),
                     originalUserQuery: userQuery,
+                    match_found: null,
+                    error: createInputError('userQuery cannot be empty'),
+                    explanationId: null,
                     matches: [],
-                    explanationId: null
+                    data: null
                 };
             }
 
-            console.log('📝 [generateExplanation] Generating article titles...');
-            // Generate article titles using the ORIGINAL user query
             const titlePrompt = createTitlePrompt(userQuery);
             const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
-            console.log('📋 [generateExplanation] Title generation result:', { 
-                success: parsedTitles.success, 
-                titles: parsedTitles.success ? parsedTitles.data : null 
-            });
-
-            // Get similar text snippets using the FIRST TITLE if available, else throw error
             if (!parsedTitles.success || !parsedTitles.data.title1) {
-                console.log('❌ [generateExplanation] No valid title1 found for vector search');
                 return {
-                    data: null,
-                    error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
                     originalUserQuery: userQuery,
+                    match_found: null,
+                    error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
+                    explanationId: null,
                     matches: [],
-                    explanationId: null
+                    data: null
                 };
             }
             
             const firstTitle = parsedTitles.data.title1;
-            console.log('🔍 [generateExplanation] Using first title for vector search:', firstTitle);
-            
-            console.log('🔎 [generateExplanation] Starting vector search...');
             const similarTexts = await findMatchesInVectorDb(firstTitle);
-            console.log('📊 [generateExplanation] Vector search found', similarTexts.length, 'similar texts');
-            
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
-            console.log('📚 [generateExplanation] Enhanced matches count:', matches.length);
-
-            // Add the call to selectBestSource here
-            console.log('🎯 [generateExplanation] Finding best matching source...');
             const bestSourceResult = await findMatches(firstTitle, matches, matchMode, savedId);
-            console.log('🎯 [generateExplanation] Best source result:', {
-                selectedIndex: bestSourceResult.selectedIndex,
-                explanationId: bestSourceResult.explanationId,
-                topicId: bestSourceResult.topicId
-            });
-
-            // Check if we should return a match based on matchMode and source quality
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
                 bestSourceResult.selectedIndex && 
                 bestSourceResult.selectedIndex > MIN_SIMILARITY_INDEX && 
                 bestSourceResult.explanationId !== null && 
                 bestSourceResult.topicId !== null;
 
-            console.log('🤔 [generateExplanation] Match decision:', {
-                matchMode,
-                shouldReturnMatch,
-                selectedIndex: bestSourceResult.selectedIndex,
-                minSimilarityIndex: MIN_SIMILARITY_INDEX
-            });
-
             if (shouldReturnMatch) {
-                console.log('✅ [generateExplanation] Returning existing match');
                 return {
+                    originalUserQuery: userQuery,
+                    match_found: true,
+                    error: null,
+                    explanationId: bestSourceResult.explanationId,
+                    matches: matches,
                     data: {
                         match_found: true,
                         data: {
@@ -122,104 +94,90 @@ export const generateExplanation = withLogging(
                             topic_id: bestSourceResult.topicId!
                         },
                         title: firstTitle
-                    },
-                    error: null,
-                    originalUserQuery: userQuery, 
-                    matches: matches,
-                    explanationId: bestSourceResult.explanationId
+                    }
                 };
             }
 
-            console.log('🤖 [generateExplanation] Generating new explanation with LLM...');
             const formattedPrompt = createExplanationPrompt(firstTitle);
             const result = await callGPT4omini(formattedPrompt, explanationBaseSchema, 'llmQuery');
             
-            // Parse the result to ensure it matches our schema
             const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 
-            console.log('📝 [generateExplanation] LLM response parsing:', {
-                success: parsedResult.success,
-                contentLength: parsedResult.success ? parsedResult.data.content.length : null
-            });
-
             if (!parsedResult.success) {
-                console.log('❌ [generateExplanation] LLM response parsing failed:', parsedResult.error);
                 return {
-                    data: null,
-                    error: createValidationError('AI response did not match expected format', parsedResult.error),
                     originalUserQuery: userQuery,
+                    match_found: null,
+                    error: createValidationError('AI response did not match expected format', parsedResult.error),
+                    explanationId: null,
                     matches: matches,
-                    explanationId: null
+                    data: null
                 };
             }
 
-            // Validate against userQueryDataSchema before returning
             const userQueryData = {
                 user_query: userQuery,
                 explanation_title: firstTitle,
                 content: parsedResult.data.content,
-                matches: matches // Include the matches from vector search
+                matches: matches
             };
             
-            console.log('✅ [generateExplanation] Validating user query data...');
             const validatedUserQuery = userQueryDataSchema.safeParse(userQueryData);
             
             if (!validatedUserQuery.success) {
-                console.log('❌ [generateExplanation] User query validation failed:', validatedUserQuery.error);
                 return {
-                    data: null,
-                    error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
                     originalUserQuery: userQuery,
+                    match_found: null,
+                    error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
+                    explanationId: null,
                     matches: matches,
-                    explanationId: null
+                    data: null
                 };
             }
 
-            console.log('💾 [generateExplanation] Saving new explanation to database...');
             const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userQuery, validatedUserQuery.data);
             
             if (explanationTopicError) {
-                console.log('❌ [generateExplanation] Failed to save explanation:', explanationTopicError);
                 return {
-                    data: null,
-                    error: explanationTopicError,
                     originalUserQuery: userQuery,
+                    match_found: null,
+                    error: explanationTopicError,
+                    explanationId: null,
                     matches: matches,
-                    explanationId: null
+                    data: null
                 };
             }
 
             if (newExplanationId == null) {
-                console.log('❌ [generateExplanation] Missing explanation ID after save');
                 return {
-                    data: null,
-                    error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
                     originalUserQuery: userQuery,
+                    match_found: null,
+                    error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
+                    explanationId: null,
                     matches: matches,
-                    explanationId: null
+                    data: null
                 };
             }
 
-            console.log('✅ [generateExplanation] Successfully generated and saved new explanation');
             return {
+                originalUserQuery: userQuery,
+                match_found: false,
+                error: null,
+                explanationId: newExplanationId,
+                matches: matches,
                 data: {
                     match_found: false,
                     data: validatedUserQuery.data,
                     title: firstTitle
-                },
-                error: null,
-                originalUserQuery: userQuery,
-                matches: matches,
-                explanationId: newExplanationId
+                }
             };
         } catch (error) {
-            console.error('💥 [generateExplanation] Unexpected error:', error);
             return {
-                data: null,
-                error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId }),
                 originalUserQuery: userQuery,
+                match_found: null,
+                error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId }),
+                explanationId: null,
                 matches: [],
-                explanationId: null
+                data: null
             };
         }
     },
@@ -242,26 +200,16 @@ export const generateExplanation = withLogging(
 export const saveExplanationAndTopic = withLogging(
     async function saveExplanationAndTopic(userQuery: string, explanationData: UserQueryDataType) {
         try {
-            // Create a topic first using the explanation title, if it doesn't already exist
             const topic = await createTopic({
                 topic_title: explanationData.explanation_title
             });
 
-            // Add the topic ID to the explanation data
             const explanationWithTopic: ExplanationInsertType = {
                 explanation_title: explanationData.explanation_title,
                 content: explanationData.content,
                 primary_topic_id: topic.id
             };
 
-            // Debug log the data being validated
-            console.log('🔍 [saveExplanationAndTopic] Validating explanation data:', {
-                explanation_title: explanationWithTopic.explanation_title,
-                content_length: explanationWithTopic.content?.length,
-                primary_topic_id: explanationWithTopic.primary_topic_id
-            });
-
-            // Validate the explanation data against our schema
             const validatedData = explanationInsertSchema.safeParse(explanationWithTopic);
 
             if (!validatedData.success) {
@@ -272,16 +220,12 @@ export const saveExplanationAndTopic = withLogging(
                 };
             }
 
-            // Save to database
-            console.log('💾 [saveExplanationAndTopic] Saving explanation to database:', JSON.stringify(validatedData.data, null, 2));
             const savedExplanation = await createExplanation(validatedData.data);
 
-            // Format content for embedding in the same way as displayed in the UI
             const combinedContent = CONTENT_FORMAT_TEMPLATE
                 .replace('{title}', explanationData.explanation_title)
                 .replace('{content}', explanationData.content);
             
-            // Create embeddings for the combined content
             await processContentToStoreEmbedding(combinedContent, savedExplanation.id, topic.id);
             
             return { 
@@ -315,9 +259,7 @@ export const saveExplanationAndTopic = withLogging(
 export const saveUserQuery = withLogging(
     async function saveUserQuery(userQuery: UserQueryDataType, explanationId: number) {
         try {
-            // Add explanationId to the userQuery object
             const userQueryWithId = { ...userQuery, explanation_id: explanationId };
-            // Validate the user query data against our schema
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
 
             if (!validatedData.success) {
@@ -328,7 +270,6 @@ export const saveUserQuery = withLogging(
                 };
             }
 
-            // Save to database
             const savedQuery = await createUserQuery(validatedData.data);
             
             return { 
