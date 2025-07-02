@@ -12,6 +12,7 @@ import { createTopic } from '@/lib/services/topics';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/functionLogger';
+import { logger } from '@/lib/client_utilities';
 
 const FILE_DEBUG = true;
 
@@ -245,11 +246,17 @@ export const saveExplanationAndTopic = withLogging(
  */
 export const saveUserQuery = withLogging(
     async function saveUserQuery(userQuery: UserQueryDataType, explanationId: number) {
+        logger.debug('saveUserQuery started', { userQuery: userQuery.user_query, explanationId }, FILE_DEBUG);
+        
         try {
+            logger.debug('Preparing user query with explanation ID', { userQuery, explanationId }, FILE_DEBUG);
             const userQueryWithId = { ...userQuery, explanation_id: explanationId };
+            
+            logger.debug('Validating user query data', { userQueryWithId }, FILE_DEBUG);
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
 
             if (!validatedData.success) {
+                logger.debug('Validation failed', { errors: validatedData.error }, FILE_DEBUG);
                 return {
                     success: false,
                     error: createValidationError('Invalid user query data format', validatedData.error),
@@ -257,14 +264,17 @@ export const saveUserQuery = withLogging(
                 };
             }
 
+            logger.debug('Validation successful, creating user query', { validatedData: validatedData.data }, FILE_DEBUG);
             const savedQuery = await createUserQuery(validatedData.data);
             
+            logger.debug('User query saved successfully', { savedQueryId: savedQuery.id }, FILE_DEBUG);
             return { 
                 success: true, 
                 error: null,
                 id: savedQuery.id 
             };
         } catch (error) {
+            logger.debug('Error in saveUserQuery', { error, userQuery: userQuery.user_query }, FILE_DEBUG);
             return {
                 success: false,
                 error: handleError(error, 'saveUserQuery', { userQuery: userQuery.user_query}),
