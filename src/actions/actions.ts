@@ -3,11 +3,11 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { createUserQuery } from '@/lib/services/userQueries';
-import { userQueryDataSchema, userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
+import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
@@ -41,7 +41,7 @@ export const generateExplanation = withLogging(
         error: ErrorResponse | null,
         explanationId: number | null,
         matches: matchWithCurrentContentType[],
-        data: (QueryResponseType & { title: string }) | null
+        data: explanationBaseType | null
     }> {
         try {
             if (!userQuery.trim()) {
@@ -87,14 +87,7 @@ export const generateExplanation = withLogging(
                     error: null,
                     explanationId: bestSourceResult.explanationId,
                     matches: matches,
-                    data: {
-                        match_found: true,
-                        data: {
-                            explanation_id: bestSourceResult.explanationId!,
-                            topic_id: bestSourceResult.topicId!
-                        },
-                        title: firstTitle
-                    }
+                    data: null
                 };
             }
 
@@ -114,14 +107,12 @@ export const generateExplanation = withLogging(
                 };
             }
 
-            const userQueryData = {
-                user_query: userQuery,
+            const explanationData = {
                 explanation_title: firstTitle,
                 content: parsedResult.data.content,
-                matches: matches
             };
             
-            const validatedUserQuery = userQueryDataSchema.safeParse(userQueryData);
+            const validatedUserQuery = explanationBaseSchema.safeParse(explanationData);
             
             if (!validatedUserQuery.success) {
                 return {
@@ -164,11 +155,7 @@ export const generateExplanation = withLogging(
                 error: null,
                 explanationId: newExplanationId,
                 matches: matches,
-                data: {
-                    match_found: false,
-                    data: validatedUserQuery.data,
-                    title: firstTitle
-                }
+                data: explanationData
             };
         } catch (error) {
             return {
@@ -198,7 +185,7 @@ export const generateExplanation = withLogging(
  * - Uses createTopic, createExplanation, processContentToStoreEmbedding
  */
 export const saveExplanationAndTopic = withLogging(
-    async function saveExplanationAndTopic(userQuery: string, explanationData: UserQueryDataType) {
+    async function saveExplanationAndTopic(userQuery: string, explanationData: explanationBaseType) {
         try {
             const topic = await createTopic({
                 topic_title: explanationData.explanation_title
@@ -280,7 +267,7 @@ export const saveUserQuery = withLogging(
         } catch (error) {
             return {
                 success: false,
-                error: handleError(error, 'saveUserQuery', { userQueryTitle: userQuery.explanation_title }),
+                error: handleError(error, 'saveUserQuery', { userQuery: userQuery.user_query}),
                 id: null
             };
         }

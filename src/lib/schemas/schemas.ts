@@ -86,7 +86,7 @@ export const matchWithCurrentContentSchema = matchSchema.extend({
  *   content: "Photosynthesis is the process by which plants..."
  * }
  */
-export const userQueryDataSchema = explanationBaseSchema.extend({
+export const userQueryDataSchema = z.object({
     matches: z.array(matchWithCurrentContentSchema),
     user_query: z.string(),
 });
@@ -167,7 +167,7 @@ export const userQueryFullDbSchema = userQueryDataSchema.extend({
 });
 
 // Derive types from schemas
-export type LlmQueryType = z.infer<typeof explanationBaseSchema>;
+export type explanationBaseType = z.infer<typeof explanationBaseSchema>;
 export type MatchType = z.infer<typeof matchSchema>;
 export type matchWithCurrentContentType = z.infer<typeof matchWithCurrentContentSchema>;
 export type UserQueryDataType = z.infer<typeof userQueryDataSchema>;

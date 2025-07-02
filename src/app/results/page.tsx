@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, UserQueryDataType, ExplanationInsertType, MatchMode } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, UserQueryDataType, ExplanationInsertType, MatchMode, userQueryDataSchema, explanationBaseType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
@@ -23,7 +23,7 @@ export default function ResultsPage() {
     const [content, setContent] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [savedId, setSavedId] = useState<number | null>(null);
-    const [explanationData, setExplanationData] = useState<UserQueryDataType | null>(null);
+    const [explanationData, setExplanationData] = useState<explanationBaseType | null>(null);
     const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
     const [isLoadingPageFromExplanationId, setIsLoadingPageFromExplanationId] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -126,11 +126,18 @@ export default function ResultsPage() {
         setMatches([]);
         setExplanationData(null);
         
-        const { data, error, originalUserQuery, matches, explanationId } = await generateExplanation(
+        const { data, error, originalUserQuery, matches, match_found, explanationId } = await generateExplanation(
             searchQuery, 
             savedId, 
             matchMode
         );
+        
+        // Create userQueryData for saving to database
+        const userQueryData: UserQueryDataType = {
+            user_query: originalUserQuery,
+            matches: matches
+        };
+
         logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId }, FILE_DEBUG);
         
         // Clear savedId after the API call
@@ -143,26 +150,28 @@ export default function ResultsPage() {
         
         if (error) {
             setError(error.message);
-        } else if (!data) {
-            setError('No response received');
-        } else if (data.match_found) {
+        } else if (match_found) {
             // Save user query for match_found case
-            if (explanationData && data.data.explanation_id != null) {
-                const { error: userQueryError } = await saveUserQuery(explanationData, data.data.explanation_id);
+            if (explanationId != null) {
+                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId);
                 if (userQueryError) {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 }
+                await loadExplanation(explanationId, false, matches);
             }
-            await loadExplanation(data.data.explanation_id, false, matches);
         } else {
             // New explanation generated - set the data
-            const explanationData = data.data; // This contains the UserQueryDataType data
+            if (!data) {
+                throw new Error('No explanation data received from generation');
+            }
+            
+            const explanationData = data; // This contains the UserQueryDataType data
             setExplanationData(explanationData);
             setExplanationTitle(explanationData.explanation_title);
             setContent(explanationData.content);
             
-            if (explanationData.matches) {
-                setMatches(explanationData.matches); // Only set matches
+            if (matches) {
+                setMatches(matches); // Only set matches
             }
             
             // Set the explanation ID from the generateExplanation response
@@ -170,7 +179,7 @@ export default function ResultsPage() {
             
             // Save user query with the explanation ID
             if (explanationId) {
-                const { error: userQueryError } = await saveUserQuery(explanationData, explanationId);
+                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId);
                 if (userQueryError) {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 }
