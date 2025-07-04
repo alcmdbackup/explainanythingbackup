@@ -12,6 +12,8 @@ import { logger } from '@/lib/client_utilities';
 import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import Navigation from '@/components/Navigation';
+import { supabase_browser } from '@/lib/supabase';
+import { saveExplanationToLibrary } from '@/lib/services/userLibrary';
 
 const FILE_DEBUG = true;
 
@@ -190,29 +192,33 @@ export default function ResultsPage() {
     };
 
     /**
-     * Saves the current explanation and topic to the database
-     * 
-     * • Validates required data (prompt, title, content, explanationData)
-     * • Calls saveExplanationAndTopic to persist data
-     * • Updates savedId state on successful save
+     * Saves the current explanation to the user's library
+     *
+     * • Retrieves the current user ID using supabase.auth.getUser()
+     * • Gets the explanation ID from state
+     * • Calls saveExplanationToLibrary to persist the explanation for the user
      * • Handles error states and loading indicators
-     * 
+     *
      * Used by: Save button in the UI
-     * Calls: saveExplanationAndTopic
+     * Calls: supabase.auth.getUser, saveExplanationToLibrary
      */
     const handleSave = async () => {
-        if (!prompt || !explanationTitle || !content || savedId || !explanationData) return;
-        
+        if (!explanationId || savedId || isSaving) return;
         setIsSaving(true);
-        
-        const { success, error, id } = await saveExplanationAndTopic(prompt, explanationData);
-        
-        if (error) {
-            setError(error.message);
-        } else {
-            setSavedId(id);
+        setError(null);
+        try {
+            logger.debug('Starting from handleSave', {}, true);
+            // Fetch user id from supabase
+            const { data: userData, error: userError } = await supabase_browser.auth.getUser();
+            if (userError || !userData?.user?.id) {
+                throw new Error('Could not get user information. Please log in.');
+            }
+            const userid = userData.user.id;
+            await saveExplanationToLibrary(explanationId, userid);
+            setSavedId(explanationId);
+        } catch (err: any) {
+            setError(err.message || 'Failed to save explanation to library.');
         }
-        
         setIsSaving(false);
     };
 

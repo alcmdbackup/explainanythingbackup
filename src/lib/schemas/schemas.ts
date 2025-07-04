@@ -259,3 +259,11 @@ export const queryResponseSchema = z.discriminatedUnion('match_found', [
 
 export type QueryResponseType = z.infer<typeof queryResponseSchema>;
 
+export const userLibrarySchema = z.object({
+  id: z.number().int().positive(),
+  explanationid: z.number().int().positive(),
+  userid: z.string(),
+  created: z.string().datetime(), // ISO 8601 string, e.g. "2024-06-01T12:34:56.789Z"
+});
+
+export type userLibraryType = z.infer<typeof userLibrarySchema>;
