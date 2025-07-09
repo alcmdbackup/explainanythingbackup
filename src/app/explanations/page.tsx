@@ -10,6 +10,18 @@ import { useRouter } from 'next/navigation';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
 
+/**
+ * Removes the first Markdown heading (e.g., '#', '##', etc.) and any text up to the first line break from the content string.
+ * - Used to strip the title from explanation content previews in the table.
+ * - Called only by ExplanationsPage when rendering the content column.
+ * - Does not call other functions.
+ */
+function stripTitleFromContent(content: string): string {
+    // Match a Markdown heading at the start of the string (e.g., '# Title', '## Title')
+    // and remove it along with any leading whitespace/newlines.
+    return content.replace(/^#+\s.*(?:\r?\n|$)/, '').trim();
+}
+
 export default function ExplanationsPage() {
     const [recentExplanations, setRecentExplanations] = useState<ExplanationFullDbType[]>([]);
     const [error, setError] = useState<string | null>(null);
@@ -127,7 +139,7 @@ export default function ExplanationsPage() {
                                         {explanation.explanation_title}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-gray-600 dark:text-gray-400 max-w-xs truncate">
-                                        {explanation.content}
+                                        {stripTitleFromContent(explanation.content)}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         {formatUserFriendlyDate(explanation.timestamp)}
