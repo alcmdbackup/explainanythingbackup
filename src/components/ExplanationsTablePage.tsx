@@ -24,7 +24,7 @@ export default function ExplanationsTablePage({
     showNavigation = true,
     pageTitle = 'All Explanations',
 }: {
-    explanations: ExplanationFullDbType[];
+    explanations: (ExplanationFullDbType & { dateSaved?: string })[];
     error: string | null;
     showNavigation?: boolean;
     pageTitle?: string;
@@ -65,6 +65,9 @@ export default function ExplanationsTablePage({
             setSortOrder('asc');
         }
     };
+
+    // Determine if any explanation has dateSaved
+    const hasDateSaved = explanations.some(e => e.dateSaved);
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
@@ -110,6 +113,11 @@ export default function ExplanationsTablePage({
                                         sortOrder === 'asc' ? <ArrowUpIcon className="inline w-4 h-4 ml-1" /> : <ArrowDownIcon className="inline w-4 h-4 ml-1" />
                                     )}
                                 </th>
+                                {hasDateSaved && (
+                                    <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
+                                        Date Saved
+                                    </th>
+                                )}
                                 <th className="px-6 py-4"></th>
                             </tr>
                         </thead>
@@ -128,6 +136,13 @@ export default function ExplanationsTablePage({
                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                         {formatUserFriendlyDate(explanation.timestamp)}
                                     </td>
+                                    {hasDateSaved && (
+                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                            {explanation.dateSaved
+                                                ? formatUserFriendlyDate(explanation.dateSaved)
+                                                : '-'}
+                                        </td>
+                                    )}
                                     <td className="px-6 py-4 whitespace-nowrap text-right">
                                         <Link
                                             href={`/results?explanation_id=${explanation.id}`}
