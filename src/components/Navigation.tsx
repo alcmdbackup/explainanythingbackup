@@ -57,6 +57,12 @@ export default function Navigation({
                             Home
                         </Link>
                         <Link 
+                            href="/userlibrary" 
+                            className="text-gray-700 hover:text-blue-700 dark:text-gray-300 dark:hover:text-blue-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
+                        >
+                            My Library
+                        </Link>
+                        <Link 
                             href="/explanations" 
                             className="text-gray-700 hover:text-blue-700 dark:text-gray-300 dark:hover:text-blue-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
                         >
