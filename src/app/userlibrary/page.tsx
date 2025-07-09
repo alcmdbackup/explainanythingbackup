@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { type UserSavedExplanationType } from '@/lib/schemas/schemas';
 import { getUserLibraryExplanations } from '@/lib/services/userLibrary';
 import { logger } from '@/lib/server_utilities';
 import ExplanationsTablePage from '@/components/ExplanationsTablePage';
 import { supabase_browser } from '@/lib/supabase';
 
 export default function UserLibraryPage() {
-    const [userExplanations, setUserExplanations] = useState<ExplanationFullDbType[]>([]);
+    const [userExplanations, setUserExplanations] = useState<UserSavedExplanationType[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
 
@@ -42,7 +42,7 @@ export default function UserLibraryPage() {
             </div>
         ) : (
             <ExplanationsTablePage
-                explanations={userExplanations}
+                explanations={userExplanations.map(e => ({ ...e, dateSaved: e.saved_timestamp }))}
                 error={error}
             />
         )

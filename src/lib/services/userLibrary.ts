@@ -32,19 +32,26 @@ export async function saveExplanationToLibrary(
 }
 
 /**
- * Get all explanation IDs in the userLibrary table for a given user
+ * Get all explanation IDs (and optionally created dates) in the userLibrary table for a given user
  *
  * - Queries the userLibrary table for all records matching the given userid
- * - Returns an array of explanationid numbers
+ * - If getCreateDate is true, returns an array of { explanationid, created } objects
+ *   Otherwise, returns an array of explanationid numbers
  * - Throws an error if the query fails
  *
  * This function is used by features that need to retrieve all explanations saved by a user.
  * It calls Supabase directly and does not call any other functions.
+ *
+ * Used by: getUserLibraryExplanations (with getCreateDate=true)
  */
-export async function getExplanationIdsForUser(userid: string): Promise<number[]> {
+export async function getExplanationIdsForUser(
+  userid: string,
+  getCreateDate: boolean = false
+): Promise<number[] | { explanationid: number; created: string }[]> {
+  const selectFields = getCreateDate ? 'explanationid, created' : 'explanationid';
   const { data, error } = await supabase
     .from('userLibrary')
-    .select('explanationid')
+    .select(selectFields)
     .eq('userid', userid);
 
   if (error) {
@@ -52,23 +59,45 @@ export async function getExplanationIdsForUser(userid: string): Promise<number[]
     throw error;
   }
 
+  if (getCreateDate) {
+    const typedData = (data as unknown as { explanationid: number; created: string }[]) || [];
+    return typedData.map(row => ({
+      explanationid: row.explanationid,
+      created: row.created,
+    }));
+  }
   // Return just the explanationid values as an array of numbers
-  return (data || []).map((row: { explanationid: number }) => row.explanationid);
+  const typedData = (data as unknown as { explanationid: number }[]) || [];
+  return typedData.map(row => row.explanationid);
 }
 
 /**
- * Get all explanations saved in a user's library
+ * Get all explanations saved in a user's library, paired with their explanationid and created date
  *
- * - Calls getExplanationIdsForUser(userid) to get all explanation IDs saved by the user
+ * - Calls getExplanationIdsForUser(userid, true) to get all explanation IDs and created dates saved by the user
  * - Calls getExplanationsByIds(ids) to fetch the full explanation records
- * - Returns an array of explanation records (same type as getRecentExplanations)
+ * - Returns an array of { explanationid, created, explanation } objects
  * - Throws an error if any step fails
  *
  * This function is used by features that need to display all explanations a user has saved in their library.
  * It calls getExplanationIdsForUser and getExplanationsByIds.
  */
 export async function getUserLibraryExplanations(userid: string) {
-  const ids = await getExplanationIdsForUser(userid);
-  if (!ids.length) return [];
-  return await getExplanationsByIds(ids);
+  const idCreatedArr = await getExplanationIdsForUser(userid, true) as { explanationid: number; created: string }[];
+  if (!idCreatedArr.length) return [];
+  const explanations = await getExplanationsByIds(idCreatedArr.map(x => x.explanationid));
+  // Map explanationid to explanation for fast lookup
+  const explanationMap = new Map<number, any>(explanations.map(e => [e.id, e]));
+  return idCreatedArr.map(({ explanationid, created }) => {
+    const explanation = explanationMap.get(explanationid) || {};
+    return {
+      id: explanation.id,
+      explanation_title: explanation.explanation_title,
+      content: explanation.content,
+      primary_topic_id: explanation.primary_topic_id,
+      timestamp: explanation.timestamp,
+      saved_timestamp: created,
+      secondary_topic_id: explanation.secondary_topic_id,
+    };
+  });
 } 

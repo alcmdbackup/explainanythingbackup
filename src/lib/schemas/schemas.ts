@@ -267,3 +267,8 @@ export const userLibrarySchema = z.object({
 });
 
 export type userLibraryType = z.infer<typeof userLibrarySchema>;
+
+export const userSavedExplanationSchema = ExplanationFullDbSchema.extend({
+  saved_timestamp: z.string().datetime(), // ISO 8601 string, e.g. "2024-06-01T12:34:56.789Z"
+});
+export type UserSavedExplanationType = z.infer<typeof userSavedExplanationSchema>;
