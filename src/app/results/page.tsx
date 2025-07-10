@@ -13,7 +13,7 @@ import { getExplanationById } from '@/lib/services/explanations';
 import { enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import Navigation from '@/components/Navigation';
 import { supabase_browser } from '@/lib/supabase';
-import { saveExplanationToLibrary } from '@/lib/services/userLibrary';
+import { saveExplanationToLibrary, isExplanationSavedByUser } from '@/lib/services/userLibrary';
 
 const FILE_DEBUG = true;
 
@@ -24,7 +24,7 @@ export default function ResultsPage() {
     const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
-    const [savedId, setSavedId] = useState<number | null>(null);
+    const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<explanationBaseType | null>(null);
     const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
     const [isLoadingPageFromExplanationId, setIsLoadingPageFromExplanationId] = useState(false);
@@ -33,6 +33,7 @@ export default function ResultsPage() {
     const [isSaving, setIsSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'output' | 'matches'>('output');
     const [explanationId, setExplanationId] = useState<number | null>(null);
+    const [userSaved, setUserSaved] = useState(false);
 
     const isFirstRun = useRef(true);
 
@@ -61,7 +62,8 @@ export default function ResultsPage() {
 
             setExplanationTitle(explanation.explanation_title);
             setContent(explanation.content);
-            setSavedId(explanation.id);
+            setSystemSavedId(explanation.id);
+            setExplanationId(explanation.id);
             if (matches) {
                 setMatches(matches);
             }
@@ -106,10 +108,31 @@ export default function ResultsPage() {
         }
     }, [searchParams]);
 
+    // Check if explanation is saved by user
+    useEffect(() => {
+        const checkUserSaved = async () => {
+            if (!explanationId) return;
+            // Get user id from supabase
+            const { data: userData, error: userError } = await supabase_browser.auth.getUser();
+            if (userError || !userData?.user?.id) {
+                setUserSaved(false);
+                return;
+            }
+            const userid = userData.user.id;
+            try {
+                const saved = await isExplanationSavedByUser(explanationId, userid);
+                setUserSaved(saved);
+            } catch (err) {
+                setUserSaved(false);
+            }
+        };
+        checkUserSaved();
+    }, [explanationId]);
+
     /**
      * Generates AI explanation for a query or regenerates existing explanation
      * 
-     * • Calls generateExplanation with the search query and current savedId
+     * • Calls generateExplanation with the search query and current systemSavedId
      * • Handles both new explanations and existing matches
      * • Updates UI state with explanation data and matches
      * • Saves user query to database for new explanations
@@ -119,7 +142,7 @@ export default function ResultsPage() {
      * Calls: generateExplanation, loadExplanation, saveUserQuery
      */
     const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal) => {
-        logger.debug('handleSubmit called', { query, matchMode, prompt, savedId }, FILE_DEBUG);
+        logger.debug('handleSubmit called', { query, matchMode, prompt, systemSavedId }, FILE_DEBUG);
         const searchQuery = query || prompt;
         if (!searchQuery.trim()) return;
         
@@ -130,7 +153,7 @@ export default function ResultsPage() {
         
         const { data, error, originalUserQuery, matches, match_found, explanationId } = await generateExplanation(
             searchQuery, 
-            savedId, 
+            systemSavedId, 
             matchMode
         );
         
@@ -142,8 +165,8 @@ export default function ResultsPage() {
 
         logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId }, FILE_DEBUG);
         
-        // Clear savedId after the API call
-        setSavedId(null);
+        // Clear systemSavedId after the API call
+        setSystemSavedId(null);
         
         // Update the prompt with the original user query (if needed)
         if (originalUserQuery && originalUserQuery !== searchQuery) {
@@ -203,7 +226,8 @@ export default function ResultsPage() {
      * Calls: supabase.auth.getUser, saveExplanationToLibrary
      */
     const handleSave = async () => {
-        if (!explanationId || savedId || isSaving) return;
+        console.log('handleSave called with:', { explanationId, userSaved, isSaving });
+        if (!explanationId || userSaved || isSaving) return;
         setIsSaving(true);
         setError(null);
         try {
@@ -215,7 +239,7 @@ export default function ResultsPage() {
             }
             const userid = userData.user.id;
             await saveExplanationToLibrary(explanationId, userid);
-            setSavedId(explanationId);
+            setUserSaved(true);
         } catch (err: any) {
             setError(err.message || 'Failed to save explanation to library.');
         }
@@ -309,10 +333,10 @@ export default function ResultsPage() {
                                             )}
                                             <button
                                                 onClick={handleSave}
-                                                disabled={isSaving || !explanationTitle || !content || savedId !== null || isGeneratingExplanation}
+                                                disabled={isSaving || !explanationTitle || !content || userSaved || isGeneratingExplanation}
                                                 className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
-                                                <span className="leading-none">{isSaving ? 'Saving...' : savedId !== null ? 'Saved' : 'Save'}</span>
+                                                <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
                                             </button>
                                             <button
                                                 onClick={() => setIsMarkdownMode(!isMarkdownMode)}

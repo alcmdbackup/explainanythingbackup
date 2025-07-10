@@ -100,4 +100,32 @@ export async function getUserLibraryExplanations(userid: string) {
       secondary_topic_id: explanation.secondary_topic_id,
     };
   });
+}
+
+/**
+ * Check if a specific explanation is saved in the user's library
+ *
+ * - Queries the userLibrary table for a record matching userid and explanationid
+ * - Returns true if found, false otherwise
+ * - Throws an error if the query fails
+ *
+ * Used by: UI components to determine if the Save button should be enabled/disabled
+ */
+export async function isExplanationSavedByUser(
+  explanationid: number,
+  userid: string
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('userLibrary')
+    .select('id')
+    .eq('userid', userid)
+    .eq('explanationid', explanationid)
+    .maybeSingle();
+
+  if (error) {
+    console.error('Error checking if explanation is saved:', error);
+    throw error;
+  }
+
+  return !!data;
 } 
