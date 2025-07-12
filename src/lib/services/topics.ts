@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schemas';
 
 /**
@@ -29,6 +29,8 @@ import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schema
  * - Calls supabase topics table for both select and insert
  */
 export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbType> {
+  const supabase = await createSupabaseServerClient()
+  
   // Check if topic with the same title exists
   const { data: existing, error: selectError } = await supabase
     .from('topics')
@@ -56,6 +58,8 @@ export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbTy
  * @returns Topic record if found
  */
 export async function getTopicById(id: number): Promise<TopicFullDbType | null> {
+  const supabase = await createSupabaseServerClient()
+
   const { data, error } = await supabase
     .from('topics')
     .select()
@@ -80,6 +84,8 @@ export async function getRecentTopics(
   orderBy: string = 'created_at',
   order: 'asc' | 'desc' = 'desc'
 ): Promise<TopicFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+  
   // Validate parameters
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
@@ -106,6 +112,8 @@ export async function updateTopic(
   id: number,
   updates: Partial<TopicInsertType>
 ): Promise<TopicFullDbType> {
+  const supabase = await createSupabaseServerClient()
+  
   const { data, error } = await supabase
     .from('topics')
     .update(updates)
@@ -123,6 +131,8 @@ export async function updateTopic(
  * @returns void
  */
 export async function deleteTopic(id: number): Promise<void> {
+  const supabase = await createSupabaseServerClient()
+  
   const { error } = await supabase
     .from('topics')
     .delete()
@@ -141,6 +151,8 @@ export async function searchTopicsByTitle(
   searchTerm: string,
   limit: number = 10
 ): Promise<TopicFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+  
   const { data, error } = await supabase
     .from('topics')
     .select()

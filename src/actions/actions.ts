@@ -215,7 +215,6 @@ export const saveExplanationAndTopic = withLogging(
             const combinedContent = CONTENT_FORMAT_TEMPLATE
                 .replace('{title}', explanationData.explanation_title)
                 .replace('{content}', explanationData.content);
-            
             await processContentToStoreEmbedding(combinedContent, savedExplanation.id, topic.id);
             
             return { 
@@ -224,6 +223,7 @@ export const saveExplanationAndTopic = withLogging(
                 id: savedExplanation.id 
             };
         } catch (error) {
+            logger.debug('Error in saveExplanationAndTopic', { error, userQuery, explanationTitle: explanationData.explanation_title }, FILE_DEBUG);
             return {
                 success: false,
                 error: handleError(error, 'saveExplanationAndTopic', { userQuery, explanationTitle: explanationData.explanation_title }),

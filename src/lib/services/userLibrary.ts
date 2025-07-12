@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 //import {createClient} from '@/lib/utils/supabase/server'
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations.server';
@@ -19,6 +19,8 @@ export async function saveExplanationToLibrary(
   explanationid: number,
   userid: string
 ): Promise<userLibraryType> {
+  const supabase = await createSupabaseServerClient()
+
   const { data, error } = await supabase
     .from('userLibrary')
     .insert({ explanationid, userid })
@@ -50,6 +52,8 @@ export async function getExplanationIdsForUser(
   userid: string,
   getCreateDate: boolean = false
 ): Promise<number[] | { explanationid: number; created: string }[]> {
+  const supabase = await createSupabaseServerClient()
+  
   const selectFields = getCreateDate ? 'explanationid, created' : 'explanationid';
   const { data, error } = await supabase
     .from('userLibrary')
@@ -117,6 +121,8 @@ export async function isExplanationSavedByUser(
   explanationid: number,
   userid: string
 ): Promise<boolean> {
+  const supabase = await createSupabaseServerClient()
+  
   const { data, error } = await supabase
     .from('userLibrary')
     .select('id')
