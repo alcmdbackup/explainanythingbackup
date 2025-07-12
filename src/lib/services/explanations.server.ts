@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/utils/supabase/server';
+'use server'
+
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 //import {supabase} from '@/lib/supabase'
 import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/schemas/schemas';
 
@@ -23,14 +25,14 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
  * ```
  */
 
-const supabase = await createClient()
-
 /**
  * Create a new explanation record
  * @param explanation Explanation data to insert
  * @returns Created explanation record
  */
 export async function createExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
+  const supabase = await createSupabaseServerClient()
+  
   console.log('Creating explanation with data:', explanation);
   
   const { data, error } = await supabase
@@ -60,6 +62,8 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
  * @returns Explanation record if found
  */
 export async function getExplanationById(id: number): Promise<ExplanationFullDbType> {
+  const supabase = await createSupabaseServerClient()
+  
   const { data, error } = await supabase
     .from('explanations')
     .select()
@@ -87,6 +91,8 @@ export async function getRecentExplanations(
   orderBy: string = 'timestamp',
   order: 'asc' | 'desc' = 'desc'
 ): Promise<ExplanationFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+  
   // Validate parameters
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
@@ -113,6 +119,8 @@ export async function updateExplanation(
   id: number,
   updates: Partial<ExplanationInsertType>
 ): Promise<ExplanationFullDbType> {
+  const supabase = await createSupabaseServerClient()
+
   const { data, error } = await supabase
     .from('explanations')
     .update(updates)
@@ -130,6 +138,8 @@ export async function updateExplanation(
  * @returns void
  */
 export async function deleteExplanation(id: number): Promise<void> {
+  const supabase = await createSupabaseServerClient()
+
   const { error } = await supabase
     .from('explanations')
     .delete()
@@ -151,6 +161,8 @@ export async function deleteExplanation(id: number): Promise<void> {
  * ```
  */
 export async function getExplanationsByIds(ids: number[]): Promise<ExplanationFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+  
   const { data, error } = await supabase
     .from('explanations')
     .select()
@@ -178,6 +190,8 @@ export async function getExplanationsByTopicId(
   limit: number = 10,
   offset: number = 0
 ): Promise<ExplanationFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+
   const { data, error } = await supabase
     .from('explanations')
     .select()
