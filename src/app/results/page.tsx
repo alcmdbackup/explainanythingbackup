@@ -2,18 +2,15 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { generateExplanation, saveExplanationAndTopic, saveUserQuery } from '@/actions/actions';
+import { generateExplanation, saveUserQuery, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, UserQueryDataType, ExplanationInsertType, MatchMode, userQueryDataSchema, explanationBaseType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, UserQueryDataType, MatchMode, explanationBaseType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
-import { getExplanationById } from '@/lib/services/explanations';
-import { enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import Navigation from '@/components/Navigation';
 import { supabase_browser } from '@/lib/supabase';
-import { saveExplanationToLibrary, isExplanationSavedByUser } from '@/lib/services/userLibrary';
 
 const FILE_DEBUG = true;
 
@@ -53,7 +50,7 @@ export default function ResultsPage() {
     const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
             setError(null);
-            const explanation = await getExplanationById(explanationId);
+            const explanation = await getExplanationByIdAction(explanationId);
             
             if (!explanation) {
                 setError('Explanation not found');
@@ -120,7 +117,7 @@ export default function ResultsPage() {
             }
             const userid = userData.user.id;
             try {
-                const saved = await isExplanationSavedByUser(explanationId, userid);
+                const saved = await isExplanationSavedByUserAction(explanationId, userid);
                 setUserSaved(saved);
             } catch (err) {
                 setUserSaved(false);
@@ -238,7 +235,7 @@ export default function ResultsPage() {
                 throw new Error('Could not get user information. Please log in.');
             }
             const userid = userData.user.id;
-            await saveExplanationToLibrary(explanationId, userid);
+            await saveExplanationToLibraryAction(explanationId, userid);
             setUserSaved(true);
         } catch (err: any) {
             setError(err.message || 'Failed to save explanation to library.');

@@ -2,7 +2,7 @@
 
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
-import { createExplanation } from '@/lib/services/explanations';
+import { createExplanation } from '@/lib/services/explanations.server';
 import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
@@ -13,6 +13,8 @@ import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/fi
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
+import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
+import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
 
 const FILE_DEBUG = true;
 
@@ -289,3 +291,68 @@ export const saveUserQuery = withLogging(
         maxOutputLength: 100
     }
 ); 
+
+/**
+ * Fetches a single explanation by its ID (server action)
+ *
+ * • Calls getExplanationById service to fetch explanation from database
+ * • Throws error if explanation is not found
+ * • Used by client code to fetch explanation details via server action
+ * • Calls: getExplanationById
+ * • Used by: ResultsPage, other client components
+ */
+export async function getExplanationByIdAction(id: number) {
+    return await getExplanationById(id);
+}
+
+/**
+ * Saves an explanation to the user's library (server action)
+ *
+ * • Calls saveExplanationToLibrary service to insert a record for the user and explanation
+ * • Throws error if the insert fails
+ * • Used by client code to save explanations via server action
+ * • Calls: saveExplanationToLibrary
+ * • Used by: ResultsPage, other client components
+ */
+export async function saveExplanationToLibraryAction(explanationid: number, userid: string) {
+    return await saveExplanationToLibrary(explanationid, userid);
+}
+
+/**
+ * Checks if an explanation is saved by the user (server action)
+ *
+ * • Calls isExplanationSavedByUser service to check for a user/explanation record
+ * • Returns true if found, false otherwise
+ * • Used by client code to check save status via server action
+ * • Calls: isExplanationSavedByUser
+ * • Used by: ResultsPage, other client components
+ */
+export async function isExplanationSavedByUserAction(explanationid: number, userid: string) {
+    return await isExplanationSavedByUser(explanationid, userid);
+} 
+
+/**
+ * Fetches recent explanations with pagination (server action)
+ *
+ * • Calls getRecentExplanations service to fetch recent explanations from database
+ * • Supports limit, offset, orderBy, and order parameters
+ * • Used by client code to fetch lists of explanations via server action
+ * • Calls: getRecentExplanations
+ * • Used by: ExplanationsPage, other client components
+ */
+export async function getRecentExplanationsAction(limit?: number, offset?: number, orderBy?: string, order?: 'asc' | 'desc') {
+    return await getRecentExplanations(limit, offset, orderBy, order);
+} 
+
+/**
+ * Fetches all explanations saved in a user's library (server action)
+ *
+ * • Calls getUserLibraryExplanations service to fetch explanations for a user
+ * • Throws error if the fetch fails
+ * • Used by client code to fetch user library explanations via server action
+ * • Calls: getUserLibraryExplanations
+ * • Used by: UserLibraryPage, other client components
+ */
+export async function getUserLibraryExplanationsAction(userid: string) {
+    return await getUserLibraryExplanations(userid);
+} 

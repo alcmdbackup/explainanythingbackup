@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
-import { getRecentExplanations } from '@/lib/services/explanations';
+import { getRecentExplanationsAction } from '@/actions/actions';
 import { logger } from '@/lib/server_utilities';
 import ExplanationsTablePage from '@/components/ExplanationsTablePage';
 
@@ -17,7 +17,7 @@ export default function ExplanationsPage() {
 
     const loadRecentExplanations = async () => {
         try {
-            const explanations = await getRecentExplanations(10); // Showing more explanations on dedicated page
+            const explanations = await getRecentExplanationsAction(10); // Showing more explanations on dedicated page
             setRecentExplanations(explanations);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to load recent explanations';

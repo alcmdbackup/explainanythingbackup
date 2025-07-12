@@ -1,4 +1,5 @@
-import { supabase } from '@/lib/supabase';
+import { createClient } from '@/lib/utils/supabase/server';
+//import {supabase} from '@/lib/supabase'
 import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/schemas/schemas';
 
 /**
@@ -21,6 +22,8 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
  * const explanation = await getExplanationById(1);
  * ```
  */
+
+const supabase = await createClient()
 
 /**
  * Create a new explanation record

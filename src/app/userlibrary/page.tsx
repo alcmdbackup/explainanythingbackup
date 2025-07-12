@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { type UserSavedExplanationType } from '@/lib/schemas/schemas';
-import { getUserLibraryExplanations } from '@/lib/services/userLibrary';
+import { getUserLibraryExplanationsAction } from '@/actions/actions';
 import { logger } from '@/lib/server_utilities';
 import ExplanationsTablePage from '@/components/ExplanationsTablePage';
 import { supabase_browser } from '@/lib/supabase';
@@ -25,7 +25,7 @@ export default function UserLibraryPage() {
                 throw new Error('Could not get user information. Please log in.');
             }
             const userId = userData.user.id;
-            const explanations = await getUserLibraryExplanations(userId);
+            const explanations = await getUserLibraryExplanationsAction(userId);
             setUserExplanations(explanations);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : 'Failed to load user library explanations';
