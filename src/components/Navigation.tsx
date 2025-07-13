@@ -11,6 +11,7 @@ interface NavigationProps {
         maxLength?: number;
         initialValue?: string;
         onSearch?: (query: string) => void;
+        disabled?: boolean;
     };
 }
 

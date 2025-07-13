@@ -247,12 +247,12 @@ export const saveExplanationAndTopic = withLogging(
  * - Uses createUserQuery for database storage
  */
 export const saveUserQuery = withLogging(
-    async function saveUserQuery(userQuery: UserQueryDataType, explanationId: number) {
-        logger.debug('saveUserQuery started', { userQuery: userQuery.user_query, explanationId }, FILE_DEBUG);
+    async function saveUserQuery(userQuery: UserQueryDataType, explanationId: number, userid: string) {
+        logger.debug('saveUserQuery started', { userQuery: userQuery.user_query, explanationId, userid }, FILE_DEBUG);
         
         try {
-            logger.debug('Preparing user query with explanation ID', { userQuery, explanationId }, FILE_DEBUG);
-            const userQueryWithId = { ...userQuery, explanation_id: explanationId };
+            logger.debug('Preparing user query with explanation ID and userid', { userQuery, explanationId, userid }, FILE_DEBUG);
+            const userQueryWithId = { ...userQuery, explanation_id: explanationId, userid };
             
             logger.debug('Validating user query data', { userQueryWithId }, FILE_DEBUG);
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);

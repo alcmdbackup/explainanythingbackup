@@ -83,10 +83,11 @@ export default function ResultsPage() {
 
     useEffect(() => {
         //Prevent this from double running in dev due to React strict mode
-        if (isFirstRun.current) {
+        //This breaks several things including search from top nav, maybe accept for now
+        /*if (isFirstRun.current) {
             isFirstRun.current = false; // Mark as mounted
             return; // Skip running on mount
-        }
+        }*/
 
         const explanationId = searchParams.get('explanation_id');
         const query = searchParams.get('q');
@@ -269,7 +270,8 @@ export default function ResultsPage() {
                     placeholder: "Search any topic...",
                     maxLength: 100,
                     initialValue: prompt,
-                    onSearch: handleSearchSubmit
+                    onSearch: handleSearchSubmit,
+                    disabled: isGeneratingExplanation
                 }}
             />
 

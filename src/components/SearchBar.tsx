@@ -10,6 +10,7 @@ interface SearchBarProps {
     className?: string;
     initialValue?: string;
     onSearch?: (query: string) => void;
+    disabled?: boolean;
 }
 
 /**
@@ -26,10 +27,10 @@ export default function SearchBar({
     maxLength = 150,
     className = '',
     initialValue = '',
-    onSearch
+    onSearch,
+    disabled = false //not all pages have a React state to attach to this
 }: SearchBarProps) {
     const [prompt, setPrompt] = useState(initialValue);
-    const [isSearching, setIsSearching] = useState(false);
     const router = useRouter();
 
     // Update internal state when initialValue changes (for controlled input)
@@ -43,9 +44,7 @@ export default function SearchBar({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        if (!prompt.trim()) return;
-        
-        setIsSearching(true);
+        if (!prompt.trim() || disabled) return;
         
         if (onSearch) {
             onSearch(prompt);
@@ -73,18 +72,19 @@ export default function SearchBar({
                     }`}
                     placeholder={placeholder}
                     maxLength={maxLength}
+                    disabled={disabled}
                     {...inputProps}
                 />
                 <button
                     type="submit"
-                    disabled={isSearching || !prompt.trim()}
+                    disabled={disabled}
                     className={`text-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 bg-blue-600 hover:bg-blue-700 ${
                         isHomeVariant 
                             ? 'px-6 py-2.5 rounded-r-full text-base' 
                             : 'px-3 py-1.5 rounded-r-lg text-sm'
                     }`}
                 >
-                    {isSearching ? 'Searching...' : isHomeVariant ? 'Search Topic' : 'Search'}
+                    {disabled ? 'Searching...' : isHomeVariant ? 'Search Topic' : 'Search'}
                 </button>
             </div>
         </form>

@@ -92,18 +92,20 @@ export const userQueryDataSchema = z.object({
 });
 
 /**
- * Schema for inserting user query data, extends userQueryDataSchema with explanation_id
+ * Schema for inserting user query data, extends userQueryDataSchema with explanation_id and userid
  * @example
  * {
  *   user_query: "How does photosynthesis work?",
  *   explanation_title: "Photosynthesis Process",
  *   content: "Photosynthesis is the process by which plants...",
  *   matches: [...],
- *   explanation_id: 123
+ *   explanation_id: 123,
+ *   userid: "user123"
  * }
  */
 export const userQueryInsertSchema = userQueryDataSchema.extend({
     explanation_id: z.number(),
+    userid: z.string(),
 });
 
 /**
