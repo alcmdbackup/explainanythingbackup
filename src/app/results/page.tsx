@@ -31,8 +31,22 @@ export default function ResultsPage() {
     const [activeTab, setActiveTab] = useState<'output' | 'matches'>('output');
     const [explanationId, setExplanationId] = useState<number | null>(null);
     const [userSaved, setUserSaved] = useState(false);
+    const [userid, setUserid] = useState<string | null>(null);
 
     const isFirstRun = useRef(true);
+
+    // Fetch userid once upfront
+    useEffect(() => {
+        const fetchUserid = async () => {
+            const { data: userData, error: userError } = await supabase_browser.auth.getUser();
+            if (userError || !userData?.user?.id) {
+                setUserid(null);
+                return;
+            }
+            setUserid(userData.user.id);
+        };
+        fetchUserid();
+    }, []);
 
     /**
      * Loads an explanation by ID and updates the UI state
@@ -89,34 +103,34 @@ export default function ResultsPage() {
             return; // Skip running on mount
         }*/
 
-        const explanationId = searchParams.get('explanation_id');
+        const urlExplanationId = searchParams.get('explanation_id');
         const query = searchParams.get('q');
         
         if (query) {
             setPrompt(query);
         }
         
-        if (explanationId) {
-            setIsLoadingPageFromExplanationId(true);
-            loadExplanation(parseInt(explanationId), true);
-            setIsLoadingPageFromExplanationId(false);
+        // Only load explanation if it's different from the currently loaded one
+        if (urlExplanationId) {
+            const newExplanationIdFromUrl = parseInt(urlExplanationId);
+            
+            // Prevent loop: only load if this is a different explanation than currently loaded
+            if (newExplanationIdFromUrl !== explanationId) {
+                setIsLoadingPageFromExplanationId(true);
+                loadExplanation(newExplanationIdFromUrl, true);
+                setIsLoadingPageFromExplanationId(false);
+            }
         } else if (query) {
             logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
             handleSubmit(query);
         }
-    }, [searchParams]);
+    }, [searchParams, explanationId]);
 
     // Check if explanation is saved by user
+    // Needs to update when state variable updates
     useEffect(() => {
         const checkUserSaved = async () => {
-            if (!explanationId) return;
-            // Get user id from supabase
-            const { data: userData, error: userError } = await supabase_browser.auth.getUser();
-            if (userError || !userData?.user?.id) {
-                setUserSaved(false);
-                return;
-            }
-            const userid = userData.user.id;
+            if (!explanationId || !userid) return;
             try {
                 const saved = await isExplanationSavedByUserAction(explanationId, userid);
                 setUserSaved(saved);
@@ -125,7 +139,7 @@ export default function ResultsPage() {
             }
         };
         checkUserSaved();
-    }, [explanationId]);
+    }, [explanationId, userid]);
 
     /**
      * Generates AI explanation for a query or regenerates existing explanation
@@ -175,8 +189,8 @@ export default function ResultsPage() {
             setError(error.message);
         } else if (match_found) {
             // Save user query for match_found case
-            if (explanationId != null) {
-                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId);
+            if (explanationId != null && userid) {
+                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId, userid);
                 if (userQueryError) {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 }
@@ -201,8 +215,8 @@ export default function ResultsPage() {
             setExplanationId(explanationId);
             
             // Save user query with the explanation ID
-            if (explanationId) {
-                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId);
+            if (explanationId && userid) {
+                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId, userid);
                 if (userQueryError) {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 }
@@ -215,27 +229,21 @@ export default function ResultsPage() {
     /**
      * Saves the current explanation to the user's library
      *
-     * • Retrieves the current user ID using supabase.auth.getUser()
+     * • Uses the userid from component state (fetched once upfront)
      * • Gets the explanation ID from state
      * • Calls saveExplanationToLibrary to persist the explanation for the user
      * • Handles error states and loading indicators
      *
      * Used by: Save button in the UI
-     * Calls: supabase.auth.getUser, saveExplanationToLibrary
+     * Calls: saveExplanationToLibrary
      */
     const handleSave = async () => {
         console.log('handleSave called with:', { explanationId, userSaved, isSaving });
-        if (!explanationId || userSaved || isSaving) return;
+        if (!explanationId || userSaved || isSaving || !userid) return;
         setIsSaving(true);
         setError(null);
         try {
             logger.debug('Starting from handleSave', {}, true);
-            // Fetch user id from supabase
-            const { data: userData, error: userError } = await supabase_browser.auth.getUser();
-            if (userError || !userData?.user?.id) {
-                throw new Error('Could not get user information. Please log in.');
-            }
-            const userid = userData.user.id;
             await saveExplanationToLibraryAction(explanationId, userid);
             setUserSaved(true);
         } catch (err: any) {

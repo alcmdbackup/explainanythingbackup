@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type UserQueryInsertType } from '@/lib/schemas/schemas';
 import { querystring } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
 
@@ -25,6 +25,8 @@ import { querystring } from '@pinecone-database/pinecone/dist/pinecone-generated
  * @returns Created user query record
  */
 export async function createUserQuery(query: UserQueryInsertType) {
+  const supabase = await createSupabaseServerClient()
+  
   const { data, error } = await supabase
     .from('userQueries')
     .insert(query)
@@ -45,6 +47,8 @@ export async function getRecentUserQueries(
   limit: number = 10,
   offset: number = 0
 ) {
+  const supabase = await createSupabaseServerClient()
+
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
   
