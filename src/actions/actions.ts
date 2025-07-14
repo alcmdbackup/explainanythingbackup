@@ -6,7 +6,7 @@ import { createExplanation } from '@/lib/services/explanations.server';
 import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
-import { createUserQuery } from '@/lib/services/userQueries';
+import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
 import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
@@ -370,4 +370,17 @@ export async function getRecentExplanationsAction(limit?: number, offset?: numbe
  */
 export async function getUserLibraryExplanationsAction(userid: string) {
     return await getUserLibraryExplanations(userid);
+}
+
+/**
+ * Fetches a user query by its ID (server action)
+ *
+ * • Calls getUserQueryById service to fetch user query from database
+ * • Throws error if user query is not found
+ * • Used by client code to fetch user query details via server action
+ * • Calls: getUserQueryById
+ * • Used by: ResultsPage, other client components
+ */
+export async function getUserQueryByIdAction(id: number) {
+    return await getUserQueryById(id);
 } 

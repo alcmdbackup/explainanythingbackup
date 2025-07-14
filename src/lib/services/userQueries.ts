@@ -60,4 +60,25 @@ export async function getRecentUserQueries(
 
   if (error) throw error;
   return data || [];
+}
+
+/**
+ * Get a user query record by ID
+ * @param id User query record ID
+ * @returns User query record if found
+ */
+export async function getUserQueryById(id: number) {
+  const supabase = await createSupabaseServerClient()
+  
+  const { data, error } = await supabase
+    .from('userQueries')
+    .select()
+    .eq('id', id)
+    .single();
+
+  if (error) throw error;
+  if (!data) {
+    throw new Error(`User query not found for ID: ${id}`);
+  }
+  return data;
 } 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { generateExplanation, saveUserQuery, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction } from '@/actions/actions';
+import { generateExplanation, saveUserQuery, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -53,7 +53,7 @@ export default function ResultsPage() {
      * 
      * • Fetches explanation data from the database using getExplanationById
      * • Updates explanation title, content, and saved ID in component state
-     * • Updates browser URL to reflect the current explanation being viewed
+     * • Updates browser URL to reflect the current explanation being viewed (preserves existing parameters)
      * • Enhances matches with current content if available
      * • Optionally clears the prompt based on clearPrompt parameter
      * • Resets tab to "Generated Output" to show the loaded content
@@ -86,12 +86,54 @@ export default function ResultsPage() {
             setActiveTab('output');
 
             // Update the URL to reflect the current explanation being viewed
-            router.push(`/results?explanation_id=${explanationId}`, { scroll: false });
+            const currentParams = new URLSearchParams(window.location.search);
+            currentParams.set('explanation_id', explanationId.toString());
+            router.push(`/results?${currentParams.toString()}`, { scroll: false });
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
             setError(errorMessage);
             logger.error('Failed to load explanation:', { error: errorMessage });
+        }
+    };
+
+    /**
+     * Loads user query data by ID and updates the UI state
+     * 
+     * • Fetches user query data from the database using getUserQueryById
+     * • Updates prompt with the user query text
+     * • Updates matches with the query matches data
+     * • Resets tab to "matches" to show the loaded matches
+     * • Updates browser URL to reflect the current user query being viewed (preserves existing parameters)
+     * 
+     * Used by: useEffect (initial page load when userQueryId parameter is present)
+     * Calls: getUserQueryById, router.push
+     */
+    const loadUserQuery = async (userQueryId: number) => {
+        try {
+            setError(null);
+            const userQuery = await getUserQueryByIdAction(userQueryId);
+            
+            if (!userQuery) {
+                setError('User query not found');
+                return;
+            }
+
+            setPrompt(userQuery.user_query);
+            setMatches(userQuery.matches || []);
+            
+            // Do not reset the active tab
+            //setActiveTab('matches');
+
+            // Update the URL to reflect the current user query being viewed
+            const currentParams = new URLSearchParams(window.location.search);
+            currentParams.set('userQueryId', userQueryId.toString());
+            router.push(`/results?${currentParams.toString()}`, { scroll: false });
+
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to load user query';
+            setError(errorMessage);
+            logger.error('Failed to load user query:', { error: errorMessage });
         }
     };
 
@@ -104,12 +146,23 @@ export default function ResultsPage() {
         }*/
 
         const urlExplanationId = searchParams.get('explanation_id');
+        const urlUserQueryId = searchParams.get('userQueryId');
         const query = searchParams.get('q');
         
         if (query) {
             setPrompt(query);
         }
         
+        // Handle userQueryId parameter
+        if (urlUserQueryId) {
+            const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
+            
+            // Load user query data
+            setIsLoadingPageFromExplanationId(true);
+            loadUserQuery(newUserQueryIdFromUrl).finally(() => {
+                setIsLoadingPageFromExplanationId(false);
+            });
+        }
         // Only load explanation if it's different from the currently loaded one
         if (urlExplanationId) {
             const newExplanationIdFromUrl = parseInt(urlExplanationId);
@@ -117,8 +170,9 @@ export default function ResultsPage() {
             // Prevent loop: only load if this is a different explanation than currently loaded
             if (newExplanationIdFromUrl !== explanationId) {
                 setIsLoadingPageFromExplanationId(true);
-                loadExplanation(newExplanationIdFromUrl, true);
-                setIsLoadingPageFromExplanationId(false);
+                loadExplanation(newExplanationIdFromUrl, true).finally(() => {
+                    setIsLoadingPageFromExplanationId(false);
+                });
             }
         } else if (query) {
             logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
