@@ -45,7 +45,8 @@ export const generateExplanation = withLogging(
         error: ErrorResponse | null,
         explanationId: number | null,
         matches: matchWithCurrentContentType[],
-        data: explanationBaseType | null
+        data: explanationBaseType | null,
+        userQueryId: number | null
     }> {
         try {
             if (!userQuery.trim()) {
@@ -55,7 +56,8 @@ export const generateExplanation = withLogging(
                     error: createInputError('userQuery cannot be empty'),
                     explanationId: null,
                     matches: [],
-                    data: null
+                    data: null,
+                    userQueryId: null
                 };
             }
 
@@ -70,7 +72,8 @@ export const generateExplanation = withLogging(
                     error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
                     explanationId: null,
                     matches: [],
-                    data: null
+                    data: null,
+                    userQueryId: null
                 };
             }
             
@@ -104,7 +107,8 @@ export const generateExplanation = withLogging(
                         error: createValidationError('AI response did not match expected format', parsedResult.error),
                         explanationId: null,
                         matches: matches,
-                        data: null
+                        data: null,
+                        userQueryId: null
                     };
                 }
 
@@ -122,7 +126,8 @@ export const generateExplanation = withLogging(
                         error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
                         explanationId: null,
                         matches: matches,
-                        data: null
+                        data: null,
+                        userQueryId: null
                     };
                 }
 
@@ -135,7 +140,8 @@ export const generateExplanation = withLogging(
                         error: explanationTopicError,
                         explanationId: null,
                         matches: matches,
-                        data: null
+                        data: null,
+                        userQueryId: null
                     };
                 }
 
@@ -146,7 +152,8 @@ export const generateExplanation = withLogging(
                         error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
                         explanationId: null,
                         matches: matches,
-                        data: null
+                        data: null,
+                        userQueryId: null
                     };
                 }
 
@@ -155,15 +162,18 @@ export const generateExplanation = withLogging(
             }
 
             // Save user query once - works for both match and new explanation cases
+            let userQueryId: number | null = null;
             if (finalExplanationId && userid) {
                 const userQueryData: UserQueryDataType = {
                     user_query: userQuery,
                     matches: matches
                 };
                 
-                const { error: userQueryError } = await saveUserQuery(userQueryData, finalExplanationId, userid);
+                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userQueryData, finalExplanationId, userid);
                 if (userQueryError) {
                     logger.error('Failed to save user query:', { error: userQueryError });
+                } else {
+                    userQueryId = savedUserQueryId;
                 }
             }
 
@@ -173,7 +183,8 @@ export const generateExplanation = withLogging(
                 error: null,
                 explanationId: finalExplanationId,
                 matches: matches,
-                data: explanationData
+                data: explanationData,
+                userQueryId: userQueryId
             };
         } catch (error) {
             return {
@@ -182,7 +193,8 @@ export const generateExplanation = withLogging(
                 error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId, userid }),
                 explanationId: null,
                 matches: [],
-                data: null
+                data: null,
+                userQueryId: null
             };
         }
     },
