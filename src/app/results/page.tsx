@@ -222,49 +222,34 @@ export default function ResultsPage() {
         setMatches([]);
         setExplanationData(null);
         
-        const { data, error, originalUserQuery, matches, match_found, explanationId } = await generateExplanation(
+        const { data, error, originalUserQuery, matches, match_found, explanationId, userQueryId } = await generateExplanation(
             searchQuery, 
             systemSavedId, 
             matchMode,
             userid
         );
 
-        logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId }, FILE_DEBUG);
+        logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId, userQueryId }, FILE_DEBUG);
         
         // Clear systemSavedId after the API call
         setSystemSavedId(null);
         
-        // Update the prompt with the original user query (if needed)
-        if (originalUserQuery && originalUserQuery !== searchQuery) {
-            setPrompt(originalUserQuery);
-        }
-        
         if (error) {
             setError(error.message);
-        } else if (match_found) {
-            if (explanationId != null) {
-                await loadExplanation(explanationId, false, matches);
-            }
+            setIsGeneratingExplanation(false);
         } else {
-            // New explanation generated - set the data
-            if (!data) {
-                throw new Error('No explanation data received from generation');
+            // Redirect to URL with explanation_id and userQueryId
+            const params = new URLSearchParams();
+            if (explanationId) {
+                params.set('explanation_id', explanationId.toString());
+            }
+            if (userQueryId) {
+                params.set('userQueryId', userQueryId.toString());
             }
             
-            const explanationData = data; // This contains the UserQueryDataType data
-            setExplanationData(explanationData);
-            setExplanationTitle(explanationData.explanation_title);
-            setContent(explanationData.content);
-            
-            if (matches) {
-                setMatches(matches); // Only set matches
-            }
-            
-            // Set the explanation ID from the generateExplanation response
-            setExplanationId(explanationId);
+            router.push(`/results?${params.toString()}`);
+            // Note: setIsGeneratingExplanation(false) will be handled by the page reload
         }
-        
-        setIsGeneratingExplanation(false);
     };
 
     /**
