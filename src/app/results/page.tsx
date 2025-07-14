@@ -49,6 +49,28 @@ export default function ResultsPage() {
     }, []);
 
     /**
+     * Checks if the current explanation is saved by the user
+     * 
+     * • Validates that both explanationId and userid are available
+     * • Calls isExplanationSavedByUserAction to check save status
+     * • Updates userSaved state with the result
+     * • Handles errors by setting userSaved to false
+     * 
+     * Used by: loadExplanation (when loading an explanation)
+     * Calls: isExplanationSavedByUserAction
+     */
+    const checkUserSaved = async (targetExplanationId?: number) => {
+        const idToCheck = targetExplanationId || explanationId;
+        if (!idToCheck || !userid) return;
+        try {
+            const saved = await isExplanationSavedByUserAction(idToCheck, userid);
+            setUserSaved(saved);
+        } catch (err) {
+            setUserSaved(false);
+        }
+    };
+
+    /**
      * Loads an explanation by ID and updates the UI state
      * 
      * • Fetches explanation data from the database using getExplanationById
@@ -89,6 +111,9 @@ export default function ResultsPage() {
             const currentParams = new URLSearchParams(window.location.search);
             currentParams.set('explanation_id', explanationId.toString());
             router.push(`/results?${currentParams.toString()}`, { scroll: false });
+
+            // Check if this explanation is saved by the user
+            await checkUserSaved(explanation.id);
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
@@ -179,21 +204,6 @@ export default function ResultsPage() {
             handleSubmit(query);
         }
     }, [searchParams, explanationId]);
-
-    // Check if explanation is saved by user
-    // Needs to update when state variable updates
-    useEffect(() => {
-        const checkUserSaved = async () => {
-            if (!explanationId || !userid) return;
-            try {
-                const saved = await isExplanationSavedByUserAction(explanationId, userid);
-                setUserSaved(saved);
-            } catch (err) {
-                setUserSaved(false);
-            }
-        };
-        checkUserSaved();
-    }, [explanationId, userid]);
 
     /**
      * Generates AI explanation for a query or regenerates existing explanation
