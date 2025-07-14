@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, UserQueryDataType, MatchMode, explanationBaseType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, explanationBaseType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import { supabase_browser } from '@/lib/supabase';
@@ -158,6 +158,11 @@ export default function ResultsPage() {
         const searchQuery = query || prompt;
         if (!searchQuery.trim()) return;
         
+        if (!userid) {
+            setError('User not authenticated. Please log in to generate explanations.');
+            return;
+        }
+        
         setIsGeneratingExplanation(true);
         setError(null);
         setMatches([]);
@@ -166,14 +171,9 @@ export default function ResultsPage() {
         const { data, error, originalUserQuery, matches, match_found, explanationId } = await generateExplanation(
             searchQuery, 
             systemSavedId, 
-            matchMode
+            matchMode,
+            userid
         );
-        
-        // Create userQueryData for saving to database
-        const userQueryData: UserQueryDataType = {
-            user_query: originalUserQuery,
-            matches: matches
-        };
 
         logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId }, FILE_DEBUG);
         
@@ -188,12 +188,7 @@ export default function ResultsPage() {
         if (error) {
             setError(error.message);
         } else if (match_found) {
-            // Save user query for match_found case
-            if (explanationId != null && userid) {
-                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId, userid);
-                if (userQueryError) {
-                    logger.error('Failed to save user query:', { error: userQueryError });
-                }
+            if (explanationId != null) {
                 await loadExplanation(explanationId, false, matches);
             }
         } else {
@@ -213,14 +208,6 @@ export default function ResultsPage() {
             
             // Set the explanation ID from the generateExplanation response
             setExplanationId(explanationId);
-            
-            // Save user query with the explanation ID
-            if (explanationId && userid) {
-                const { error: userQueryError } = await saveUserQuery(userQueryData, explanationId, userid);
-                if (userQueryError) {
-                    logger.error('Failed to save user query:', { error: userQueryError });
-                }
-            }
         }
         
         setIsGeneratingExplanation(false);

@@ -37,7 +37,8 @@ export const generateExplanation = withLogging(
     async function generateExplanation(
         userQuery: string,
         savedId: number | null,
-        matchMode: MatchMode
+        matchMode: MatchMode,
+        userid: string
     ): Promise<{
         originalUserQuery: string,
         match_found: Boolean | null,
@@ -83,80 +84,94 @@ export const generateExplanation = withLogging(
                 bestSourceResult.explanationId !== null && 
                 bestSourceResult.topicId !== null;
 
+            let finalExplanationId: number | null = null;
+            let explanationData: explanationBaseType | null = null;
+            let isMatchFound = false;
+
             if (shouldReturnMatch) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: true,
-                    error: null,
-                    explanationId: bestSourceResult.explanationId,
-                    matches: matches,
-                    data: null
+                finalExplanationId = bestSourceResult.explanationId;
+                isMatchFound = true;
+            } else {
+                const formattedPrompt = createExplanationPrompt(firstTitle);
+                const result = await callGPT4omini(formattedPrompt, explanationBaseSchema, 'llmQuery');
+                
+                const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
+
+                if (!parsedResult.success) {
+                    return {
+                        originalUserQuery: userQuery,
+                        match_found: null,
+                        error: createValidationError('AI response did not match expected format', parsedResult.error),
+                        explanationId: null,
+                        matches: matches,
+                        data: null
+                    };
+                }
+
+                const newExplanationData = {
+                    explanation_title: firstTitle,
+                    content: parsedResult.data.content,
                 };
+                
+                const validatedUserQuery = explanationBaseSchema.safeParse(newExplanationData);
+                
+                if (!validatedUserQuery.success) {
+                    return {
+                        originalUserQuery: userQuery,
+                        match_found: null,
+                        error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
+                        explanationId: null,
+                        matches: matches,
+                        data: null
+                    };
+                }
+
+                const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userQuery, validatedUserQuery.data);
+                
+                if (explanationTopicError) {
+                    return {
+                        originalUserQuery: userQuery,
+                        match_found: null,
+                        error: explanationTopicError,
+                        explanationId: null,
+                        matches: matches,
+                        data: null
+                    };
+                }
+
+                if (newExplanationId == null) {
+                    return {
+                        originalUserQuery: userQuery,
+                        match_found: null,
+                        error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
+                        explanationId: null,
+                        matches: matches,
+                        data: null
+                    };
+                }
+
+                finalExplanationId = newExplanationId;
+                explanationData = newExplanationData;
             }
 
-            const formattedPrompt = createExplanationPrompt(firstTitle);
-            const result = await callGPT4omini(formattedPrompt, explanationBaseSchema, 'llmQuery');
-            
-            const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
-
-            if (!parsedResult.success) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: null,
-                    error: createValidationError('AI response did not match expected format', parsedResult.error),
-                    explanationId: null,
-                    matches: matches,
-                    data: null
+            // Save user query once - works for both match and new explanation cases
+            if (finalExplanationId && userid) {
+                const userQueryData: UserQueryDataType = {
+                    user_query: userQuery,
+                    matches: matches
                 };
-            }
-
-            const explanationData = {
-                explanation_title: firstTitle,
-                content: parsedResult.data.content,
-            };
-            
-            const validatedUserQuery = explanationBaseSchema.safeParse(explanationData);
-            
-            if (!validatedUserQuery.success) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: null,
-                    error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
-                    explanationId: null,
-                    matches: matches,
-                    data: null
-                };
-            }
-
-            const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userQuery, validatedUserQuery.data);
-            
-            if (explanationTopicError) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: null,
-                    error: explanationTopicError,
-                    explanationId: null,
-                    matches: matches,
-                    data: null
-                };
-            }
-
-            if (newExplanationId == null) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: null,
-                    error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
-                    explanationId: null,
-                    matches: matches,
-                    data: null
-                };
+                
+                const { error: userQueryError } = await saveUserQuery(userQueryData, finalExplanationId, userid);
+                if (userQueryError) {
+                    logger.error('Failed to save user query:', { error: userQueryError });
+                }
             }
 
             return {
                 originalUserQuery: userQuery,
-                match_found: false,
+                match_found: isMatchFound,
                 error: null,
-                explanationId: newExplanationId,
+                explanationId: finalExplanationId,
                 matches: matches,
                 data: explanationData
             };
@@ -164,7 +179,7 @@ export const generateExplanation = withLogging(
             return {
                 originalUserQuery: userQuery,
                 match_found: null,
-                error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId }),
+                error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId, userid }),
                 explanationId: null,
                 matches: [],
                 data: null
