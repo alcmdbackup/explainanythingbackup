@@ -32,6 +32,7 @@ export default function ResultsPage() {
     const [explanationId, setExplanationId] = useState<number | null>(null);
     const [userSaved, setUserSaved] = useState(false);
     const [userid, setUserid] = useState<string | null>(null);
+    const [authError, setAuthError] = useState<string | null>(null);
 
     const isFirstRun = useRef(true);
 
@@ -39,14 +40,51 @@ export default function ResultsPage() {
     useEffect(() => {
         const fetchUserid = async () => {
             const { data: userData, error: userError } = await supabase_browser.auth.getUser();
-            if (userError || !userData?.user?.id) {
+            if (userError) {
+                setAuthError(`Authentication error: ${userError.message}`);
                 setUserid(null);
                 return;
             }
+            if (!userData?.user?.id) {
+                setAuthError('No user data found - user may not be authenticated');
+                setUserid(null);
+                return;
+            }
+            
             setUserid(userData.user.id);
+            setAuthError(null);
         };
         fetchUserid();
     }, []);
+
+    /**
+     * Fetches the current user's ID from authentication
+     * 
+     * • Retrieves user data from Supabase authentication
+     * • Handles authentication errors and missing user data
+     * • Updates component state with userid and auth error status
+     * • Returns the userid for immediate use in other functions
+     * 
+     * Used by: useEffect (URL parameter processing)
+     * Calls: supabase_browser.auth.getUser
+     */
+    const fetchUserid = async (): Promise<string | null> => {
+        const { data: userData, error: userError } = await supabase_browser.auth.getUser();
+        if (userError) {
+            setAuthError(`Authentication error: ${userError.message}`);
+            setUserid(null);
+            return null;
+        }
+        if (!userData?.user?.id) {
+            setAuthError('No user data found - user may not be authenticated');
+            setUserid(null);
+            return null;
+        }
+        
+        setUserid(userData.user.id);
+        setAuthError(null);
+        return userData.user.id;
+    };
 
     /**
      * Checks if the current explanation is saved by the user
@@ -170,39 +208,44 @@ export default function ResultsPage() {
             return; // Skip running on mount
         }*/
 
-        const urlExplanationId = searchParams.get('explanation_id');
-        const urlUserQueryId = searchParams.get('userQueryId');
-        const query = searchParams.get('q');
-        
-        if (query) {
-            setPrompt(query);
-        }
-        
-        // Handle userQueryId parameter
-        if (urlUserQueryId) {
-            const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
+        const processParams = async () => {
+            const urlExplanationId = searchParams.get('explanation_id');
+            const urlUserQueryId = searchParams.get('userQueryId');
+            const query = searchParams.get('q');
             
-            // Load user query data
-            setIsLoadingPageFromExplanationId(true);
-            loadUserQuery(newUserQueryIdFromUrl).finally(() => {
-                setIsLoadingPageFromExplanationId(false);
-            });
-        }
-        // Only load explanation if it's different from the currently loaded one
-        if (urlExplanationId) {
-            const newExplanationIdFromUrl = parseInt(urlExplanationId);
+            if (query) {
+                setPrompt(query);
+            }
             
-            // Prevent loop: only load if this is a different explanation than currently loaded
-            if (newExplanationIdFromUrl !== explanationId) {
+            // Handle userQueryId parameter
+            if (urlUserQueryId) {
+                const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
+                
+                // Load user query data
                 setIsLoadingPageFromExplanationId(true);
-                loadExplanation(newExplanationIdFromUrl, true).finally(() => {
+                loadUserQuery(newUserQueryIdFromUrl).finally(() => {
                     setIsLoadingPageFromExplanationId(false);
                 });
             }
-        } else if (query) {
-            logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
-            handleSubmit(query);
-        }
+            // Only load explanation if it's different from the currently loaded one
+            if (urlExplanationId) {
+                const newExplanationIdFromUrl = parseInt(urlExplanationId);
+                
+                // Prevent loop: only load if this is a different explanation than currently loaded
+                if (newExplanationIdFromUrl !== explanationId) {
+                    setIsLoadingPageFromExplanationId(true);
+                    loadExplanation(newExplanationIdFromUrl, true).finally(() => {
+                        setIsLoadingPageFromExplanationId(false);
+                    });
+                }
+            } else if (query) {
+                logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
+                const effectiveUserid = userid || await fetchUserid();
+                handleSubmit(query, MatchMode.Normal, effectiveUserid);
+            }
+        };
+        
+        processParams();
     }, [searchParams, explanationId]);
 
     /**
@@ -213,16 +256,19 @@ export default function ResultsPage() {
      * • Updates UI state with explanation data and matches
      * • Saves user query to database for new explanations
      * • Manages loading states and error handling
+     * • Accepts optional userid parameter to override state variable
      * 
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: generateExplanation, loadExplanation, saveUserQuery
      */
-    const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal) => {
+    const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal, overrideUserid?: string | null) => {
         logger.debug('handleSubmit called', { query, matchMode, prompt, systemSavedId }, FILE_DEBUG);
         const searchQuery = query || prompt;
         if (!searchQuery.trim()) return;
         
-        if (!userid) {
+        const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
+        
+        if (!effectiveUserid) {
             setError('User not authenticated. Please log in to generate explanations.');
             return;
         }
@@ -236,7 +282,7 @@ export default function ResultsPage() {
             searchQuery, 
             systemSavedId, 
             matchMode,
-            userid
+            effectiveUserid
         );
 
         logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId, userQueryId }, FILE_DEBUG);
