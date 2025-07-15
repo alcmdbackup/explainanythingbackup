@@ -113,17 +113,18 @@ export default function ResultsPage() {
      * 
      * • Fetches explanation data from the database using getExplanationById
      * • Updates explanation title, content, and saved ID in component state
-     * • Updates browser URL to reflect the current explanation being viewed (preserves existing parameters)
+     * • Resets generation loading state to allow content display
      * • Enhances matches with current content if available
      * • Optionally clears the prompt based on clearPrompt parameter
      * • Resets tab to "Generated Output" to show the loaded content
      * 
      * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
-     * Calls: getExplanationById, enhanceMatchesWithCurrentContent, router.push
+     * Calls: getExplanationByIdAction, checkUserSaved
      */
     const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
             setError(null);
+            setIsGeneratingExplanation(false);
             const explanation = await getExplanationByIdAction(explanationId);
             
             if (!explanation) {
@@ -145,11 +146,6 @@ export default function ResultsPage() {
             // Reset tab to "Generated Output" to show the loaded content
             setActiveTab('output');
 
-            // Update the URL to reflect the current explanation being viewed
-            const currentParams = new URLSearchParams(window.location.search);
-            currentParams.set('explanation_id', explanationId.toString());
-            router.push(`/results?${currentParams.toString()}`, { scroll: false });
-
             // Check if this explanation is saved by the user
             await checkUserSaved(explanation.id);
 
@@ -166,15 +162,15 @@ export default function ResultsPage() {
      * • Fetches user query data from the database using getUserQueryById
      * • Updates prompt with the user query text
      * • Updates matches with the query matches data
-     * • Resets tab to "matches" to show the loaded matches
-     * • Updates browser URL to reflect the current user query being viewed (preserves existing parameters)
+     * • Resets generation loading state to allow content display
      * 
      * Used by: useEffect (initial page load when userQueryId parameter is present)
-     * Calls: getUserQueryById, router.push
+     * Calls: getUserQueryByIdAction
      */
     const loadUserQuery = async (userQueryId: number) => {
         try {
             setError(null);
+            setIsGeneratingExplanation(false);
             const userQuery = await getUserQueryByIdAction(userQueryId);
             
             if (!userQuery) {
@@ -187,11 +183,6 @@ export default function ResultsPage() {
             
             // Do not reset the active tab
             //setActiveTab('matches');
-
-            // Update the URL to reflect the current user query being viewed
-            const currentParams = new URLSearchParams(window.location.search);
-            currentParams.set('userQueryId', userQueryId.toString());
-            router.push(`/results?${currentParams.toString()}`, { scroll: false });
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load user query';
