@@ -23,8 +23,7 @@ export default function ResultsPage() {
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<explanationBaseType | null>(null);
-    const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
-    const [isLoadingPageFromExplanationId, setIsLoadingPageFromExplanationId] = useState(false);
+    const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -124,7 +123,6 @@ export default function ResultsPage() {
     const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
             setError(null);
-            setIsGeneratingExplanation(false);
             const explanation = await getExplanationByIdAction(explanationId);
             
             if (!explanation) {
@@ -170,7 +168,6 @@ export default function ResultsPage() {
     const loadUserQuery = async (userQueryId: number) => {
         try {
             setError(null);
-            setIsGeneratingExplanation(false);
             const userQuery = await getUserQueryByIdAction(userQueryId);
             
             if (!userQuery) {
@@ -200,6 +197,8 @@ export default function ResultsPage() {
         }*/
 
         const processParams = async () => {
+            setIsLoading(true);
+
             const urlExplanationId = searchParams.get('explanation_id');
             const urlUserQueryId = searchParams.get('userQueryId');
             const query = searchParams.get('q');
@@ -213,9 +212,8 @@ export default function ResultsPage() {
                 const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
                 
                 // Load user query data
-                setIsLoadingPageFromExplanationId(true);
+                
                 loadUserQuery(newUserQueryIdFromUrl).finally(() => {
-                    setIsLoadingPageFromExplanationId(false);
                 });
             }
             // Only load explanation if it's different from the currently loaded one
@@ -224,9 +222,7 @@ export default function ResultsPage() {
                 
                 // Prevent loop: only load if this is a different explanation than currently loaded
                 if (newExplanationIdFromUrl !== explanationId) {
-                    setIsLoadingPageFromExplanationId(true);
                     loadExplanation(newExplanationIdFromUrl, true).finally(() => {
-                        setIsLoadingPageFromExplanationId(false);
                     });
                 }
             } else if (query) {
@@ -234,10 +230,14 @@ export default function ResultsPage() {
                 const effectiveUserid = userid || await fetchUserid();
                 handleSubmit(query, MatchMode.Normal, effectiveUserid);
             }
+
+            setIsLoading(false);
         };
         
         processParams();
-    }, [searchParams, explanationId]);
+    }, [searchParams]);
+    //Comment - any time explanation id changes, the page should have already reloaded
+    //No need to add to dependency array here
 
     /**
      * Generates AI explanation for a query or regenerates existing explanation
@@ -264,7 +264,7 @@ export default function ResultsPage() {
             return;
         }
         
-        setIsGeneratingExplanation(true);
+        setIsLoading(true);
         setError(null);
         setMatches([]);
         setExplanationData(null);
@@ -283,7 +283,7 @@ export default function ResultsPage() {
         
         if (error) {
             setError(error.message);
-            setIsGeneratingExplanation(false);
+            setIsLoading(false);
         } else {
             // Redirect to URL with explanation_id and userQueryId
             const params = new URLSearchParams();
@@ -295,7 +295,7 @@ export default function ResultsPage() {
             }
             
             router.push(`/results?${params.toString()}`);
-            // Note: setIsGeneratingExplanation(false) will be handled by the page reload
+            // Note: setIsLoading(false) will be handled by the page reload
         }
     };
 
@@ -352,12 +352,12 @@ export default function ResultsPage() {
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
-                    disabled: isGeneratingExplanation
+                    disabled: isLoading
                 }}
             />
 
             {/* Progress Bar */}
-            {(isGeneratingExplanation || isLoadingPageFromExplanationId) && (
+            {isLoading && (
                 <div className="w-full bg-gray-200 dark:bg-gray-700">
                     <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
                 </div>
@@ -388,15 +388,15 @@ export default function ResultsPage() {
                     </div>
                     {/* Tab Content */}
                     {activeTab === 'output' && (
-                        (explanationTitle || content) && !isGeneratingExplanation && (
+                        (explanationTitle || content) && !isLoading && (
                             <div className="mt-2">
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                     {/* Action buttons - right-aligned on desktop, full-width on mobile */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                                        {(explanationTitle || content) && !isGeneratingExplanation && (
+                                        {(explanationTitle || content) && !isLoading && (
                                             <button
                                                 type="button"
-                                                disabled={isGeneratingExplanation || !prompt.trim()}
+                                                disabled={isLoading || !prompt.trim()}
                                                 onClick={() => handleSubmit()}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
@@ -405,7 +405,7 @@ export default function ResultsPage() {
                                         )}
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !explanationTitle || !content || userSaved || isGeneratingExplanation}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved || isLoading}
                                             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
