@@ -363,159 +363,150 @@ export default function ResultsPage() {
                 </div>
             )}
 
-            {isLoadingPageFromExplanationId ? (
-                <div className="fixed inset-0 flex items-center justify-center bg-gray-50 dark:bg-gray-900">
-                    <div className="text-center">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                        <p className="text-gray-600 dark:text-gray-300">Loading explanation...</p>
+            <main className="container mx-auto px-4 py-8 max-w-7xl">
+                {error && (
+                    <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
+                        {error}
                     </div>
-                </div>
-            ) : (
-                <main className="container mx-auto px-4 py-8 max-w-7xl">
-                    {error && (
-                        <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
-                            {error}
-                        </div>
-                    )}
-                    
-                    {/* Tabs */}
-                    <div className="w-full max-w-4xl mx-auto">
-                        <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
-                            <button
-                                className={`px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                                onClick={() => setActiveTab('output')}
-                            >
-                                Generated Output
-                            </button>
-                            <button
-                                className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
-                                onClick={() => setActiveTab('matches')}
-                            >
-                                Matches
-                            </button>
-                        </div>
-                        {/* Tab Content */}
-                        {activeTab === 'output' && (
-                            (explanationTitle || content) && !isGeneratingExplanation && (
-                                <div className="mt-2">
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                                        {/* Action buttons - right-aligned on desktop, full-width on mobile */}
-                                        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                                            {(explanationTitle || content) && !isGeneratingExplanation && (
-                                                <button
-                                                    type="button"
-                                                    disabled={isGeneratingExplanation || !prompt.trim()}
-                                                    onClick={() => handleSubmit()}
-                                                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
-                                                >
-                                                    <span className="leading-none">Regenerate</span>
-                                                </button>
-                                            )}
+                )}
+                
+                {/* Tabs */}
+                <div className="w-full max-w-4xl mx-auto">
+                    <div className="flex border-b border-gray-200 dark:border-gray-700 mb-4">
+                        <button
+                            className={`px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'output' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
+                            onClick={() => setActiveTab('output')}
+                        >
+                            Generated Output
+                        </button>
+                        <button
+                            className={`ml-4 px-6 py-2 font-medium text-sm focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 transition-colors ${activeTab === 'matches' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'}`}
+                            onClick={() => setActiveTab('matches')}
+                        >
+                            Matches
+                        </button>
+                    </div>
+                    {/* Tab Content */}
+                    {activeTab === 'output' && (
+                        (explanationTitle || content) && !isGeneratingExplanation && (
+                            <div className="mt-2">
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                    {/* Action buttons - right-aligned on desktop, full-width on mobile */}
+                                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                        {(explanationTitle || content) && !isGeneratingExplanation && (
                                             <button
-                                                onClick={handleSave}
-                                                disabled={isSaving || !explanationTitle || !content || userSaved || isGeneratingExplanation}
-                                                className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                                type="button"
+                                                disabled={isGeneratingExplanation || !prompt.trim()}
+                                                onClick={() => handleSubmit()}
+                                                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
-                                                <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
+                                                <span className="leading-none">Regenerate</span>
                                             </button>
-                                            <button
-                                                onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                                className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
-                                            >
-                                                <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
-                                        {isMarkdownMode ? (
-                                            <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
-                                                <ReactMarkdown
-                                                    remarkPlugins={[remarkMath]}
-                                                    rehypePlugins={[rehypeKatex]}
-                                                    components={{
-                                                        p: (props: React.PropsWithChildren<{}>) => (
-                                                            <div className="my-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
-                                                        ),
-                                                        h1: (props: React.PropsWithChildren<{}>) => (
-                                                            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
-                                                        ),
-                                                        h2: (props: React.PropsWithChildren<{}>) => (
-                                                            <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight">{props.children}</h2>
-                                                        ),
-                                                        h3: (props: React.PropsWithChildren<{}>) => (
-                                                            <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight">{props.children}</h3>
-                                                        ),
-                                                        ul: (props: React.PropsWithChildren<{}>) => (
-                                                            <ul className="my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300">{props.children}</ul>
-                                                        ),
-                                                        ol: (props: React.PropsWithChildren<{}>) => (
-                                                            <ol className="my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300">{props.children}</ol>
-                                                        ),
-                                                        li: (props: React.PropsWithChildren<{}>) => (
-                                                            <li className="my-1 leading-relaxed">{props.children}</li>
-                                                        ),
-                                                        code: (props: React.PropsWithChildren<{}>) => (
-                                                            <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200">{props.children}</code>
-                                                        ),
-                                                        pre: (props: React.PropsWithChildren<{}>) => (
-                                                            <pre className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4">{props.children}</pre>
-                                                        ),
-                                                        blockquote: (props: React.PropsWithChildren<{}>) => (
-                                                            <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>
-                                                        )
-                                                    }}
-                                                >
-                                                    {formattedExplanation}
-                                                </ReactMarkdown>
-                                            </article>
-                                        ) : (
-                                            <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
-                                                {formattedExplanation}
-                                            </pre>
                                         )}
+                                        <button
+                                            onClick={handleSave}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved || isGeneratingExplanation}
+                                            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                        >
+                                            <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                        >
+                                            <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
+                                        </button>
                                     </div>
                                 </div>
-                            )
-                        )}
-                        {activeTab === 'matches' && (
-                            <div className="mt-2">
-                                <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
-                                    {matches && matches.length > 0 ? (
-                                        matches.map((match, index) => (
-                                            <div 
-                                                key={index}
-                                                className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                                <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                    {isMarkdownMode ? (
+                                        <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+                                            <ReactMarkdown
+                                                remarkPlugins={[remarkMath]}
+                                                rehypePlugins={[rehypeKatex]}
+                                                components={{
+                                                    p: (props: React.PropsWithChildren<{}>) => (
+                                                        <div className="my-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
+                                                    ),
+                                                    h1: (props: React.PropsWithChildren<{}>) => (
+                                                        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
+                                                    ),
+                                                    h2: (props: React.PropsWithChildren<{}>) => (
+                                                        <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight">{props.children}</h2>
+                                                    ),
+                                                    h3: (props: React.PropsWithChildren<{}>) => (
+                                                        <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight">{props.children}</h3>
+                                                    ),
+                                                    ul: (props: React.PropsWithChildren<{}>) => (
+                                                        <ul className="my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300">{props.children}</ul>
+                                                    ),
+                                                    ol: (props: React.PropsWithChildren<{}>) => (
+                                                        <ol className="my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300">{props.children}</ol>
+                                                    ),
+                                                    li: (props: React.PropsWithChildren<{}>) => (
+                                                        <li className="my-1 leading-relaxed">{props.children}</li>
+                                                    ),
+                                                    code: (props: React.PropsWithChildren<{}>) => (
+                                                        <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200">{props.children}</code>
+                                                    ),
+                                                    pre: (props: React.PropsWithChildren<{}>) => (
+                                                        <pre className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4">{props.children}</pre>
+                                                    ),
+                                                    blockquote: (props: React.PropsWithChildren<{}>) => (
+                                                        <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>
+                                                    )
+                                                }}
                                             >
-                                                <div className="mb-2 flex items-center justify-between">
-                                                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                        Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
-                                                    </span>
-                                                    <button 
-                                                        onClick={() => loadExplanation(match.explanation_id, false)}
-                                                        className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                                                    >
-                                                        View →
-                                                    </button>
-                                                </div>
-                                                <h3 className="font-medium text-gray-900 dark:text-white mb-2">
-                                                    {match.current_title || match.text}
-                                                </h3>
-                                                <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
-                                                    {match.current_content || match.text}
-                                                </p>
-                                            </div>
-                                        ))
+                                                {formattedExplanation}
+                                            </ReactMarkdown>
+                                        </article>
                                     ) : (
-                                        <p className="text-gray-500 dark:text-gray-400 text-center italic">
-                                            No matches available yet. Generate an explanation to see related matches.
-                                        </p>
+                                        <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
+                                            {formattedExplanation}
+                                        </pre>
                                     )}
                                 </div>
                             </div>
-                        )}
-                    </div>
-                </main>
-            )}
+                        )
+                    )}
+                    {activeTab === 'matches' && (
+                        <div className="mt-2">
+                            <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
+                                {matches && matches.length > 0 ? (
+                                    matches.map((match, index) => (
+                                        <div 
+                                            key={index}
+                                            className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                                        >
+                                            <div className="mb-2 flex items-center justify-between">
+                                                <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                    Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
+                                                </span>
+                                                <button 
+                                                    onClick={() => loadExplanation(match.explanation_id, false)}
+                                                    className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
+                                                >
+                                                    View →
+                                                </button>
+                                            </div>
+                                            <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                                {match.current_title || match.text}
+                                            </h3>
+                                            <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                                {match.current_content || match.text}
+                                            </p>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <p className="text-gray-500 dark:text-gray-400 text-center italic">
+                                        No matches available yet. Generate an explanation to see related matches.
+                                    </p>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </main>
         </div>
     );
 } 
