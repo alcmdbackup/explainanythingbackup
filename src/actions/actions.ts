@@ -15,6 +15,7 @@ import { withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
+import { generateStandaloneSubsectionTitle } from '@/lib/services/links';
 
 const FILE_DEBUG = true;
 
@@ -395,4 +396,22 @@ export async function getUserLibraryExplanationsAction(userid: string) {
  */
 export async function getUserQueryByIdAction(id: number) {
     return await getUserQueryById(id);
+}
+
+/**
+ * Generates a standalone subsection title from article and subsection titles (server action)
+ *
+ * • Calls generateStandaloneSubsectionTitle service to create AI-enhanced title
+ * • Takes article title and subsection title as inputs
+ * • Returns Wikipedia-style standalone title that makes sense without context
+ * • Used by client code to generate standalone titles via server action
+ * • Calls: generateStandaloneSubsectionTitle
+ * • Used by: Link creation components, cross-reference features
+ */
+export async function generateStandaloneSectionTitleAction(
+    articleTitle: string,
+    subsectionTitle: string,
+    debug: boolean = false
+): Promise<string> {
+    return await generateStandaloneSubsectionTitle(articleTitle, subsectionTitle, debug);
 } 
