@@ -56,6 +56,22 @@ export default function ResultsPage() {
         fetchUserid();
     }, []);
 
+    // Auto-manage loading state based on content availability and UI state
+    useEffect(() => {
+        // If we have explanation content loaded, turn off loading and ensure UI updates
+        if ((explanationTitle || content) && !error) {
+            setIsLoading(false);
+        }
+        // If we have matches loaded but no content, and we're not generating, turn off loading
+        else if (matches.length > 0 && !error && prompt && !explanationTitle && !content) {
+            setIsLoading(false);
+        }
+        // If there's an error, turn off loading to show error state
+        else if (error) {
+            setIsLoading(false);
+        }
+    }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved]);
+
     /**
      * Fetches the current user's ID from authentication
      * 
@@ -212,9 +228,7 @@ export default function ResultsPage() {
                 const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
                 
                 // Load user query data
-                
-                loadUserQuery(newUserQueryIdFromUrl).finally(() => {
-                });
+                await loadUserQuery(newUserQueryIdFromUrl);
             }
             // Only load explanation if it's different from the currently loaded one
             if (urlExplanationId) {
@@ -222,16 +236,16 @@ export default function ResultsPage() {
                 
                 // Prevent loop: only load if this is a different explanation than currently loaded
                 if (newExplanationIdFromUrl !== explanationId) {
-                    loadExplanation(newExplanationIdFromUrl, true).finally(() => {
-                    });
+                    await loadExplanation(newExplanationIdFromUrl, true);
                 }
             } else if (query) {
                 logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
                 const effectiveUserid = userid || await fetchUserid();
                 handleSubmit(query, MatchMode.Normal, effectiveUserid);
+                // Loading state will be managed automatically by content-watching useEffect
             }
-
-            setIsLoading(false);
+            
+            // Loading state will be automatically managed by the content-watching useEffect
         };
         
         processParams();
@@ -268,6 +282,8 @@ export default function ResultsPage() {
         setError(null);
         setMatches([]);
         setExplanationData(null);
+        setContent('');
+        setExplanationTitle('');
         
         const { data, error, originalUserQuery, matches, match_found, explanationId, userQueryId } = await generateExplanation(
             searchQuery, 
@@ -283,7 +299,7 @@ export default function ResultsPage() {
         
         if (error) {
             setError(error.message);
-            setIsLoading(false);
+            // Loading state will be automatically managed by the content-watching useEffect
         } else {
             // Redirect to URL with explanation_id and userQueryId
             const params = new URLSearchParams();
@@ -352,7 +368,7 @@ export default function ResultsPage() {
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
-                    disabled: isLoading
+                    disabled: false // isLoading - temporarily disabled
                 }}
             />
 
@@ -388,15 +404,15 @@ export default function ResultsPage() {
                     </div>
                     {/* Tab Content */}
                     {activeTab === 'output' && (
-                        (explanationTitle || content) && !isLoading && (
+                        (explanationTitle || content) && (!isLoading) && (
                             <div className="mt-2">
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                     {/* Action buttons - right-aligned on desktop, full-width on mobile */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                                        {(explanationTitle || content) && !isLoading && (
+                                        {(explanationTitle || content) && (
                                             <button
                                                 type="button"
-                                                disabled={isLoading || !prompt.trim()}
+                                                disabled={isLoading|| !prompt.trim()}
                                                 onClick={() => handleSubmit()}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
@@ -405,7 +421,7 @@ export default function ResultsPage() {
                                         )}
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !explanationTitle || !content || userSaved || isLoading}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved || false /* isLoading - temporarily disabled */}
                                             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
