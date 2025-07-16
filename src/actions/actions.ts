@@ -3,7 +3,7 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations.server';
-import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, UserInputType, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
@@ -230,12 +230,8 @@ export const generateExplanation = withLogging(
             // Save user query once - works for both match and new explanation cases
             let userQueryId: number | null = null;
             if (finalExplanationId && userid) {
-                const userQueryData: UserQueryDataType = {
-                    user_query: userInput,
-                    matches: matches
-                };
                 
-                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userQueryData, finalExplanationId, userid, !isMatchFound);
+                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, matches, finalExplanationId, userid, !isMatchFound, userInputType);
                 if (userQueryError) {
                     logger.error('Failed to save user query:', { error: userQueryError });
                 } else {
@@ -336,24 +332,25 @@ export const saveExplanationAndTopic = withLogging(
 
 /**
  * Key points:
- * - Saves user queries to database
- * - Validates query data against schema
+ * - Saves user queries to database with userInputType tracking
+ * - Validates query data against schema including userInputType
  * - Called by generateExplanation for query tracking
  * - Uses createUserQuery for database storage
  */
 export const saveUserQuery = withLogging(
-    async function saveUserQuery(userQuery: UserQueryDataType, explanationId: number, userid: string, newExplanation: boolean) {
-        logger.debug('saveUserQuery started', { userQuery: userQuery.user_query, explanationId, userid, newExplanation }, FILE_DEBUG);
+    async function saveUserQuery(userInput, matches, explanationId: number, userid: string, newExplanation: boolean, userInputType: UserInputType) {
+        logger.debug('saveUserQuery started', { userInput, matches, explanationId, userid, newExplanation, userInputType }, FILE_DEBUG);
         
         try {
-            logger.debug('Preparing user query with explanation ID, userid, and newExplanation', { userQuery, explanationId, userid, newExplanation }, FILE_DEBUG);
-            const userQueryWithId = { ...userQuery, explanation_id: explanationId, userid, newExplanation };
+            logger.debug('Preparing user query with explanation ID, userid, newExplanation, and userInputType', { userInput, matches, explanationId, userid, newExplanation, userInputType }, FILE_DEBUG);
+            const userQueryWithId = { user_query: userInput, matches, explanation_id: explanationId, userid, newExplanation, userInputType };
             
             logger.debug('Validating user query data', { userQueryWithId }, FILE_DEBUG);
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
 
             if (!validatedData.success) {
-                logger.debug('Validation failed', { errors: validatedData.error }, FILE_DEBUG);
+                logger.debug('Validation failed', { errors: validatedData.error.errors }, FILE_DEBUG);
+                console.error('DETAILED VALIDATION ERRORS:', JSON.stringify(validatedData.error.errors, null, 2));
                 return {
                     success: false,
                     error: createValidationError('Invalid user query data format', validatedData.error),
@@ -371,10 +368,10 @@ export const saveUserQuery = withLogging(
                 id: savedQuery.id 
             };
         } catch (error) {
-            logger.debug('Error in saveUserQuery', { error, userQuery: userQuery.user_query }, FILE_DEBUG);
+            logger.debug('Error in saveUserQuery', { error, userInput }, FILE_DEBUG);
             return {
                 success: false,
-                error: handleError(error, 'saveUserQuery', { userQuery: userQuery.user_query}),
+                error: handleError(error, 'saveUserQuery', { userInput}),
                 id: null
             };
         }

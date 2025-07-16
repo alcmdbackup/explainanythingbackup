@@ -81,23 +81,8 @@ export const matchWithCurrentContentSchema = matchSchema.extend({
     current_content: z.string(),
 });
 
-
 /**
- * Schema for user query data, extends llmQuerySchema with user query
- * @example
- * {
- *   user_query: "How does photosynthesis work?",
- *   explanation_title: "Photosynthesis Process",
- *   content: "Photosynthesis is the process by which plants..."
- * }
- */
-export const userQueryDataSchema = z.object({
-    matches: z.array(matchWithCurrentContentSchema),
-    user_query: z.string(),
-});
-
-/**
- * Schema for inserting user query data, extends userQueryDataSchema with explanation_id, userid, and newExplanation
+ * Schema for inserting user query data, extends userQueryDataSchema with explanation_id, userid, newExplanation, and userInputType
  * @example
  * {
  *   user_query: "How does photosynthesis work?",
@@ -106,13 +91,17 @@ export const userQueryDataSchema = z.object({
  *   matches: [...],
  *   explanation_id: 123,
  *   userid: "user123",
- *   newExplanation: true
+ *   newExplanation: true,
+ *   userInputType: UserInputType.Query
  * }
  */
-export const userQueryInsertSchema = userQueryDataSchema.extend({
+export const userQueryInsertSchema = z.object({
+    matches: z.array(matchWithCurrentContentSchema),
+    user_query: z.string(),
     explanation_id: z.number(),
     userid: z.string(),
     newExplanation: z.boolean(),
+    userInputType: z.nativeEnum(UserInputType),
 });
 
 /**
@@ -159,30 +148,12 @@ export const ExplanationFullDbSchema = explanationInsertSchema.extend({
     timestamp: z.string(), // or z.date() if you prefer working with Date objects
 });
 
-/**
- * Full user query schema including database fields
- * @example
- * {
- *   id: 123,
- *   timestamp: "2024-03-20T10:30:00Z",
- *   explanation_title: "Photosynthesis Process",
- *   content: "Photosynthesis is the process by which plants...",
- *   user_query: "How does photosynthesis work?"
- * }
- */
-export const userQueryFullDbSchema = userQueryDataSchema.extend({
-    id: z.number(),
-    timestamp: z.string(), // or z.date() if you prefer working with Date objects
-});
-
 // Derive types from schemas
 export type explanationBaseType = z.infer<typeof explanationBaseSchema>;
 export type MatchType = z.infer<typeof matchSchema>;
 export type matchWithCurrentContentType = z.infer<typeof matchWithCurrentContentSchema>;
-export type UserQueryDataType = z.infer<typeof userQueryDataSchema>;
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
-export type UserQueryFullDbType = z.infer<typeof userQueryFullDbSchema>;
 export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
 
 /**
@@ -231,42 +202,6 @@ export const matchingSourceReturnSchema = z.object({
 });
 
 export type MatchingSourceReturnType = z.infer<typeof matchingSourceReturnSchema>;
-
-/**
- * Schema for query response that either contains a new explanation or a matching source
- * @example
- * // When no match is found:
- * {
- *   match_found: false,
- *   data: {
- *     user_query: "How does photosynthesis work?",
- *     explanation_title: "Photosynthesis Process",
- *     content: "...",
- *     matches: [...]
- *   }
- * }
- * 
- * // When match is found:
- * {
- *   match_found: true,
- *   data: {
- *     topic_id: 123,
- *     explanation_id: 456
- *   }
- * }
- */
-export const queryResponseSchema = z.discriminatedUnion('match_found', [
-  z.object({
-    match_found: z.literal(false),
-    data: userQueryDataSchema
-  }),
-  z.object({
-    match_found: z.literal(true),
-    data: matchingSourceReturnSchema
-  })
-]);
-
-export type QueryResponseType = z.infer<typeof queryResponseSchema>;
 
 export const userLibrarySchema = z.object({
   id: z.number().int().positive(),
