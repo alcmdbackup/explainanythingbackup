@@ -368,7 +368,7 @@ export default function ResultsPage() {
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
-                    disabled: false // isLoading - temporarily disabled
+                    disabled: isLoading
                 }}
             />
 
@@ -412,7 +412,7 @@ export default function ResultsPage() {
                                         {(explanationTitle || content) && (
                                             <button
                                                 type="button"
-                                                disabled={isLoading|| !prompt.trim()}
+                                                disabled={!prompt.trim()}
                                                 onClick={() => handleSubmit()}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
@@ -421,7 +421,7 @@ export default function ResultsPage() {
                                         )}
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !explanationTitle || !content || userSaved || false /* isLoading - temporarily disabled */}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved}
                                             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
