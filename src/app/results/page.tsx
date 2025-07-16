@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, MatchMode, explanationBaseType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import { supabase_browser } from '@/lib/supabase';
@@ -285,14 +285,15 @@ export default function ResultsPage() {
         setContent('');
         setExplanationTitle('');
         
-        const { data, error, originalUserQuery, matches, match_found, explanationId, userQueryId } = await generateExplanation(
+        const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await generateExplanation(
             searchQuery, 
             systemSavedId, 
             matchMode,
-            effectiveUserid
+            effectiveUserid,
+            UserInputType.Query
         );
 
-        logger.debug('generateExplanation result:', { data, error, originalUserQuery, explanationId, userQueryId }, FILE_DEBUG);
+        logger.debug('generateExplanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
         
         // Clear systemSavedId after the API call
         setSystemSavedId(null);

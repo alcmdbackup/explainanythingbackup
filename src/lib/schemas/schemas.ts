@@ -8,6 +8,11 @@ export enum MatchMode {
   ForceMatch = "forceMatch"
 }
 
+export enum UserInputType {
+  Query = "query",
+  TitleFromLink = "title from link"
+}
+
 /**
  * Base schema for LLM query data
  * @example

@@ -3,7 +3,7 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations.server';
-import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, type UserQueryDataType, type QueryResponseType, MatchMode, UserInputType, titleQuerySchema } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
@@ -25,6 +25,54 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
 
 /**
  * Key points:
+ * - Generates article title from user query using LLM
+ * - Validates the response format and returns first title
+ * - Used by generateExplanation for title creation
+ * - Calls createTitlePrompt, callGPT4omini
+ * - Used by generateExplanation
+ */
+const generateTitleFromUserQuery = withLogging(
+    async function generateTitleFromUserQuery(userQuery: string): Promise<{
+        success: boolean;
+        title: string | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const titlePrompt = createTitlePrompt(userQuery);
+            const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
+            const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
+
+            if (!parsedTitles.success || !parsedTitles.data.title1) {
+                return {
+                    success: false,
+                    title: null,
+                    error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.')
+                };
+            }
+
+            return {
+                success: true,
+                title: parsedTitles.data.title1,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                title: null,
+                error: handleError(error, 'generateTitleFromUserQuery', { userQuery })
+            };
+        }
+    },
+    'generateTitleFromUserQuery',
+    { 
+        enabled: FILE_DEBUG,
+        maxInputLength: 300,
+        maxOutputLength: 500
+    }
+);
+
+/**
+ * Key points:
  * - Main function for generating AI explanations
  * - Handles both matching and new explanation generation
  * - Uses vector search and LLM for content creation
@@ -32,56 +80,69 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
  * - Uses the first generated title for vector search (handleUserQuery)
  * - Automatically saves new explanations to database with embeddings
  * - Returns explanation ID for both new and matched explanations
+ * - Accepts userInputType to differentiate between queries and titles from links
  * - Uses handleUserQuery, enhanceMatchesWithCurrentContent, findMatchingSource, saveExplanationAndTopic
  */
 export const generateExplanation = withLogging(
     async function generateExplanation(
-        userQuery: string,
+        userInput: string,
         savedId: number | null,
         matchMode: MatchMode,
-        userid: string
+        userid: string,
+        userInputType: UserInputType
     ): Promise<{
-        originalUserQuery: string,
+        originalUserInput: string,
         match_found: Boolean | null,
         error: ErrorResponse | null,
         explanationId: number | null,
         matches: matchWithCurrentContentType[],
         data: explanationBaseType | null,
-        userQueryId: number | null
+        userQueryId: number | null,
+        userInputType: UserInputType
     }> {
         try {
-            if (!userQuery.trim()) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: null,
-                    error: createInputError('userQuery cannot be empty'),
-                    explanationId: null,
-                    matches: [],
-                    data: null,
-                    userQueryId: null
-                };
-            }
-
-            const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
-            const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
-
-            if (!parsedTitles.success || !parsedTitles.data.title1) {
-                return {
-                    originalUserQuery: userQuery,
-                    match_found: null,
-                    error: createError(ERROR_CODES.NO_TITLE_FOR_VECTOR_SEARCH, 'No valid title1 found for vector search. Cannot proceed.'),
-                    explanationId: null,
-                    matches: [],
-                    data: null,
-                    userQueryId: null
-                };
-            }
+            console.debug('generateExplanation called with userInputType:', userInputType);
             
-            const firstTitle = parsedTitles.data.title1;
-            const similarTexts = await findMatchesInVectorDb(firstTitle);
+            if (!userInput.trim()) {
+                return {
+                    originalUserInput: userInput,
+                    match_found: null,
+                    error: createInputError('userInput cannot be empty'),
+                    explanationId: null,
+                    matches: [],
+                    data: null,
+                    userQueryId: null,
+                    userInputType
+                };
+            }
+
+            let titleResult: string;
+            
+            if (userInputType === UserInputType.Query) {
+                console.debug('generateExplanation: UserInputType is Query - generating title from user input', { userInput });
+                const titlesGenerated = await generateTitleFromUserQuery(userInput);
+                if (!titlesGenerated.success || !titlesGenerated.title) {
+                    return {
+                        originalUserInput: userInput,
+                        match_found: null,
+                        error: titlesGenerated.error,
+                        explanationId: null,
+                        matches: [],
+                        data: null,
+                        userQueryId: null,
+                        userInputType
+                    };
+                }
+                titleResult = titlesGenerated.title;
+                console.debug('generateExplanation: Generated title from query', { originalQuery: userInput, generatedTitle: titleResult });
+            } else {
+                // For TitleFromLink, use the userInput directly as the title
+                console.debug('generateExplanation: UserInputType is TitleFromLink - using userInput directly as title', { userInput, userInputType });
+                titleResult = userInput;
+            }
+            const similarTexts = await findMatchesInVectorDb(titleResult);
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
-            const bestSourceResult = await findMatches(firstTitle, matches, matchMode, savedId);
+            const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId);
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
                 bestSourceResult.selectedIndex && 
                 bestSourceResult.selectedIndex > MIN_SIMILARITY_INDEX && 
@@ -96,25 +157,26 @@ export const generateExplanation = withLogging(
                 finalExplanationId = bestSourceResult.explanationId;
                 isMatchFound = true;
             } else {
-                const formattedPrompt = createExplanationPrompt(firstTitle);
+                const formattedPrompt = createExplanationPrompt(titleResult);
                 const result = await callGPT4omini(formattedPrompt, explanationBaseSchema, 'llmQuery');
                 
                 const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 
                 if (!parsedResult.success) {
                     return {
-                        originalUserQuery: userQuery,
+                        originalUserInput: userInput,
                         match_found: null,
                         error: createValidationError('AI response did not match expected format', parsedResult.error),
                         explanationId: null,
                         matches: matches,
                         data: null,
-                        userQueryId: null
+                        userQueryId: null,
+                        userInputType
                     };
                 }
 
                 const newExplanationData = {
-                    explanation_title: firstTitle,
+                    explanation_title: titleResult,
                     content: parsedResult.data.content,
                 };
                 
@@ -122,39 +184,42 @@ export const generateExplanation = withLogging(
                 
                 if (!validatedUserQuery.success) {
                     return {
-                        originalUserQuery: userQuery,
+                        originalUserInput: userInput,
                         match_found: null,
                         error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
                         explanationId: null,
                         matches: matches,
                         data: null,
-                        userQueryId: null
+                        userQueryId: null,
+                        userInputType
                     };
                 }
 
-                const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userQuery, validatedUserQuery.data);
+                const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userInput, validatedUserQuery.data);
                 
                 if (explanationTopicError) {
                     return {
-                        originalUserQuery: userQuery,
+                        originalUserInput: userInput,
                         match_found: null,
                         error: explanationTopicError,
                         explanationId: null,
                         matches: matches,
                         data: null,
-                        userQueryId: null
+                        userQueryId: null,
+                        userInputType
                     };
                 }
 
                 if (newExplanationId == null) {
                     return {
-                        originalUserQuery: userQuery,
+                        originalUserInput: userInput,
                         match_found: null,
                         error: createError(ERROR_CODES.SAVE_FAILED, 'Failed to save explanation: missing explanation ID.'),
                         explanationId: null,
                         matches: matches,
                         data: null,
-                        userQueryId: null
+                        userQueryId: null,
+                        userInputType
                     };
                 }
 
@@ -166,7 +231,7 @@ export const generateExplanation = withLogging(
             let userQueryId: number | null = null;
             if (finalExplanationId && userid) {
                 const userQueryData: UserQueryDataType = {
-                    user_query: userQuery,
+                    user_query: userInput,
                     matches: matches
                 };
                 
@@ -179,23 +244,25 @@ export const generateExplanation = withLogging(
             }
 
             return {
-                originalUserQuery: userQuery,
+                originalUserInput: userInput,
                 match_found: isMatchFound,
                 error: null,
                 explanationId: finalExplanationId,
                 matches: matches,
                 data: explanationData,
-                userQueryId: userQueryId
+                userQueryId: userQueryId,
+                userInputType
             };
         } catch (error) {
             return {
-                originalUserQuery: userQuery,
+                originalUserInput: userInput,
                 match_found: null,
-                error: handleError(error, 'generateExplanation', { userQuery, matchMode, savedId, userid }),
+                error: handleError(error, 'generateExplanation', { userInput, matchMode, savedId, userid, userInputType }),
                 explanationId: null,
                 matches: [],
                 data: null,
-                userQueryId: null
+                userQueryId: null,
+                userInputType
             };
         }
     },
