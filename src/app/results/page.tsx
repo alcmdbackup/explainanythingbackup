@@ -217,32 +217,42 @@ export default function ResultsPage() {
 
             const urlExplanationId = searchParams.get('explanation_id');
             const urlUserQueryId = searchParams.get('userQueryId');
+            const title = searchParams.get('t');
             const query = searchParams.get('q');
+
+            const effectiveUserid = userid || await fetchUserid();
             
             if (query) {
                 setPrompt(query);
             }
             
-            // Handle userQueryId parameter
-            if (urlUserQueryId) {
-                const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
-                
-                // Load user query data
-                await loadUserQuery(newUserQueryIdFromUrl);
-            }
-            // Only load explanation if it's different from the currently loaded one
-            if (urlExplanationId) {
-                const newExplanationIdFromUrl = parseInt(urlExplanationId);
-                
-                // Prevent loop: only load if this is a different explanation than currently loaded
-                if (newExplanationIdFromUrl !== explanationId) {
-                    await loadExplanation(newExplanationIdFromUrl, true);
-                }
+            // Handle title parameter first
+            if (title) {
+                logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
+                handleUserAction(title, UserInputType.TitleFromLink, MatchMode.Normal, effectiveUserid);
+                // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                const effectiveUserid = userid || await fetchUserid();
                 handleUserAction(query, UserInputType.Query, MatchMode.Normal, effectiveUserid);
                 // Loading state will be managed automatically by content-watching useEffect
+            } else {
+                // Handle userQueryId parameter
+                if (urlUserQueryId) {
+                    const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
+                    
+                    // Load user query data
+                    await loadUserQuery(newUserQueryIdFromUrl);
+                }
+                
+                // Only load explanation if it's different from the currently loaded one
+                if (urlExplanationId) {
+                    const newExplanationIdFromUrl = parseInt(urlExplanationId);
+                    
+                    // Prevent loop: only load if this is a different explanation than currently loaded
+                    if (newExplanationIdFromUrl !== explanationId) {
+                        await loadExplanation(newExplanationIdFromUrl, true);
+                    }
+                }
             }
             
             // Loading state will be automatically managed by the content-watching useEffect
@@ -382,6 +392,9 @@ export default function ResultsPage() {
             );
             console.log(`Original: "${subsectionTitle}"`);
             console.log(`Standalone: "${standaloneTitle}"`);
+            
+            // Redirect to results page with standalone title
+            router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
         } catch (error) {
             console.error('Failed to generate standalone title:', error);
         }
