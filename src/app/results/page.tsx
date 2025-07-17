@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { generateExplanation, saveUserQuery, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, generateStandaloneSectionTitleAction } from '@/actions/actions';
+import { generateExplanation, saveUserQuery, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -368,37 +368,7 @@ export default function ResultsPage() {
         router.push(`/results?q=${encodeURIComponent(query)}`);
     };
 
-    /**
-     * Handles clicking on section titles to generate standalone titles
-     * 
-     * • Extracts text content from the clicked heading element
-     * • Uses the main explanation title as article title
-     * • Calls generateStandaloneSectionTitleAction with article and subsection titles
-     * • Logs the generated standalone title to console
-     * 
-     * Used by: h2 and h3 heading click handlers in ReactMarkdown
-     * Calls: generateStandaloneSectionTitleAction
-     */
-    const handleSectionTitleClick = async (event: React.MouseEvent<HTMLElement>) => {
-        const subsectionTitle = event.currentTarget.textContent || '';
-        if (!subsectionTitle.trim() || !explanationTitle) return;
 
-        try {
-            console.log(`Generating standalone title for: "${subsectionTitle}"`);
-            const standaloneTitle = await generateStandaloneSectionTitleAction(
-                explanationTitle,
-                subsectionTitle,
-                true // debug mode
-            );
-            console.log(`Original: "${subsectionTitle}"`);
-            console.log(`Standalone: "${standaloneTitle}"`);
-            
-            // Redirect to results page with standalone title
-            router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
-        } catch (error) {
-            console.error('Failed to generate standalone title:', error);
-        }
-    };
 
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
@@ -490,20 +460,12 @@ export default function ResultsPage() {
                                                         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
                                                     ),
                                                     h2: (props: React.PropsWithChildren<{}>) => (
-                                                        <h2 
-                                                            className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200"
-                                                            onClick={handleSectionTitleClick}
-                                                            title="Click to generate standalone title"
-                                                        >
+                                                        <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight">
                                                             {props.children}
                                                         </h2>
                                                     ),
                                                     h3: (props: React.PropsWithChildren<{}>) => (
-                                                        <h3 
-                                                            className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight cursor-pointer hover:text-blue-600 dark:hover:text-blue-400 transition-colors duration-200"
-                                                            onClick={handleSectionTitleClick}
-                                                            title="Click to generate standalone title"
-                                                        >
+                                                        <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight">
                                                             {props.children}
                                                         </h3>
                                                     ),

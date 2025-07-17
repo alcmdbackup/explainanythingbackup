@@ -15,7 +15,7 @@ import { withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
-import { generateStandaloneSubsectionTitle } from '@/lib/services/links';
+import { generateStandaloneSubsectionTitle, enhanceContentWithStandaloneLinks } from '@/lib/services/links';
 
 const FILE_DEBUG = true;
 
@@ -175,9 +175,16 @@ export const generateExplanation = withLogging(
                     };
                 }
 
+                // Enhance content with standalone links for headings
+                const enhancedContent = await enhanceContentWithStandaloneLinks(
+                    parsedResult.data.content,
+                    titleResult,
+                    FILE_DEBUG
+                );
+
                 const newExplanationData = {
                     explanation_title: titleResult,
-                    content: parsedResult.data.content,
+                    content: enhancedContent,
                 };
                 
                 const validatedUserQuery = explanationBaseSchema.safeParse(newExplanationData);

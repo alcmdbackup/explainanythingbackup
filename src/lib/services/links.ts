@@ -95,3 +95,100 @@ export async function generateStandaloneSubsectionTitle(
     return subsectionTitle.trim();
   }
 } 
+
+/**
+ * Enhances markdown content by converting headings to clickable standalone links
+ * 
+ * • Parses markdown content for h2 and h3 headings using regex
+ * • Generates standalone titles for each heading using AI enhancement
+ * • Replaces headings with markdown links pointing to standalone explanations
+ * • Processes headings in reverse order to maintain string positions during replacement
+ * • Gracefully handles errors by preserving original headings when generation fails
+ * 
+ * Used by: generateExplanation (to enhance content before saving to database)
+ * Calls: generateStandaloneSubsectionTitle, logger.error
+ */
+export async function enhanceContentWithStandaloneLinks(
+  content: string, 
+  articleTitle: string,
+  debug: boolean = false
+): Promise<string> {
+  // Regex to match h2 and h3 headings: ## Title or ### Title
+  const headingRegex = /^(#{2,3})\s+(.+)$/gm;
+  const matches = [...content.matchAll(headingRegex)];
+  
+  if (matches.length === 0) {
+    if (debug) {
+      logger.debug('No headings found to enhance with standalone links');
+    }
+    return content; // No headings to process
+  }
+
+  if (debug) {
+    logger.debug(`Found ${matches.length} headings to enhance with standalone links`, {
+      articleTitle,
+      headings: matches.map(m => m[2].trim())
+    });
+  }
+
+  // Generate all standalone titles in parallel
+  const titleGenerationPromises = matches.map(async (match, index) => {
+    const [, , headingText] = match;
+    try {
+      const standaloneTitle = await generateStandaloneSubsectionTitle(
+        articleTitle,
+        headingText.trim(),
+        debug
+      );
+      return { index, standaloneTitle, error: null };
+    } catch (error) {
+      if (debug) {
+        logger.error('Failed to generate standalone title for heading', {
+          headingText: headingText.trim(),
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+      return { index, standaloneTitle: null, error };
+    }
+  });
+
+  const titleResults = await Promise.all(titleGenerationPromises);
+  
+  let enhancedContent = content;
+  
+  // Process headings in reverse order to maintain string positions during replacement
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const match = matches[i];
+    const [fullMatch, hashes, headingText] = match;
+    const titleResult = titleResults[i];
+    
+    if (titleResult.standaloneTitle && !titleResult.error) {
+      // Create markdown link: ## [Original Title](/results?t=standalone+title)
+      const encodedTitle = encodeURIComponent(titleResult.standaloneTitle);
+      const linkedHeading = `${hashes} [${headingText.trim()}](/results?t=${encodedTitle})`;
+      
+      // Replace the original heading with the linked version
+      enhancedContent = enhancedContent.substring(0, match.index!) + 
+                      linkedHeading + 
+                      enhancedContent.substring(match.index! + fullMatch.length);
+      
+      if (debug) {
+        logger.debug('Enhanced heading with standalone link', {
+          original: headingText.trim(),
+          standalone: titleResult.standaloneTitle,
+          linkedHeading
+        });
+      }
+    }
+    // If title generation failed, keep original heading (no action needed)
+  }
+  
+  if (debug) {
+    logger.debug('Content enhancement complete', {
+      originalHeadings: matches.length,
+      enhancedContentLength: enhancedContent.length
+    });
+  }
+  
+  return enhancedContent;
+} 
