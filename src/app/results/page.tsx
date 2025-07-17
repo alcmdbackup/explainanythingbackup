@@ -32,6 +32,7 @@ export default function ResultsPage() {
     const [userSaved, setUserSaved] = useState(false);
     const [userid, setUserid] = useState<string | null>(null);
     const [authError, setAuthError] = useState<string | null>(null);
+    const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
 
     const isFirstRun = useRef(true);
 
@@ -55,6 +56,18 @@ export default function ResultsPage() {
         };
         fetchUserid();
     }, []);
+
+    // Save mode to localStorage when it changes
+    useEffect(() => {
+        console.log('Saving mode to localStorage:', mode);
+        localStorage.setItem('explanation-mode', mode);
+        
+        // Verify it was actually saved
+        const verifyStored = localStorage.getItem('explanation-mode');
+        console.log('Verified localStorage contains:', verifyStored);
+    }, [mode]);
+
+
 
     // Auto-manage loading state based on content availability and UI state
     useEffect(() => {
@@ -99,6 +112,45 @@ export default function ResultsPage() {
         setUserid(userData.user.id);
         setAuthError(null);
         return userData.user.id;
+    };
+
+    /**
+     * Determines the mode from URL parameters or localStorage
+     * 
+     * • Reads mode from URL parameters with highest priority
+     * • Falls back to localStorage saved mode preference
+     * • Uses Normal as final fallback if no valid mode found
+     * • Returns the determined mode without side effects
+     * 
+     * Used by: processParams (during URL parameter processing)
+     * Calls: none (pure function)
+     */
+    const initializeMode = (): MatchMode => {
+        const urlMode = searchParams.get('mode') as MatchMode;
+        const savedMode = localStorage.getItem('explanation-mode') as MatchMode;
+        
+        console.log('initializeMode debug:', {
+            urlMode,
+            savedMode,
+            currentMode: mode,
+            matchModeValues: Object.values(MatchMode),
+            urlModeValid: urlMode && Object.values(MatchMode).includes(urlMode),
+            savedModeValid: savedMode && Object.values(MatchMode).includes(savedMode)
+        });
+        
+        // Priority: URL > localStorage > default
+        let initialMode = MatchMode.Normal;
+        if (urlMode && Object.values(MatchMode).includes(urlMode)) {
+            initialMode = urlMode;
+            console.log('Using URL mode:', initialMode);
+        } else if (savedMode && Object.values(MatchMode).includes(savedMode)) {
+            initialMode = savedMode;
+            console.log('Using saved mode:', initialMode);
+        } else {
+            console.log('Using default mode:', initialMode);
+        }
+        
+        return initialMode;
     };
 
     /**
@@ -215,6 +267,14 @@ export default function ResultsPage() {
         const processParams = async () => {
             setIsLoading(true);
 
+            // Process mode first as an independent step
+            const initialMode = initializeMode();
+            console.log('processParams mode check:', { initialMode, currentMode: mode, willUpdate: initialMode !== mode });
+            if (initialMode !== mode) {
+                console.log('Updating mode from', mode, 'to', initialMode);
+                setMode(initialMode);
+            }
+
             const urlExplanationId = searchParams.get('explanation_id');
             const urlUserQueryId = searchParams.get('userQueryId');
             const title = searchParams.get('t');
@@ -229,11 +289,11 @@ export default function ResultsPage() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, MatchMode.Normal, effectiveUserid);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, MatchMode.Normal, effectiveUserid);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -318,6 +378,9 @@ export default function ResultsPage() {
             }
             if (userQueryId) {
                 params.set('userQueryId', userQueryId.toString());
+            }
+            if (matchMode !== MatchMode.Normal) {
+                params.set('mode', matchMode);
             }
             
             router.push(`/results?${params.toString()}`);
@@ -419,13 +482,13 @@ export default function ResultsPage() {
                         (explanationTitle || content) && (!isLoading) && (
                             <div className="mt-2">
                                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
-                                    {/* Action buttons - right-aligned on desktop, full-width on mobile */}
+                                    {/* Action buttons - left side */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                         {(explanationTitle || content) && (
                                             <button
                                                 type="button"
                                                 disabled={!prompt.trim()}
-                                                onClick={() => handleUserAction(prompt, UserInputType.Query)}
+                                                onClick={() => handleUserAction(prompt, UserInputType.Query, mode)}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
                                                 <span className="leading-none">Regenerate</span>
@@ -444,6 +507,26 @@ export default function ResultsPage() {
                                         >
                                             <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
                                         </button>
+                                    </div>
+                                    
+                                    {/* Mode dropdown - right side */}
+                                    <div className="flex items-center gap-2">
+                                        <label htmlFor="mode-select" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                            Mode:
+                                        </label>
+                                        <select
+                                            id="mode-select"
+                                            value={mode}
+                                            onChange={(e) => {
+                                                console.log('Dropdown changed from', mode, 'to', e.target.value);
+                                                setMode(e.target.value as MatchMode);
+                                            }}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                        >
+                                            <option value={MatchMode.Normal}>Normal</option>
+                                            <option value={MatchMode.SkipMatch}>Skip Match</option>
+                                            <option value={MatchMode.ForceMatch}>Force Match</option>
+                                        </select>
                                     </div>
                                 </div>
                                 <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
