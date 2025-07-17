@@ -57,18 +57,6 @@ export default function ResultsPage() {
         fetchUserid();
     }, []);
 
-    // Save mode to localStorage when it changes
-    useEffect(() => {
-        console.log('Saving mode to localStorage:', mode);
-        localStorage.setItem('explanation-mode', mode);
-        
-        // Verify it was actually saved
-        const verifyStored = localStorage.getItem('explanation-mode');
-        console.log('Verified localStorage contains:', verifyStored);
-    }, [mode]);
-
-
-
     // Auto-manage loading state based on content availability and UI state
     useEffect(() => {
         // If we have explanation content loaded, turn off loading and ensure UI updates
@@ -430,6 +418,16 @@ export default function ResultsPage() {
         if (!query.trim()) return;
         router.push(`/results?q=${encodeURIComponent(query)}`);
     };
+
+    // Save mode to localStorage when it changes
+    useEffect(() => {
+        console.log('Saving mode to localStorage:', mode);
+        localStorage.setItem('explanation-mode', mode);
+        
+        // Verify it was actually saved
+        const verifyStored = localStorage.getItem('explanation-mode');
+        console.log('Verified localStorage contains:', verifyStored);
+    }, [mode]);
 
 
 
