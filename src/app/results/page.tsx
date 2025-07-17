@@ -239,9 +239,9 @@ export default function ResultsPage() {
                     await loadExplanation(newExplanationIdFromUrl, true);
                 }
             } else if (query) {
-                logger.debug('useEffect: handleSubmit called with query', { query }, FILE_DEBUG);
+                logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
                 const effectiveUserid = userid || await fetchUserid();
-                handleSubmit(query, MatchMode.Normal, effectiveUserid);
+                handleUserAction(query, UserInputType.Query, MatchMode.Normal, effectiveUserid);
                 // Loading state will be managed automatically by content-watching useEffect
             }
             
@@ -254,7 +254,7 @@ export default function ResultsPage() {
     //No need to add to dependency array here
 
     /**
-     * Generates AI explanation for a query or regenerates existing explanation
+     * Generates explanation using user provided query or title from link
      * 
      * • Calls generateExplanation with the search query and current systemSavedId
      * • Handles both new explanations and existing matches
@@ -266,10 +266,9 @@ export default function ResultsPage() {
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: generateExplanation, loadExplanation, saveUserQuery
      */
-    const handleSubmit = async (query?: string, matchMode: MatchMode = MatchMode.Normal, overrideUserid?: string | null) => {
-        logger.debug('handleSubmit called', { query, matchMode, prompt, systemSavedId }, FILE_DEBUG);
-        const searchQuery = query || prompt;
-        if (!searchQuery.trim()) return;
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode = MatchMode.Normal, overrideUserid?: string | null) => {
+        logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId }, FILE_DEBUG);
+        if (!userInput.trim()) return;
         
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
         
@@ -286,11 +285,11 @@ export default function ResultsPage() {
         setExplanationTitle('');
         
         const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await generateExplanation(
-            searchQuery, 
+            userInput, 
             systemSavedId, 
             matchMode,
             effectiveUserid,
-            UserInputType.Query
+            userInputType
         );
 
         logger.debug('generateExplanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
@@ -443,7 +442,7 @@ export default function ResultsPage() {
                                             <button
                                                 type="button"
                                                 disabled={!prompt.trim()}
-                                                onClick={() => handleSubmit()}
+                                                onClick={() => handleUserAction(prompt, UserInputType.Query)}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
                                                 <span className="leading-none">Regenerate</span>
