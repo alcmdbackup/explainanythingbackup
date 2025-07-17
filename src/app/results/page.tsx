@@ -36,43 +36,6 @@ export default function ResultsPage() {
 
     const isFirstRun = useRef(true);
 
-    // Fetch userid once upfront
-    useEffect(() => {
-        const fetchUserid = async () => {
-            const { data: userData, error: userError } = await supabase_browser.auth.getUser();
-            if (userError) {
-                setAuthError(`Authentication error: ${userError.message}`);
-                setUserid(null);
-                return;
-            }
-            if (!userData?.user?.id) {
-                setAuthError('No user data found - user may not be authenticated');
-                setUserid(null);
-                return;
-            }
-            
-            setUserid(userData.user.id);
-            setAuthError(null);
-        };
-        fetchUserid();
-    }, []);
-
-    // Auto-manage loading state based on content availability and UI state
-    useEffect(() => {
-        // If we have explanation content loaded, turn off loading and ensure UI updates
-        if ((explanationTitle || content) && !error) {
-            setIsLoading(false);
-        }
-        // If we have matches loaded but no content, and we're not generating, turn off loading
-        else if (matches.length > 0 && !error && prompt && !explanationTitle && !content) {
-            setIsLoading(false);
-        }
-        // If there's an error, turn off loading to show error state
-        else if (error) {
-            setIsLoading(false);
-        }
-    }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved]);
-
     /**
      * Fetches the current user's ID from authentication
      * 
@@ -244,73 +207,6 @@ export default function ResultsPage() {
         }
     };
 
-    useEffect(() => {
-        //Prevent this from double running in dev due to React strict mode
-        //This breaks several things including search from top nav, maybe accept for now
-        /*if (isFirstRun.current) {
-            isFirstRun.current = false; // Mark as mounted
-            return; // Skip running on mount
-        }*/
-
-        const processParams = async () => {
-            setIsLoading(true);
-
-            // Process mode first as an independent step
-            const initialMode = initializeMode();
-            console.log('processParams mode check:', { initialMode, currentMode: mode, willUpdate: initialMode !== mode });
-            if (initialMode !== mode) {
-                console.log('Updating mode from', mode, 'to', initialMode);
-                setMode(initialMode);
-            }
-
-            const urlExplanationId = searchParams.get('explanation_id');
-            const urlUserQueryId = searchParams.get('userQueryId');
-            const title = searchParams.get('t');
-            const query = searchParams.get('q');
-
-            const effectiveUserid = userid || await fetchUserid();
-            
-            if (query) {
-                setPrompt(query);
-            }
-            
-            // Handle title parameter first
-            if (title) {
-                logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid);
-                // Loading state will be managed automatically by content-watching useEffect
-            } else if (query) {
-                logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid);
-                // Loading state will be managed automatically by content-watching useEffect
-            } else {
-                // Handle userQueryId parameter
-                if (urlUserQueryId) {
-                    const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
-                    
-                    // Load user query data
-                    await loadUserQuery(newUserQueryIdFromUrl);
-                }
-                
-                // Only load explanation if it's different from the currently loaded one
-                if (urlExplanationId) {
-                    const newExplanationIdFromUrl = parseInt(urlExplanationId);
-                    
-                    // Prevent loop: only load if this is a different explanation than currently loaded
-                    if (newExplanationIdFromUrl !== explanationId) {
-                        await loadExplanation(newExplanationIdFromUrl, true);
-                    }
-                }
-            }
-            
-            // Loading state will be automatically managed by the content-watching useEffect
-        };
-        
-        processParams();
-    }, [searchParams]);
-    //Comment - any time explanation id changes, the page should have already reloaded
-    //No need to add to dependency array here
-
     /**
      * Generates explanation using user provided query or title from link
      * 
@@ -418,6 +314,94 @@ export default function ResultsPage() {
         if (!query.trim()) return;
         router.push(`/results?q=${encodeURIComponent(query)}`);
     };
+
+    // Fetch userid once upfront
+    useEffect(() => {
+        fetchUserid();
+    }, []);
+
+    // Auto-manage loading state based on content availability and UI state
+    useEffect(() => {
+        // If we have explanation content loaded, turn off loading and ensure UI updates
+        if ((explanationTitle || content) && !error) {
+            setIsLoading(false);
+        }
+        // If we have matches loaded but no content, and we're not generating, turn off loading
+        else if (matches.length > 0 && !error && prompt && !explanationTitle && !content) {
+            setIsLoading(false);
+        }
+        // If there's an error, turn off loading to show error state
+        else if (error) {
+            setIsLoading(false);
+        }
+    }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved]);
+
+    useEffect(() => {
+        //Prevent this from double running in dev due to React strict mode
+        //This breaks several things including search from top nav, maybe accept for now
+        /*if (isFirstRun.current) {
+            isFirstRun.current = false; // Mark as mounted
+            return; // Skip running on mount
+        }*/
+
+        const processParams = async () => {
+            setIsLoading(true);
+
+            // Process mode first as an independent step
+            const initialMode = initializeMode();
+            console.log('processParams mode check:', { initialMode, currentMode: mode, willUpdate: initialMode !== mode });
+            if (initialMode !== mode) {
+                console.log('Updating mode from', mode, 'to', initialMode);
+                setMode(initialMode);
+            }
+
+            const urlExplanationId = searchParams.get('explanation_id');
+            const urlUserQueryId = searchParams.get('userQueryId');
+            const title = searchParams.get('t');
+            const query = searchParams.get('q');
+
+            const effectiveUserid = userid || await fetchUserid();
+            
+            if (query) {
+                setPrompt(query);
+            }
+            
+            // Handle title parameter first
+            if (title) {
+                logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid);
+                // Loading state will be managed automatically by content-watching useEffect
+            } else if (query) {
+                logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid);
+                // Loading state will be managed automatically by content-watching useEffect
+            } else {
+                // Handle userQueryId parameter
+                if (urlUserQueryId) {
+                    const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
+                    
+                    // Load user query data
+                    await loadUserQuery(newUserQueryIdFromUrl);
+                }
+                
+                // Only load explanation if it's different from the currently loaded one
+                if (urlExplanationId) {
+                    const newExplanationIdFromUrl = parseInt(urlExplanationId);
+                    
+                    // Prevent loop: only load if this is a different explanation than currently loaded
+                    if (newExplanationIdFromUrl !== explanationId) {
+                        await loadExplanation(newExplanationIdFromUrl, true);
+                    }
+                }
+            }
+            
+            // Loading state will be automatically managed by the content-watching useEffect
+        };
+        
+        processParams();
+    }, [searchParams]);
+    //Comment - any time explanation id changes, the page should have already reloaded
+    //No need to add to dependency array here
 
     // Save mode to localStorage when it changes
     useEffect(() => {
