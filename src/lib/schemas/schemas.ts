@@ -10,7 +10,8 @@ export enum MatchMode {
 
 export enum UserInputType {
   Query = "query",
-  TitleFromLink = "title from link"
+  TitleFromLink = "title from link",
+  TitleFromRegenerate = "title from regenerate"
 }
 
 /**

@@ -478,8 +478,8 @@ export default function ResultsPage() {
                                         {(explanationTitle || content) && (
                                             <button
                                                 type="button"
-                                                disabled={!prompt.trim()}
-                                                onClick={() => handleUserAction(prompt, UserInputType.Query, mode)}
+                                                disabled={isLoading}
+                                                onClick={() => handleUserAction(explanationTitle, UserInputType.TitleFromRegenerate, mode)}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
                                                 <span className="leading-none">Regenerate</span>
