@@ -71,12 +71,13 @@ export default function ResultsPage() {
      * • Reads mode from URL parameters with highest priority
      * • Falls back to localStorage saved mode preference
      * • Uses Normal as final fallback if no valid mode found
+     * • Clears mode parameter from URL after processing to avoid re-triggers
      * • Returns the determined mode without side effects
      * 
      * Used by: processParams (during URL parameter processing)
-     * Calls: none (pure function)
+     * Calls: router.replace (to clean URL)
      */
-    const initializeMode = (): MatchMode => {
+    const initializeMode = (router: any, searchParams: URLSearchParams): MatchMode => {
         const urlMode = searchParams.get('mode') as MatchMode;
         const savedMode = localStorage.getItem('explanation-mode') as MatchMode;
         
@@ -99,6 +100,14 @@ export default function ResultsPage() {
             console.log('Using saved mode:', initialMode);
         } else {
             console.log('Using default mode:', initialMode);
+        }
+        
+        // Clear mode parameter from URL if it was provided, to avoid re-triggering effects
+        if (urlMode) {
+            const newParams = new URLSearchParams(searchParams);
+            newParams.delete('mode');
+            const newUrl = newParams.toString() ? `/results?${newParams.toString()}` : '/results';
+            router.replace(newUrl);
         }
         
         return initialMode;
@@ -348,7 +357,7 @@ export default function ResultsPage() {
             setIsLoading(true);
 
             // Process mode first as an independent step
-            const initialMode = initializeMode();
+            const initialMode = initializeMode(router, searchParams);
             console.log('processParams mode check:', { initialMode, currentMode: mode, willUpdate: initialMode !== mode });
             if (initialMode !== mode) {
                 console.log('Updating mode from', mode, 'to', initialMode);
