@@ -392,6 +392,14 @@ export default function ResultsPage() {
 
         const processParams = async () => {
             setIsLoading(true);
+            
+            // Immediately clear old content to prevent flash
+            setExplanationTitle('');
+            setContent('');
+            setMatches([]);
+            setError(null);
+            setUserSaved(false);
+            setExplanationId(null);
 
             // Process mode first as an independent step
             const initialMode = initializeMode(router, searchParams);
