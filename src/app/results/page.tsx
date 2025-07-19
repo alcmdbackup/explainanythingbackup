@@ -319,25 +319,15 @@ export default function ResultsPage() {
      * Calls: router.push, handleUserAction
      */
     const handleStandaloneTitleClick = async (href: string, event: React.MouseEvent) => {
-        // Check if this is a standalone title link (supports multiple formats)
-        const isStandaloneLink = href.startsWith('standalone-title:') || 
-                                href.startsWith('#standalone-title:') || 
-                                href.startsWith('/standalone-title?t=');
+        // Check if this is a standalone title link
+        const isStandaloneLink = href.startsWith('/standalone-title?t=');
         
         if (isStandaloneLink) {
             event.preventDefault();
             
-            let standaloneTitle = '';
-            
-            // Extract the actual standalone title based on format
-            if (href.startsWith('/standalone-title?t=')) {
-                // New format: /standalone-title?t=encoded+title
-                const url = new URL(href, window.location.origin);
-                standaloneTitle = url.searchParams.get('t') || '';
-            } else {
-                // Legacy formats: standalone-title: or #standalone-title:
-                standaloneTitle = href.replace('standalone-title:', '').replace('#standalone-title:', '');
-            }
+            // Extract the standalone title from the URL parameter
+            const url = new URL(href, window.location.origin);
+            const standaloneTitle = url.searchParams.get('t') || '';
             
             if (!standaloneTitle.trim()) return;
             
