@@ -163,9 +163,9 @@ export async function enhanceContentWithStandaloneLinks(
     const titleResult = titleResults[i];
     
     if (titleResult.standaloneTitle && !titleResult.error) {
-      // Create markdown link: ## [Original Title](/results?t=standalone+title)
+      // Create markdown link: ## [Original Title](/standalone-title?t=encoded+title)
       const encodedTitle = encodeURIComponent(titleResult.standaloneTitle);
-      const linkedHeading = `${hashes} [${headingText.trim()}](/results?t=${encodedTitle})`;
+      const linkedHeading = `${hashes} [${headingText.trim()}](/standalone-title?t=${encodedTitle})`;
       
       // Replace the original heading with the linked version
       enhancedContent = enhancedContent.substring(0, match.index!) + 

@@ -13,6 +13,7 @@ import Navigation from '@/components/Navigation';
 import { supabase_browser } from '@/lib/supabase';
 
 const FILE_DEBUG = true;
+const FORCE_REGENERATION_ON_NAV = false;
 
 export default function ResultsPage() {
     const searchParams = useSearchParams();
@@ -272,9 +273,6 @@ export default function ResultsPage() {
             if (userQueryId) {
                 params.set('userQueryId', userQueryId.toString());
             }
-            if (matchMode !== MatchMode.Normal) {
-                params.set('mode', matchMode);
-            }
             
             router.push(`/results?${params.toString()}`);
             // Note: setIsLoading(false) will be handled by the page reload
@@ -310,18 +308,67 @@ export default function ResultsPage() {
     const formattedExplanation = explanationTitle && content ? `# ${explanationTitle}\n\n${content}` : '';
 
     /**
+     * Handles clicks on custom standalone title links
+     * 
+     * • Detects clicks on links with "standalone-title:" prefix in href
+     * • Extracts the actual standalone title from the href
+     * • Either redirects to results page or calls handleUserAction based on FORCE_REGENERATION_ON_NAV setting
+     * • Prevents default link behavior for these special links
+     * 
+     * Used by: Custom link component in ReactMarkdown
+     * Calls: router.push, handleUserAction
+     */
+    const handleStandaloneTitleClick = async (href: string, event: React.MouseEvent) => {
+        // Check if this is a standalone title link (supports multiple formats)
+        const isStandaloneLink = href.startsWith('standalone-title:') || 
+                                href.startsWith('#standalone-title:') || 
+                                href.startsWith('/standalone-title?t=');
+        
+        if (isStandaloneLink) {
+            event.preventDefault();
+            
+            let standaloneTitle = '';
+            
+            // Extract the actual standalone title based on format
+            if (href.startsWith('/standalone-title?t=')) {
+                // New format: /standalone-title?t=encoded+title
+                const url = new URL(href, window.location.origin);
+                standaloneTitle = url.searchParams.get('t') || '';
+            } else {
+                // Legacy formats: standalone-title: or #standalone-title:
+                standaloneTitle = href.replace('standalone-title:', '').replace('#standalone-title:', '');
+            }
+            
+            if (!standaloneTitle.trim()) return;
+            
+            if (FORCE_REGENERATION_ON_NAV) {
+                // Redirect to results page with title parameter
+                router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
+            } else {
+                // Call handleUserAction directly
+                await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode);
+            }
+        }
+    };
+
+    /**
      * Handles search form submission and navigates to results page
      * 
      * • Validates search query is not empty
-     * • Navigates to results page with query parameter
-     * • Triggers new explanation generation on page load
+     * • Either calls handleUserAction directly (if FORCE_REGENERATION_ON_NAV) or navigates to results page
+     * • Triggers new explanation generation either directly or on page load
      * 
      * Used by: SearchBar component in navigation
-     * Calls: router.push
+     * Calls: handleUserAction (if FORCE_REGENERATION_ON_NAV), router.push
      */
-    const handleSearchSubmit = (query: string) => {
+    const handleSearchSubmit = async (query: string) => {
         if (!query.trim()) return;
-        router.push(`/results?q=${encodeURIComponent(query)}`);
+        
+        if (!FORCE_REGENERATION_ON_NAV) {
+            await handleUserAction(query, UserInputType.Query, mode);
+        } else {
+            router.push(`/results?q=${encodeURIComponent(query)}`);
+        }
     };
 
     // Fetch userid once upfront
@@ -560,6 +607,15 @@ export default function ResultsPage() {
                                                     ),
                                                     blockquote: (props: React.PropsWithChildren<{}>) => (
                                                         <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>
+                                                    ),
+                                                    a: (props: React.PropsWithChildren<{href?: string}>) => (
+                                                        <a 
+                                                            href={props.href}
+                                                            onClick={(e) => props.href && handleStandaloneTitleClick(props.href, e)}
+                                                            className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
+                                                        >
+                                                            {props.children}
+                                                        </a>
                                                     )
                                                 }}
                                             >
