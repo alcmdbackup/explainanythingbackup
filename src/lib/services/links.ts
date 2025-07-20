@@ -192,3 +192,100 @@ export async function enhanceContentWithStandaloneLinks(
   
   return enhancedContent;
 } 
+
+/**
+ * Creates a prompt for enhancing content with inline links to key concepts
+ * 
+ * • Generates structured instructions for LLM to identify key terms and concepts
+ * • Specifies link format matching enhanceContentWithStandaloneLinks (/standalone-title?t=encoded+title)
+ * • Instructs LLM to ignore headings (lines starting with #) and focus on inline content
+ * • Provides clear guidelines for creating appropriate standalone titles
+ * • Used with callGPT4omini to automatically enhance content with relevant links
+ * 
+ * Used by: content enhancement workflows requiring inline link generation
+ * Calls: none (returns prompt string for LLM processing)
+ */
+export function createLinksInContentPrompt(content: string): string {
+  return `You are tasked with enhancing markdown content by adding links to key concepts and terms.
+
+CONTENT TO ENHANCE:
+${content}
+
+INSTRUCTIONS:
+1. Identify a select few important concepts, technical terms, and key ideas within the content
+2. DO NOT modify or link any headings (lines that start with #)
+3. Convert identified terms into markdown links using this exact format: [term](/standalone-title?t=encoded+title)
+4. For each linked term, create an appropriate standalone title that:
+   - Is 2-6 words long
+   - Makes complete sense without context
+   - Follows Wikipedia-style naming conventions
+   - Is specific and searchable
+   - URL encode the title for the ?t= parameter
+
+EXAMPLES:
+- "Lionel Messi is fantastic at shooting" → "Lionel Messi is fantastic at [shooting](/standalone-title?t=Shooting%20(soccer))"
+- "The brain's neural networks process information" → "The brain's [neural networks](/standalone-title?t=Biological%20Neural%20Networks) process information"
+- "Before training the model, data preprocessing is essential" → "Before training the model, [data preprocessing](/standalone-title?t=Machine%20Learning%20Data%20Preparation) is essential"
+
+GUIDELINES:
+- Only link terms that would benefit from additional explanation
+- Only link the most absolutely critical terms, limit to 1-3 per paragraph
+- Preserve all original formatting and structure
+- Keep headings (# ## ###) exactly as they are
+- Ensure the enhanced content reads naturally
+
+Return the enhanced content with inline links added. Do not include any explanatory text, just return the processed content.`;
+}
+
+/**
+ * Enhances markdown content by adding inline links to key concepts using AI
+ * 
+ * • Takes raw markdown content and identifies important terms and concepts
+ * • Uses createLinksInContentPrompt to generate structured AI instructions
+ * • Calls callGPT4omini to process content and add appropriate inline links
+ * • Returns enhanced content with clickable links to standalone explanations
+ * • Preserves original formatting while adding 3-8 key concept links per section
+ * 
+ * Used by: content processing workflows requiring automated link enhancement
+ * Calls: createLinksInContentPrompt, callGPT4omini, logger.debug, logger.error
+ */
+export async function enhanceContentWithInlineLinks(
+  content: string,
+  debug: boolean = false
+): Promise<string> {
+  if (!content?.trim()) {
+    throw new Error('Content is required');
+  }
+
+  try {
+    if (debug) {
+      logger.debug('Enhancing content with inline links', {
+        contentLength: content.length
+      });
+    }
+
+    // Generate the prompt for AI to add inline links
+    const prompt = createLinksInContentPrompt(content);
+
+    // Call GPT-4o-mini to enhance the content
+    const enhancedContent = await callGPT4omini(prompt, null, null, debug);
+
+    if (debug) {
+      logger.debug('Content enhanced with inline links', {
+        originalLength: content.length,
+        enhancedLength: enhancedContent.length
+      });
+    }
+
+    return enhancedContent.trim();
+
+  } catch (error) {
+    if (debug) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Error enhancing content with inline links: ${errorMessage}`);
+    }
+    
+    // Fallback: return original content if AI enhancement fails
+    return content;
+  }
+} 
