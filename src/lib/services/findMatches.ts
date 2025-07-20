@@ -113,7 +113,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, matchFoundFromListSchema, 'matchSelection');
+      const result = await callGPT4omini(selectionPrompt, 'findMatches', matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));

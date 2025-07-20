@@ -39,7 +39,7 @@ const generateTitleFromUserQuery = withLogging(
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callGPT4omini(titlePrompt, titleQuerySchema, 'titleQuery');
+            const titleResult = await callGPT4omini(titlePrompt, "generateTitleFromUserQuery", titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -158,7 +158,7 @@ export const generateExplanation = withLogging(
                 isMatchFound = true;
             } else {
                 const formattedPrompt = createExplanationPrompt(titleResult);
-                const result = await callGPT4omini(formattedPrompt, explanationBaseSchema, 'llmQuery');
+                const result = await callGPT4omini(formattedPrompt, "generateNewExplanation", explanationBaseSchema, 'llmQuery');
                 
                 const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 

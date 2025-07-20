@@ -71,7 +71,7 @@ export async function generateStandaloneSubsectionTitle(
       });
     }
 
-    const aiTitle = await callGPT4omini(prompt, null, null, debug);
+    const aiTitle = await callGPT4omini(prompt, 'generateStandaloneSubsectionTitle', null, null, debug);
     
     // Clean the response (remove quotes, trim, etc.)
     const cleanTitle = aiTitle.trim().replace(/^["']|["']$/g, '');
@@ -266,7 +266,7 @@ export async function enhanceContentWithInlineLinks(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callGPT4omini(prompt, null, null, debug);
+    const enhancedContent = await callGPT4omini(prompt, 'enhanceContentWithInlineLinks', null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {

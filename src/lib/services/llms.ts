@@ -32,6 +32,7 @@ function getOpenAIClient(): OpenAI {
 /**
  * Makes a call to GPT-4-mini model with structured output support
  * @param prompt - The input prompt to send to the model
+ * @param call_source - Identifier for the source/context making this call
  * @param response_obj - Optional Zod schema for structured output
  * @param response_obj_name - Optional name for the response schema
  * @param debug - Enable debug logging
@@ -39,6 +40,7 @@ function getOpenAIClient(): OpenAI {
  */
 async function callGPT4omini(
     prompt: string,
+    call_source: string,
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true
@@ -87,6 +89,7 @@ async function callGPT4omini(
 /**
  * Main function to handle LLM calls with structured output
  * @param prompt - Input prompt
+ * @param call_source - Identifier for the source/context making this call
  * @param response_obj - Zod schema for structured output
  * @param response_obj_name - Name of the response schema
  * @param debug - Enable debug logging
@@ -94,6 +97,7 @@ async function callGPT4omini(
  */
 async function main(
     prompt: string,
+    call_source: string,
     response_obj: ResponseObject,
     response_obj_name: string | null,
     debug: boolean = false
@@ -102,6 +106,7 @@ async function main(
         if (debug) logger.debug("Starting main function", null, FILE_DEBUG);
         const response = await callGPT4omini(
             prompt, 
+            call_source,
             response_obj,  
             response_obj_name,  
             debug
