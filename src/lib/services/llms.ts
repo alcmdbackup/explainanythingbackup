@@ -2,9 +2,56 @@ import OpenAI from 'openai';
 import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { type LlmCallTrackingType, llmCallTrackingSchema } from '@/lib/schemas/schemas';
+
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
+
+/**
+ * Saves LLM call tracking data to Supabase database
+ * • Validates input data against llmCallTrackingSchema before saving
+ * • Inserts call metrics and details into llmCallTracking table
+ * • Handles validation and database errors gracefully with logging
+ * • Used by callGPT4omini to persist API call information
+ * • Called after successful API completion to track usage
+ */
+async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
+    try {
+        // Validate input data against schema
+        const validatedData = llmCallTrackingSchema.parse(trackingData);
+        
+        const supabase = await createSupabaseServerClient();
+        
+        const { data, error } = await supabase
+            .from('llmCallTracking')
+            .insert(validatedData)
+            .select()
+            .single();
+
+        if (error) {
+            console.error('Error saving LLM call tracking:', error);
+            console.error('Error details:', {
+                message: error.message,
+                details: error.details,
+                hint: error.hint,
+                code: error.code
+            });
+            throw error;
+        }
+        
+        console.log('Successfully saved LLM call tracking:', data);
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            console.error('LLM call tracking validation failed:', error.errors);
+            console.error('Invalid data:', trackingData);
+        } else {
+            console.error('Failed to save LLM call tracking:', error);
+        }
+        // Don't throw here to avoid breaking the main LLM call flow
+    }
+}
 
 // Initialize OpenAI client lazily to avoid client-side environment variable access
 let openai: OpenAI | null = null;
@@ -66,6 +113,28 @@ async function callGPT4omini(
             requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
         }
         const completion = await getOpenAIClient().chat.completions.create(requestOptions);
+        
+        // Print raw API output to terminal
+        console.log('=== RAW API OUTPUT ===');
+        console.log(JSON.stringify(completion, null, 2));
+        console.log('=== END RAW API OUTPUT ===');
+        
+        // Save LLM call tracking data to database
+        const trackingData: LlmCallTrackingType = {
+            prompt,
+            content: completion.choices[0]?.message?.content || '',
+            call_source,
+            raw_api_response: JSON.stringify(completion),
+            model: completion.model || '',
+            prompt_tokens: completion.usage?.prompt_tokens ?? 0,
+            completion_tokens: completion.usage?.completion_tokens ?? 0,
+            total_tokens: completion.usage?.total_tokens ?? 0,
+            reasoning_tokens: completion.usage?.completion_tokens_details?.reasoning_tokens,
+            finish_reason: completion.choices[0]?.finish_reason || '',
+        };
+        
+        await saveLlmCallTracking(trackingData);
+        
         const response = completion.choices[0].message.content;
         if (debug) {
             logger.debug("API call successful", {}, FILE_DEBUG);

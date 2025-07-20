@@ -217,3 +217,34 @@ export const userSavedExplanationSchema = ExplanationFullDbSchema.extend({
   saved_timestamp: z.string().datetime(), // ISO 8601 string, e.g. "2024-06-01T12:34:56.789Z"
 });
 export type UserSavedExplanationType = z.infer<typeof userSavedExplanationSchema>;
+
+/**
+ * Schema for tracking OpenAI API call metrics and details
+ * @example
+ * {
+ *   model: "gpt-4o-mini",
+ *   finish_reason: "stop",
+ *   prompt_tokens: 150,
+ *   completion_tokens: 200,
+ *   total_tokens: 350,
+ *   reasoning_tokens: 0,
+ *   content: "The response content from the AI",
+ *   prompt: "Explain photosynthesis",
+ *   call_source: "explanation_generator",
+ *   raw_api_response: "{\"id\":\"chatcmpl-123\",\"object\":\"chat.completion\",...}"
+ * }
+ */
+export const llmCallTrackingSchema = z.object({
+    prompt: z.string(),
+    content: z.string(),
+    call_source: z.string(),
+    raw_api_response: z.string(),
+    model: z.string(),
+    prompt_tokens: z.number().int().nonnegative(),
+    completion_tokens: z.number().int().nonnegative(),
+    total_tokens: z.number().int().nonnegative(),
+    reasoning_tokens: z.number().int().nonnegative().optional(),
+    finish_reason: z.string(),
+});
+
+export type LlmCallTrackingType = z.infer<typeof llmCallTrackingSchema>;
