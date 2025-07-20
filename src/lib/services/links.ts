@@ -108,11 +108,11 @@ export async function generateStandaloneSubsectionTitle(
  * Used by: generateExplanation (to enhance content before saving to database)
  * Calls: generateStandaloneSubsectionTitle, logger.error
  */
-export async function enhanceContentWithStandaloneLinks(
+export async function enhanceContentWithHeadingLinks(
   content: string, 
   articleTitle: string,
   debug: boolean = false
-): Promise<string> {
+): Promise<Record<string, string>> {
   // Regex to match h2 and h3 headings: ## Title or ### Title
   const headingRegex = /^(#{2,3})\s+(.+)$/gm;
   const matches = [...content.matchAll(headingRegex)];
@@ -121,7 +121,7 @@ export async function enhanceContentWithStandaloneLinks(
     if (debug) {
       logger.debug('No headings found to enhance with standalone links');
     }
-    return content; // No headings to process
+    return {}; // No headings to process
   }
 
   if (debug) {
@@ -154,10 +154,10 @@ export async function enhanceContentWithStandaloneLinks(
 
   const titleResults = await Promise.all(titleGenerationPromises);
   
-  let enhancedContent = content;
+  const headingMappings: Record<string, string> = {};
   
-  // Process headings in reverse order to maintain string positions during replacement
-  for (let i = matches.length - 1; i >= 0; i--) {
+  // Create mappings from original headings to linked headings
+  for (let i = 0; i < matches.length; i++) {
     const match = matches[i];
     const [fullMatch, hashes, headingText] = match;
     const titleResult = titleResults[i];
@@ -167,30 +167,28 @@ export async function enhanceContentWithStandaloneLinks(
       const encodedTitle = encodeURIComponent(titleResult.standaloneTitle);
       const linkedHeading = `${hashes} [${headingText.trim()}](/standalone-title?t=${encodedTitle})`;
       
-      // Replace the original heading with the linked version
-      enhancedContent = enhancedContent.substring(0, match.index!) + 
-                      linkedHeading + 
-                      enhancedContent.substring(match.index! + fullMatch.length);
+      // Store mapping from original heading to linked heading
+      headingMappings[fullMatch] = linkedHeading;
       
       if (debug) {
-        logger.debug('Enhanced heading with standalone link', {
-          original: headingText.trim(),
-          standalone: titleResult.standaloneTitle,
-          linkedHeading
+        logger.debug('Created heading mapping', {
+          original: fullMatch,
+          linked: linkedHeading,
+          standalone: titleResult.standaloneTitle
         });
       }
     }
-    // If title generation failed, keep original heading (no action needed)
+    // If title generation failed, no mapping is created (original heading will be kept)
   }
   
   if (debug) {
-    logger.debug('Content enhancement complete', {
-      originalHeadings: matches.length,
-      enhancedContentLength: enhancedContent.length
+    logger.debug('Heading mappings generation complete', {
+      totalHeadings: matches.length,
+      successfulMappings: Object.keys(headingMappings).length
     });
   }
   
-  return enhancedContent;
+  return headingMappings;
 } 
 
 /**

@@ -15,7 +15,7 @@ import { withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
-import { generateStandaloneSubsectionTitle, enhanceContentWithStandaloneLinks, enhanceContentWithInlineLinks } from '@/lib/services/links';
+import { generateStandaloneSubsectionTitle, enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks } from '@/lib/services/links';
 
 const FILE_DEBUG = true;
 
@@ -175,18 +175,17 @@ export const generateExplanation = withLogging(
                     };
                 }
 
-                // Enhance content with standalone links for headings
-                // const enhancedContent = await enhanceContentWithStandaloneLinks(
-                //     parsedResult.data.content,
-                //     titleResult,
-                //     FILE_DEBUG
-                // );
+                // Run both enhancement functions in parallel
+                const [contentWithInlineLinks, headingMappings] = await Promise.all([
+                    enhanceContentWithInlineLinks(parsedResult.data.content, FILE_DEBUG),
+                    enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, FILE_DEBUG)
+                ]);
                 
-                // Enhance content with inline links
-                const enhancedContent = await enhanceContentWithInlineLinks(
-                    parsedResult.data.content,
-                    FILE_DEBUG
-                );
+                // Apply heading mappings to the content with inline links
+                let enhancedContent = contentWithInlineLinks;
+                for (const [originalHeading, linkedHeading] of Object.entries(headingMappings)) {
+                    enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
+                }
 
                 const newExplanationData = {
                     explanation_title: titleResult,
