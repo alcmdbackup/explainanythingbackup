@@ -230,7 +230,7 @@ export default function ResultsPage() {
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: generateExplanation, loadExplanation, saveUserQuery
      */
-    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode = MatchMode.Normal, overrideUserid?: string | null) => {
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null) => {
         logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId }, FILE_DEBUG);
         if (!userInput.trim()) return;
         
@@ -247,6 +247,15 @@ export default function ResultsPage() {
         setExplanationData(null);
         setContent('');
         setExplanationTitle('');
+        
+        // Console log the input parameters for generateExplanation
+        console.log('generateExplanation parameters:', {
+          userInput,
+          systemSavedId,
+          matchMode,
+          effectiveUserid,
+          userInputType
+        });
         
         const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await generateExplanation(
             userInput, 
@@ -336,7 +345,7 @@ export default function ResultsPage() {
                 router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
             } else {
                 // Call handleUserAction directly
-                await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode);
+                await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode, userid);
             }
         }
     };
@@ -355,7 +364,7 @@ export default function ResultsPage() {
         if (!query.trim()) return;
         
         if (!FORCE_REGENERATION_ON_NAV) {
-            await handleUserAction(query, UserInputType.Query, mode);
+            await handleUserAction(query, UserInputType.Query, mode, userid);
         } else {
             router.push(`/results?q=${encodeURIComponent(query)}`);
         }
@@ -539,7 +548,7 @@ export default function ResultsPage() {
                                             <button
                                                 type="button"
                                                 disabled={isLoading}
-                                                onClick={() => handleUserAction(explanationTitle, UserInputType.TitleFromRegenerate, mode)}
+                                                onClick={() => handleUserAction(explanationTitle, UserInputType.TitleFromRegenerate, mode, userid)}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
                                                 <span className="leading-none">Regenerate</span>

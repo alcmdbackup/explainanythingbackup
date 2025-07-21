@@ -30,19 +30,6 @@ import { userExplanationEventsSchema, type UserExplanationEventsType } from '@/l
 export async function createUserExplanationEvent(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
   const supabase = await createSupabaseServerClient();
   
-  // Fetch and log current user ID
-  try {
-    const { data: user, error: userError } = await supabase.auth.getUser();
-    console.log('Current authenticated user:', {
-      userId: user?.user?.id,
-      email: user?.user?.email,
-      eventDataUserId: eventData.userid,
-      userError: userError
-    });
-  } catch (error) {
-    console.error('Error fetching current user:', error);
-  }
-  
   // Validate input data against schema
   const validationResult = userExplanationEventsSchema.safeParse(eventData);
   if (!validationResult.success) {

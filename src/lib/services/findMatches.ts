@@ -70,7 +70,8 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
     userQuery: string, 
     matches: matchWithCurrentContentType[],
     matchMode: MatchMode,
-    savedId: number | null
+    savedId: number | null,
+    userid: string
   ): Promise<{ 
     selectedIndex: number | null,
     explanationId: number | null,
@@ -113,7 +114,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, 'findMatches', matchFoundFromListSchema, 'matchSelection');
+      const result = await callGPT4omini(selectionPrompt, 'findMatches', userid, matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));

@@ -179,7 +179,7 @@ export const generateExplanation = withLogging(
                 // Run both enhancement functions in parallel
                 const [contentWithInlineLinks, headingMappings] = await Promise.all([
                     enhanceContentWithInlineLinks(parsedResult.data.content, userid, FILE_DEBUG),
-                    enhanceContentWithHeadingLinks(parsedResult.data.content, userid, titleResult, FILE_DEBUG)
+                    enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG)
                 ]);
                 
                 // Apply heading mappings to the content with inline links
