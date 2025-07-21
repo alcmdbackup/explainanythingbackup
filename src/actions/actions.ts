@@ -143,7 +143,7 @@ export const generateExplanation = withLogging(
             }
             const similarTexts = await findMatchesInVectorDb(titleResult);
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
-            const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId);
+            const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId, userid);
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
                 bestSourceResult.selectedIndex && 
                 bestSourceResult.selectedIndex > MIN_SIMILARITY_INDEX && 
