@@ -248,3 +248,24 @@ export const llmCallTrackingSchema = z.object({
 });
 
 export type LlmCallTrackingType = z.infer<typeof llmCallTrackingSchema>;
+
+/**
+ * Schema for tracking user events related to explanations
+ * @example
+ * {
+ *   event_name: "explanation_viewed",
+ *   userid: "user123",
+ *   explanation_id: 456,
+ *   value: 1,
+ *   metadata: "{\"duration_seconds\": 30, \"source\": \"search\"}"
+ * }
+ */
+export const userExplanationEventsSchema = z.object({
+    event_name: z.string(),
+    userid: z.string(),
+    explanationid: z.number().int(),
+    value: z.number().int(),
+    metadata: z.string(),
+});
+
+export type UserExplanationEventsType = z.infer<typeof userExplanationEventsSchema>;

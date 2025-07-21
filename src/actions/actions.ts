@@ -3,7 +3,7 @@
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations.server';
-import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, titleQuerySchema, type UserExplanationEventsType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
@@ -16,6 +16,7 @@ import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
 import { generateStandaloneSubsectionTitle, enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks } from '@/lib/services/links';
+import { createUserExplanationEvent } from '@/lib/services/metrics';
 
 const FILE_DEBUG = true;
 
@@ -490,4 +491,18 @@ export async function generateStandaloneSectionTitleAction(
     debug: boolean = false
 ): Promise<string> {
     return await generateStandaloneSubsectionTitle(articleTitle, subsectionTitle, debug);
+}
+
+/**
+ * Creates a user explanation event record (server action)
+ *
+ * • Calls createUserExplanationEvent service to track user interactions with explanations
+ * • Validates event data against schema before database insertion
+ * • Returns the created event record with database-generated fields
+ * • Used by client code to track user analytics via server action
+ * • Calls: createUserExplanationEvent
+ * • Used by: Analytics tracking, user interaction components
+ */
+export async function createUserExplanationEventAction(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
+    return await createUserExplanationEvent(eventData);
 } 
