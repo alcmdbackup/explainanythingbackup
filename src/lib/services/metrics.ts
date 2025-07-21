@@ -38,6 +38,7 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
   }
   
   console.log('Creating user explanation event with data:', eventData);
+  console.log('validationResult.data contents:', JSON.stringify(validationResult.data, null, 2));
   
   const { data, error } = await supabase
     .from('userExplanationEvents')
