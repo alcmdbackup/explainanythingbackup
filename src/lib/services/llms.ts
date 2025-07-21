@@ -88,6 +88,7 @@ function getOpenAIClient(): OpenAI {
 async function callGPT4omini(
     prompt: string,
     call_source: string,
+    userid: string,
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true
@@ -121,6 +122,7 @@ async function callGPT4omini(
         
         // Save LLM call tracking data to database
         const trackingData: LlmCallTrackingType = {
+            userid, 
             prompt,
             content: completion.choices[0]?.message?.content || '',
             call_source,
@@ -132,6 +134,10 @@ async function callGPT4omini(
             reasoning_tokens: completion.usage?.completion_tokens_details?.reasoning_tokens,
             finish_reason: completion.choices[0]?.finish_reason || '',
         };
+        
+        console.log('=== TRACKING DATA ===');
+        console.log(JSON.stringify(trackingData, null, 2));
+        console.log('=== END TRACKING DATA ===');
         
         await saveLlmCallTracking(trackingData);
         
@@ -176,6 +182,7 @@ async function main(
         const response = await callGPT4omini(
             prompt, 
             call_source,
+            "1",
             response_obj,  
             response_obj_name,  
             debug

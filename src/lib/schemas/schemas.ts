@@ -235,6 +235,7 @@ export type UserSavedExplanationType = z.infer<typeof userSavedExplanationSchema
  * }
  */
 export const llmCallTrackingSchema = z.object({
+    userid: z.string(),
     prompt: z.string(),
     content: z.string(),
     call_source: z.string(),

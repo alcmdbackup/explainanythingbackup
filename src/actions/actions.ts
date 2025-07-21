@@ -33,14 +33,14 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
  * - Used by generateExplanation
  */
 const generateTitleFromUserQuery = withLogging(
-    async function generateTitleFromUserQuery(userQuery: string): Promise<{
+    async function generateTitleFromUserQuery(userQuery: string, userid:string): Promise<{
         success: boolean;
         title: string | null;
         error: ErrorResponse | null;
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callGPT4omini(titlePrompt, "generateTitleFromUserQuery", titleQuerySchema, 'titleQuery');
+            const titleResult = await callGPT4omini(titlePrompt, "generateTitleFromUserQuery", userid, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -121,7 +121,7 @@ export const generateExplanation = withLogging(
             
             if (userInputType === UserInputType.Query) {
                 console.debug('generateExplanation: UserInputType is Query - generating title from user input', { userInput });
-                const titlesGenerated = await generateTitleFromUserQuery(userInput);
+                const titlesGenerated = await generateTitleFromUserQuery(userInput, userid);
                 if (!titlesGenerated.success || !titlesGenerated.title) {
                     return {
                         originalUserInput: userInput,
@@ -159,7 +159,7 @@ export const generateExplanation = withLogging(
                 isMatchFound = true;
             } else {
                 const formattedPrompt = createExplanationPrompt(titleResult);
-                const result = await callGPT4omini(formattedPrompt, "generateNewExplanation", explanationBaseSchema, 'llmQuery');
+                const result = await callGPT4omini(formattedPrompt, "generateNewExplanation", userid, explanationBaseSchema, 'llmQuery');
                 
                 const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 
@@ -178,8 +178,8 @@ export const generateExplanation = withLogging(
 
                 // Run both enhancement functions in parallel
                 const [contentWithInlineLinks, headingMappings] = await Promise.all([
-                    enhanceContentWithInlineLinks(parsedResult.data.content, FILE_DEBUG),
-                    enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, FILE_DEBUG)
+                    enhanceContentWithInlineLinks(parsedResult.data.content, userid, FILE_DEBUG),
+                    enhanceContentWithHeadingLinks(parsedResult.data.content, userid, titleResult, FILE_DEBUG)
                 ]);
                 
                 // Apply heading mappings to the content with inline links
@@ -488,9 +488,10 @@ export async function getUserQueryByIdAction(id: number) {
 export async function generateStandaloneSectionTitleAction(
     articleTitle: string,
     subsectionTitle: string,
+    userid: string, 
     debug: boolean = false
 ): Promise<string> {
-    return await generateStandaloneSubsectionTitle(articleTitle, subsectionTitle, debug);
+    return await generateStandaloneSubsectionTitle(articleTitle, subsectionTitle, userid, debug);
 }
 
 /**

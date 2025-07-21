@@ -53,6 +53,7 @@ Return ONLY the title, no quotation marks or additional text.`;
 export async function generateStandaloneSubsectionTitle(
   articleTitle: string,
   subsectionTitle: string,
+  userid: string,
   debug: boolean = false
 ): Promise<string> {
   if (!articleTitle?.trim() || !subsectionTitle?.trim()) {
@@ -71,7 +72,7 @@ export async function generateStandaloneSubsectionTitle(
       });
     }
 
-    const aiTitle = await callGPT4omini(prompt, 'generateStandaloneSubsectionTitle', null, null, debug);
+    const aiTitle = await callGPT4omini(prompt, 'generateStandaloneSubsectionTitle', userid, null, null, debug);
     
     // Clean the response (remove quotes, trim, etc.)
     const cleanTitle = aiTitle.trim().replace(/^["']|["']$/g, '');
@@ -111,6 +112,7 @@ export async function generateStandaloneSubsectionTitle(
 export async function enhanceContentWithHeadingLinks(
   content: string, 
   articleTitle: string,
+  userid:string, 
   debug: boolean = false
 ): Promise<Record<string, string>> {
   // Regex to match h2 and h3 headings: ## Title or ### Title
@@ -138,6 +140,7 @@ export async function enhanceContentWithHeadingLinks(
       const standaloneTitle = await generateStandaloneSubsectionTitle(
         articleTitle,
         headingText.trim(),
+        userid,
         debug
       );
       return { index, standaloneTitle, error: null };
@@ -249,6 +252,7 @@ Return the enhanced content with inline links added. Do not include any explanat
  */
 export async function enhanceContentWithInlineLinks(
   content: string,
+  userid: string,
   debug: boolean = false
 ): Promise<string> {
   if (!content?.trim()) {
@@ -266,7 +270,7 @@ export async function enhanceContentWithInlineLinks(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callGPT4omini(prompt, 'enhanceContentWithInlineLinks', null, null, debug);
+    const enhancedContent = await callGPT4omini(prompt, 'enhanceContentWithInlineLinks', userid, null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {
