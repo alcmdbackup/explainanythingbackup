@@ -403,9 +403,7 @@ export default function ResultsPage() {
 
             // Process mode first as an independent step
             const initialMode = initializeMode(router, searchParams);
-            console.log('processParams mode check:', { initialMode, currentMode: mode, willUpdate: initialMode !== mode });
             if (initialMode !== mode) {
-                console.log('Updating mode from', mode, 'to', initialMode);
                 setMode(initialMode);
             }
 
@@ -414,16 +412,7 @@ export default function ResultsPage() {
             const title = searchParams.get('t');
             const query = searchParams.get('q');
 
-            console.log('processParams URL parameters:', { 
-                urlExplanationId, 
-                urlUserQueryId, 
-                title, 
-                query,
-                currentExplanationId: explanationId
-            });
-
             const effectiveUserid = userid || await fetchUserid();
-            console.log('processParams effectiveUserid:', effectiveUserid);
             
             if (query) {
                 setPrompt(query);
@@ -431,17 +420,14 @@ export default function ResultsPage() {
             
             // Handle title parameter first
             if (title) {
-                console.log('Taking TITLE path - will not load explanation directly');
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
                 handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
-                console.log('Taking QUERY path - will not load explanation directly');
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
                 handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
-                console.log('Taking DIRECT LOAD path - checking for explanation_id and userQueryId');
                 // Handle userQueryId parameter
                 if (urlUserQueryId) {
                     const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
@@ -453,25 +439,13 @@ export default function ResultsPage() {
                 // Only load explanation if it's different from the currently loaded one
                 if (urlExplanationId) {
                     const newExplanationIdFromUrl = parseInt(urlExplanationId);
-                    console.log('Found urlExplanationId:', { 
-                        urlExplanationId, 
-                        newExplanationIdFromUrl, 
-                        currentExplanationId: explanationId,
-                        willLoad: newExplanationIdFromUrl !== explanationId
-                    });
                     
                     // Prevent loop: only load if this is a different explanation than currently loaded
                     if (newExplanationIdFromUrl !== explanationId) {
-                        console.log('Loading explanation:', newExplanationIdFromUrl);
                         await loadExplanation(newExplanationIdFromUrl, true);
                         
                         // Track explanation loaded event
                         if (effectiveUserid) {
-                            console.log('Tracking explanation loaded event:', { 
-                                explanationId: newExplanationIdFromUrl, 
-                                userid: effectiveUserid 
-                            });
-                            
                             try {
                                 await createUserExplanationEventAction({
                                     event_name: 'explanation_viewed',
@@ -480,21 +454,13 @@ export default function ResultsPage() {
                                     value: 1,
                                     metadata: JSON.stringify({ source: 'url_navigation', method: 'direct_load' })
                                 });
-                                console.log('Successfully tracked explanation loaded event');
                             } catch (error) {
-                                console.error('Failed to track explanation loaded event:', error);
                                 logger.error('Failed to track explanation loaded event:', { 
                                     error: error instanceof Error ? error.message : String(error) 
                                 });
                             }
-                        } else {
-                            console.log('Skipping event tracking - no effective userid available');
                         }
-                    } else {
-                        console.log('Skipping explanation load - same as current explanationId:', explanationId);
                     }
-                } else {
-                    console.log('No urlExplanationId found in URL parameters');
                 }
             }
             
