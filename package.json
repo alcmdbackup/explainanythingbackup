@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "OTEL_TRACES_EXPORTER=\"otlp\" OTEL_EXPORTER_OTLP_ENDPOINT=\"https://otlp-gateway-prod-us-west-0.grafana.net/otlp\" OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Basic MTMyODA2MzpnbGNfZXlKdklqb2lNVFE1TWpNMk15SXNJbTRpT2lKaFkxOW5jbUZtWVc1aElpd2lheUk2SW5RMU1WUjZNRU5LY3pGUmVFWllPVGN3WWpGTE9WaElOaUlzSW0waU9uc2ljaUk2SW5CeWIyUXRkWE10ZDJWemRDMHdJbjE5\" OTEL_RESOURCE_ATTRIBUTES=\"service.name=explainanything,service.namespace=my-application-group,deployment.environment=development\" OTEL_NODE_RESOURCE_DETECTORS=\"env,host,os\" NODE_OPTIONS=\"--require @opentelemetry/auto-instrumentations-node/register\" next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -12,6 +12,7 @@
     "@heroicons/react": "^2.2.0",
     "@langchain/community": "^0.3.36",
     "@langchain/core": "^0.3.42",
+    "@opentelemetry/auto-instrumentations-node": "^0.53.0",
     "@pinecone-database/pinecone": "^5.1.1",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.50.0",
