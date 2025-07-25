@@ -2,6 +2,7 @@ import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { logger, getRequiredEnvVar } from '@/lib/server_utilities';
 import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
+import { createLLMSpan } from '../../../instrumentation';
 
 const FILE_DEBUG = true
 
@@ -109,10 +110,32 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
       startIdx: chunk.startIdx
     }, FILE_DEBUG);
 
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-large",
-      input: chunk.text,
+    console.log('🤖 Tracing OpenAI embeddings call');
+    const span = createLLMSpan('openai.embeddings.create', {
+      'llm.model': 'text-embedding-3-large',
+      'llm.input.length': chunk.text.length,
+      'llm.operation': 'embeddings'
     });
+    
+    let response;
+    try {
+      response = await openai.embeddings.create({
+        model: "text-embedding-3-large",
+        input: chunk.text,
+      });
+      
+      span.setAttributes({
+        'llm.response.tokens.prompt': response.usage?.prompt_tokens || 0,
+        'llm.response.tokens.total': response.usage?.total_tokens || 0,
+        'llm.response.embedding.dimensions': response.data[0]?.embedding.length || 0
+      });
+    } catch (error) {
+      span.recordException(error as Error);
+      span.setStatus({ code: 2, message: (error as Error).message });
+      throw error;
+    } finally {
+      span.end();
+    }
     
     logger.debug('Embedding created:', {
       embeddingLength: response.data[0].embedding.length,

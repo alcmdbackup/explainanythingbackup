@@ -19,38 +19,14 @@ export async function register() {
     global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
       
-      // Only trace external API calls (OpenAI, Pinecone, etc.)
-      if (url.includes('api.openai.com')) {
-        console.log('🤖 Tracing OpenAI call:', url);
-        return llmTracer.startActiveSpan(`fetch ${url}`, async (span) => {
-          span.setAttributes({
-            'http.method': init?.method || 'GET',
-            'http.url': url,
-            'service.name': 'openai'
-          });
-          
-          try {
-            const response = await originalFetch(input, init);
-            span.setAttributes({
-              'http.status_code': response.status,
-              'http.response.size': response.headers.get('content-length') || '0'
-            });
-            return response;
-          } catch (error) {
-            span.recordException(error as Error);
-            span.setStatus({ code: 2, message: (error as Error).message });
-            throw error;
-          } finally {
-            span.end();
-          }
-        });
-      } else if (url.includes('pinecone')) {
+      // Only trace external API calls (Pinecone, etc.)
+      if (url.includes('pinecone')) {
         console.log('🔍 Tracing Pinecone call:', url);
         return vectorTracer.startActiveSpan(`fetch ${url}`, async (span) => {
           span.setAttributes({
             'http.method': init?.method || 'GET',
             'http.url': url,
-            'service.name': 'pinecone'
+            'http.target.service': 'pinecone'
           });
           
           try {
@@ -74,7 +50,7 @@ export async function register() {
           span.setAttributes({
             'http.method': init?.method || 'GET',
             'http.url': url,
-            'service.name': 'supabase'
+            'http.target.service': 'supabase'
           });
           
           try {

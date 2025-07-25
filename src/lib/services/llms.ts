@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type LlmCallTrackingType, llmCallTrackingSchema } from '@/lib/schemas/schemas';
+import { createLLMSpan } from '../../../instrumentation';
 
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
@@ -113,7 +114,31 @@ async function callGPT4omini(
         if (response_obj && response_obj_name) {
             requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
         }
-        const completion = await getOpenAIClient().chat.completions.create(requestOptions);
+        console.log('🤖 Tracing OpenAI call');
+        const span = createLLMSpan('openai.chat.completions.create', {
+            'llm.model': requestOptions.model,
+            'llm.prompt.length': prompt.length,
+            'llm.call_source': call_source,
+            'llm.structured_output': response_obj ? 'true' : 'false'
+        });
+        
+        let completion;
+        try {
+            completion = await getOpenAIClient().chat.completions.create(requestOptions);
+            
+            span.setAttributes({
+                'llm.response.tokens.completion': completion.usage?.completion_tokens || 0,
+                'llm.response.tokens.prompt': completion.usage?.prompt_tokens || 0,
+                'llm.response.tokens.total': completion.usage?.total_tokens || 0,
+                'llm.response.finish_reason': completion.choices[0]?.finish_reason || 'unknown'
+            });
+        } catch (error) {
+            span.recordException(error as Error);
+            span.setStatus({ code: 2, message: (error as Error).message });
+            throw error;
+        } finally {
+            span.end();
+        }
         
         // Print raw API output to terminal
         console.log('=== RAW API OUTPUT ===');
