@@ -2,7 +2,7 @@ import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { logger, getRequiredEnvVar } from '@/lib/server_utilities';
 import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { createLLMSpan } from '../../../instrumentation';
+import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 
 const FILE_DEBUG = true
 
@@ -214,7 +214,27 @@ async function upsertEmbeddings(
 
         batchPromises.push(
           (async () => {
-            await index.namespace(namespace).upsert(batch);
+            console.log('🔍 Tracing Pinecone upsert batch');
+            const span = createVectorSpan('pinecone.upsert', {
+              'pinecone.operation': 'upsert',
+              'pinecone.batch.size': batch.length,
+              'pinecone.namespace': namespace || 'default',
+              'pinecone.index': getRequiredEnvVar(pineconeIndexEnvVar)
+            });
+            
+            try {
+              await index.namespace(namespace).upsert(batch);
+              span.setAttributes({
+                'pinecone.upsert.success': 'true',
+                'pinecone.vectors.count': batch.length
+              });
+            } catch (error) {
+              span.recordException(error as Error);
+              span.setStatus({ code: 2, message: (error as Error).message });
+              throw error;
+            } finally {
+              span.end();
+            }
           })()
         );
       }
@@ -246,11 +266,34 @@ async function searchForSimilarVectors(queryEmbedding: number[], topK: number = 
 
     const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
 
-    const queryResponse = await index.namespace(namespace).query({
-        vector: queryEmbedding,
-        topK,
-        includeMetadata: true
+    console.log('🔍 Tracing Pinecone query');
+    const span = createVectorSpan('pinecone.query', {
+        'pinecone.operation': 'query',
+        'pinecone.topK': topK,
+        'pinecone.namespace': namespace || 'default',
+        'pinecone.index': getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'),
+        'pinecone.embedding.dimensions': queryEmbedding.length
     });
+
+    let queryResponse;
+    try {
+        queryResponse = await index.namespace(namespace).query({
+            vector: queryEmbedding,
+            topK,
+            includeMetadata: true
+        });
+        
+        span.setAttributes({
+            'pinecone.query.matches': queryResponse.matches?.length || 0,
+            'pinecone.query.success': 'true'
+        });
+    } catch (error) {
+        span.recordException(error as Error);
+        span.setStatus({ code: 2, message: (error as Error).message });
+        throw error;
+    } finally {
+        span.end();
+    }
 
     logger.debug('Pinecone query response:', queryResponse, FILE_DEBUG);
 

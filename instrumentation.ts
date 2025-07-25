@@ -20,13 +20,14 @@ export async function register() {
       const url = typeof input === 'string' ? input : input.toString();
       
       // Only trace external API calls (Pinecone, etc.)
-      if (url.includes('pinecone')) {
-        console.log('🔍 Tracing Pinecone call:', url);
+      if (url.includes('pinecone.io')) {
+        console.log('🔍 Tracing Pinecone fetch call:', url);
         return vectorTracer.startActiveSpan(`fetch ${url}`, async (span) => {
           span.setAttributes({
             'http.method': init?.method || 'GET',
             'http.url': url,
-            'http.target.service': 'pinecone'
+            'http.target.service': 'pinecone',
+            'pinecone.api.type': url.includes('/query') ? 'query' : url.includes('/upsert') ? 'upsert' : 'other'
           });
           
           try {
