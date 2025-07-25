@@ -4,6 +4,7 @@ import { trace } from '@opentelemetry/api';
 const llmTracer = trace.getTracer('explainanything-llm');
 const dbTracer = trace.getTracer('explainanything-database');
 const vectorTracer = trace.getTracer('explainanything-vector');
+const appTracer = trace.getTracer('explainanything-application');
 
 export async function register() {
   console.log('🔧 Next.js instrumentation hook registered')
@@ -98,4 +99,8 @@ export function createDBSpan(name: string, attributes: Record<string, string | n
 
 export function createVectorSpan(name: string, attributes: Record<string, string | number>) {
   return vectorTracer.startSpan(name, { attributes });
+}
+
+export function createAppSpan(name: string, attributes: Record<string, string | number>) {
+  return appTracer.startSpan(name, { attributes });
 } 

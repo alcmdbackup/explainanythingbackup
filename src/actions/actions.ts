@@ -11,7 +11,7 @@ import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schema
 import { createTopic } from '@/lib/services/topics';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
-import { withLogging } from '@/lib/functionLogger';
+import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
@@ -84,7 +84,7 @@ const generateTitleFromUserQuery = withLogging(
  * - Accepts userInputType to differentiate between queries and titles from links
  * - Uses handleUserQuery, enhanceMatchesWithCurrentContent, findMatchingSource, saveExplanationAndTopic
  */
-export const generateExplanation = withLogging(
+export const generateExplanation = withLoggingAndTracing(
     async function generateExplanation(
         userInput: string,
         savedId: number | null,
@@ -281,6 +281,13 @@ export const generateExplanation = withLogging(
         maxInputLength: 500,
         maxOutputLength: 1000,
         sensitiveFields: ['apiKey', 'token']
+    },
+    {
+        enabled: true,
+        customAttributes: {
+            'business.operation': 'generateExplanation',
+            'business.context': 'ai_explanation_generation'
+        }
     }
 );
 

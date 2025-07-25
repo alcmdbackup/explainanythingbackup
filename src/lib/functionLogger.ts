@@ -1,4 +1,5 @@
 import { logger } from '@/lib/server_utilities';
+import { createAppSpan } from '../../instrumentation';
 
 // Configuration for function logging
 interface LogConfig {
@@ -11,7 +12,16 @@ interface LogConfig {
   sensitiveFields?: string[];
 }
 
-// Default configuration
+// Configuration for OpenTelemetry tracing
+interface TracingConfig {
+  enabled: boolean;
+  tracerName?: 'app' | 'llm' | 'db' | 'vector';
+  includeInputs?: boolean;
+  includeOutputs?: boolean;
+  customAttributes?: Record<string, string | number>;
+}
+
+// Default configurations
 const defaultConfig: LogConfig = {
   enabled: true,
   logInputs: true,
@@ -20,6 +30,13 @@ const defaultConfig: LogConfig = {
   maxInputLength: 1000,
   maxOutputLength: 1000,
   sensitiveFields: ['password', 'apiKey', 'token', 'secret']
+};
+
+const defaultTracingConfig: TracingConfig = {
+  enabled: true,
+  tracerName: 'app',
+  includeInputs: false, // Don't include inputs by default for privacy
+  includeOutputs: false // Don't include outputs by default for performance
 };
 
 /**
@@ -146,6 +163,113 @@ export function withLogging<T extends (...args: any[]) => any>(
       throw error;
     }
   }) as T;
+}
+
+/**
+ * Creates a function wrapper that automatically adds OpenTelemetry tracing
+ */
+export function withTracing<T extends (...args: any[]) => any>(
+  fn: T,
+  operationName: string,
+  config: Partial<TracingConfig> = {}
+): T {
+  const finalConfig = { ...defaultTracingConfig, ...config };
+
+  if (!finalConfig.enabled) {
+    return fn;
+  }
+
+  return ((...args: Parameters<T>): ReturnType<T> => {
+    const attributes: Record<string, string | number> = {
+      'operation.name': operationName,
+      'function.args.count': args.length,
+      ...finalConfig.customAttributes
+    };
+
+    // Add input information if enabled
+    if (finalConfig.includeInputs && args.length > 0) {
+      attributes['function.input.length'] = JSON.stringify(args).length;
+    }
+
+    const span = createAppSpan(operationName, attributes);
+
+    try {
+      const result = fn(...args);
+      
+      // Handle both synchronous and asynchronous functions
+      if (result instanceof Promise) {
+        return result
+          .then((resolvedResult) => {
+            // Add output information if enabled
+            if (finalConfig.includeOutputs) {
+              span.setAttributes({
+                'function.success': 'true',
+                'function.output.type': typeof resolvedResult,
+                'function.output.length': JSON.stringify(resolvedResult).length
+              });
+            } else {
+              span.setAttributes({
+                'function.success': 'true'
+              });
+            }
+            
+            span.end();
+            return resolvedResult;
+          })
+          .catch((error) => {
+            span.recordException(error as Error);
+            span.setStatus({ code: 2, message: (error as Error).message });
+            span.setAttributes({
+              'function.success': 'false',
+              'function.error.type': (error as Error).constructor.name,
+              'function.error.message': (error as Error).message
+            });
+            span.end();
+            throw error;
+          }) as ReturnType<T>;
+      } else {
+        // Synchronous function
+        if (finalConfig.includeOutputs) {
+          span.setAttributes({
+            'function.success': 'true',
+            'function.output.type': typeof result,
+            'function.output.length': JSON.stringify(result).length
+          });
+        } else {
+          span.setAttributes({
+            'function.success': 'true'
+          });
+        }
+        
+        span.end();
+        return result;
+      }
+    } catch (error) {
+      // Synchronous error
+      span.recordException(error as Error);
+      span.setStatus({ code: 2, message: (error as Error).message });
+      span.setAttributes({
+        'function.success': 'false',
+        'function.error.type': (error as Error).constructor.name,
+        'function.error.message': (error as Error).message
+      });
+      span.end();
+      throw error;
+    }
+  }) as T;
+}
+
+/**
+ * Creates a function wrapper that combines both logging and tracing
+ */
+export function withLoggingAndTracing<T extends (...args: any[]) => any>(
+  fn: T,
+  functionName: string,
+  logConfig: Partial<LogConfig> = {},
+  tracingConfig: Partial<TracingConfig> = {}
+): T {
+  const tracedFn = withTracing(fn, functionName, tracingConfig);
+  return withLogging(tracedFn, functionName, logConfig);
 }
 
 /**
