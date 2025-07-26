@@ -39,6 +39,7 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
                 hint: error.hint,
                 code: error.code
             });
+            console.error('Full tracking data:', validatedData);
             throw error;
         }
         
@@ -47,8 +48,11 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
         if (error instanceof z.ZodError) {
             console.error('LLM call tracking validation failed:', error.errors);
             console.error('Invalid data:', trackingData);
+            console.error('Call source:', trackingData.call_source);
         } else {
             console.error('Failed to save LLM call tracking:', error);
+            console.error('Call source:', trackingData.call_source);
+            console.error('User ID:', trackingData.userid);
         }
         // Don't throw here to avoid breaking the main LLM call flow
     }

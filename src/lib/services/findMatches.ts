@@ -3,6 +3,8 @@ import { getExplanationById } from '@/lib/services/explanations.server';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
 
+const FILE_DEBUG = false;
+
 // Custom error types for better error handling
 type ErrorResponse = {
     code: string;
@@ -203,20 +205,20 @@ export async function enhanceMatchesWithCurrentContent(similarTexts: any[]): Pro
     logger.debug('Starting enhanceMatchesWithCurrentContent', {
         input_count: similarTexts?.length || 0,
         first_input: similarTexts?.[0]
-    }, true);
+    }, FILE_DEBUG);
 
     return Promise.all(similarTexts.map(async (result: any) => {
         logger.debug('Processing source', {
             metadata: result.metadata,
             score: result.score
-        }, true);
+        }, FILE_DEBUG);
 
         const explanation = await getExplanationById(result.metadata.explanation_id);
         logger.debug('Retrieved explanation', {
             explanation_id: result.metadata.explanation_id,
             found: !!explanation,
             title: explanation?.explanation_title
-        }, true);
+        }, FILE_DEBUG);
 
         const enhancedSource = {
             text: result.metadata.text,
@@ -231,7 +233,7 @@ export async function enhanceMatchesWithCurrentContent(similarTexts: any[]): Pro
 
         logger.debug('Enhanced source created', {
             source: enhancedSource
-        }, true);
+        }, FILE_DEBUG);
 
         return enhancedSource;
     }));

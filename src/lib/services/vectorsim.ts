@@ -4,7 +4,7 @@ import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 
-const FILE_DEBUG = true
+const FILE_DEBUG = false
 
 const openai = new OpenAI({
   apiKey: getRequiredEnvVar('OPENAI_API_KEY'),

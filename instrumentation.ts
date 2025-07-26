@@ -76,8 +76,10 @@ export async function register() {
     };
   }
 
-  // Set up error tracking (only in Node.js runtime)
-  if (typeof process !== 'undefined' && process.on && typeof process.on === 'function') {
+  // Set up error tracking (only in Node.js runtime, not Edge Runtime)
+  if (typeof process !== 'undefined' && 
+      typeof process.on === 'function' && 
+      process.env.NEXT_RUNTIME !== 'edge') {
     process.on('unhandledRejection', (reason, promise) => {
       const span = trace.getActiveSpan();
       if (span) {
