@@ -37,8 +37,7 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
     throw new Error(`Invalid event data: ${validationResult.error.message}`);
   }
   
-  console.log('Creating user explanation event with data:', eventData);
-  console.log('validationResult.data contents:', JSON.stringify(validationResult.data, null, 2));
+
   
   const { data, error } = await supabase
     .from('userExplanationEvents')
@@ -57,6 +56,6 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
     throw error;
   }
   
-  console.log('Successfully created user explanation event:', data);
+
   return data;
 } 

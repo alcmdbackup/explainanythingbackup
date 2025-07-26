@@ -42,7 +42,7 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
             throw error;
         }
         
-        console.log('Successfully saved LLM call tracking:', data);
+
     } catch (error) {
         if (error instanceof z.ZodError) {
             console.error('LLM call tracking validation failed:', error.errors);
@@ -114,7 +114,7 @@ async function callGPT4omini(
         if (response_obj && response_obj_name) {
             requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
         }
-        console.log('🤖 Tracing OpenAI call');
+
         const span = createLLMSpan('openai.chat.completions.create', {
             'llm.model': requestOptions.model,
             'llm.prompt.length': prompt.length,
@@ -140,10 +140,7 @@ async function callGPT4omini(
             span.end();
         }
         
-        // Print raw API output to terminal
-        console.log('=== RAW API OUTPUT ===');
-        console.log(JSON.stringify(completion, null, 2));
-        console.log('=== END RAW API OUTPUT ===');
+
         
         // Save LLM call tracking data to database
         const trackingData: LlmCallTrackingType = {
@@ -160,9 +157,7 @@ async function callGPT4omini(
             finish_reason: completion.choices[0]?.finish_reason || '',
         };
         
-        console.log('=== TRACKING DATA ===');
-        console.log(JSON.stringify(trackingData, null, 2));
-        console.log('=== END TRACKING DATA ===');
+
         
         await saveLlmCallTracking(trackingData);
         

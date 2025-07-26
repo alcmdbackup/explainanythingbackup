@@ -82,25 +82,14 @@ export default function ResultsPage() {
         const urlMode = searchParams.get('mode') as MatchMode;
         const savedMode = localStorage.getItem('explanation-mode') as MatchMode;
         
-        console.log('initializeMode debug:', {
-            urlMode,
-            savedMode,
-            currentMode: mode,
-            matchModeValues: Object.values(MatchMode),
-            urlModeValid: urlMode && Object.values(MatchMode).includes(urlMode),
-            savedModeValid: savedMode && Object.values(MatchMode).includes(savedMode)
-        });
+
         
         // Priority: URL > localStorage > default
         let initialMode = MatchMode.Normal;
         if (urlMode && Object.values(MatchMode).includes(urlMode)) {
             initialMode = urlMode;
-            console.log('Using URL mode:', initialMode);
         } else if (savedMode && Object.values(MatchMode).includes(savedMode)) {
             initialMode = savedMode;
-            console.log('Using saved mode:', initialMode);
-        } else {
-            console.log('Using default mode:', initialMode);
         }
         
         // Clear mode parameter from URL if it was provided, to avoid re-triggering effects
@@ -248,14 +237,7 @@ export default function ResultsPage() {
         setContent('');
         setExplanationTitle('');
         
-        // Console log the input parameters for generateExplanation
-        console.log('generateExplanation parameters:', {
-          userInput,
-          systemSavedId,
-          matchMode,
-          effectiveUserid,
-          userInputType
-        });
+
         
         const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await generateExplanation(
             userInput, 
@@ -300,7 +282,6 @@ export default function ResultsPage() {
      * Calls: saveExplanationToLibrary
      */
     const handleSave = async () => {
-        console.log('handleSave called with:', { explanationId, userSaved, isSaving });
         if (!explanationId || userSaved || isSaving || !userid) return;
         setIsSaving(true);
         setError(null);
@@ -483,12 +464,10 @@ export default function ResultsPage() {
 
     // Save mode to localStorage when it changes
     useEffect(() => {
-        console.log('Saving mode to localStorage:', mode);
         localStorage.setItem('explanation-mode', mode);
         
         // Verify it was actually saved
         const verifyStored = localStorage.getItem('explanation-mode');
-        console.log('Verified localStorage contains:', verifyStored);
     }, [mode]);
 
 
@@ -578,7 +557,6 @@ export default function ResultsPage() {
                                             id="mode-select"
                                             value={mode}
                                             onChange={(e) => {
-                                                console.log('Dropdown changed from', mode, 'to', e.target.value);
                                                 setMode(e.target.value as MatchMode);
                                             }}
                                             className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"

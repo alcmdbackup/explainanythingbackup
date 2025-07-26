@@ -33,7 +33,7 @@ import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/sc
 export async function createExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
   const supabase = await createSupabaseServerClient()
   
-  console.log('Creating explanation with data:', explanation);
+
   
   const { data, error } = await supabase
     .from('explanations')
@@ -52,7 +52,7 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
     throw error;
   }
   
-  console.log('Successfully created explanation:', data);
+
   return data;
 }
 

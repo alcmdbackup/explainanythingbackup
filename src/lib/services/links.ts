@@ -72,15 +72,7 @@ export async function generateStandaloneSubsectionTitle(
       });
     }
 
-    // Console log the input parameters for callGPT4omini
-    console.log('callGPT4omini parameters for section title:', {
-      prompt,
-      operation: 'generateStandaloneSubsectionTitle',
-      userid,
-      param4: null,
-      param5: null,
-      debug
-    });
+
 
     const aiTitle = await callGPT4omini(prompt, 'generateStandaloneSubsectionTitle', userid, null, null, debug);
     

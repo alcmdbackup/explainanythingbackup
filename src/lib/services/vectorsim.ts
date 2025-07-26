@@ -110,7 +110,7 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
       startIdx: chunk.startIdx
     }, FILE_DEBUG);
 
-    console.log('🤖 Tracing OpenAI embeddings call');
+
     const span = createLLMSpan('openai.embeddings.create', {
       'llm.model': 'text-embedding-3-large',
       'llm.input.length': chunk.text.length,
@@ -214,7 +214,7 @@ async function upsertEmbeddings(
 
         batchPromises.push(
           (async () => {
-            console.log('🔍 Tracing Pinecone upsert batch');
+
             const span = createVectorSpan('pinecone.upsert', {
               'pinecone.operation': 'upsert',
               'pinecone.batch.size': batch.length,
@@ -266,7 +266,7 @@ async function searchForSimilarVectors(queryEmbedding: number[], topK: number = 
 
     const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
 
-    console.log('🔍 Tracing Pinecone query');
+
     const span = createVectorSpan('pinecone.query', {
         'pinecone.operation': 'query',
         'pinecone.topK': topK,

@@ -100,8 +100,6 @@ export const generateExplanation = withLoggingAndTracing(
         userInputType: UserInputType
     }> {
         try {
-            console.debug('generateExplanation called with userInputType:', userInputType);
-            
             if (!userInput.trim()) {
                 return {
                     originalUserInput: userInput,
@@ -118,7 +116,6 @@ export const generateExplanation = withLoggingAndTracing(
             let titleResult: string;
             
             if (userInputType === UserInputType.Query) {
-                console.debug('generateExplanation: UserInputType is Query - generating title from user input', { userInput });
                 const titlesGenerated = await generateTitleFromUserQuery(userInput, userid);
                 if (!titlesGenerated.success || !titlesGenerated.title) {
                     return {
@@ -133,10 +130,8 @@ export const generateExplanation = withLoggingAndTracing(
                     };
                 }
                 titleResult = titlesGenerated.title;
-                console.debug('generateExplanation: Generated title from query', { originalQuery: userInput, generatedTitle: titleResult });
             } else {
                 // For TitleFromLink, use the userInput directly as the title
-                console.debug('generateExplanation: UserInputType is TitleFromLink - using userInput directly as title', { userInput, userInputType });
                 titleResult = userInput;
             }
             const similarTexts = await findMatchesInVectorDb(titleResult);
@@ -244,7 +239,7 @@ export const generateExplanation = withLoggingAndTracing(
                 
                 const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, matches, finalExplanationId, userid, !isMatchFound, userInputType);
                 if (userQueryError) {
-                    logger.error('Failed to save user query:', { error: userQueryError });
+                    // Error already logged by withLogging decorator
                 } else {
                     userQueryId = savedUserQueryId;
                 }
@@ -329,7 +324,6 @@ export const saveExplanationAndTopic = withLogging(
                 id: savedExplanation.id 
             };
         } catch (error) {
-            logger.debug('Error in saveExplanationAndTopic', { error, userQuery, explanationTitle: explanationData.explanation_title }, FILE_DEBUG);
             return {
                 success: false,
                 error: handleError(error, 'saveExplanationAndTopic', { userQuery, explanationTitle: explanationData.explanation_title }),
@@ -352,18 +346,13 @@ export const saveExplanationAndTopic = withLogging(
  */
 export const saveUserQuery = withLogging(
     async function saveUserQuery(userInput, matches, explanationId: number, userid: string, newExplanation: boolean, userInputType: UserInputType) {
-        logger.debug('saveUserQuery started', { userInput, matches, explanationId, userid, newExplanation, userInputType }, FILE_DEBUG);
         
         try {
-            logger.debug('Preparing user query with explanation ID, userid, newExplanation, and userInputType', { userInput, matches, explanationId, userid, newExplanation, userInputType }, FILE_DEBUG);
             const userQueryWithId = { user_query: userInput, matches, explanation_id: explanationId, userid, newExplanation, userInputType };
             
-            logger.debug('Validating user query data', { userQueryWithId }, FILE_DEBUG);
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
 
             if (!validatedData.success) {
-                logger.debug('Validation failed', { errors: validatedData.error.errors }, FILE_DEBUG);
-                console.error('DETAILED VALIDATION ERRORS:', JSON.stringify(validatedData.error.errors, null, 2));
                 return {
                     success: false,
                     error: createValidationError('Invalid user query data format', validatedData.error),
@@ -371,17 +360,14 @@ export const saveUserQuery = withLogging(
                 };
             }
 
-            logger.debug('Validation successful, creating user query', { validatedData: validatedData.data }, FILE_DEBUG);
             const savedQuery = await createUserQuery(validatedData.data);
             
-            logger.debug('User query saved successfully', { savedQueryId: savedQuery.id }, FILE_DEBUG);
             return { 
                 success: true, 
                 error: null,
                 id: savedQuery.id 
             };
         } catch (error) {
-            logger.debug('Error in saveUserQuery', { error, userInput }, FILE_DEBUG);
             return {
                 success: false,
                 error: handleError(error, 'saveUserQuery', { userInput}),
