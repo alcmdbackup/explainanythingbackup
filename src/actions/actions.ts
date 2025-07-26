@@ -66,9 +66,7 @@ const generateTitleFromUserQuery = withLogging(
     },
     'generateTitleFromUserQuery',
     { 
-        enabled: FILE_DEBUG,
-        maxInputLength: 300,
-        maxOutputLength: 500
+        enabled: FILE_DEBUG
     }
 );
 
@@ -277,10 +275,7 @@ export const generateExplanation = withLoggingAndTracing(
     },
     'generateExplanation',
     { 
-        enabled: FILE_DEBUG,
-        maxInputLength: 500,
-        maxOutputLength: 1000,
-        sensitiveFields: ['apiKey', 'token']
+        enabled: FILE_DEBUG
     },
     {
         enabled: true,
@@ -344,9 +339,7 @@ export const saveExplanationAndTopic = withLogging(
     },
     'saveExplanationAndTopic',
     { 
-        enabled: FILE_DEBUG,
-        maxInputLength: 300,
-        maxOutputLength: 500
+        enabled: FILE_DEBUG
     }
 );
 
@@ -398,9 +391,7 @@ export const saveUserQuery = withLogging(
     },
     'saveUserQuery',
     { 
-        enabled: FILE_DEBUG,
-        maxInputLength: 200,
-        maxOutputLength: 100
+        enabled: FILE_DEBUG
     }
 ); 
 

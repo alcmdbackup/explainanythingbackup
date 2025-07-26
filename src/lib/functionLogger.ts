@@ -1,43 +1,11 @@
 import { logger } from '@/lib/server_utilities';
 import { createAppSpan } from '../../instrumentation';
-
-// Configuration for function logging
-interface LogConfig {
-  enabled: boolean;
-  logInputs: boolean;
-  logOutputs: boolean;
-  logErrors: boolean;
-  maxInputLength?: number;
-  maxOutputLength?: number;
-  sensitiveFields?: string[];
-}
-
-// Configuration for OpenTelemetry tracing
-interface TracingConfig {
-  enabled: boolean;
-  tracerName?: 'app' | 'llm' | 'db' | 'vector';
-  includeInputs?: boolean;
-  includeOutputs?: boolean;
-  customAttributes?: Record<string, string | number>;
-}
-
-// Default configurations
-const defaultConfig: LogConfig = {
-  enabled: true,
-  logInputs: true,
-  logOutputs: true,
-  logErrors: true,
-  maxInputLength: 1000,
-  maxOutputLength: 1000,
-  sensitiveFields: ['password', 'apiKey', 'token', 'secret']
-};
-
-const defaultTracingConfig: TracingConfig = {
-  enabled: true,
-  tracerName: 'app',
-  includeInputs: false, // Don't include inputs by default for privacy
-  includeOutputs: false // Don't include outputs by default for performance
-};
+import { 
+  LogConfig, 
+  TracingConfig, 
+  defaultLogConfig, 
+  defaultTracingConfig 
+} from '@/lib/schemas/schemas';
 
 /**
  * Sanitizes data by removing sensitive fields and truncating long values
@@ -87,7 +55,7 @@ export function withLogging<T extends (...args: any[]) => any>(
   functionName: string,
   config: Partial<LogConfig> = {}
 ): T {
-  const finalConfig = { ...defaultConfig, ...config };
+  const finalConfig = { ...defaultLogConfig, ...config };
 
   if (!finalConfig.enabled) {
     return fn;

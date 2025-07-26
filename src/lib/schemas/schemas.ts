@@ -270,3 +270,47 @@ export const userExplanationEventsSchema = z.object({
 });
 
 export type UserExplanationEventsType = z.infer<typeof userExplanationEventsSchema>;
+
+/**
+ * Default function logging configuration with type inference
+ * • Controls which aspects of function execution are logged
+ * • Provides data sanitization for sensitive fields
+ * • Sets limits on input/output data length for performance
+ * Used by: withLogging, withLoggingAndTracing functions
+ * Calls: sanitizeData for data cleaning
+ */
+export const defaultLogConfig = {
+  enabled: true,
+  logInputs: true,
+  logOutputs: true,
+  logErrors: true,
+  maxInputLength: 1000,
+  maxOutputLength: 1000,
+  sensitiveFields: ['password', 'apiKey', 'token', 'secret', 'pass']
+} as const;
+
+/**
+ * Configuration type derived from default logging values
+ */
+export type LogConfig = typeof defaultLogConfig;
+
+/**
+ * Default OpenTelemetry tracing configuration with type inference
+ * • Controls span creation and attribute inclusion
+ * • Manages performance vs observability tradeoffs
+ * • Defines tracer categorization for different operations
+ * Used by: withTracing, withLoggingAndTracing functions
+ * Calls: createAppSpan for telemetry span creation
+ */
+export const defaultTracingConfig = {
+  enabled: true,
+  tracerName: 'app' as 'app' | 'llm' | 'db' | 'vector',
+  includeInputs: false, // Don't include inputs by default for privacy
+  includeOutputs: false, // Don't include outputs by default for performance
+  customAttributes: {} as Record<string, string | number>
+} as const;
+
+/**
+ * Configuration type derived from default tracing values
+ */
+export type TracingConfig = typeof defaultTracingConfig;
