@@ -1,4 +1,4 @@
-import { getRecentExplanations } from '@/lib/services/explanations.server';
+import { getRecentExplanations } from '@/lib/services/explanations';
 import ExplanationsTablePage from '@/components/ExplanationsTablePage';
 import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
 

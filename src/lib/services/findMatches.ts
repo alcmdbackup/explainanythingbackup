@@ -1,5 +1,5 @@
 import { callGPT4omini } from '@/lib/services/llms';
-import { getExplanationById } from '@/lib/services/explanations.server';
+import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
 

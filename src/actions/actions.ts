@@ -2,7 +2,7 @@
 
 import { callGPT4omini } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
-import { createExplanation } from '@/lib/services/explanations.server';
+import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, titleQuerySchema, type UserExplanationEventsType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
@@ -13,7 +13,7 @@ import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/fi
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
-import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations.server';
+import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
 import { generateStandaloneSubsectionTitle, enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks } from '@/lib/services/links';
 import { createUserExplanationEvent } from '@/lib/services/metrics';
