@@ -190,6 +190,67 @@ export const topicFullDbSchema = topicInsertSchema.extend({
 export type TopicInsertType = z.infer<typeof topicInsertSchema>;
 export type TopicFullDbType = z.infer<typeof topicFullDbSchema>;
 
+/**
+ * Schema for tag data
+ * @example
+ * {
+ *   tag_name: "beginner",
+ *   tag_description: "Suitable for beginners with no prior knowledge"
+ * }
+ */
+export const tagInsertSchema = z.object({
+    tag_name: z.string(),
+    tag_description: z.string().optional(),
+});
+
+/**
+ * Full tag schema including database fields
+ * @example
+ * {
+ *   id: 123,
+ *   tag_name: "beginner",
+ *   tag_description: "Suitable for beginners with no prior knowledge",
+ *   created_at: "2024-03-20T10:30:00Z"
+ * }
+ */
+export const tagFullDbSchema = tagInsertSchema.extend({
+    id: z.number(),
+    created_at: z.string()
+});
+
+export type TagInsertType = z.infer<typeof tagInsertSchema>;
+export type TagFullDbType = z.infer<typeof tagFullDbSchema>;
+
+/**
+ * Schema for explanation-tag relationship data
+ * @example
+ * {
+ *   explanation_id: 456,
+ *   tag_id: 123
+ * }
+ */
+export const explanationTagInsertSchema = z.object({
+    explanation_id: z.number(),
+    tag_id: z.number(),
+});
+
+/**
+ * Full explanation-tag schema including database fields
+ * @example
+ * {
+ *   id: 789,
+ *   explanation_id: 456,
+ *   tag_id: 123,
+ *   created_at: "2024-03-20T10:30:00Z"
+ * }
+ */
+export const explanationTagFullDbSchema = explanationTagInsertSchema.extend({
+    id: z.number(),
+    created_at: z.string()
+});
+
+export type ExplanationTagInsertType = z.infer<typeof explanationTagInsertSchema>;
+export type ExplanationTagFullDbType = z.infer<typeof explanationTagFullDbSchema>;
 
 export const matchFoundFromListSchema = z.object({
     selectedSourceIndex: z.number().int()

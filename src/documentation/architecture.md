@@ -28,6 +28,7 @@
 ### Schema-First Development
 - All data structures defined with Zod schemas
 - Derive types from schemas
+- Types are used to insert into Supabase tables
 
 ### Service Layer Architecture
 - Domain-specific services (`explanations.ts`, `vectorsim.ts`, etc.)
