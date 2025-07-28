@@ -17,6 +17,10 @@ import { getExplanationById, getRecentExplanations } from '@/lib/services/explan
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
 import { generateStandaloneSubsectionTitle, enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks } from '@/lib/services/links';
 import { createUserExplanationEvent } from '@/lib/services/metrics';
+import { createTags, getTagById, updateTag, deleteTag } from '@/lib/services/tags';
+import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
+import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
+import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType } from '@/lib/schemas/schemas';
 
 const FILE_DEBUG = true;
 
@@ -169,10 +173,11 @@ export const generateExplanation = withLoggingAndTracing(
                     };
                 }
 
-                // Run both enhancement functions in parallel
-                const [contentWithInlineLinks, headingMappings] = await Promise.all([
+                // Run enhancement functions and difficulty evaluation in parallel
+                const [contentWithInlineLinks, headingMappings, tagToApply] = await Promise.all([
                     enhanceContentWithInlineLinks(parsedResult.data.content, userid, FILE_DEBUG),
-                    enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG)
+                    enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG),
+                    evaluateExplanationDifficulty(titleResult, parsedResult.data.content, userid)
                 ]);
                 
                 // Apply heading mappings to the content with inline links
@@ -231,6 +236,31 @@ export const generateExplanation = withLoggingAndTracing(
 
                 finalExplanationId = newExplanationId;
                 explanationData = newExplanationData;
+                
+                // Apply difficulty tag if evaluation was successful
+                if (tagToApply && !tagToApply.error && tagToApply.difficultyLevel) {
+                    try {
+                        const tagResult = await addTagsToExplanationAction(newExplanationId, [tagToApply.difficultyLevel]);
+                        if (tagResult.error) {
+                            logger.error('Failed to apply difficulty tag to explanation', {
+                                explanationId: newExplanationId,
+                                difficultyLevel: tagToApply.difficultyLevel,
+                                error: tagResult.error
+                            });
+                        } else {
+                            logger.debug('Successfully applied difficulty tag to explanation', {
+                                explanationId: newExplanationId,
+                                difficultyLevel: tagToApply.difficultyLevel
+                            });
+                        }
+                    } catch (error) {
+                        logger.error('Error applying difficulty tag to explanation', {
+                            explanationId: newExplanationId,
+                            difficultyLevel: tagToApply.difficultyLevel,
+                            error: error instanceof Error ? error.message : 'Unknown error'
+                        });
+                    }
+                }
             }
 
             // Save user query once - works for both match and new explanation cases
@@ -490,4 +520,274 @@ export async function generateStandaloneSectionTitleAction(
  */
 export async function createUserExplanationEventAction(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
     return await createUserExplanationEvent(eventData);
-} 
+}
+
+/**
+ * Creates tags in bulk, skipping duplicates (server action)
+ *
+ * • Validates input data against tagInsertSchema before processing
+ * • Creates multiple tags efficiently, skipping existing ones
+ * • Returns array of all tag records (existing + newly created)
+ * • Used by tag management interfaces and bulk import operations
+ * • Calls: createTags
+ * • Used by: Tag management components, admin interfaces
+ */
+export const createTagsAction = withLogging(
+    async function createTagsAction(tags: TagInsertType[]): Promise<{
+        success: boolean;
+        data: TagFullDbType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const createdTags = await createTags(tags);
+            
+            return {
+                success: true,
+                data: createdTags,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'createTagsAction', { tagCount: tags.length })
+            };
+        }
+    },
+    'createTagsAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Fetches a tag record by ID (server action)
+ *
+ * • Calls getTagById service to fetch tag from database
+ * • Returns tag data if found, null if not found
+ * • Used by client code to fetch tag details via server action
+ * • Calls: getTagById
+ * • Used by: Tag editing components, tag display interfaces
+ */
+export const getTagByIdAction = withLogging(
+    async function getTagByIdAction(id: number): Promise<{
+        success: boolean;
+        data: TagFullDbType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const tag = await getTagById(id);
+            
+            return {
+                success: true,
+                data: tag,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getTagByIdAction', { tagId: id })
+            };
+        }
+    },
+    'getTagByIdAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Updates an existing tag record (server action)
+ *
+ * • Validates partial input data against tagInsertSchema before processing
+ * • Updates tag record with provided partial data
+ * • Returns updated tag record with all fields
+ * • Used by tag editing and management operations
+ * • Calls: updateTag
+ * • Used by: Tag editing components, admin interfaces
+ */
+export const updateTagAction = withLogging(
+    async function updateTagAction(id: number, updates: Partial<TagInsertType>): Promise<{
+        success: boolean;
+        data: TagFullDbType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const updatedTag = await updateTag(id, updates);
+            
+            return {
+                success: true,
+                data: updatedTag,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'updateTagAction', { tagId: id, updates })
+            };
+        }
+    },
+    'updateTagAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Deletes a tag record (server action)
+ *
+ * • Removes tag record from database by ID
+ * • Cascade deletion will also remove explanation_tags relationships
+ * • Used by tag management and cleanup operations
+ * • Calls: deleteTag
+ * • Used by: Tag management components, admin interfaces
+ */
+export const deleteTagAction = withLogging(
+    async function deleteTagAction(id: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await deleteTag(id);
+            
+            return {
+                success: true,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'deleteTagAction', { tagId: id })
+            };
+        }
+    },
+    'deleteTagAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Adds tags to an explanation (server action)
+ *
+ * • Validates input data against explanationTagInsertSchema before processing
+ * • Creates explanation-tag relationships in a single transaction
+ * • Returns array of created relationship records
+ * • Used by tag assignment operations (single or multiple)
+ * • Calls: addTagsToExplanation
+ * • Used by: Tag management components, explanation editing interfaces
+ */
+export const addTagsToExplanationAction = withLogging(
+    async function addTagsToExplanationAction(
+        explanationId: number,
+        tagIds: number[]
+    ): Promise<{
+        success: boolean;
+        data: ExplanationTagFullDbType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const relationships = await addTagsToExplanation(explanationId, tagIds);
+            
+            return {
+                success: true,
+                data: relationships,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'addTagsToExplanationAction', { 
+                    explanationId, 
+                    tagIds, 
+                    tagCount: tagIds.length 
+                })
+            };
+        }
+    },
+    'addTagsToExplanationAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Removes specific tags from an explanation (server action)
+ *
+ * • Removes multiple explanation-tag relationships by tag IDs
+ * • Safe operation that won't fail if relationships don't exist
+ * • Used by tag removal operations (single or multiple)
+ * • Calls: removeTagsFromExplanation
+ * • Used by: Tag management components, explanation editing interfaces
+ */
+export const removeTagsFromExplanationAction = withLogging(
+    async function removeTagsFromExplanationAction(
+        explanationId: number,
+        tagIds: number[]
+    ): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await removeTagsFromExplanation(explanationId, tagIds);
+            
+            return {
+                success: true,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'removeTagsFromExplanationAction', { 
+                    explanationId, 
+                    tagIds,
+                    tagCount: tagIds.length 
+                })
+            };
+        }
+    },
+    'removeTagsFromExplanationAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets all tags for a specific explanation (server action)
+ *
+ * • Retrieves all tags associated with an explanation via junction table
+ * • Returns array of full tag records with tag details
+ * • Used by explanation display and editing interfaces
+ * • Calls: getTagsForExplanation
+ * • Used by: Explanation view components, tag display interfaces
+ */
+export const getTagsForExplanationAction = withLogging(
+    async function getTagsForExplanationAction(explanationId: number): Promise<{
+        success: boolean;
+        data: TagFullDbType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const tags = await getTagsForExplanation(explanationId);
+            
+            return {
+                success: true,
+                data: tags,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getTagsForExplanationAction', { explanationId })
+            };
+        }
+    },
+    'getTagsForExplanationAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+); 

@@ -7,10 +7,12 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
+import TagBar from '@/components/TagBar';
 import { supabase_browser } from '@/lib/supabase';
+import { getTagsForExplanation } from '@/lib/services/explanationTags';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -34,6 +36,7 @@ export default function ResultsPage() {
     const [userid, setUserid] = useState<string | null>(null);
     const [authError, setAuthError] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
+    const [tags, setTags] = useState<TagFullDbType[]>([]);
 
     const isFirstRun = useRef(true);
 
@@ -134,9 +137,10 @@ export default function ResultsPage() {
      * • Enhances matches with current content if available
      * • Optionally clears the prompt based on clearPrompt parameter
      * • Resets tab to "Generated Output" to show the loaded content
+     * • Fetches tags for the explanation
      * 
      * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
-     * Calls: getExplanationByIdAction, checkUserSaved
+     * Calls: getExplanationByIdAction, checkUserSaved, getTagsForExplanation
      */
     const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
@@ -164,6 +168,10 @@ export default function ResultsPage() {
 
             // Check if this explanation is saved by the user
             await checkUserSaved(explanation.id);
+
+            // Fetch tags for the explanation
+            const fetchedTags = await getTagsForExplanation(explanation.id);
+            setTags(fetchedTags);
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
@@ -236,6 +244,7 @@ export default function ResultsPage() {
         setExplanationData(null);
         setContent('');
         setExplanationTitle('');
+        setTags([]); // Reset tags when generating new explanation
         
 
         
@@ -390,6 +399,7 @@ export default function ResultsPage() {
             setError(null);
             setUserSaved(false);
             setExplanationId(null);
+            setTags([]); // Reset tags when processing new parameters
 
             // Process mode first as an independent step
             const initialMode = initializeMode(router, searchParams);
@@ -567,6 +577,10 @@ export default function ResultsPage() {
                                         </select>
                                     </div>
                                 </div>
+                                
+                                {/* Tags Bar */}
+                                <TagBar tags={tags} className="mb-4" />
+                                
                                 <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                     {isMarkdownMode ? (
                                         <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">

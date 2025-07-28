@@ -258,6 +258,19 @@ export const matchFoundFromListSchema = z.object({
   
 export type matchFoundFromListType = z.infer<typeof matchFoundFromListSchema>;
 
+/**
+ * Schema for difficulty evaluation results
+ * @example
+ * {
+ *   difficultyLevel: 1  // 1=beginner, 2=normal, 3=expert
+ * }
+ */
+export const difficultyEvaluationSchema = z.object({
+    difficultyLevel: z.number().int().min(1).max(3)
+});
+
+export type DifficultyEvaluationType = z.infer<typeof difficultyEvaluationSchema>;
+
 export const matchingSourceReturnSchema = z.object({
     topic_id: z.number().int(),
     explanation_id: z.number().int(),
