@@ -15,6 +15,18 @@ export enum UserInputType {
 }
 
 /**
+ * Schema for validating allowed LLM models
+ * • Restricts model parameter to approved OpenAI models only
+ * • Ensures consistent model usage across the application
+ * • Provides type safety for LLM API calls
+ * Used by: callOpenAIModel function for parameter validation
+ * Calls: N/A (validation schema)
+ */
+export const allowedLLMModelSchema = z.enum(["gpt-4o-mini", "gpt-4.1-nano"]);
+
+export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;
+
+/**
  * Base schema for LLM query data
  * @example
  * {

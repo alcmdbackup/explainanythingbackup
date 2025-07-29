@@ -1,6 +1,6 @@
 'use server'
 
-import { callGPT4omini } from '@/lib/services/llms';
+import { callOpenAIModel } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { difficultyEvaluationSchema } from '@/lib/schemas/schemas';
 
@@ -45,7 +45,7 @@ Your response must be a single integer: 1 for beginner, 2 for normal, or 3 for e
  * - Returns integer 1-3 representing beginner/normal/expert
  * - Validates response against difficultyEvaluationSchema
  * - Used by explanation management for content categorization
- * - Calls createDifficultyEvaluationPrompt and callGPT4omini
+ * - Calls createDifficultyEvaluationPrompt and callOpenAIModel
  */
 export async function evaluateExplanationDifficulty(
   explanationTitle: string,
@@ -65,10 +65,11 @@ export async function evaluateExplanationDifficulty(
       title: explanationTitle 
     });
     
-    const result = await callGPT4omini(
+    const result = await callOpenAIModel(
       evaluationPrompt, 
       'evaluateExplanationDifficulty', 
       userid, 
+      "gpt-4o-mini",
       difficultyEvaluationSchema, 
       'difficultyEvaluation'
     );

@@ -3,7 +3,7 @@ import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
-import { type LlmCallTrackingType, llmCallTrackingSchema } from '@/lib/schemas/schemas';
+import { type LlmCallTrackingType, llmCallTrackingSchema, allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { createLLMSpan } from '../../../instrumentation';
 
 // Define types
@@ -15,7 +15,7 @@ const FILE_DEBUG = false;
  * • Validates input data against llmCallTrackingSchema before saving
  * • Inserts call metrics and details into llmCallTracking table
  * • Handles validation and database errors gracefully with logging
- * • Used by callGPT4omini to persist API call information
+ * • Used by callOpenAIModel to persist API call information
  * • Called after successful API completion to track usage
  */
 async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
@@ -82,7 +82,7 @@ function getOpenAIClient(): OpenAI {
 }
 
 /**
- * Makes a call to GPT-4-mini model with structured output support
+ * Makes a call to Openai model with structured output support
  * @param prompt - The input prompt to send to the model
  * @param call_source - Identifier for the source/context making this call
  * @param response_obj - Optional Zod schema for structured output
@@ -90,18 +90,22 @@ function getOpenAIClient(): OpenAI {
  * @param debug - Enable debug logging
  * @returns Promise<string> - The model's response
  */
-async function callGPT4omini(
+async function callOpenAIModel(
     prompt: string,
     call_source: string,
     userid: string,
+    model: AllowedLLMModelType,
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true
 ): Promise<string> {
     try {
+        // Validate model parameter
+        const validatedModel = allowedLLMModelSchema.parse(model);
+        
         if (debug) logger.debug("Making API call");
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
-            model: "gpt-4o-mini",  
+            model: validatedModel,  
             messages: [
                 {
                     role: "system", 
@@ -178,6 +182,10 @@ async function callGPT4omini(
         }
         return response;
     } catch (error) {
+        if (error instanceof z.ZodError) {
+            logger.error(`Invalid model parameter: ${model}. Allowed models: ${allowedLLMModelSchema.options.join(', ')}`);
+            throw new Error(`Invalid model: ${model}. Must be one of: ${allowedLLMModelSchema.options.join(', ')}`);
+        }
         if (debug) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             logger.error(`Error in GPT4omini call: ${errorMessage}`);
@@ -203,10 +211,11 @@ async function main(
 ): Promise<string> {
     try {
         if (debug) logger.debug("Starting main function", null, FILE_DEBUG);
-        const response = await callGPT4omini(
+        const response = await callOpenAIModel(
             prompt, 
             call_source,
             "1",
+            "gpt-4o-mini",  // Default model
             response_obj,  
             response_obj_name,  
             debug
@@ -218,4 +227,4 @@ async function main(
         throw error;
     }
 }
-export { callGPT4omini };
+export { callOpenAIModel };

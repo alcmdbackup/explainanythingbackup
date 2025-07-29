@@ -1,4 +1,4 @@
-import { callGPT4omini } from '@/lib/services/llms';
+import { callOpenAIModel } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
@@ -116,7 +116,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callGPT4omini(selectionPrompt, 'findMatches', userid, matchFoundFromListSchema, 'matchSelection');
+      const result = await callOpenAIModel(selectionPrompt, 'findMatches', userid, "gpt-4o-mini", matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));

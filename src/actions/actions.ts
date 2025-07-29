@@ -1,6 +1,6 @@
 'use server';
 
-import { callGPT4omini } from '@/lib/services/llms';
+import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, titleQuerySchema, type UserExplanationEventsType } from '@/lib/schemas/schemas';
@@ -33,7 +33,7 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
  * - Generates article title from user query using LLM
  * - Validates the response format and returns first title
  * - Used by generateExplanation for title creation
- * - Calls createTitlePrompt, callGPT4omini
+ * - Calls createTitlePrompt, callOpenAIModel
  * - Used by generateExplanation
  */
 const generateTitleFromUserQuery = withLogging(
@@ -44,7 +44,7 @@ const generateTitleFromUserQuery = withLogging(
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callGPT4omini(titlePrompt, "generateTitleFromUserQuery", userid, titleQuerySchema, 'titleQuery');
+            const titleResult = await callOpenAIModel(titlePrompt, "generateTitleFromUserQuery", userid, "gpt-4o-mini", titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -156,7 +156,7 @@ export const generateExplanation = withLoggingAndTracing(
                 isMatchFound = true;
             } else {
                 const formattedPrompt = createExplanationPrompt(titleResult);
-                const result = await callGPT4omini(formattedPrompt, "generateNewExplanation", userid, explanationBaseSchema, 'llmQuery');
+                const result = await callOpenAIModel(formattedPrompt, "generateNewExplanation", userid, "gpt-4o-mini", explanationBaseSchema, 'llmQuery');
                 
                 const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 

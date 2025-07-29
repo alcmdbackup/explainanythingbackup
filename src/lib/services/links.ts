@@ -1,4 +1,4 @@
-import { callGPT4omini } from '@/lib/services/llms';
+import { callOpenAIModel } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 
 /**
@@ -46,7 +46,7 @@ Return ONLY the title, no quotation marks or additional text.`;
  * Generates an AI-enhanced standalone subsection title using GPT-4o-mini
  * - Takes raw article title and subsection title as direct inputs
  * - Uses createStandaloneTitlePrompt to generate structured prompt
- * - Calls callGPT4omini with specific instructions for title formatting
+ * - Calls callOpenAIModel with specific instructions for title formatting
  * - Returns clean, descriptive title that makes sense without article context
  * - Used when creating cross-references or standalone content links
  */
@@ -74,7 +74,7 @@ export async function generateStandaloneSubsectionTitle(
 
 
 
-    const aiTitle = await callGPT4omini(prompt, 'generateStandaloneSubsectionTitle', userid, null, null, debug);
+    const aiTitle = await callOpenAIModel(prompt, 'generateStandaloneSubsectionTitle', userid, "gpt-4o-mini", null, null, debug);
     
     // Clean the response (remove quotes, trim, etc.)
     const cleanTitle = aiTitle.trim().replace(/^["']|["']$/g, '');
@@ -203,7 +203,7 @@ export async function enhanceContentWithHeadingLinks(
  * • Specifies link format matching enhanceContentWithStandaloneLinks (/standalone-title?t=encoded+title)
  * • Instructs LLM to ignore headings (lines starting with #) and focus on inline content
  * • Provides clear guidelines for creating appropriate standalone titles
- * • Used with callGPT4omini to automatically enhance content with relevant links
+ * • Used with callOpenAIModel to automatically enhance content with relevant links
  * 
  * Used by: content enhancement workflows requiring inline link generation
  * Calls: none (returns prompt string for LLM processing)
@@ -245,12 +245,12 @@ Return the enhanced content with inline links added. Do not include any explanat
  * 
  * • Takes raw markdown content and identifies important terms and concepts
  * • Uses createLinksInContentPrompt to generate structured AI instructions
- * • Calls callGPT4omini to process content and add appropriate inline links
+ * • Calls callOpenAIModel to process content and add appropriate inline links
  * • Returns enhanced content with clickable links to standalone explanations
  * • Preserves original formatting while adding 3-8 key concept links per section
  * 
  * Used by: content processing workflows requiring automated link enhancement
- * Calls: createLinksInContentPrompt, callGPT4omini, logger.debug, logger.error
+ * Calls: createLinksInContentPrompt, callOpenAIModel, logger.debug, logger.error
  */
 export async function enhanceContentWithInlineLinks(
   content: string,
@@ -272,7 +272,7 @@ export async function enhanceContentWithInlineLinks(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callGPT4omini(prompt, 'enhanceContentWithInlineLinks', userid, null, null, debug);
+    const enhancedContent = await callOpenAIModel(prompt, 'enhanceContentWithInlineLinks', userid, "gpt-4o-mini", null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {
