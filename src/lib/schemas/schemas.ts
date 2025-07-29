@@ -400,3 +400,20 @@ export const defaultTracingConfig = {
  * Configuration type derived from default tracing values
  */
 export type TracingConfig = typeof defaultTracingConfig;
+
+/**
+ * Schema for multiple standalone titles generated from headings
+ * @example
+ * {
+ *   titles: [
+ *     "Machine Learning Model Training",
+ *     "Neural Network Architecture", 
+ *     "Deep Learning Applications"
+ *   ]
+ * }
+ */
+export const multipleStandaloneTitlesSchema = z.object({
+    titles: z.array(z.string())
+});
+
+export type MultipleStandaloneTitlesType = z.infer<typeof multipleStandaloneTitlesSchema>;

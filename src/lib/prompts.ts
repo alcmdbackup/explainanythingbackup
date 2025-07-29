@@ -15,6 +15,7 @@ Rules:
 - For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars 
 $$(expession)$$
 - Use lists and bullets sparingly
+- Denote any key terms in the content using @\keyterm@. As an example, consider this sentence: Tom Brady was the @\quarterback\ who won @\Super Bowl LV\. 
 
 Topic: ${userInput}`;
 
@@ -71,3 +72,47 @@ export function createTitlePrompt(userInput: string): string {
 }
 
 //- Use lists and bullet points where necessary
+
+/**
+ * Creates a prompt for generating multiple standalone subsection titles from multiple headings
+ * 
+ * • Takes article title and array of subsection titles as input
+ * • Generates structured instructions for creating Wikipedia-style standalone titles
+ * • Specifies output format as JSON array for structured response processing
+ * • Instructs AI to create concise, descriptive titles that make sense without context
+ * • Used with callOpenAIModel to batch process multiple headings efficiently
+ * 
+ * Used by: enhanceContentWithHeadingLinks for batch processing multiple headings
+ * Calls: none (returns prompt string for LLM processing)
+ */
+export function createStandaloneTitlePrompt(
+  articleTitle: string,
+  subsectionTitles: string[]
+): string {
+  const titlesText = subsectionTitles.map((title, index) => `${index + 1}. "${title}"`).join('\n');
+  
+  return `You are tasked with creating Wikipedia-style standalone titles for multiple subsections.
+
+Original Article Title: "${articleTitle}"
+
+Original Subsection Titles:
+${titlesText}
+
+For each subsection title, create a concise, descriptive standalone title (2-6 words) that:
+1. Makes complete sense without reading the original article
+2. Follows Wikipedia title conventions (proper capitalization, clear and specific)
+3. Captures the essence of what this subsection covers
+4. Combines context from the article title with the subsection content
+5. Is searchable and discoverable on its own
+
+Return your response as a JSON object with a "titles" array containing the standalone titles in the same order as the input titles.
+
+Example format:
+{
+  "titles": [
+    "Machine Learning Model Training",
+    "Neural Network Architecture",
+    "Deep Learning Applications"
+  ]
+}`;
+}

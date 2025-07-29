@@ -1,120 +1,37 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
+import { createStandaloneTitlePrompt } from '@/lib/prompts';
+import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } from '@/lib/schemas/schemas';
 
 /**
  * Service for creating standalone subsection titles with context from article titles
  * 
  * Example usage:
  * ```typescript
- * // Generate AI-enhanced standalone title
- * const enhancedTitle = await generateStandaloneSubsectionTitle(
- *   "Machine Learning Fundamentals",
- *   "Training Process"
+ * // Generate AI-enhanced heading mappings
+ * const headingMappings = await enhanceContentWithHeadingLinks(
+ *   content, "Machine Learning Fundamentals", userid
  * );
- * // Returns: "Machine Learning Model Training Process"
+ * // Returns: { "## Training Process": "## [Training Process](/standalone-title?t=Machine%20Learning%20Training)" }
  * ```
  */
-
-/**
- * Creates a prompt for generating standalone subsection titles
- * - Formats article and subsection titles into structured AI prompt
- * - Provides clear instructions for Wikipedia-style title creation
- * - Specifies output format and constraints for consistent results
- * - Used by generateStandaloneSubsectionTitle for AI processing
- * - Returns formatted prompt string ready for LLM consumption
- */
-function createStandaloneTitlePrompt(
-  articleTitle: string,
-  subsectionTitle: string
-): string {
-  return `You are tasked with creating a Wikipedia-style standalone title.
-
-Original Article Title: "${articleTitle}"
-Original Subsection Title: "${subsectionTitle}"
-
-Create a concise, descriptive title (2-6 words) that:
-1. Makes complete sense without reading the original article
-2. Follows Wikipedia title conventions (proper capitalization, clear and specific)
-3. Captures the essence of what this subsection covers
-4. Combines context from the article title with the subsection content
-5. Is searchable and discoverable on its own
-
-Return ONLY the title, no quotation marks or additional text.`;
-}
-
-/**
- * Generates an AI-enhanced standalone subsection title using GPT-4o-mini
- * - Takes raw article title and subsection title as direct inputs
- * - Uses createStandaloneTitlePrompt to generate structured prompt
- * - Calls callOpenAIModel with specific instructions for title formatting
- * - Returns clean, descriptive title that makes sense without article context
- * - Used when creating cross-references or standalone content links
- */
-export async function generateStandaloneSubsectionTitle(
-  articleTitle: string,
-  subsectionTitle: string,
-  userid: string,
-  debug: boolean = false
-): Promise<string> {
-  if (!articleTitle?.trim() || !subsectionTitle?.trim()) {
-    throw new Error('Both articleTitle and subsectionTitle are required');
-  }
-
-  try {
-    // Create a prompt for the AI to create a standalone title
-    const prompt = createStandaloneTitlePrompt(articleTitle, subsectionTitle);
-
-    if (debug) {
-      logger.debug('Generating standalone subsection title', {
-        articleTitle,
-        subsectionTitle,
-        promptLength: prompt.length
-      });
-    }
-
-
-
-    const aiTitle = await callOpenAIModel(prompt, 'generateStandaloneSubsectionTitle', userid, "gpt-4o-mini", null, null, debug);
-    
-    // Clean the response (remove quotes, trim, etc.)
-    const cleanTitle = aiTitle.trim().replace(/^["']|["']$/g, '');
-    
-    if (debug) {
-      logger.debug('Generated standalone title', {
-        original: subsectionTitle,
-        aiGenerated: cleanTitle
-      });
-    }
-    
-    return cleanTitle;
-    
-  } catch (error) {
-    if (debug) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Error generating standalone subsection title: ${errorMessage}`);
-    }
-    
-    // Fallback: return subsection title as-is if AI call fails
-    return subsectionTitle.trim();
-  }
-} 
 
 /**
  * Enhances markdown content by converting headings to clickable standalone links
  * 
  * • Parses markdown content for h2 and h3 headings using regex
- * • Generates standalone titles for each heading using AI enhancement
- * • Replaces headings with markdown links pointing to standalone explanations
- * • Processes headings in reverse order to maintain string positions during replacement
+ * • Generates AI-enhanced standalone titles for all headings in a single batch call
+ * • Creates mappings from original headings to linked headings with encoded URLs
+ * • Uses structured output from GPT-4o-mini for consistent JSON responses
  * • Gracefully handles errors by preserving original headings when generation fails
  * 
  * Used by: generateExplanation (to enhance content before saving to database)
- * Calls: generateStandaloneSubsectionTitle, logger.error
+ * Calls: createStandaloneTitlePrompt, callOpenAIModel, logger.debug, logger.error
  */
 export async function enhanceContentWithHeadingLinks(
   content: string, 
   articleTitle: string,
-  userid:string, 
+  userid: string, 
   debug: boolean = false
 ): Promise<Record<string, string>> {
   // Regex to match h2 and h3 headings: ## Title or ### Title
@@ -128,72 +45,94 @@ export async function enhanceContentWithHeadingLinks(
     return {}; // No headings to process
   }
 
+  // Extract heading data for processing
+  const headingData = matches.map(match => ({
+    fullMatch: match[0],
+    hashes: match[1],
+    text: match[2].trim()
+  }));
+
   if (debug) {
-    logger.debug(`Found ${matches.length} headings to enhance with standalone links`, {
+    logger.debug(`Found ${headingData.length} headings to enhance with standalone links`, {
       articleTitle,
-      headings: matches.map(m => m[2].trim())
+      headings: headingData.map(h => h.text)
     });
   }
 
-  // Generate all standalone titles in parallel
-  const titleGenerationPromises = matches.map(async (match, index) => {
-    const [, , headingText] = match;
-    try {
-      const standaloneTitle = await generateStandaloneSubsectionTitle(
+  try {
+    // Generate standalone titles using AI with structured output
+    if (!articleTitle?.trim()) {
+      throw new Error('Article title is required');
+    }
+
+    const prompt = createStandaloneTitlePrompt(articleTitle, headingData.map(h => h.text));
+
+    if (debug) {
+      logger.debug('Generating standalone subsection titles', {
         articleTitle,
-        headingText.trim(),
-        userid,
-        debug
-      );
-      return { index, standaloneTitle, error: null };
-    } catch (error) {
-      if (debug) {
-        logger.error('Failed to generate standalone title for heading', {
-          headingText: headingText.trim(),
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
-      return { index, standaloneTitle: null, error };
+        subsectionCount: headingData.length,
+        promptLength: prompt.length
+      });
     }
-  });
 
-  const titleResults = await Promise.all(titleGenerationPromises);
-  
-  const headingMappings: Record<string, string> = {};
-  
-  // Create mappings from original headings to linked headings
-  for (let i = 0; i < matches.length; i++) {
-    const match = matches[i];
-    const [fullMatch, hashes, headingText] = match;
-    const titleResult = titleResults[i];
+    const aiResponse = await callOpenAIModel(
+      prompt, 
+      'enhanceContentWithHeadingLinks', 
+      userid, 
+      "gpt-4o-mini", 
+      multipleStandaloneTitlesSchema,
+      'multipleStandaloneTitles',
+      debug
+    );
     
-    if (titleResult.standaloneTitle && !titleResult.error) {
-      // Create markdown link: ## [Original Title](/standalone-title?t=encoded+title)
-      const encodedTitle = encodeURIComponent(titleResult.standaloneTitle);
-      const linkedHeading = `${hashes} [${headingText.trim()}](/standalone-title?t=${encodedTitle})`;
+    // Parse structured response and create mappings
+    const parsedResponse: MultipleStandaloneTitlesType = JSON.parse(aiResponse);
+    const standaloneeTitles = parsedResponse.titles.map(title => title.trim().replace(/^["']|["']$/g, ''));
+    
+    const headingMappings: Record<string, string> = {};
+    
+    // Create mappings from original headings to linked headings
+    for (let i = 0; i < headingData.length; i++) {
+      const { fullMatch, hashes, text } = headingData[i];
+      const standaloneTitle = standaloneeTitles[i];
       
-      // Store mapping from original heading to linked heading
-      headingMappings[fullMatch] = linkedHeading;
-      
-      if (debug) {
-        logger.debug('Created heading mapping', {
-          original: fullMatch,
-          linked: linkedHeading,
-          standalone: titleResult.standaloneTitle
-        });
+      if (standaloneTitle) {
+        // Create markdown link: ## [Original Title](/standalone-title?t=encoded+title)
+        const encodedTitle = encodeURIComponent(standaloneTitle);
+        const linkedHeading = `${hashes} [${text}](/standalone-title?t=${encodedTitle})`;
+        
+        headingMappings[fullMatch] = linkedHeading;
+        
+        if (debug) {
+          logger.debug('Created heading mapping', {
+            original: fullMatch,
+            linked: linkedHeading,
+            standalone: standaloneTitle
+          });
+        }
       }
     }
-    // If title generation failed, no mapping is created (original heading will be kept)
+    
+    if (debug) {
+      logger.debug('Heading enhancement complete', {
+        totalHeadings: headingData.length,
+        successfulMappings: Object.keys(headingMappings).length,
+        originalTitles: headingData.map(h => h.text),
+        generatedTitles: standaloneeTitles
+      });
+    }
+    
+    return headingMappings;
+    
+  } catch (error) {
+    if (debug) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Error enhancing content with heading links: ${errorMessage}`);
+    }
+    
+    // Fallback: return empty mappings if processing fails
+    return {};
   }
-  
-  if (debug) {
-    logger.debug('Heading mappings generation complete', {
-      totalHeadings: matches.length,
-      successfulMappings: Object.keys(headingMappings).length
-    });
-  }
-  
-  return headingMappings;
 } 
 
 /**
