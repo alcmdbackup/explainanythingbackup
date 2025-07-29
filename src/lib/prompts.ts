@@ -12,10 +12,11 @@ Output format:
 
 Rules:
 - Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using syntax @@$keyterm$@@. Denote start using @@$, and the end using $@@. As an example, consider this sentence: Tom Brady was the @@$quarterback$@@ who won @@$Super Bowl LV$@@. 
 - For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars 
 $$(expession)$$
 - Use lists and bullets sparingly
-- Denote any key terms in the content using @\keyterm@. As an example, consider this sentence: Tom Brady was the @\quarterback\ who won @\Super Bowl LV\. 
+
 
 Topic: ${userInput}`;
 

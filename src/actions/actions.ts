@@ -15,7 +15,7 @@ import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
-import { enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks } from '@/lib/services/links';
+import { enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks, enhanceContentWithKeyTermLinks } from '@/lib/services/links';
 import { createUserExplanationEvent } from '@/lib/services/metrics';
 import { createTags, getTagById, updateTag, deleteTag } from '@/lib/services/tags';
 import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
@@ -174,18 +174,23 @@ export const generateExplanation = withLoggingAndTracing(
                 }
 
                 // Run enhancement functions and difficulty evaluation in parallel
-                //contentWithInlineLinks
-                const [headingMappings, tagToApply] = await Promise.all([
-                    //enhanceContentWithInlineLinks(parsedResult.data.content, userid, FILE_DEBUG),
+                const [headingMappings, keyTermMappings, tagToApply] = await Promise.all([
                     enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG),
+                    enhanceContentWithKeyTermLinks(parsedResult.data.content, userid, FILE_DEBUG),
                     evaluateExplanationDifficulty(titleResult, parsedResult.data.content, userid)
                 ]);
                 
-                // Apply heading mappings to the content with inline links
-                //let enhancedContent = contentWithInlineLinks;
-                let enhancedContent = parsedResult.data.content
+                // Apply both heading and key term mappings to the content
+                let enhancedContent = parsedResult.data.content;
+                
+                // Apply heading mappings first
                 for (const [originalHeading, linkedHeading] of Object.entries(headingMappings)) {
                     enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
+                }
+                
+                // Apply key term mappings second
+                for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
+                    enhancedContent = enhancedContent.replace(originalKeyTerm, linkedKeyTerm);
                 }
 
                 const newExplanationData = {
