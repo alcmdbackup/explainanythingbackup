@@ -193,12 +193,12 @@ Return only the JSON object with the standalone titles array.`;
 }
 
 /**
- * Enhances markdown content by converting @@$keyterm$@@ patterns to clickable links
+ * Enhances markdown content by converting **bold** keyterm patterns to clickable links
  * 
- * • Parses content for key terms marked with @@$term$@@ pattern using exact regex matching
+ * • Parses content for key terms marked with **term** pattern using exact regex matching
  * • Extracts each term with its full sentence context for better AI understanding
  * • Generates AI-enhanced standalone titles for all key terms in a single batch call
- * • Creates mappings from original @@$term$@@ patterns to markdown links with encoded URLs
+ * • Creates mappings from original **term** patterns to markdown links with encoded URLs
  * • Uses structured output from GPT-4o-mini for consistent JSON responses
  * • Gracefully handles errors by preserving original patterns when generation fails
  * 
@@ -210,8 +210,8 @@ export async function createMappingsKeytermsToLinks(
   userid: string,
   debug: boolean = false
 ): Promise<Record<string, string>> {
-  // Regex to match @@$keyterm$@@ pattern exactly
-  const keyTermRegex = /@@\$([^$]+)\$@@/g;
+  // Regex to match **keyterm** pattern exactly
+  const keyTermRegex = /\*\*([^*]+)\*\*/g;
   const matches = [...content.matchAll(keyTermRegex)];
   
   if (matches.length === 0) {
@@ -223,7 +223,7 @@ export async function createMappingsKeytermsToLinks(
 
   // Extract key term data with sentence context
   const keyTermData = matches.map(match => {
-    const fullMatch = match[0]; // @@$term$@@
+    const fullMatch = match[0]; // **term**
     const term = match[1]; // the actual term
     const matchIndex = match.index || 0;
     
@@ -291,7 +291,7 @@ export async function createMappingsKeytermsToLinks(
     
     const keyTermMappings: Record<string, string> = {};
     
-    // Create mappings from original @@$term$@@ patterns to markdown links
+    // Create mappings from original **term** patterns to markdown links
     for (let i = 0; i < keyTermData.length; i++) {
       const { fullMatch, term } = keyTermData[i];
       const standaloneTitle = standaloneTitles[i];
@@ -434,20 +434,20 @@ export async function enhanceContentWithInlineLinks(
 } 
 
 /**
- * Cleans up content by removing @@$...$@@ patterns and replacing with just the term
+ * Cleans up content by removing **bold** patterns and replacing with just the term
  * 
- * • Finds all @@$term$@@ patterns in the content
- * • Replaces each pattern with just the term inside (without the markers)
+ * • Finds all **term** patterns in the content
+ * • Replaces each pattern with just the term inside (without the bold markers)
  * • Used after enhancement processing to clean up any remaining keyterm markers
  * • Ensures final content has clean, readable text without formatting artifacts
  * 
  * @param content - The content to clean up
- * @returns Content with @@$term$@@ patterns replaced by just the term
+ * @returns Content with **term** patterns replaced by just the term
  */
 export function cleanupAfterEnhancements(content: string): string {
-    // Regex to match @@$term$@@ pattern and capture the term
-    const keyTermPattern = /@@\$([^$]+)\$@@/g;
+    // Regex to match **term** pattern and capture the term
+    const keyTermPattern = /\*\*([^*]+)\*\*/g;
     
-    // Replace all @@$term$@@ with just the term
+    // Replace all **term** with just the term
     return content.replace(keyTermPattern, '$1');
 } 

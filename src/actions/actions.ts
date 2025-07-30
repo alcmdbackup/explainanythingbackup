@@ -208,12 +208,13 @@ export const generateExplanation = withLoggingAndTracing(
                     enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
                 }
                 
-                // Apply key term mappings second (only to non-heading lines)
+                // Apply key term mappings second (only to non-heading lines
+                // This is to prevent bugs in formatting 
                 for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
                     enhancedContent = replaceAllExceptHeadings(enhancedContent, originalKeyTerm, linkedKeyTerm);
                 }
                 
-                // Clean up any remaining @@$term$@@ patterns
+                // Clean up any remaining **bold** patterns
                 enhancedContent = cleanupAfterEnhancements(enhancedContent);
 
                 const newExplanationData = {
