@@ -15,7 +15,7 @@ import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
-import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks } from '@/lib/services/links';
+import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
 import { createUserExplanationEvent } from '@/lib/services/metrics';
 import { createTags, getTagById, updateTag, deleteTag } from '@/lib/services/tags';
 import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
@@ -27,6 +27,26 @@ const FILE_DEBUG = true;
 // Constants for better maintainability
 const MIN_SIMILARITY_INDEX = 0;
 const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
+
+/**
+ * Replaces all occurrences of a term in content while skipping lines that start with ##
+ * 
+ * @param content - The content to process
+ * @param originalTerm - The term to replace
+ * @param replacementTerm - The replacement term
+ * @returns Content with all occurrences replaced except in heading lines
+ */
+function replaceAllExceptHeadings(content: string, originalTerm: string, replacementTerm: string): string {
+    const lines = content.split('\n');
+    const processedLines = lines.map(line => {
+        // Skip lines that start with ## (headings)
+        if (line.trim().startsWith('##')) {
+            return line;
+        }
+        return line.replaceAll(originalTerm, replacementTerm);
+    });
+    return processedLines.join('\n');
+}
 
 /**
  * Key points:
@@ -188,10 +208,13 @@ export const generateExplanation = withLoggingAndTracing(
                     enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
                 }
                 
-                // Apply key term mappings second
+                // Apply key term mappings second (only to non-heading lines)
                 for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
-                    enhancedContent = enhancedContent.replace(originalKeyTerm, linkedKeyTerm);
+                    enhancedContent = replaceAllExceptHeadings(enhancedContent, originalKeyTerm, linkedKeyTerm);
                 }
+                
+                // Clean up any remaining @@$term$@@ patterns
+                enhancedContent = cleanupAfterEnhancements(enhancedContent);
 
                 const newExplanationData = {
                     explanation_title: titleResult,
