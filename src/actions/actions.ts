@@ -15,7 +15,7 @@ import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
-import { enhanceContentWithHeadingLinks, enhanceContentWithInlineLinks, enhanceContentWithKeyTermLinks } from '@/lib/services/links';
+import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks } from '@/lib/services/links';
 import { createUserExplanationEvent } from '@/lib/services/metrics';
 import { createTags, getTagById, updateTag, deleteTag } from '@/lib/services/tags';
 import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
@@ -175,8 +175,8 @@ export const generateExplanation = withLoggingAndTracing(
 
                 // Run enhancement functions and difficulty evaluation in parallel
                 const [headingMappings, keyTermMappings, tagToApply] = await Promise.all([
-                    enhanceContentWithHeadingLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG),
-                    enhanceContentWithKeyTermLinks(parsedResult.data.content, userid, FILE_DEBUG),
+                    createMappingsHeadingsToLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG),
+                    createMappingsKeytermsToLinks(parsedResult.data.content, userid, FILE_DEBUG),
                     evaluateExplanationDifficulty(titleResult, parsedResult.data.content, userid)
                 ]);
                 

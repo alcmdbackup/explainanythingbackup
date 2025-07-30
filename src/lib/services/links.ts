@@ -28,7 +28,7 @@ import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } fro
  * Used by: generateExplanation (to enhance content before saving to database)
  * Calls: createStandaloneTitlePrompt, callOpenAIModel, logger.debug, logger.error
  */
-export async function enhanceContentWithHeadingLinks(
+export async function createMappingsHeadingsToLinks(
   content: string, 
   articleTitle: string,
   userid: string, 
@@ -205,7 +205,7 @@ Return only the JSON object with the standalone titles array.`;
  * Used by: generateExplanation (to enhance content with key term links before saving)
  * Calls: createKeyTermMappingPrompt, callOpenAIModel, logger.debug, logger.error
  */
-export async function enhanceContentWithKeyTermLinks(
+export async function createMappingsKeytermsToLinks(
   content: string,
   userid: string,
   debug: boolean = false
