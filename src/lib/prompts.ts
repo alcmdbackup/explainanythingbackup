@@ -117,3 +117,63 @@ Example format:
   ]
 }`;
 }
+
+/**
+ * Creates a prompt for LLM to select the best match from a list of potential sources
+ * 
+ * • Takes user query and formatted matches as input
+ * • Generates instructions for LLM to select most relevant source
+ * • Forces single integer response (0-5) for structured processing
+ * • Returns 0 if no good match is found
+ * • Used by findMatches service for intelligent match selection
+ * 
+ * @param userQuery - The original user query to match against
+ * @param formattedMatches - Pre-formatted numbered list of potential matches
+ * @returns A formatted prompt string for LLM processing
+ */
+export function createMatchSelectionPrompt(userQuery: string, formattedMatches: string): string {
+  return `
+User Query: "${userQuery}"
+
+Below are the top 5 potential sources that might answer this query:
+
+${formattedMatches}
+
+Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
+Choose only the number of the most relevant source. If there is no match, then answer with 0.
+
+Your response must be a single integer between 0 and 5.
+`;
+}
+
+/**
+ * Creates a prompt for LLM to evaluate explanation difficulty level
+ * 
+ * • Takes explanation title and content as input
+ * • Provides clear criteria for beginner (1), normal (2), and expert (3) levels
+ * • Forces single integer response (1-3) for structured processing
+ * • Evaluates based on depth & technicality, not inherent subject difficulty
+ * • Used by tagEvaluation service for difficulty assessment
+ * 
+ * @param explanationTitle - The title of the explanation to evaluate
+ * @param explanationContent - The full content of the explanation to evaluate
+ * @returns A formatted prompt string for LLM processing
+ */
+export function createDifficultyEvaluationPrompt(explanationTitle: string, explanationContent: string): string {
+  return `
+Please evaluate the difficulty level of the following explanation:
+
+Title: "${explanationTitle}"
+
+Content: "${explanationContent}"
+
+Difficulty Levels:
+- BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
+- NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
+- EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
+
+Evaluate only based on the depth & technicality of the explanation, not the inherent difficult of the subject matter. 
+
+Your response must be a single integer: 1 for beginner, 2 for normal, or 3 for expert.
+`;
+}

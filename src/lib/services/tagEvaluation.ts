@@ -3,6 +3,7 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { difficultyEvaluationSchema } from '@/lib/schemas/schemas';
+import { createDifficultyEvaluationPrompt } from '@/lib/prompts';
 
 const FILE_DEBUG = false;
 
@@ -13,31 +14,7 @@ type ErrorResponse = {
     details?: any;
 };
 
-/**
- * Key points:
- * - Creates a prompt for LLM to evaluate explanation difficulty
- * - Provides clear criteria for beginner, normal, and expert levels
- * - Forces single integer response (1-3)
- * - Used by evaluateExplanationDifficulty for difficulty assessment
- */
-function createDifficultyEvaluationPrompt(explanationTitle: string, explanationContent: string): string {
-  return `
-Please evaluate the difficulty level of the following explanation:
 
-Title: "${explanationTitle}"
-
-Content: "${explanationContent}"
-
-Difficulty Levels:
-- BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
-- NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
-- EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
-
-Evaluate only based on the depth & technicality of the explanation, not the inherent difficult of the subject matter. 
-
-Your response must be a single integer: 1 for beginner, 2 for normal, or 3 for expert.
-`;
-}
 
 /**
  * Key points:

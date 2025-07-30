@@ -2,6 +2,7 @@ import { callOpenAIModel } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
+import { createMatchSelectionPrompt } from '@/lib/prompts';
 
 const FILE_DEBUG = false;
 
@@ -38,27 +39,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
     }).filter(Boolean).join('\n\n');
   }
   
-  /**
-   * Key points:
-   * - Creates a prompt for LLM to select best match
-   * - Uses numbered list from formatTopMatches
-   * - Forces single integer response (0-5)
-   * - Used by findMatches for match selection
-   */
-  function createMatchSelectionPrompt(userQuery: string, formattedMatches: string): string {
-    return `
-  User Query: "${userQuery}"
-  
-  Below are the top 5 potential sources that might answer this query:
-  
-  ${formattedMatches}
-  
-  Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
-  Choose only the number of the most relevant source. If there is no match, then answer with 0.
-  
-  Your response must be a single integer between 0 and 5.
-  `;
-  }
+
   
   /**
    * Key points:
