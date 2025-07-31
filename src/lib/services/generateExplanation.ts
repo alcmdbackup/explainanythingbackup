@@ -15,6 +15,9 @@ import {
   addTagsToExplanationAction 
 } from '@/actions/actions';
 
+// Simple streaming callback for text content
+export type StreamingCallback = (content: string) => void;
+
 const FILE_DEBUG = true;
 const MIN_SIMILARITY_INDEX = 0;
 
@@ -85,7 +88,8 @@ export const generateExplanationLogic = withLoggingAndTracing(
         savedId: number | null,
         matchMode: MatchMode,
         userid: string,
-        userInputType: UserInputType
+        userInputType: UserInputType,
+        onStreamingText?: StreamingCallback
     ): Promise<{
         originalUserInput: string,
         match_found: Boolean | null,
@@ -134,6 +138,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
             const similarTexts = await findMatchesInVectorDb(titleResult);
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
             const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId, userid);
+
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
                 bestSourceResult.selectedIndex && 
                 bestSourceResult.selectedIndex > MIN_SIMILARITY_INDEX && 
@@ -149,7 +154,20 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 isMatchFound = true;
             } else {
                 const formattedPrompt = createExplanationPrompt(titleResult);
-                const result = await callOpenAIModel(formattedPrompt, "generateNewExplanation", userid, "gpt-4o-mini", false, null, explanationBaseSchema, 'llmQuery');
+                
+                // Determine if we should stream based on presence of callback
+                const shouldStream = onStreamingText !== undefined;
+                
+                const result = await callOpenAIModel(
+                    formattedPrompt, 
+                    "generateNewExplanation", 
+                    userid, 
+                    "gpt-4o-mini", 
+                    shouldStream, 
+                    shouldStream ? onStreamingText : null, 
+                    explanationBaseSchema, 
+                    'llmQuery'
+                );
                 
                 const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 

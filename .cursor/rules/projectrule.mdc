@@ -1,0 +1,5 @@
+---
+alwaysApply: true
+---
+
+Always read files in @documentation folder, including @architecture.md and @product_overview.md before starting.
