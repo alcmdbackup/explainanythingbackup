@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { generateExplanation, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction } from '@/actions/actions';
+import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -12,7 +12,6 @@ import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import { supabase_browser } from '@/lib/supabase';
-
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -222,7 +221,7 @@ export default function ResultsPage() {
     /**
      * Generates explanation using user provided query or title from link
      * 
-     * • Calls generateExplanation with the search query and current systemSavedId
+     * • Calls /api/generate-explanation with the search query and current systemSavedId
      * • Handles both new explanations and existing matches
      * • Updates UI state with explanation data and matches
      * • Saves user query to database for new explanations
@@ -230,7 +229,7 @@ export default function ResultsPage() {
      * • Accepts optional userid parameter to override state variable
      * 
      * Used by: useEffect (initial query), Regenerate button, direct function calls
-     * Calls: generateExplanation, loadExplanation, saveUserQuery
+     * Calls: /api/generate-explanation, loadExplanation, saveUserQuery
      */
     const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null) => {
         logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId }, FILE_DEBUG);
@@ -251,17 +250,24 @@ export default function ResultsPage() {
         setExplanationTitle('');
         setTags([]); // Reset tags when generating new explanation
         
+        // Call the API route directly
+        const response = await fetch('/api/generate-explanation', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                userInput,
+                savedId: systemSavedId,
+                matchMode,
+                userid: effectiveUserid,
+                userInputType
+            })
+        });
 
-        
-        const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await generateExplanation(
-            userInput, 
-            systemSavedId, 
-            matchMode,
-            effectiveUserid,
-            userInputType
-        );
+        const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await response.json();
 
-        logger.debug('generateExplanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
+        logger.debug('API /generate-explanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
         
         // Clear systemSavedId after the API call
         setSystemSavedId(null);

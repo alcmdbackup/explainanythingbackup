@@ -56,7 +56,7 @@ function replaceAllExceptHeadings(content: string, originalTerm: string, replace
  * - Calls createTitlePrompt, callOpenAIModel
  * - Used by generateExplanation
  */
-const generateTitleFromUserQuery = withLogging(
+export const generateTitleFromUserQuery = withLogging(
     async function generateTitleFromUserQuery(userQuery: string, userid:string): Promise<{
         success: boolean;
         title: string | null;
@@ -106,7 +106,7 @@ const generateTitleFromUserQuery = withLogging(
  * - Accepts userInputType to differentiate between queries and titles from links
  * - Uses handleUserQuery, enhanceMatchesWithCurrentContent, findMatchingSource, saveExplanationAndTopic
  */
-export const generateExplanation = withLoggingAndTracing(
+/*export const generateExplanation = withLoggingAndTracing(
     async function generateExplanation(
         userInput: string,
         savedId: number | null,
@@ -340,7 +340,7 @@ export const generateExplanation = withLoggingAndTracing(
             'business.context': 'ai_explanation_generation'
         }
     }
-);
+);*/
 
 /**
  * Key points:
