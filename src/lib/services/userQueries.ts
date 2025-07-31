@@ -1,6 +1,5 @@
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type UserQueryInsertType } from '@/lib/schemas/schemas';
-import { querystring } from '@pinecone-database/pinecone/dist/pinecone-generated-ts-fetch/db_data';
 
 /**
  * Service for interacting with the user_queries table in Supabase

@@ -64,7 +64,7 @@ const generateTitleFromUserQuery = withLogging(
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callOpenAIModel(titlePrompt, "generateTitleFromUserQuery", userid, "gpt-4o-mini", titleQuerySchema, 'titleQuery');
+            const titleResult = await callOpenAIModel(titlePrompt, "generateTitleFromUserQuery", userid, "gpt-4o-mini", false, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -176,7 +176,7 @@ export const generateExplanation = withLoggingAndTracing(
                 isMatchFound = true;
             } else {
                 const formattedPrompt = createExplanationPrompt(titleResult);
-                const result = await callOpenAIModel(formattedPrompt, "generateNewExplanation", userid, "gpt-4o-mini", explanationBaseSchema, 'llmQuery');
+                const result = await callOpenAIModel(formattedPrompt, "generateNewExplanation", userid, "gpt-4o-mini", false, explanationBaseSchema, 'llmQuery');
                 
                 const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 

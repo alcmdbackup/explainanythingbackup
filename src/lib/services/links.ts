@@ -80,6 +80,7 @@ export async function createMappingsHeadingsToLinks(
       'enhanceContentWithHeadingLinks', 
       userid, 
       "gpt-4o-mini", 
+      false,
       multipleStandaloneTitlesSchema,
       'multipleStandaloneTitles',
       debug
@@ -280,6 +281,7 @@ export async function createMappingsKeytermsToLinks(
       'enhanceContentWithKeyTermLinks',
       userid,
       "gpt-4o-mini",
+      false,
       multipleStandaloneTitlesSchema,
       'multipleStandaloneTitles',
       debug
@@ -411,7 +413,7 @@ export async function enhanceContentWithInlineLinks(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callOpenAIModel(prompt, 'enhanceContentWithInlineLinks', userid, "gpt-4o-mini", null, null, debug);
+    const enhancedContent = await callOpenAIModel(prompt, 'enhanceContentWithInlineLinks', userid, "gpt-4o-mini", false, null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {

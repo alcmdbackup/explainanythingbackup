@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { generateExplanation, saveUserQuery, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction } from '@/actions/actions';
+import { generateExplanation, getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -12,7 +12,7 @@ import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import { supabase_browser } from '@/lib/supabase';
-import { getTagsForExplanation } from '@/lib/services/explanationTags';
+
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -140,7 +140,7 @@ export default function ResultsPage() {
      * • Fetches tags for the explanation
      * 
      * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
-     * Calls: getExplanationByIdAction, checkUserSaved, getTagsForExplanation
+     * Calls: getExplanationByIdAction, checkUserSaved, getTagsForExplanationAction
      */
     const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
@@ -170,8 +170,13 @@ export default function ResultsPage() {
             await checkUserSaved(explanation.id);
 
             // Fetch tags for the explanation
-            const fetchedTags = await getTagsForExplanation(explanation.id);
-            setTags(fetchedTags);
+            const tagsResult = await getTagsForExplanationAction(explanation.id);
+            if (tagsResult.success && tagsResult.data) {
+                setTags(tagsResult.data);
+            } else {
+                logger.error('Failed to fetch tags for explanation:', { error: tagsResult.error });
+                setTags([]);
+            }
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
