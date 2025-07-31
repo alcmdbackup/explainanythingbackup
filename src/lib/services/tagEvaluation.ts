@@ -47,7 +47,8 @@ export async function evaluateExplanationDifficulty(
       'evaluateExplanationDifficulty', 
       userid, 
       "gpt-4o-mini",
-      false,                        // streaming parameter
+      false,      
+      null,                  // streaming parameter
       difficultyEvaluationSchema, 
       'difficultyEvaluation'
     );

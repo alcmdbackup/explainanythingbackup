@@ -88,6 +88,7 @@ function getOpenAIClient(): OpenAI {
  * @param userid - User identifier for tracking purposes
  * @param model - The LLM model to use for the completion
  * @param streaming - Whether to enable streaming responses
+ * @param setText - State setter function for streaming text updates (required when streaming=true, must be null when streaming=false)
  * @param response_obj - Optional Zod schema for structured output
  * @param response_obj_name - Optional name for the response schema
  * @param debug - Enable debug logging
@@ -99,6 +100,7 @@ async function callOpenAIModel(
     userid: string,
     model: AllowedLLMModelType,
     streaming: boolean,
+    setText: ((text: string) => void) | null,
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
     debug: boolean = true
@@ -106,6 +108,14 @@ async function callOpenAIModel(
     try {
         // Validate model parameter
         const validatedModel = allowedLLMModelSchema.parse(model);
+        
+        // Validate setText parameter based on streaming mode
+        if (streaming && (setText === null || typeof setText !== 'function')) {
+            throw new Error('setText must be a function when streaming is true');
+        }
+        if (!streaming && setText !== null) {
+            throw new Error('setText must be null when streaming is false');
+        }
         
         if (debug) logger.debug("Making API call");
         const requestOptions: OpenAI.Chat.ChatCompletionCreateParams = {
@@ -153,6 +163,9 @@ async function callOpenAIModel(
                     lastChunk = chunk;
                     const content = chunk.choices[0]?.delta?.content || '';
                     accumulatedContent += content;
+                    
+                    // Update the text state with accumulated content
+                    setText!(accumulatedContent);
                 }
                 
                 // Extract metadata from the last chunk
