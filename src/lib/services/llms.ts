@@ -82,6 +82,82 @@ function getOpenAIClient(): OpenAI {
 }
 
 /**
+ * Preprocesses incomplete JSON during streaming to make it parseable
+ * Handles cases where JSON is incomplete due to streaming nature
+ * 
+ * Scenarios handled:
+ * 1. `{` → `{"explanation_title": "", "content": ""}`
+ * 2. `{"expla` → `{"explanation_title": "", "content": ""}`
+ * 3. `{"explanation_title"` → `{"explanation_title": "", "content": ""}`
+ * 4. `{"explanation_title":"Partial` → `{"explanation_title": "Partial", "content": ""}`
+ * 5. `{"explanation_title":"Complete","cont` → `{"explanation_title": "Complete", "content": ""}`
+ * 6. `{"explanation_title":"Complete","content":"Partial` → `{"explanation_title": "Complete", "content": "Partial"}`
+ * 7. Missing closing brace scenarios
+ * 
+ * @param jsonStr - The potentially incomplete JSON string
+ * @returns A valid JSON string that can be parsed and validated against explanationBaseSchema
+ */
+function preprocessIncompleteJSON(jsonStr: string): string {
+    let processed = jsonStr.trim();
+    
+    // If it doesn't start with {, return as is
+    if (!processed.startsWith('{')) {
+        return processed;
+    }
+    
+    // If it already ends with }, it might be complete - try as is first
+    if (processed.endsWith('}')) {
+        return processed;
+    }
+    
+    // Count quotes to see if we're in the middle of a string
+    const quoteCount = (processed.match(/"/g) || []).length;
+    
+    // If odd number of quotes, we're in the middle of a string value - close it
+    if (quoteCount % 2 === 1) {
+        processed += '"';
+    }
+    
+    // Simple approach: extract any existing values and build complete JSON
+    
+    // Start with just opening brace
+    if (processed === '{') {
+        return '{"explanation_title": "", "content": ""}';
+    }
+    
+    // Extract any existing values using regex
+    let titleValue = "";
+    let contentValue = "";
+    
+    // Try to extract explanation_title value (handle both complete and incomplete)
+    const titleMatch = processed.match(/"explanation_title":\s*"([^"]*)"/);
+    if (titleMatch) {
+        titleValue = titleMatch[1];
+    } else {
+        // Check for incomplete title value (missing closing quote)
+        const incompleteTitleMatch = processed.match(/"explanation_title":\s*"([^"]*?)(?:[^"}]*)?$/);
+        if (incompleteTitleMatch) {
+            titleValue = incompleteTitleMatch[1];
+        }
+    }
+    
+    // Try to extract content value (handle both complete and incomplete)
+    const contentMatch = processed.match(/"content":\s*"([^"]*)"/);
+    if (contentMatch) {
+        contentValue = contentMatch[1];
+    } else {
+        // Check for incomplete content value (missing closing quote)
+        const incompleteContentMatch = processed.match(/"content":\s*"([^"]*?)(?:[^"}]*)?$/);
+        if (incompleteContentMatch) {
+            contentValue = incompleteContentMatch[1];
+        }
+    }
+    
+    // Build complete JSON with extracted values
+    return `{"explanation_title": "${titleValue}", "content": "${contentValue}"}`;
+}
+
+/**
  * Makes a call to Openai model with structured output support
  * @param prompt - The input prompt to send to the model
  * @param call_source - Identifier for the source/context making this call
@@ -164,8 +240,31 @@ async function callOpenAIModel(
                     const content = chunk.choices[0]?.delta?.content || '';
                     accumulatedContent += content;
                     
-                    // Update the text state with accumulated content
-                    setText!(accumulatedContent);
+                    // Try to parse and format the content for display if it's structured JSON
+                    let displayContent = accumulatedContent;
+                    if (response_obj) {
+                        try {
+                            // Preprocess incomplete JSON to make it parseable
+                            const preprocessedJson = preprocessIncompleteJSON(accumulatedContent);
+                            const parsedJson = JSON.parse(preprocessedJson);
+                            
+                            // Validate using the explanation schema
+                            const validationResult = response_obj.safeParse(parsedJson);
+                            
+                            // Only format if validation passes and we have both required fields
+                            if (validationResult.success && 
+                                validationResult.data.explanation_title && 
+                                validationResult.data.content) {
+                                displayContent = `# ${validationResult.data.explanation_title}\n\n${validationResult.data.content}`;
+                            }
+                        } catch (error) {
+                            // If JSON is still unparseable or invalid, continue with raw content
+                            // This is expected during early streaming stages
+                        }
+                    }
+                    
+                    // Update the text state with formatted content for display
+                    setText!(displayContent);
                 }
                 
                 // Extract metadata from the last chunk
@@ -175,6 +274,7 @@ async function callOpenAIModel(
                     modelUsed = lastChunk.model || '';
                 }
                 
+                // Return raw JSON for further processing by calling code
                 response = accumulatedContent;
                 rawApiResponse = JSON.stringify({ 
                     streaming: true, 
