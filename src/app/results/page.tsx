@@ -242,7 +242,7 @@ export default function ResultsPage() {
             return;
         }
         
-        setIsLoading(true);
+        //setIsLoading(true);
         setError(null);
         setMatches([]);
         setExplanationData(null);
@@ -265,7 +265,63 @@ export default function ResultsPage() {
             })
         });
 
-        const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = await response.json();
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        // Handle streaming response
+        const reader = response.body?.getReader();
+        if (!reader) {
+            throw new Error('Failed to get response reader');
+        }
+
+        const decoder = new TextDecoder();
+        let finalResult: any = null;
+        let streamingContent = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+
+            const chunk = decoder.decode(value);
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const data = JSON.parse(line.slice(6));
+                        
+                        if (data.type === 'error') {
+                            setError(data.error);
+                            setIsLoading(false);
+                            return;
+                        }
+
+                        if (data.type === 'content') {
+                            // Handle streaming content - update the UI in real-time
+                            setContent(data.content);
+                        }
+
+                        if (data.type === 'complete' && data.result) {
+                            finalResult = data.result;
+                            break;
+                        }
+                    } catch (parseError) {
+                        logger.error('Error parsing streaming data:', { error: parseError });
+                    }
+                }
+            }
+
+            if (finalResult) break;
+        }
+
+        if (!finalResult) {
+            setError('No result received from server');
+            return;
+        }
+
+        const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = finalResult;
 
         logger.debug('API /generate-explanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
         
@@ -315,7 +371,7 @@ export default function ResultsPage() {
         setIsSaving(false);
     };
 
-    const formattedExplanation = explanationTitle && content ? `# ${explanationTitle}\n\n${content}` : '';
+    const formattedExplanation = explanationTitle || content ? `# ${explanationTitle}\n\n${content}` : '';
 
     /**
      * Handles clicks on custom standalone title links
