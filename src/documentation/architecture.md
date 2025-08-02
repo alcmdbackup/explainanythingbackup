@@ -12,6 +12,7 @@
 - Pinecone for vector embeddings/search
 - OpenAI API for LLM integration
 - Zod for schema validation
+- Aggregate metrics system with PostgreSQL stored procedures for performance tracking
 
 **Observability & DevEx**
 - OpenTelemetry for distributed tracing
@@ -31,7 +32,9 @@
 - Types are used to insert into Supabase tables
 
 ### Service Layer Architecture
-- Domain-specific services (`explanations.ts`, `vectorsim.ts`, etc.)
+- Domain-specific services (`explanations.ts`, `vectorsim.ts`, `metrics.ts`, etc.)
+- Aggregate metrics service consolidates explanation performance data (saves, views, engagement rates)
+- Database-side calculations using stored procedures for efficiency
 
 ### Server Actions API
 - `actions.ts` as main API gateway
@@ -48,3 +51,9 @@
 - Supabase Auth with email/OAuth
 - Middleware-based route protection
 - Server/client auth utilities
+
+### Analytics & Performance Tracking
+- Comprehensive aggregate metrics system tracks explanation performance
+- Automatic consolidation of user saves and views into performance metrics
+- Database-optimized calculations with PostgreSQL stored procedures
+- **Detailed documentation**: See `src/documentation/AGGREGATE_METRICS_README.md`

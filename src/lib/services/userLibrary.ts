@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations';
+import { incrementExplanationSaves } from '@/lib/services/metrics';
 
 //const supabase = await createClient()
 
@@ -8,11 +9,12 @@ import { getExplanationsByIds } from '@/lib/services/explanations';
  * Save an explanation to the current user's library
  *
  * - Inserts a new record into the userLibrary table with the given explanationid and userid
+ * - Updates aggregate metrics for the explanation using stored procedure
  * - Returns the created userLibrary record
  * - Throws an error if the insert fails
  *
  * This function is used by features that allow users to save explanations to their personal library.
- * It calls Supabase directly and does not call any other functions.
+ * It calls Supabase directly and incrementExplanationSaves for metrics updates.
  */
 export async function saveExplanationToLibrary(
   explanationid: number,
@@ -30,6 +32,14 @@ export async function saveExplanationToLibrary(
     console.error('Error saving explanation to user library:', error);
     throw error;
   }
+
+  // Update aggregate metrics (run in background, don't wait)
+  incrementExplanationSaves(explanationid).catch(metricsError => {
+    console.error('Failed to update explanation metrics after save:', {
+      explanationid,
+      error: metricsError instanceof Error ? metricsError.message : String(metricsError)
+    });
+  });
 
   return data;
 }

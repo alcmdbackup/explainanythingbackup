@@ -417,3 +417,39 @@ export const multipleStandaloneTitlesSchema = z.object({
 });
 
 export type MultipleStandaloneTitlesType = z.infer<typeof multipleStandaloneTitlesSchema>;
+
+/**
+ * Schema for aggregate explanation metrics table
+ * Stores consolidated metrics per explanation including saves, views, and engagement ratio
+ * @example
+ * {
+ *   explanation_id: 123,
+ *   total_saves: 15,
+ *   total_views: 245,
+ *   save_rate: 0.061, // 15/245 = 6.1% save rate
+ *   last_updated: "2024-12-19T10:30:00.000Z"
+ * }
+ */
+export const explanationMetricsSchema = z.object({
+  id: z.number().int().positive().optional(), // Primary key, auto-generated
+  explanation_id: z.number().int().positive(),
+  total_saves: z.number().int().min(0).default(0),
+  total_views: z.number().int().min(0).default(0),
+  save_rate: z.number().min(0).max(1).default(0), // Ratio of saves/views (0.0 to 1.0)
+  last_updated: z.union([
+    z.string().datetime(), // ISO 8601 string
+    z.date(), // Date object
+    z.string().refine((val) => !isNaN(Date.parse(val)), {
+      message: "Invalid date string"
+    }) // Any parseable date string
+  ]), // Accept multiple date formats
+});
+
+export type ExplanationMetricsType = z.infer<typeof explanationMetricsSchema>;
+
+/**
+ * Schema for inserting new explanation metrics records
+ */
+export const explanationMetricsInsertSchema = explanationMetricsSchema.omit({ id: true });
+
+export type ExplanationMetricsInsertType = z.infer<typeof explanationMetricsInsertSchema>;

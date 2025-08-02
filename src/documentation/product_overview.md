@@ -28,7 +28,12 @@
 ### 🔄 **Content Enhancement**
 - Regenerate explanations for different perspectives
 - Related content matching and recommendations
-- User activity tracking and metrics
+- User activity tracking and comprehensive performance metrics
+
+### 📊 **Analytics & Performance Insights**
+- Aggregate metrics track explanation saves, views, and engagement rates
+- Real-time performance data helps identify high-quality content
+- Database-optimized tracking system for scalable analytics
 
 ## How It Works
 1. User searches for a topic or asks a question
@@ -37,3 +42,7 @@
 4. User can save explanations to their personal library
 5. Content is enriched with cross-references and related topics
 6. All interactions are tracked for continuous improvement
+7. Aggregate metrics automatically consolidate performance data for insights and for future use in ranking explanations
+
+## Technical Documentation
+- **Aggregate Metrics System**: Comprehensive documentation available in `src/documentation/AGGREGATE_METRICS_README.md`

@@ -3,7 +3,7 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
@@ -16,7 +16,11 @@ import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
 import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
-import { createUserExplanationEvent } from '@/lib/services/metrics';
+import { 
+  createUserExplanationEvent, 
+  getMultipleExplanationMetrics, 
+  refreshExplanationMetrics
+} from '@/lib/services/metrics';
 import { createTags, getTagById, updateTag, deleteTag } from '@/lib/services/tags';
 import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
@@ -488,6 +492,81 @@ export const getTagsForExplanationAction = withLogging(
         }
     },
     'getTagsForExplanationAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * === AGGREGATE METRICS ACTION FUNCTIONS ===
+ * Server actions for accessing explanation aggregate metrics
+ */
+
+/**
+ * Gets aggregate metrics for a specific explanation (server action)
+ *
+ * • Returns cached metrics from explanationMetrics table
+ * • Uses getMultipleExplanationMetrics with single ID for consistency
+ * • Returns null if explanation doesn't exist
+ * • Calls: getMultipleExplanationMetrics
+ * • Used by: UI components displaying explanation performance data
+ */
+export async function getExplanationMetricsAction(explanationId: number): Promise<ExplanationMetricsType | null> {
+    const results = await getMultipleExplanationMetrics([explanationId]);
+    return results[0];
+}
+
+/**
+ * Gets aggregate metrics for multiple explanations (server action)
+ *
+ * • Efficiently fetches metrics for multiple explanations
+ * • Returns metrics in same order as input IDs
+ * • Missing explanations return null in the corresponding position
+ * • Calls: getMultipleExplanationMetrics
+ * • Used by: List views, dashboard components showing multiple explanation stats
+ */
+export async function getMultipleExplanationMetricsAction(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
+    return await getMultipleExplanationMetrics(explanationIds);
+}
+
+/**
+ * Refreshes aggregate metrics for specific explanations or all explanations (server action)
+ *
+ * • Recalculates total saves, views, and save rate using database stored procedures
+ * • Updates explanationMetrics table with fresh data
+ * • Returns updated metrics records and count of processed explanations
+ * • Calls: refreshExplanationMetrics
+ * • Used by: Admin interfaces, manual refresh operations, batch maintenance
+ */
+export const refreshExplanationMetricsAction = withLogging(
+    async function refreshExplanationMetricsAction(options: {
+        explanationIds?: number | number[];
+        refreshAll?: boolean;
+    } = {}): Promise<{
+        success: boolean;
+        data: {
+            results: ExplanationMetricsType[];
+            count: number;
+        } | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const result = await refreshExplanationMetrics(options);
+            
+            return {
+                success: true,
+                data: result,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'refreshExplanationMetricsAction', options)
+            };
+        }
+    },
+    'refreshExplanationMetricsAction',
     { 
         enabled: FILE_DEBUG
     }
