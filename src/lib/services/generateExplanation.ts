@@ -1,7 +1,7 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
-import { findMatchesInVectorDb, maxNumberAnchors } from '@/lib/services/vectorsim';
+import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
@@ -136,10 +136,20 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 titleResult = userInput;
             }
             // Run anchorComparison and similarTexts in parallel
-            const [anchorComparison, similarTexts] = await Promise.all([
+            const [similarTexts, anchorComparison] = await Promise.all([
                 findMatchesInVectorDb(titleResult, false, null),
                 findMatchesInVectorDb(titleResult, true, AnchorSet.Main, maxNumberAnchors)
             ]);
+            
+            // Calculate allowed scores
+            const allowedScores = await calculateAllowedScores(anchorComparison, similarTexts);
+            
+            logger.debug('Allowed scores for title:', {
+                titleResult,
+                anchorScore: allowedScores.anchorScore,
+                explanationScore: allowedScores.explanationScore,
+                allowedTitle: allowedScores.allowedTitle
+            }, FILE_DEBUG);
             
             // Chain dependent operations
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);

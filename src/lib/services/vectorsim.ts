@@ -6,7 +6,7 @@ import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 import { AnchorSet } from '@/lib/schemas/schemas';
 
 const FILE_DEBUG = false
-const maxNumberAnchors = 500
+const maxNumberAnchors = 1
 
 const openai = new OpenAI({
   apiKey: getRequiredEnvVar('OPENAI_API_KEY'),
@@ -383,6 +383,63 @@ async function findMatchesInVectorDb(query: string, isAnchor: boolean, anchorSet
 }
 
 /**
+ * Calculates allowed scores based on anchor and explanation matches
+ * @param {any[]} anchorMatches - Results from anchor comparison search
+ * @param {any[]} explanationMatches - Results from explanation similarity search
+ * @returns {Object} JSON object with anchorScore, explanationScore, and allowedTitle
+ * • anchorScore: sum of all anchor similarities divided by maxNumberAnchors
+ * • explanationScore: average score of top 3 explanation matches (padding with 0 if <3)
+ * • allowedTitle: true if average of anchorScore + explanationScore > 0.15
+ * • Used by generateExplanationLogic to evaluate content relevance
+ * • Calls no other functions
+ */
+async function calculateAllowedScores(anchorMatches: any[], explanationMatches: any[]): Promise<{
+  anchorScore: number;
+  explanationScore: number;
+  allowedTitle: boolean;
+}> {
+  // Calculate anchor score: sum of all similarities / maxNumberAnchors
+  const anchorSimilaritySum = anchorMatches.reduce((sum, match) => sum + (match.score || 0), 0);
+  const anchorScore = anchorSimilaritySum / maxNumberAnchors;
+  
+  // Calculate explanation score: average of top 3 matches, padding with 0 if needed
+  const top3Matches = explanationMatches.slice(0, 3);
+  const scores = [];
+  
+  // Get scores from top 3 matches
+  for (let i = 0; i < 3; i++) {
+    if (i < top3Matches.length) {
+      scores.push(top3Matches[i].score || 0);
+    } else {
+      scores.push(0); // Pad with 0 if less than 3 matches
+    }
+  }
+  
+  const explanationScore = scores.reduce((sum, score) => sum + score, 0) / 3;
+  
+  // Calculate allowedTitle: true if average of both scores > 0.15
+  const averageScore = (anchorScore + explanationScore) / 2;
+  const allowedTitle = averageScore > 0.15;
+  
+  logger.debug('Allowed scores calculated:', {
+    anchorMatchesCount: anchorMatches.length,
+    explanationMatchesCount: explanationMatches.length,
+    anchorSimilaritySum,
+    anchorScore,
+    top3Scores: scores,
+    explanationScore,
+    averageScore,
+    allowedTitle
+  }, FILE_DEBUG);
+  
+  return {
+    anchorScore,
+    explanationScore,
+    allowedTitle
+  };
+}
+
+/**
  * Processes text into embeddings and stores them in Pinecone
  * @param {string} markdown - The markdown text to process
  * @param {number} explanation_id - The ID of the explanation these embeddings belong to
@@ -450,5 +507,6 @@ async function processContentToStoreEmbedding(
 export { 
   findMatchesInVectorDb,
   processContentToStoreEmbedding,
-  maxNumberAnchors
+  maxNumberAnchors,
+  calculateAllowedScores
 };
