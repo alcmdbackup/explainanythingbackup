@@ -6,6 +6,7 @@ import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 import { AnchorSet } from '@/lib/schemas/schemas';
 
 const FILE_DEBUG = false
+const maxNumberAnchors = 500
 
 const openai = new OpenAI({
   apiKey: getRequiredEnvVar('OPENAI_API_KEY'),
@@ -448,5 +449,6 @@ async function processContentToStoreEmbedding(
 
 export { 
   findMatchesInVectorDb,
-  processContentToStoreEmbedding
+  processContentToStoreEmbedding,
+  maxNumberAnchors
 };
