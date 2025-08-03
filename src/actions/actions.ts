@@ -99,10 +99,10 @@ export const saveExplanationAndTopic = withLogging(
  * - Uses createUserQuery for database storage
  */
 export const saveUserQuery = withLogging(
-    async function saveUserQuery(userInput, matches, explanationId: number, userid: string, newExplanation: boolean, userInputType: UserInputType) {
+    async function saveUserQuery(userInput, matches, explanationId: number | null, userid: string, newExplanation: boolean, userInputType: UserInputType, allowedQuery: boolean) {
         
         try {
-            const userQueryWithId = { user_query: userInput, matches, explanation_id: explanationId, userid, newExplanation, userInputType };
+            const userQueryWithId = { user_query: userInput, matches, explanation_id: explanationId, userid, newExplanation, userInputType, allowedQuery };
             
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
 

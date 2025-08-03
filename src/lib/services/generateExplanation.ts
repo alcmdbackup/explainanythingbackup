@@ -151,6 +151,29 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 allowedTitle: allowedScores.allowedTitle
             }, FILE_DEBUG);
             
+            // Check if title is allowed
+            if (!allowedScores.allowedTitle) {
+                // Save user query with allowedQuery = false
+                let userQueryId: number | null = null;
+                if (userid) {
+                    const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, [], null, userid, false, userInputType, false);
+                    if (!userQueryError) {
+                        userQueryId = savedUserQueryId;
+                    }
+                }
+                
+                return {
+                    originalUserInput: userInput,
+                    match_found: null,
+                    error: createError(ERROR_CODES.QUERY_NOT_ALLOWED, 'Query not allowed'),
+                    explanationId: null,
+                    matches: [],
+                    data: null,
+                    userQueryId: userQueryId,
+                    userInputType
+                };
+            }
+            
             // Chain dependent operations
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
             const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId, userid);
@@ -305,7 +328,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
             let userQueryId: number | null = null;
             if (finalExplanationId && userid) {
                 
-                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, matches, finalExplanationId, userid, !isMatchFound, userInputType);
+                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, matches, finalExplanationId, userid, !isMatchFound, userInputType, true);
                 if (userQueryError) {
                     // Error already logged by withLogging decorator
                 } else {

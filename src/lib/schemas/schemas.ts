@@ -99,7 +99,7 @@ export const matchWithCurrentContentSchema = matchSchema.extend({
 });
 
 /**
- * Schema for inserting user query data, extends userQueryDataSchema with explanation_id, userid, newExplanation, and userInputType
+ * Schema for inserting user query data, extends userQueryDataSchema with explanation_id, userid, newExplanation, userInputType, and allowedQuery
  * @example
  * {
  *   user_query: "How does photosynthesis work?",
@@ -109,16 +109,18 @@ export const matchWithCurrentContentSchema = matchSchema.extend({
  *   explanation_id: 123,
  *   userid: "user123",
  *   newExplanation: true,
- *   userInputType: UserInputType.Query
+ *   userInputType: UserInputType.Query,
+ *   allowedQuery: true
  * }
  */
 export const userQueryInsertSchema = z.object({
     matches: z.array(matchWithCurrentContentSchema),
     user_query: z.string(),
-    explanation_id: z.number(),
+    explanation_id: z.number().nullable(),
     userid: z.string(),
     newExplanation: z.boolean(),
     userInputType: z.nativeEnum(UserInputType),
+    allowedQuery: z.boolean(),
 });
 
 /**
