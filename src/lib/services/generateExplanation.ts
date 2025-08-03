@@ -1,6 +1,6 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
-import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema } from '@/lib/schemas/schemas';
+import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
@@ -135,7 +135,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 // For TitleFromLink, use the userInput directly as the title
                 titleResult = userInput;
             }
-            const similarTexts = await findMatchesInVectorDb(titleResult);
+            const similarTexts = await findMatchesInVectorDb(titleResult, true, AnchorSet.Main);
             const matches = await enhanceMatchesWithCurrentContent(similarTexts);
             const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId, userid);
 

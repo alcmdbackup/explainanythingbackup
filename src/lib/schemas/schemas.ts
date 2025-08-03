@@ -14,6 +14,10 @@ export enum UserInputType {
   TitleFromRegenerate = "title from regenerate"
 }
 
+export enum AnchorSet {
+  Main = "main"
+}
+
 /**
  * Schema for validating allowed LLM models
  * • Restricts model parameter to approved OpenAI models only

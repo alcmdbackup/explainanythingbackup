@@ -3,6 +3,7 @@ import { logger, getRequiredEnvVar } from '@/lib/server_utilities';
 import OpenAI from 'openai';
 import { Pinecone } from '@pinecone-database/pinecone';
 import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
+import { AnchorSet } from '@/lib/schemas/schemas';
 
 const FILE_DEBUG = false
 
@@ -162,14 +163,19 @@ async function createEmbeddings(chunks: TextChunk[]): Promise<EmbeddedChunk[]> {
  * @param {Array<{text: string, startIdx: number, length: number, embedding: number[]}>} embeddedChunks 
  * @param {string} namespace Optional namespace for multitenancy
  * @param {string} pineconeIndexEnvVar The environment variable for the Pinecone index
- * @param {object} metadata Metadata object containing explanation_id, topic_id, etc.
+ * @param {object} metadata Metadata object containing explanation_id, topic_id, isAnchor (boolean), and anchorSet (AnchorSet | null)
  */
 async function upsertEmbeddings(
   embeddedChunks: EmbeddedChunk[],
   namespace: string = '',
   pineconeIndexEnvVar: string,
-  metadata: { explanation_id: number; topic_id: number }
+  metadata: { explanation_id: number; topic_id: number; isAnchor: boolean; anchorSet: AnchorSet | null }
 ): Promise<void> {
+  // Validate that anchorSet is not null when isAnchor is true
+  if (metadata.isAnchor && metadata.anchorSet === null) {
+    throw new Error('anchorSet cannot be null when isAnchor is true');
+  }
+
   const index = pc.index(getRequiredEnvVar(pineconeIndexEnvVar));
 
   logger.debug('Creating vectors for upsert:', {
@@ -181,15 +187,26 @@ async function upsertEmbeddings(
   const vectors = embeddedChunks.map((chunk, i) => {
     // Generate a unique id by joining all metadata values and the chunk index
     const metaValues = Object.values(metadata).join('_');
+    
+    // Build metadata with non-null values for Pinecone compatibility
+    const pineconeMetadata: Record<string, string | number | boolean> = {
+      text: chunk.text,
+      startIdx: chunk.startIdx,
+      length: chunk.length,
+      explanation_id: metadata.explanation_id,
+      topic_id: metadata.topic_id,
+      isAnchor: metadata.isAnchor
+    };
+    
+    // Only add anchorSet if it's not null
+    if (metadata.anchorSet !== null) {
+      pineconeMetadata.anchorSet = metadata.anchorSet;
+    }
+    
     return {
       id: `chunk_${metaValues}_${i}`,
       values: chunk.embedding,
-      metadata: {
-        text: chunk.text,
-        startIdx: chunk.startIdx,
-        length: chunk.length,
-        ...metadata
-      }
+      metadata: pineconeMetadata
     };
   });
 
@@ -255,13 +272,22 @@ async function upsertEmbeddings(
  * @param {number[]} queryEmbedding The query embedding vector
  * @param {number} topK Number of results to return
  * @param {string} namespace Optional namespace to search in
+ * @param {boolean} isAnchor Whether to filter for anchor vectors only
+ * @param {AnchorSet | null} anchorSet The anchor set to filter by when isAnchor is true
  */
-async function searchForSimilarVectors(queryEmbedding: number[], topK: number = 5, namespace: string = ''): Promise<any[]> {
+async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boolean = false, anchorSet: AnchorSet | null = null, topK: number = 5, namespace: string = ''): Promise<any[]> {
+    // Validate that anchorSet is not null when isAnchor is true
+    if (isAnchor && anchorSet === null) {
+        throw new Error('anchorSet cannot be null when isAnchor is true');
+    }
+
     logger.debug('Search parameters:', {
         embeddingPreview: queryEmbedding.slice(0, 2),
         embeddingLength: queryEmbedding.length,
         topK,
-        namespace
+        namespace,
+        isAnchor,
+        anchorSet
     }, FILE_DEBUG);
 
     const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
@@ -277,11 +303,22 @@ async function searchForSimilarVectors(queryEmbedding: number[], topK: number = 
 
     let queryResponse;
     try {
-        queryResponse = await index.namespace(namespace).query({
+        // Build query object with optional metadata filter
+        const queryParams: any = {
             vector: queryEmbedding,
             topK,
             includeMetadata: true
-        });
+        };
+
+        // Add metadata filter when searching for anchor vectors
+        if (isAnchor) {
+            queryParams.filter = {
+                isAnchor: { "$eq": true },
+                anchorSet: { "$eq": anchorSet }
+            };
+        }
+
+        queryResponse = await index.namespace(namespace).query(queryParams);
         
         span.setAttributes({
             'pinecone.query.matches': queryResponse.matches?.length || 0,
@@ -326,18 +363,22 @@ async function createQueryEmbedding(query: string): Promise<number[]> {
  * @param {string} query The search query text
  * @param {number} topK Number of results to return (default: 5)
  * @param {string} namespace Optional namespace to search in (default: '')
+ * @param {boolean} isAnchor Whether to filter for anchor vectors only (default: false)
+ * @param {AnchorSet | null} anchorSet The anchor set to filter by when isAnchor is true (default: null)
  * @returns {Promise<Array>} Array of matching results with their metadata
  */
-async function findMatchesInVectorDb(query: string, topK: number = 5, namespace: string = 'default'): Promise<any[]> {
+async function findMatchesInVectorDb(query: string, isAnchor: boolean, anchorSet: AnchorSet | null, topK: number = 5, namespace: string = 'default'): Promise<any[]> {
   const embedding = await createQueryEmbedding(query);
   
   logger.debug('Query details:', {
     query,
     embeddingPreview: embedding.slice(0, 5),
-    embeddingLength: embedding.length
+    embeddingLength: embedding.length,
+    isAnchor,
+    anchorSet
   }, FILE_DEBUG);
   
-  return searchForSimilarVectors(embedding, topK, namespace);
+  return searchForSimilarVectors(embedding, isAnchor, anchorSet, topK, namespace);
 }
 
 /**
@@ -395,7 +436,7 @@ async function processContentToStoreEmbedding(
       embeddedChunks,
       namespace,
       'PINECONE_INDEX_NAME_ALL',
-      { explanation_id, topic_id }
+      { explanation_id, topic_id, isAnchor: true, anchorSet: AnchorSet.Main }
     );
 
     return {
