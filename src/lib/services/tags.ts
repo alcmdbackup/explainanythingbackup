@@ -9,19 +9,20 @@ import { type TagFullDbType, type TagInsertType, tagInsertSchema } from '@/lib/s
  * Example usage:
  * ```typescript
  * // Create a single tag
- * const [newTag] = await createTagsBulk([{ 
+ * const [newTag] = await createTags([{ 
  *   tag_name: "beginner",
- *   tag_description: "Suitable for beginners with no prior knowledge"
+ *   tag_description: "Suitable for beginners with no prior knowledge",
+ *   presetTagId: null
  * }]);
  * 
  * // Create multiple tags
- * const newTags = await createTagsBulk([
- *   { tag_name: "advanced", tag_description: "For advanced users" },
- *   { tag_name: "tutorial", tag_description: "Step-by-step guide" }
+ * const newTags = await createTags([
+ *   { tag_name: "advanced", tag_description: "For advanced users", presetTagId: null },
+ *   { tag_name: "tutorial", tag_description: "Step-by-step guide", presetTagId: 1 }
  * ]);
  * 
- * // Get tag by ID
- * const tag = await getTagById(1);
+ * // Get tags by IDs
+ * const tags = await getTagsById([1, 2, 3]);
  * ```
  */
 
@@ -81,23 +82,24 @@ export async function createTags(tags: TagInsertType[]): Promise<TagFullDbType[]
 }
 
 /**
- * Get a tag record by ID
- * • Retrieves single tag by its primary key ID
- * • Returns tag data if found, null if not found
- * • Used by tag lookup operations and validation
- * • Calls supabase tags table select operation
+ * Get tag records by IDs
+ * • Retrieves multiple tags by their primary key IDs
+ * • Returns array of tag data, filtering out any not found
+ * • Used by bulk tag lookup operations and validation
+ * • Calls supabase tags table select operation with IN clause
  */
-export async function getTagById(id: number): Promise<TagFullDbType | null> {
+export async function getTagsById(ids: number[]): Promise<TagFullDbType[]> {
   const supabase = await createSupabaseServerClient()
+
+  if (ids.length === 0) return [];
 
   const { data, error } = await supabase
     .from('tags')
     .select()
-    .eq('id', id)
-    .single();
+    .in('id', ids);
 
-  if (error && error.code !== 'PGRST116') throw error; // PGRST116: No rows found
-  return data;
+  if (error) throw error;
+  return data || [];
 }
 
 /**
@@ -188,6 +190,28 @@ export async function getAllTags(): Promise<TagFullDbType[]> {
   const { data, error } = await supabase
     .from('tags')
     .select()
+    .order('tag_name', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+}
+
+/**
+ * Get all tags with the specified presetTagIds
+ * • Retrieves all tags that share any of the provided preset tag IDs
+ * • Returns array of tags ordered by name for consistent results
+ * • Used by preset tag grouping and related tag operations
+ * • Calls supabase tags table select with presetTagId filter using 'in' operator
+ */
+export async function getTagsByPresetId(presetTagIds: number[]): Promise<TagFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+  
+  if (presetTagIds.length === 0) return [];
+  
+  const { data, error } = await supabase
+    .from('tags')
+    .select()
+    .in('presetTagId', presetTagIds)
     .order('tag_name', { ascending: true });
 
   if (error) throw error;

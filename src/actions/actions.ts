@@ -21,7 +21,7 @@ import {
   getMultipleExplanationMetrics, 
   refreshExplanationMetrics
 } from '@/lib/services/metrics';
-import { createTags, getTagById, updateTag, deleteTag } from '@/lib/services/tags';
+import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId } from '@/lib/services/tags';
 import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType } from '@/lib/schemas/schemas';
@@ -268,10 +268,10 @@ export const createTagsAction = withLogging(
 /**
  * Fetches a tag record by ID (server action)
  *
- * • Calls getTagById service to fetch tag from database
+ * • Calls getTagsById service to fetch tag from database
  * • Returns tag data if found, null if not found
  * • Used by client code to fetch tag details via server action
- * • Calls: getTagById
+ * • Calls: getTagsById
  * • Used by: Tag editing components, tag display interfaces
  */
 export const getTagByIdAction = withLogging(
@@ -281,7 +281,8 @@ export const getTagByIdAction = withLogging(
         error: ErrorResponse | null;
     }> {
         try {
-            const tag = await getTagById(id);
+            const tags = await getTagsById([id]);
+            const tag = tags.length > 0 ? tags[0] : null;
             
             return {
                 success: true,
@@ -492,6 +493,43 @@ export const getTagsForExplanationAction = withLogging(
         }
     },
     'getTagsForExplanationAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets all tags with the specified preset tag IDs (server action)
+ *
+ * • Retrieves all tags that share any of the provided preset tag IDs
+ * • Returns array of tags ordered by name for consistent results
+ * • Used by tag dropdown functionality in UI components
+ * • Calls: getTagsByPresetId
+ * • Used by: TagBar component for preset tag dropdowns
+ */
+export const getTagsByPresetIdAction = withLogging(
+    async function getTagsByPresetIdAction(presetTagIds: number[]): Promise<{
+        success: boolean;
+        data: TagFullDbType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const tags = await getTagsByPresetId(presetTagIds);
+            
+            return {
+                success: true,
+                data: tags,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getTagsByPresetIdAction', { presetTagIds })
+            };
+        }
+    },
+    'getTagsByPresetIdAction',
     { 
         enabled: FILE_DEBUG
     }

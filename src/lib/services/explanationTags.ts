@@ -2,6 +2,7 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type ExplanationTagFullDbType, type ExplanationTagInsertType, type TagFullDbType, explanationTagInsertSchema } from '@/lib/schemas/schemas';
+import { getTagsById } from './tags';
 
 /**
  * Service for interacting with the explanation_tags junction table in Supabase
@@ -37,6 +38,24 @@ export async function addTagsToExplanation(
   const supabase = await createSupabaseServerClient()
   
   if (tagIds.length === 0) return [];
+  
+  // Fetch all tag information using getTagsById to validate presetTagId constraints
+  const tags = await getTagsById(tagIds);
+  
+  if (tags.length !== tagIds.length) {
+    throw new Error('One or more tags not found');
+  }
+  
+  // Check for duplicate presetTagId values
+  const presetTagIds = tags
+    .map((tag: TagFullDbType) => tag.presetTagId)
+    .filter((presetTagId: number | null): presetTagId is number => presetTagId !== null);
+  
+  const uniquePresetTagIds = new Set(presetTagIds);
+  
+  if (presetTagIds.length !== uniquePresetTagIds.size) {
+    throw new Error('multiple preset tags of the same type cannot be added to an explanation');
+  }
   
   const relationshipData = tagIds.map(tagId => ({
     explanation_id: explanationId,
@@ -104,6 +123,7 @@ export async function getTagsForExplanation(explanationId: number): Promise<TagF
         id,
         tag_name,
         tag_description,
+        presetTagId,
         created_at
       )
     `)
@@ -216,6 +236,7 @@ export async function getTagUsageStats(): Promise<Array<{ tag: TagFullDbType; us
         id,
         tag_name,
         tag_description,
+        presetTagId,
         created_at
       )
     `);

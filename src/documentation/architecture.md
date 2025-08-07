@@ -35,6 +35,7 @@
 - Domain-specific services (`explanations.ts`, `vectorsim.ts`, `metrics.ts`, etc.)
 - Aggregate metrics service consolidates explanation performance data (saves, views, engagement rates)
 - Database-side calculations using stored procedures for efficiency
+- Database scripts are under scripts folder
 
 ### Server Actions API
 - `actions.ts` as main API gateway

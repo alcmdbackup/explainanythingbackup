@@ -646,7 +646,16 @@ export default function ResultsPage() {
                                 </div>
                                 
                                 {/* Tags Bar */}
-                                <TagBar tags={tags} className="mb-4" />
+                                <TagBar 
+                                    tags={tags} 
+                                    className="mb-4" 
+                                    onTagClick={(tag) => {
+                                        // Handle tag clicks here - you can implement search, filtering, etc.
+                                        console.log('Tag clicked:', tag);
+                                        // Example: could trigger a search for explanations with this tag
+                                        // or navigate to a tag-specific page
+                                    }}
+                                />
                                 
                                 <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                     {isMarkdownMode ? (

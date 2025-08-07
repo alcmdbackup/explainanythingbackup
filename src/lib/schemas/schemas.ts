@@ -218,7 +218,8 @@ export type TopicFullDbType = z.infer<typeof topicFullDbSchema>;
  */
 export const tagInsertSchema = z.object({
     tag_name: z.string(),
-    tag_description: z.string().optional(),
+    tag_description: z.string(),
+    presetTagId: z.number().nullable(),
 });
 
 /**
@@ -228,6 +229,7 @@ export const tagInsertSchema = z.object({
  *   id: 123,
  *   tag_name: "beginner",
  *   tag_description: "Suitable for beginners with no prior knowledge",
+ *   presetTagId: null,
  *   created_at: "2024-03-20T10:30:00Z"
  * }
  */
