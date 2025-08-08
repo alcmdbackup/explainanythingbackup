@@ -147,33 +147,50 @@ Your response must be a single integer between 0 and 5.
 }
 
 /**
- * Creates a prompt for LLM to evaluate explanation difficulty level
+ * Creates a prompt for LLM to evaluate explanation tags
  * 
  * • Takes explanation title and content as input
- * • Provides clear criteria for beginner (1), normal (2), and expert (3) levels
- * • Forces single integer response (1-3) for structured processing
- * • Evaluates based on depth & technicality, not inherent subject difficulty
- * • Used by tagEvaluation service for difficulty assessment
+ * • Evaluates difficulty level (1-3), content length (4-6), and simple tags
+ * • Forces structured JSON response for multiple tag assessments
+ * • Evaluates based on content characteristics and teaching methods used
+ * • Used by tagEvaluation service for comprehensive tag assessment
  * 
  * @param explanationTitle - The title of the explanation to evaluate
  * @param explanationContent - The full content of the explanation to evaluate
  * @returns A formatted prompt string for LLM processing
  */
-export function createDifficultyEvaluationPrompt(explanationTitle: string, explanationContent: string): string {
+export function createTagEvaluationPrompt(explanationTitle: string, explanationContent: string): string {
   return `
-Please evaluate the difficulty level of the following explanation:
+Please evaluate the following explanation for multiple tag categories:
 
 Title: "${explanationTitle}"
 
 Content: "${explanationContent}"
 
-Difficulty Levels:
+Evaluate the following aspects:
+
+1. DIFFICULTY LEVEL (1-3):
 - BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
 - NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
 - EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
 
-Evaluate only based on the depth & technicality of the explanation, not the inherent difficult of the subject matter. 
+2. CONTENT LENGTH (4-6):
+- SHORT (4): Brief overview, key points only, under 500 words
+- MEDIUM (5): Standard explanation, balanced detail, 500-1500 words
+- LONG (6): Comprehensive coverage, extensive detail, over 1500 words
 
-Your response must be a single integer: 1 for beginner, 2 for normal, or 3 for expert.
+3. SIMPLE TAGS (array of tag IDs, or null):
+Evaluate if the content contains these characteristics:
+- has_example (7): Contains practical examples or case studies
+- sequential (8): Presents information in step-by-step order
+- has_metaphor (9): Uses analogies, metaphors, or comparisons
+- instructional (10): Provides how-to instructions or procedures
+
+Return your response as a JSON object with:
+- difficultyLevel: integer (1-3)
+- length: integer (4-6)
+- simpleTags: array of integers (tag IDs) or null if none apply. Values here start at 7.
+
+Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
 `;
 }

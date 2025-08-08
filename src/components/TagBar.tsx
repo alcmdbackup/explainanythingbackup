@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { TagFullDbType, TagUIType } from '@/lib/schemas/schemas';
-import { getTagsByPresetIdAction } from '@/actions/actions';
 
 interface TagBarProps {
     tags: TagUIType[];
@@ -135,6 +134,12 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                 } else {
                     // Preset tag collection
                     const currentTag = tag.tags.find(t => t.id === tag.currentActiveTagId) || tag.tags[0];
+                    
+                    if (!currentTag) {
+                        console.error('No current tag found for preset tag collection:', tag);
+                        return null;
+                    }
+                    
                     return (
                         <div key={tag.originalTagId} className="relative">
                             <span

@@ -22,7 +22,6 @@ import {
   refreshExplanationMetrics
 } from '@/lib/services/metrics';
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId } from '@/lib/services/tags';
-import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 

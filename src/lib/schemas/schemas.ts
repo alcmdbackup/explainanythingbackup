@@ -357,11 +357,13 @@ export type matchFoundFromListType = z.infer<typeof matchFoundFromListSchema>;
  *   difficultyLevel: 1  // 1=beginner, 2=normal, 3=expert
  * }
  */
-export const difficultyEvaluationSchema = z.object({
-    difficultyLevel: z.number().int().min(1).max(3)
+export const tagEvaluationSchema = z.object({
+    difficultyLevel: z.number().int().min(1).max(3),
+    length: z.number().int().min(4).max(6),
+    simpleTags: z.array(z.number().int()).nullable()
 });
 
-export type DifficultyEvaluationType = z.infer<typeof difficultyEvaluationSchema>;
+export type TagEvaluationType = z.infer<typeof tagEvaluationSchema>;
 
 export const matchingSourceReturnSchema = z.object({
     topic_id: z.number().int(),

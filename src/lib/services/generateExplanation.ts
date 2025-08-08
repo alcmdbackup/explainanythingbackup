@@ -8,7 +8,7 @@ import { handleError, createError, createInputError, createValidationError, ERRO
 import { withLoggingAndTracing, withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
-import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
+import { evaluateTags } from '@/lib/services/tagEvaluation';
 import { 
   saveExplanationAndTopic, 
   saveUserQuery, 
@@ -223,11 +223,11 @@ export const generateExplanationLogic = withLoggingAndTracing(
                     };
                 }
 
-                // Run enhancement functions and difficulty evaluation in parallel
-                const [headingMappings, keyTermMappings, tagToApply] = await Promise.all([
+                // Run enhancement functions and tag evaluation in parallel
+                const [headingMappings, keyTermMappings, tagEvaluation] = await Promise.all([
                     createMappingsHeadingsToLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG),
                     createMappingsKeytermsToLinks(parsedResult.data.content, userid, FILE_DEBUG),
-                    evaluateExplanationDifficulty(titleResult, parsedResult.data.content, userid)
+                    evaluateTags(titleResult, parsedResult.data.content, userid)
                 ]);
                 
                 // Apply both heading and key term mappings to the content
@@ -298,26 +298,45 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 finalExplanationId = newExplanationId;
                 explanationData = newExplanationData;
                 
-                // Apply difficulty tag if evaluation was successful
-                if (tagToApply && !tagToApply.error && tagToApply.difficultyLevel) {
+                // Apply tags if evaluation was successful
+                if (tagEvaluation && !tagEvaluation.error) {
                     try {
-                        const tagResult = await addTagsToExplanationAction(newExplanationId, [tagToApply.difficultyLevel]);
-                        if (tagResult.error) {
-                            logger.error('Failed to apply difficulty tag to explanation', {
-                                explanationId: newExplanationId,
-                                difficultyLevel: tagToApply.difficultyLevel,
-                                error: tagResult.error
-                            });
-                        } else {
-                            logger.debug('Successfully applied difficulty tag to explanation', {
-                                explanationId: newExplanationId,
-                                difficultyLevel: tagToApply.difficultyLevel
-                            });
+                        const tagsToApply: number[] = [];
+                        
+                        // Add difficulty tag if available
+                        if (tagEvaluation.difficultyLevel) {
+                            tagsToApply.push(tagEvaluation.difficultyLevel);
+                        }
+                        
+                        // Add length tag if available
+                        if (tagEvaluation.length) {
+                            tagsToApply.push(tagEvaluation.length);
+                        }
+                        
+                        // Add simple tags if available
+                        if (tagEvaluation.simpleTags && tagEvaluation.simpleTags.length > 0) {
+                            tagsToApply.push(...tagEvaluation.simpleTags);
+                        }
+                        
+                        if (tagsToApply.length > 0) {
+                            const tagResult = await addTagsToExplanationAction(newExplanationId, tagsToApply);
+                            if (tagResult.error) {
+                                logger.error('Failed to apply tags to explanation', {
+                                    explanationId: newExplanationId,
+                                    tags: tagsToApply,
+                                    error: tagResult.error
+                                });
+                            } else {
+                                logger.debug('Successfully applied tags to explanation', {
+                                    explanationId: newExplanationId,
+                                    tags: tagsToApply
+                                });
+                            }
                         }
                     } catch (error) {
-                        logger.error('Error applying difficulty tag to explanation', {
+                        logger.error('Error applying tags to explanation', {
                             explanationId: newExplanationId,
-                            difficultyLevel: tagToApply.difficultyLevel,
+                            tags: tagEvaluation,
                             error: error instanceof Error ? error.message : 'Unknown error'
                         });
                     }
