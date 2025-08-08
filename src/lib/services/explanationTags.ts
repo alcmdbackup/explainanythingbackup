@@ -1,8 +1,8 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
-import { type ExplanationTagFullDbType, type ExplanationTagInsertType, type TagFullDbType, explanationTagInsertSchema } from '@/lib/schemas/schemas';
-import { getTagsById } from './tags';
+import { type ExplanationTagFullDbType, type ExplanationTagInsertType, type TagFullDbType, explanationTagInsertSchema, TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/schemas/schemas';
+import { getTagsById, getTagsByPresetId } from './tags';
 
 /**
  * Service for interacting with the explanation_tags junction table in Supabase
@@ -109,11 +109,12 @@ export async function removeTagsFromExplanation(
 /**
  * Get all tags for a specific explanation
  * • Retrieves all tags associated with an explanation via junction table
- * • Returns array of full tag records with tag details
+ * • For preset tags, fetches ALL tags with the same presetTagId (not just applied ones)
+ * • Returns array of UI tag objects (simple or preset) with active state
  * • Used by explanation display and editing interfaces
  * • Calls supabase with join between explanation_tags and tags tables
  */
-export async function getTagsForExplanation(explanationId: number): Promise<TagFullDbType[]> {
+export async function getTagsForExplanation(explanationId: number): Promise<TagUIType[]> {
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -132,7 +133,87 @@ export async function getTagsForExplanation(explanationId: number): Promise<TagF
   if (error) throw error;
   
   // Extract tags from the joined result and ensure proper typing
-  return data?.map(item => (item as any).tags as TagFullDbType).filter(Boolean) || [];
+  const rawTags = data?.map(item => (item as any).tags as TagFullDbType).filter(Boolean) || [];
+  
+  // Group applied tags by presetTagId for processing
+  const appliedTagsByPresetId = new Map<number | null, TagFullDbType[]>();
+  
+  for (const tag of rawTags) {
+    const presetId = tag.presetTagId;
+    if (!appliedTagsByPresetId.has(presetId)) {
+      appliedTagsByPresetId.set(presetId, []);
+    }
+    appliedTagsByPresetId.get(presetId)!.push(tag);
+  }
+  
+  // Collect all unique presetTagIds for a single batch query
+  const uniquePresetTagIds = [...new Set(
+    rawTags
+      .filter(tag => tag.presetTagId !== null)
+      .map(tag => tag.presetTagId!)
+  )];
+  
+  // Fetch all tags with presetTagIds in a single call
+  const allPresetTags = uniquePresetTagIds.length > 0 
+    ? await getTagsByPresetId(uniquePresetTagIds)
+    : [];
+  
+  // Group all preset tags by presetTagId for quick lookup
+  const allPresetTagsByPresetId = new Map<number, TagFullDbType[]>();
+  for (const tag of allPresetTags) {
+    if (tag.presetTagId) {
+      if (!allPresetTagsByPresetId.has(tag.presetTagId)) {
+        allPresetTagsByPresetId.set(tag.presetTagId, []);
+      }
+      allPresetTagsByPresetId.get(tag.presetTagId)!.push(tag);
+    }
+  }
+  
+  const result: TagUIType[] = [];
+  
+  // Process each group
+  for (const [presetId, appliedTags] of appliedTagsByPresetId) {
+    if (presetId === null) {
+      // Simple tags - create individual simpleTagUI objects
+      for (const tag of appliedTags) {
+        const simpleTagUI = {
+          ...tag,
+          tag_active: true
+        };
+        
+        // Validate with zod schema
+        const validation = simpleTagUISchema.safeParse(simpleTagUI);
+        if (validation.success) {
+          result.push(validation.data);
+        } else {
+          console.error('Invalid simple tag UI data:', validation.error);
+        }
+      }
+    } else {
+      // Preset tags - use the pre-fetched all tags with this presetTagId
+      const allTagsWithPresetId = allPresetTagsByPresetId.get(presetId) || [];
+      
+      // Find the originally applied tag (the one that was actually linked to this explanation)
+      const originallyAppliedTag = appliedTags[0]; // We know at least one tag was applied
+      
+      const presetTagUI = {
+        tags: allTagsWithPresetId, // All available tags with this presetTagId
+        tag_active: true,
+        currentActiveTagId: originallyAppliedTag.id, // The tag that was originally applied
+        originalTagId: originallyAppliedTag.id // The tag that was originally applied
+      };
+      
+      // Validate with zod schema
+      const validation = PresetTagUISchema.safeParse(presetTagUI);
+      if (validation.success) {
+        result.push(validation.data);
+      } else {
+        console.error('Invalid preset tag UI data:', validation.error);
+      }
+    }
+  }
+  
+  return result;
 }
 
 /**

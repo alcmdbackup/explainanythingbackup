@@ -238,8 +238,80 @@ export const tagFullDbSchema = tagInsertSchema.extend({
     created_at: z.string()
 });
 
+/**
+ * Schema for tag data with UI-specific active state
+ * @example
+ * {
+ *   id: 123,
+ *   tag_name: "beginner",
+ *   tag_description: "Suitable for beginners with no prior knowledge",
+ *   presetTagId: null,
+ *   created_at: "2024-03-20T10:30:00Z",
+ *   tag_active: true
+ * }
+ */
+export const simpleTagUISchema = tagFullDbSchema.extend({
+    tag_active: z.boolean()
+});
+
 export type TagInsertType = z.infer<typeof tagInsertSchema>;
 export type TagFullDbType = z.infer<typeof tagFullDbSchema>;
+export type SimpleTagUIType = z.infer<typeof simpleTagUISchema>;
+
+/**
+ * Schema for preset tag UI data with active state and reference IDs
+ * @example
+ * {
+ *   tags: [
+ *     { id: 1, tag_name: "beginner", tag_description: "For beginners", presetTagId: null, created_at: "2024-03-20T10:30:00Z" },
+ *     { id: 2, tag_name: "intermediate", tag_description: "For intermediate users", presetTagId: null, created_at: "2024-03-20T10:30:00Z" }
+ *   ],
+ *   tag_active: true,
+ *   currentActiveTagId: 1,
+ *   originalTagId: 2
+ * }
+ */
+export const PresetTagUISchema = z.object({
+    tags: z.array(tagFullDbSchema),
+    tag_active: z.boolean(),
+    currentActiveTagId: z.number().int(),
+    originalTagId: z.number().int()
+}).refine(
+    (data) => {
+        const tagIds = data.tags.map(tag => tag.id);
+        return tagIds.includes(data.currentActiveTagId) && tagIds.includes(data.originalTagId);
+    },
+    {
+        message: "currentActiveTagId and originalTagId must correspond to one of the tag IDs in the array",
+        path: ["currentActiveTagId", "originalTagId"]
+    }
+);
+
+export type PresetTagUIType = z.infer<typeof PresetTagUISchema>;
+
+/**
+ * Union type for tag UI schemas - can be either a simple tag or a preset tag collection
+ * @example
+ * // Simple tag
+ * {
+ *   id: 123,
+ *   tag_name: "beginner",
+ *   tag_description: "For beginners",
+ *   presetTagId: null,
+ *   created_at: "2024-03-20T10:30:00Z",
+ *   tag_active: true
+ * }
+ * 
+ * // Preset tag collection
+ * {
+ *   tags: [{ id: 1, tag_name: "beginner", ... }, { id: 2, tag_name: "intermediate", ... }],
+ *   tag_active: true,
+ *   currentActiveTagId: 1,
+ *   originalTagId: 2
+ * }
+ */
+export const SimpleOrPresetTagUISchema = z.union([simpleTagUISchema, PresetTagUISchema]);
+export type TagUIType = z.infer<typeof SimpleOrPresetTagUISchema>;
 
 /**
  * Schema for explanation-tag relationship data

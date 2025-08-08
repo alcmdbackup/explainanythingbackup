@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
@@ -35,7 +35,7 @@ export default function ResultsPage() {
     const [userid, setUserid] = useState<string | null>(null);
     const [authError, setAuthError] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
-    const [tags, setTags] = useState<TagFullDbType[]>([]);
+    const [tags, setTags] = useState<TagUIType[]>([]);
 
     const isFirstRun = useRef(true);
 
@@ -648,6 +648,7 @@ export default function ResultsPage() {
                                 {/* Tags Bar */}
                                 <TagBar 
                                     tags={tags} 
+                                    setTags={setTags}
                                     className="mb-4" 
                                     onTagClick={(tag) => {
                                         // Handle tag clicks here - you can implement search, filtering, etc.

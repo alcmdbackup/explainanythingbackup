@@ -24,7 +24,7 @@ import {
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId } from '@/lib/services/tags';
 import { evaluateExplanationDifficulty } from '@/lib/services/tagEvaluation';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
-import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType } from '@/lib/schemas/schemas';
+import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 
 const FILE_DEBUG = true;
 
@@ -473,7 +473,7 @@ export const removeTagsFromExplanationAction = withLogging(
 export const getTagsForExplanationAction = withLogging(
     async function getTagsForExplanationAction(explanationId: number): Promise<{
         success: boolean;
-        data: TagFullDbType[] | null;
+        data: TagUIType[] | null;
         error: ErrorResponse | null;
     }> {
         try {
