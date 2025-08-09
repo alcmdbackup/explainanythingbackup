@@ -270,21 +270,24 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
         try {
             const result = await getAllTagsAction();
             if (result.success && result.data) {
-                // Filter out tags that are already active
-                const activeTagIds = new Set<number>();
+                // Filter out tags that are already active or part of preset collections
+                const excludedTagIds = new Set<number>();
                 tags.forEach(tag => {
                     if ('tag_name' in tag) {
-                        // Simple tag - if active, add to set
+                        // Simple tag - if active, add to excluded set
                         if (tag.tag_active_current) {
-                            activeTagIds.add(tag.id);
+                            excludedTagIds.add(tag.id);
                         }
                     } else {
-                        // Preset tag - add current active tag ID
-                        activeTagIds.add(tag.currentActiveTagId);
+                        // Preset tag - add current active tag ID and ALL tags in the preset collection
+                        excludedTagIds.add(tag.currentActiveTagId);
+                        tag.tags.forEach(presetTag => {
+                            excludedTagIds.add(presetTag.id);
+                        });
                     }
                 });
                 
-                const filteredTags = result.data.filter(tag => !activeTagIds.has(tag.id));
+                const filteredTags = result.data.filter(tag => !excludedTagIds.has(tag.id));
                 setAvailableTags(filteredTags);
                 setFilteredAvailableTags(filteredTags);
             }
