@@ -21,7 +21,7 @@ import {
   getMultipleExplanationMetrics, 
   refreshExplanationMetrics
 } from '@/lib/services/metrics';
-import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId } from '@/lib/services/tags';
+import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 
@@ -529,6 +529,40 @@ export const getTagsByPresetIdAction = withLogging(
         }
     },
     'getTagsByPresetIdAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Get all available tags
+ * • Retrieves all tags from the database ordered by name
+ * • Returns array of all available tags for selection
+ * • Used by tag selection interfaces and add tag functionality
+ * • Calls getAllTags service function
+ */
+export const getAllTagsAction = withLogging(
+    async function getAllTagsAction(): Promise<{
+        success: boolean;
+        data: TagFullDbType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const tags = await getAllTags();
+            return {
+                success: true,
+                data: tags,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAllTagsAction', {})
+            };
+        }
+    },
+    'getAllTagsAction',
     { 
         enabled: FILE_DEBUG
     }
