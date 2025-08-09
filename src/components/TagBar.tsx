@@ -104,10 +104,10 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
     const handleReset = () => {
         const resetTags = tags.map(tag => {
             if ('tag_name' in tag) {
-                // Simple tag - reset to active
-                return { ...tag, tag_active_current: true };
+                // Simple tag - reset tag_active_current back to tag_active_initial
+                return { ...tag, tag_active_current: tag.tag_active_initial };
             } else {
-                // Preset tag - reset to original
+                // Preset tag - reset currentActiveTagId back to originalTagId
                 return { ...tag, currentActiveTagId: tag.originalTagId };
             }
         });
@@ -337,7 +337,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
         const newTag: TagUIType = {
             ...selectedTag,
             tag_active_current: true,
-            tag_active_initial: true
+            tag_active_initial: false
         };
         
         setTags([...tags, newTag]);
@@ -363,7 +363,13 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                             <span className="text-sm font-medium text-gray-300">
                                 Tags:
                             </span>
-                            {tags.map((tag, index) => {
+                            {tags.filter(tag => {
+                                // Only show simple tags that are active, or any preset tags
+                                if ('tag_name' in tag) {
+                                    return tag.tag_active_current === true;
+                                }
+                                return true; // Always show preset tags
+                            }).map((tag, index) => {
                                 // Check if this is a simple tag or preset tag collection
                                 if ('tag_name' in tag) {
                                     // Simple tag
@@ -574,7 +580,13 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                     <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
                         Tags:
                     </span>
-                    {tags.map((tag, index) => {
+                    {tags.filter(tag => {
+                        // Only show simple tags that are active, or any preset tags
+                        if ('tag_name' in tag) {
+                            return tag.tag_active_current === true;
+                        }
+                        return true; // Always show preset tags
+                    }).map((tag, index) => {
                         // Check if this is a simple tag or preset tag collection
                         if ('tag_name' in tag) {
                             // Simple tag
