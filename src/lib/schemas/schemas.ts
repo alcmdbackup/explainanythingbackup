@@ -247,11 +247,13 @@ export const tagFullDbSchema = tagInsertSchema.extend({
  *   tag_description: "Suitable for beginners with no prior knowledge",
  *   presetTagId: null,
  *   created_at: "2024-03-20T10:30:00Z",
- *   tag_active: true
+ *   tag_active_current: true,
+ *   tag_active_initial: true
  * }
  */
 export const simpleTagUISchema = tagFullDbSchema.extend({
-    tag_active: z.boolean()
+    tag_active_current: z.boolean(),
+    tag_active_initial: z.boolean()
 });
 
 export type TagInsertType = z.infer<typeof tagInsertSchema>;
@@ -266,14 +268,16 @@ export type SimpleTagUIType = z.infer<typeof simpleTagUISchema>;
  *     { id: 1, tag_name: "beginner", tag_description: "For beginners", presetTagId: null, created_at: "2024-03-20T10:30:00Z" },
  *     { id: 2, tag_name: "intermediate", tag_description: "For intermediate users", presetTagId: null, created_at: "2024-03-20T10:30:00Z" }
  *   ],
- *   tag_active: true,
+ *   tag_active_current: true,
+ *   tag_active_initial: true,
  *   currentActiveTagId: 1,
  *   originalTagId: 2
  * }
  */
 export const PresetTagUISchema = z.object({
     tags: z.array(tagFullDbSchema),
-    tag_active: z.boolean(),
+    tag_active_current: z.boolean(),
+    tag_active_initial: z.boolean(),
     currentActiveTagId: z.number().int(),
     originalTagId: z.number().int()
 }).refine(
@@ -299,13 +303,15 @@ export type PresetTagUIType = z.infer<typeof PresetTagUISchema>;
  *   tag_description: "For beginners",
  *   presetTagId: null,
  *   created_at: "2024-03-20T10:30:00Z",
- *   tag_active: true
+ *   tag_active_current: true,
+ *   tag_active_initial: true
  * }
  * 
  * // Preset tag collection
  * {
  *   tags: [{ id: 1, tag_name: "beginner", ... }, { id: 2, tag_name: "intermediate", ... }],
- *   tag_active: true,
+ *   tag_active_current: true,
+ *   tag_active_initial: true,
  *   currentActiveTagId: 1,
  *   originalTagId: 2
  * }

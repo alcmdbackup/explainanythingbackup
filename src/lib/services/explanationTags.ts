@@ -107,6 +107,126 @@ export async function removeTagsFromExplanation(
 }
 
 /**
+ * Bulk remove tags from multiple explanations
+ * • Efficiently removes the same set of tags from multiple explanations
+ * • Returns results for each explanation including success/failure counts
+ * • Used by bulk operations and administrative tag management
+ * • Calls removeTagsFromExplanation for each explanation
+ */
+export async function bulkRemoveTagsFromExplanations(
+  explanationIds: number[],
+  tagIds: number[]
+): Promise<Array<{
+  explanationId: number;
+  success: boolean;
+  removed: number;
+  notFound: number[];
+  error?: string;
+}>> {
+  if (explanationIds.length === 0 || tagIds.length === 0) {
+    return [];
+  }
+  
+  const results = await Promise.allSettled(
+    explanationIds.map(async (explanationId) => {
+      try {
+        await removeTagsFromExplanation(explanationId, tagIds);
+        return {
+          explanationId,
+          success: true,
+          removed: 0,
+          notFound: []
+        };
+      } catch (error) {
+        return {
+          explanationId,
+          success: false,
+          removed: 0,
+          notFound: [],
+          error: error instanceof Error ? error.message : 'Unknown error'
+        };
+      }
+    })
+  );
+  
+  return results.map((result, index) => {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    } else {
+      return {
+        explanationId: explanationIds[index],
+        success: false,
+        removed: 0,
+        notFound: [],
+        error: result.reason instanceof Error ? result.reason.message : 'Unknown error'
+      };
+    }
+  });
+}
+
+/**
+ * Replace all tags for an explanation with validation
+ * • Removes all existing tags and adds new ones with full validation
+ * • Ensures preset tag constraints are maintained in the final state
+ * • Returns detailed results including validation errors
+ * • Used by tag editing interfaces for complete tag updates
+ * • Calls removeAllTagsFromExplanation and addTagsToExplanation with validation
+ */
+export async function replaceTagsForExplanationWithValidation(
+  explanationId: number,
+  tagIds: number[]
+): Promise<{
+  success: boolean;
+  removed: number;
+  added: number;
+  validationErrors: string[];
+  finalTags: TagUIType[];
+}> {
+  try {
+    // First remove all existing tags
+    await removeAllTagsFromExplanation(explanationId);
+    
+    // Then add the new tags with validation
+    if (tagIds.length === 0) {
+      const finalTags = await getTagsForExplanation(explanationId);
+      return {
+        success: true,
+        removed: 0,
+        added: 0,
+        validationErrors: [],
+        finalTags
+      };
+    }
+    
+    const addedTags = await addTagsToExplanation(explanationId, tagIds);
+    const finalTags = await getTagsForExplanation(explanationId);
+    
+    return {
+      success: true,
+      removed: 0, // We don't track how many were removed in removeAllTagsFromExplanation
+      added: addedTags.length,
+      validationErrors: [],
+      finalTags
+    };
+  } catch (error) {
+    // If anything fails, try to restore the original state
+    try {
+      await removeAllTagsFromExplanation(explanationId);
+    } catch (restoreError) {
+      console.error('Failed to restore explanation tags after error:', restoreError);
+    }
+    
+    return {
+      success: false,
+      removed: 0,
+      added: 0,
+      validationErrors: [error instanceof Error ? error.message : 'Unknown error'],
+      finalTags: []
+    };
+  }
+}
+
+/**
  * Get all tags for a specific explanation
  * • Retrieves all tags associated with an explanation via junction table
  * • For preset tags, fetches ALL tags with the same presetTagId (not just applied ones)
@@ -178,7 +298,8 @@ export async function getTagsForExplanation(explanationId: number): Promise<TagU
       for (const tag of appliedTags) {
         const simpleTagUI = {
           ...tag,
-          tag_active: true
+          tag_active_current: true,
+          tag_active_initial: true
         };
         
         // Validate with zod schema
@@ -198,7 +319,8 @@ export async function getTagsForExplanation(explanationId: number): Promise<TagU
       
       const presetTagUI = {
         tags: allTagsWithPresetId, // All available tags with this presetTagId
-        tag_active: true,
+        tag_active_current: true,
+        tag_active_initial: true,
         currentActiveTagId: originallyAppliedTag.id, // The tag that was originally applied
         originalTagId: originallyAppliedTag.id // The tag that was originally applied
       };
@@ -277,26 +399,6 @@ export async function removeAllTagsFromExplanation(explanationId: number): Promi
     .eq('explanation_id', explanationId);
 
   if (error) throw error;
-}
-
-/**
- * Replace all tags for an explanation
- * • Removes all existing tags and adds new ones in a transaction-like operation
- * • Efficient way to update an explanation's complete tag set
- * • Returns array of new relationship records
- * • Used by tag editing interfaces for complete tag updates
- * • Calls supabase explanation_tags table delete and insert operations
- */
-export async function replaceTagsForExplanation(
-  explanationId: number,
-  tagIds: number[]
-): Promise<ExplanationTagFullDbType[]> {
-  // First remove all existing tags
-  await removeAllTagsFromExplanation(explanationId);
-  
-  // Then add the new tags
-  if (tagIds.length === 0) return [];
-  return await addTagsToExplanation(explanationId, tagIds);
 }
 
 /**

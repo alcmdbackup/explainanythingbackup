@@ -20,6 +20,7 @@ interface TagBarProps {
  * • Uses consistent styling with the project's design system
  * • Provides hover effects and accessibility features
  * • Shows pop-down menu when tags are modified with X, Apply, and Reset options
+ * • Includes inline tag addition functionality with text input
  * 
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns
@@ -27,8 +28,11 @@ interface TagBarProps {
 export default function TagBar({ tags, setTags, className = '', onTagClick }: TagBarProps) {
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
+    const [showAddTagInput, setShowAddTagInput] = useState(false);
+    const [newTagName, setNewTagName] = useState('');
     const dropdownRef = useRef<HTMLDivElement>(null);
     const modifiedMenuRef = useRef<HTMLDivElement>(null);
+    const addTagInputRef = useRef<HTMLInputElement>(null);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -47,10 +51,17 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
         };
     }, []);
 
+    // Focus input when add tag input is shown
+    useEffect(() => {
+        if (showAddTagInput && addTagInputRef.current) {
+            addTagInputRef.current.focus();
+        }
+    }, [showAddTagInput]);
+
     /**
      * Detects if any tags are in a modified state
      * 
-     * • Checks simple tags for tag_active changes from default true state
+     * • Checks simple tags for tag_active_current != tag_active_initial
      * • Checks preset tags for currentActiveTagId != originalTagId
      * • Returns true if any tag has been modified from its original state
      * 
@@ -60,8 +71,8 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
     const hasModifiedTags = (): boolean => {
         return tags.some(tag => {
             if ('tag_name' in tag) {
-                // Simple tag - check if tag_active is false (modified from default true)
-                return tag.tag_active === false;
+                // Simple tag - check if tag_active_current != tag_active_initial
+                return tag.tag_active_current !== tag.tag_active_initial;
             } else {
                 // Preset tag - check if currentActiveTagId != originalTagId
                 return tag.currentActiveTagId !== tag.originalTagId;
@@ -72,7 +83,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
     /**
      * Resets all tags back to their original state
      * 
-     * • Sets simple tags back to tag_active: true
+     * • Sets simple tags back to tag_active_current: true
      * • Sets preset tags back to currentActiveTagId: originalTagId
      * • Updates the tags state to reflect the reset
      * • Closes the modified menu after reset
@@ -84,7 +95,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
         const resetTags = tags.map(tag => {
             if ('tag_name' in tag) {
                 // Simple tag - reset to active
-                return { ...tag, tag_active: true };
+                return { ...tag, tag_active_current: true };
             } else {
                 // Preset tag - reset to original
                 return { ...tag, currentActiveTagId: tag.originalTagId };
@@ -160,6 +171,71 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
         }
     };
 
+    /**
+     * Shows the add tag input field
+     * 
+     * • Sets showAddTagInput to true to display the input field
+     * • Clears any previous tag name input
+     * • Used by the add tag button click handler
+     * 
+     * Used by: Add tag button click handler
+     * Calls: setShowAddTagInput, setNewTagName
+     */
+    const handleShowAddTagInput = () => {
+        setShowAddTagInput(true);
+        setNewTagName('');
+    };
+
+    /**
+     * Handles the add tag input submission
+     * 
+     * • Currently just hides the input (actual tag creation logic to be implemented)
+     * • Clears the input field
+     * • Closes the add tag input
+     * 
+     * Used by: Add tag input form submission
+     * Calls: setShowAddTagInput, setNewTagName
+     */
+    const handleAddTagSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (newTagName.trim()) {
+            // TODO: Implement actual tag creation logic here
+            console.log('Would create tag:', newTagName.trim());
+        }
+        setShowAddTagInput(false);
+        setNewTagName('');
+    };
+
+    /**
+     * Cancels the add tag operation
+     * 
+     * • Hides the add tag input field
+     * • Clears the input value
+     * • Used by escape key or cancel button
+     * 
+     * Used by: Cancel button click and escape key handler
+     * Calls: setShowAddTagInput, setNewTagName
+     */
+    const handleCancelAddTag = () => {
+        setShowAddTagInput(false);
+        setNewTagName('');
+    };
+
+    /**
+     * Handles escape key press in the add tag input
+     * 
+     * • Cancels the add tag operation when escape is pressed
+     * • Provides keyboard navigation for accessibility
+     * 
+     * Used by: Add tag input keydown event
+     * Calls: handleCancelAddTag
+     */
+    const handleAddTagKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Escape') {
+            handleCancelAddTag();
+        }
+    };
+
     if (!tags || tags.length === 0) {
         return null;
     }
@@ -185,7 +261,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                                         <div key={tag.id} className="relative">
                                             <span
                                                 className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
-                                                    tag.tag_active 
+                                                    tag.tag_active_current 
                                                         ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
                                                         : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800/50 hover:bg-red-200 dark:hover:bg-red-900/50'
                                                 }`}
@@ -254,6 +330,46 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                                     );
                                 }
                             })}
+                            
+                            {/* Add tag button or input field */}
+                            {showAddTagInput ? (
+                                <form onSubmit={handleAddTagSubmit} className="inline-flex items-center">
+                                    <input
+                                        ref={addTagInputRef}
+                                        type="text"
+                                        value={newTagName}
+                                        onChange={(e) => setNewTagName(e.target.value)}
+                                        onKeyDown={handleAddTagKeyDown}
+                                        placeholder="Enter tag name..."
+                                        className="px-2.5 py-0.5 text-xs border border-gray-400 dark:border-gray-500 rounded-full bg-gray-700 dark:bg-gray-800 text-gray-100 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[120px]"
+                                        maxLength={50}
+                                    />
+                                    <button
+                                        type="submit"
+                                        className="ml-1 px-2 py-0.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-full transition-colors duration-200"
+                                    >
+                                        Add
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCancelAddTag}
+                                        className="ml-1 px-2 py-0.5 text-xs font-medium text-gray-300 dark:text-gray-400 bg-gray-600 hover:bg-gray-500 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-full transition-colors duration-200"
+                                    >
+                                        Cancel
+                                    </button>
+                                </form>
+                            ) : (
+                                <button
+                                    onClick={handleShowAddTagInput}
+                                    className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium text-gray-300 dark:text-gray-400 bg-gray-700 hover:bg-gray-600 dark:bg-gray-800 dark:hover:bg-gray-700 border border-gray-600 dark:border-gray-500 rounded-full transition-colors duration-200 hover:border-gray-500 dark:hover:border-gray-400"
+                                    title="Add new tag"
+                                >
+                                    <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                    </svg>
+                                    Add tag
+                                </button>
+                            )}
                         </div>
 
                         {/* Action buttons - much smaller and right-aligned */}
@@ -283,7 +399,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                                 {tags.map((tag, index) => {
                                     if ('tag_name' in tag) {
                                         // Simple tag
-                                        if (tag.tag_active === false) {
+                                        if (tag.tag_active_current === false) {
                                             return (
                                                 <div key={tag.id} className="text-sm text-gray-400">
                                                     • {tag.tag_name} (deactivated)
@@ -322,7 +438,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                                 <div key={tag.id} className="relative">
                                     <span
                                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
-                                            tag.tag_active 
+                                            tag.tag_active_current 
                                                 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
                                                 : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800/50 hover:bg-red-200 dark:hover:bg-red-900/50'
                                         }`}
@@ -391,6 +507,46 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                             );
                         }
                     })}
+                    
+                    {/* Add tag button or input field */}
+                    {showAddTagInput ? (
+                        <form onSubmit={handleAddTagSubmit} className="inline-flex items-center">
+                            <input
+                                ref={addTagInputRef}
+                                type="text"
+                                value={newTagName}
+                                onChange={(e) => setNewTagName(e.target.value)}
+                                onKeyDown={handleAddTagKeyDown}
+                                placeholder="Enter tag name..."
+                                className="px-2.5 py-0.5 text-xs border border-gray-300 dark:border-gray-600 rounded-full bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent min-w-[120px]"
+                                maxLength={50}
+                            />
+                            <button
+                                type="submit"
+                                className="ml-1 px-2 py-0.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-full transition-colors duration-200"
+                            >
+                                Add
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleCancelAddTag}
+                                className="ml-1 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded-full transition-colors duration-200"
+                            >
+                                Cancel
+                            </button>
+                        </form>
+                    ) : (
+                        <button
+                            onClick={handleShowAddTagInput}
+                            className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-full transition-colors duration-200 hover:border-gray-400 dark:hover:border-gray-500"
+                            title="Add new tag"
+                        >
+                            <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                            </svg>
+                            Add tag
+                        </button>
+                    )}
                 </div>
             )}
         </div>
