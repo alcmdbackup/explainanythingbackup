@@ -330,6 +330,7 @@ export type TagUIType = z.infer<typeof SimpleOrPresetTagUISchema>;
 export const explanationTagInsertSchema = z.object({
     explanation_id: z.number(),
     tag_id: z.number(),
+    isDeleted: z.boolean().default(false),
 });
 
 /**
@@ -339,6 +340,7 @@ export const explanationTagInsertSchema = z.object({
  *   id: 789,
  *   explanation_id: 456,
  *   tag_id: 123,
+ *   isDeleted: false,
  *   created_at: "2024-03-20T10:30:00Z"
  * }
  */

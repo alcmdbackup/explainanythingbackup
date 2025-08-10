@@ -650,6 +650,7 @@ export default function ResultsPage() {
                                     tags={tags} 
                                     setTags={setTags}
                                     className="mb-4" 
+                                    explanationId={explanationId}
                                     onTagClick={(tag) => {
                                         // Handle tag clicks here - you can implement search, filtering, etc.
                                         console.log('Tag clicked:', tag);

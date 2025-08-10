@@ -3,12 +3,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { TagFullDbType, TagUIType } from '@/lib/schemas/schemas';
 import { getAllTagsAction } from '@/actions/actions';
+import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
 
 interface TagBarProps {
     tags: TagUIType[];
     setTags: (tags: TagUIType[]) => void;
     className?: string;
     onTagClick?: (tag: TagFullDbType) => void;
+    explanationId?: number | null;
 }
 
 /**
@@ -27,7 +29,7 @@ interface TagBarProps {
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns, getAllTagsAction for available tags
  */
-export default function TagBar({ tags, setTags, className = '', onTagClick }: TagBarProps) {
+export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId }: TagBarProps) {
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -113,6 +115,53 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
         });
         setTags(resetTags);
         setShowModifiedMenu(false);
+    };
+
+    /**
+     * Handles applying tag modifications to the explanation
+     * 
+     * • Calls handleApplyForModifyTags with current tags and explanationId
+     * • Updates tags state to reflect the applied changes
+     * • Closes the modified menu after successful application
+     * • Handles errors and provides user feedback
+     * 
+     * Used by: Apply button click handler
+     * Calls: handleApplyForModifyTags, setTags, setShowModifiedMenu
+     */
+    const handleApply = async () => {
+        if (!explanationId) {
+            console.error('No explanation ID provided for applying tags');
+            return;
+        }
+
+        try {
+            const result = await handleApplyForModifyTags(explanationId, tags);
+            
+            if (result.errors.length > 0) {
+                console.error('Errors applying tags:', result.errors);
+                // You could add a toast notification here
+                return;
+            }
+
+            // Update tags to reflect the applied state
+            const updatedTags = tags.map(tag => {
+                if ('tag_name' in tag) {
+                    // Simple tag - update tag_active_initial to match tag_active_current
+                    return { ...tag, tag_active_initial: tag.tag_active_current };
+                } else {
+                    // Preset tag - update originalTagId to match currentActiveTagId
+                    return { ...tag, originalTagId: tag.currentActiveTagId };
+                }
+            });
+            
+            setTags(updatedTags);
+            setShowModifiedMenu(false);
+            
+            console.log(`Successfully applied tags: ${result.added} added, ${result.removed} removed`);
+        } catch (error) {
+            console.error('Error applying tags:', error);
+            // You could add a toast notification here
+        }
     };
 
     /**
@@ -528,8 +577,13 @@ export default function TagBar({ tags, setTags, className = '', onTagClick }: Ta
                         {/* Action buttons - much smaller and right-aligned */}
                         <div className="flex space-x-2">
                             <button
-                                className="px-2 py-1 text-xs font-medium text-gray-700 dark:text-gray-300 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 rounded transition-colors duration-200 cursor-not-allowed opacity-50"
-                                disabled
+                                onClick={handleApply}
+                                disabled={!explanationId}
+                                className={`px-2 py-1 text-xs font-medium rounded transition-colors duration-200 ${
+                                    explanationId 
+                                        ? 'text-white bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 cursor-pointer'
+                                        : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-50'
+                                }`}
                             >
                                 Apply
                             </button>
