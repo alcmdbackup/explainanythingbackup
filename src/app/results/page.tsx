@@ -36,8 +36,11 @@ export default function ResultsPage() {
     const [authError, setAuthError] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [tags, setTags] = useState<TagUIType[]>([]);
+    const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
+    const [modifiedStateOverride, setModifiedStateOverride] = useState(false);
 
     const isFirstRun = useRef(true);
+    const regenerateDropdownRef = useRef<HTMLDivElement>(null);
 
     /**
      * Fetches the current user's ID from authentication
@@ -547,6 +550,23 @@ export default function ResultsPage() {
         const verifyStored = localStorage.getItem('explanation-mode');
     }, [mode]);
 
+    // Handle clicking outside dropdown to close it
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (regenerateDropdownRef.current && !regenerateDropdownRef.current.contains(event.target as Node)) {
+                setShowRegenerateDropdown(false);
+            }
+        };
+
+        if (showRegenerateDropdown) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showRegenerateDropdown]);
+
 
 
     return (
@@ -601,14 +621,43 @@ export default function ResultsPage() {
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                         {(explanationTitle || content) && (
-                                            <button
-                                                type="button"
-                                                disabled={isLoading}
-                                                onClick={() => handleUserAction(explanationTitle, UserInputType.TitleFromRegenerate, mode, userid)}
-                                                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
-                                            >
-                                                <span className="leading-none">Regenerate</span>
-                                            </button>
+                                            <div className="relative inline-flex" ref={regenerateDropdownRef}>
+                                                <button
+                                                    type="button"
+                                                    disabled={isLoading}
+                                                    onClick={() => setShowRegenerateDropdown(!showRegenerateDropdown)}
+                                                    className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                                >
+                                                    <span className="leading-none">Rewrite</span>
+                                                    <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                    </svg>
+                                                </button>
+                                                {showRegenerateDropdown && (
+                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
+                                                        <div className="py-1">
+                                                            <button
+                                                                onClick={() => {
+                                                                    setShowRegenerateDropdown(false);
+                                                                    handleUserAction(explanationTitle, UserInputType.TitleFromRegenerate, mode, userid);
+                                                                }}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                                                            >
+                                                                Rewrite with tags
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setShowRegenerateDropdown(false);
+                                                                    setModifiedStateOverride(true);
+                                                                }}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                                                            >
+                                                                Edit with tags
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                         <button
                                             onClick={handleSave}
@@ -651,6 +700,8 @@ export default function ResultsPage() {
                                     setTags={setTags}
                                     className="mb-4" 
                                     explanationId={explanationId}
+                                    modifiedStateOverride={modifiedStateOverride}
+                                    setModifiedStateOverride={setModifiedStateOverride}
                                     onTagClick={(tag) => {
                                         // Handle tag clicks here - you can implement search, filtering, etc.
                                         console.log('Tag clicked:', tag);
