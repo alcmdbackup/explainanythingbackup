@@ -231,6 +231,22 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     };
 
     /**
+     * Handles removing tags by setting tag_active_current to false
+     * 
+     * • Sets tag_active_current = false for the specified tag
+     * • Updates the tags state to reflect the change
+     * • Works for both simple tags and preset tag collections
+     * 
+     * Used by: "x" button click handlers for tag removal
+     * Calls: setTags
+     */
+    const handleRemoveTag = (tagIndex: number) => {
+        const updatedTags = [...tags];
+        updatedTags[tagIndex].tag_active_current = false;
+        setTags(updatedTags);
+    };
+
+    /**
      * Shows the add tag input field
      * 
      * • Sets showAddTagInput to true to display the input field
@@ -437,6 +453,18 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                                                 onClick={() => handleSimpleTagClick(tag)}
                                             >
                                                 {tag.tag_name}
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation(); // Prevent dropdown from closing
+                                                        handleRemoveTag(index);
+                                                    }}
+                                                    className="ml-1 hover:opacity-70"
+                                                    title="Remove tag"
+                                                >
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
                                             </span>
                                         </div>
                                     );
@@ -466,6 +494,18 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                                                 <svg className="ml-1 w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                                 </svg>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation(); // Prevent dropdown from closing
+                                                        handleRemoveTag(index);
+                                                    }}
+                                                    className="ml-1 hover:opacity-70"
+                                                    title="Remove tag"
+                                                >
+                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                </button>
                                             </span>
                                             
                                             {/* Dropdown for preset tag collections */}
@@ -659,6 +699,18 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                                         onClick={() => handleSimpleTagClick(tag)}
                                     >
                                         {tag.tag_name}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent dropdown from closing
+                                                handleRemoveTag(index);
+                                            }}
+                                            className="ml-1 hover:opacity-70"
+                                            title="Remove tag"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
                                     </span>
                                 </div>
                             );
@@ -688,6 +740,18 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                                         <svg className="ml-1 w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                                         </svg>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent dropdown from closing
+                                                handleRemoveTag(index);
+                                            }}
+                                            className="ml-1 hover:opacity-70"
+                                            title="Remove tag"
+                                        >
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                            </svg>
+                                        </button>
                                     </span>
                                     
                                     {/* Dropdown for preset tag collections */}
