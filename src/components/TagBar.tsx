@@ -247,6 +247,22 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     };
 
     /**
+     * Handles restoring tags by setting tag_active_current to true
+     * 
+     * • Sets tag_active_current = true for the specified tag
+     * • Updates the tags state to reflect the change
+     * • Works for both simple tags and preset tag collections
+     * 
+     * Used by: "x" button click handlers for tag restoration
+     * Calls: setTags
+     */
+    const handleRestoreTag = (tagIndex: number) => {
+        const updatedTags = [...tags];
+        updatedTags[tagIndex].tag_active_current = true;
+        setTags(updatedTags);
+    };
+
+    /**
      * Shows the add tag input field
      * 
      * • Sets showAddTagInput to true to display the input field
@@ -431,10 +447,10 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                             <span className="text-sm font-medium text-gray-300">
                                 Tags:
                             </span>
-                            {tags.filter(tag => {
-                                // Only show simple tags that are active, or any preset tags
+                                                {tags.filter(tag => {
+                                // Filter out tags that were never active (tag_active_initial = false and tag_active_current = false)
                                 if ('tag_name' in tag) {
-                                    return tag.tag_active_current === true;
+                                    return !(tag.tag_active_initial === false && tag.tag_active_current === false);
                                 }
                                 return true; // Always show preset tags
                             }).map((tag, index) => {
@@ -443,29 +459,37 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                                     // Simple tag
                                     return (
                                         <div key={tag.id} className="relative">
-                                            <span
-                                                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
-                                                    tag.tag_active_current 
-                                                        ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
-                                                        : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800/50 hover:bg-red-200 dark:hover:bg-red-900/50'
-                                                }`}
-                                                title={tag.tag_description || tag.tag_name}
-                                                onClick={() => handleSimpleTagClick(tag)}
-                                            >
-                                                {tag.tag_name}
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation(); // Prevent dropdown from closing
-                                                        handleRemoveTag(index);
-                                                    }}
-                                                    className="ml-1 hover:opacity-70"
-                                                    title="Remove tag"
-                                                >
-                                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                                    </svg>
-                                                </button>
-                                            </span>
+                                                                                <span
+                                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
+                                            tag.tag_active_current 
+                                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
+                                                : 'bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400 border-gray-200 dark:border-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700/50 line-through opacity-75'
+                                        }`}
+                                        title={tag.tag_active_current ? (tag.tag_description || tag.tag_name) : `Removed: ${tag.tag_description || tag.tag_name} (click to restore)`}
+                                        onClick={() => tag.tag_active_current ? handleSimpleTagClick(tag) : handleRestoreTag(index)}
+                                    >
+                                        {tag.tag_name}
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation(); // Prevent dropdown from closing
+                                                if (tag.tag_active_current) {
+                                                    handleRemoveTag(index);
+                                                } else {
+                                                    handleRestoreTag(index);
+                                                }
+                                            }}
+                                            className="ml-1 hover:opacity-70"
+                                            title={tag.tag_active_current ? "Remove tag" : "Restore tag"}
+                                        >
+                                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                {tag.tag_active_current ? (
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                ) : (
+                                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                                                )}
+                                            </svg>
+                                        </button>
+                                    </span>
                                         </div>
                                     );
                                 } else {
@@ -637,21 +661,46 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                     </div>
 
                     {/* Modified tags details (expandable) */}
+                    <div className="mt-3 flex items-center justify-between">
+                        <button
+                            onClick={() => setShowModifiedMenu(!showModifiedMenu)}
+                            className="text-xs text-gray-400 hover:text-gray-300 transition-colors duration-200 flex items-center"
+                        >
+                            {showModifiedMenu ? 'Hide' : 'Show'} changes
+                            <svg className={`ml-1 w-3 h-3 transition-transform duration-200 ${showModifiedMenu ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                    </div>
                     {showModifiedMenu && (
-                        <div className="mt-4 p-3 bg-gray-700 dark:bg-gray-800 rounded-md">
+                        <div className="mt-2 p-3 bg-gray-700 dark:bg-gray-800 rounded-md">
                             <span className="text-sm font-medium text-gray-300 mb-2 block">
                                 What Changed:
                             </span>
                             <div className="space-y-2">
-                                {tags.map((tag, index) => {
+                                {tags.filter(tag => {
+                                    // Filter out tags that were never active (tag_active_initial = false and tag_active_current = false)
+                                    if ('tag_name' in tag) {
+                                        return !(tag.tag_active_initial === false && tag.tag_active_current === false);
+                                    }
+                                    return true; // Always show preset tags
+                                }).map((tag, index) => {
                                     if ('tag_name' in tag) {
                                         // Simple tag
-                                        if (tag.tag_active_current === false) {
-                                            return (
-                                                <div key={tag.id} className="text-sm text-gray-400">
-                                                    • {tag.tag_name} (deactivated)
-                                                </div>
-                                            );
+                                        if (tag.tag_active_current !== tag.tag_active_initial) {
+                                            if (tag.tag_active_current === false) {
+                                                return (
+                                                    <div key={tag.id} className="text-sm text-gray-400">
+                                                        • {tag.tag_name} (removed - click to restore)
+                                                    </div>
+                                                );
+                                            } else {
+                                                return (
+                                                    <div key={tag.id} className="text-sm text-gray-400">
+                                                        • {tag.tag_name} (restored)
+                                                    </div>
+                                                );
+                                            }
                                         }
                                     } else {
                                         // Preset tag
@@ -690,11 +739,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                             return (
                                 <div key={tag.id} className="relative">
                                     <span
-                                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
-                                            tag.tag_active_current 
-                                                ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
-                                                : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800/50 hover:bg-red-200 dark:hover:bg-red-900/50'
-                                        }`}
+                                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50"
                                         title={tag.tag_description || tag.tag_name}
                                         onClick={() => handleSimpleTagClick(tag)}
                                     >
