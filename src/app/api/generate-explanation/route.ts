@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
-import { generateExplanationLogic } from '@/lib/services/generateExplanation';
+import { generateExplanationLogic, StreamingCallback } from '@/lib/services/generateExplanation';
 
 export async function POST(request: NextRequest) {
     try {
@@ -25,11 +25,19 @@ export async function POST(request: NextRequest) {
         const stream = new ReadableStream({
             async start(controller) {
                 try {
-                    // Streaming callback for LLM content
+                    // Send streaming start signal
+                    const startData = JSON.stringify({
+                        type: 'streaming_start',
+                        isStreaming: true
+                    });
+                    controller.enqueue(encoder.encode(`data: ${startData}\n\n`));
+
+                    // Streaming callback that forwards content to the client
                     const streamingCallback = (content: string) => {
                         const data = JSON.stringify({ 
                             type: 'content',
                             content: content,
+                            isStreaming: true, // Always true when we receive content
                             isComplete: false 
                         });
                         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
@@ -45,10 +53,18 @@ export async function POST(request: NextRequest) {
                         streamingCallback
                     );
 
+                    // Send streaming end signal
+                    const endData = JSON.stringify({
+                        type: 'streaming_end',
+                        isStreaming: false
+                    });
+                    controller.enqueue(encoder.encode(`data: ${endData}\n\n`));
+
                     // Send final result (whether match found or generation completed)
                     const finalData = JSON.stringify({
                         type: 'complete',
                         result: result,
+                        isStreaming: false,
                         isComplete: true
                     });
                     controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
@@ -58,6 +74,7 @@ export async function POST(request: NextRequest) {
                     const errorData = JSON.stringify({
                         type: 'error',
                         error: error instanceof Error ? error.message : 'Unknown error',
+                        isStreaming: false,
                         isComplete: true
                     });
                     controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));

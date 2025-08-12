@@ -26,6 +26,7 @@ export default function ResultsPage() {
     const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<explanationBaseType | null>(null);
     const [isPageLoading, setIsPageLoading] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -247,6 +248,7 @@ export default function ResultsPage() {
         }
         
         setIsPageLoading(true);
+        setIsStreaming(false); // Reset streaming state
         setError(null);
         setMatches([]);
         setExplanationData(null);
@@ -299,16 +301,29 @@ export default function ResultsPage() {
                         if (data.type === 'error') {
                             setError(data.error);
                             setIsPageLoading(false);
+                            setIsStreaming(false);
                             return;
+                        }
+
+                        if (data.type === 'streaming_start') {
+                            setIsStreaming(true);
                         }
 
                         if (data.type === 'content') {
                             // Handle streaming content - update the UI in real-time
                             setContent(data.content);
+                            // Ensure streaming state is true when receiving content
+                            setIsStreaming(true);
+                        }
+
+                        if (data.type === 'streaming_end') {
+                            setIsStreaming(false);
                         }
 
                         if (data.type === 'complete' && data.result) {
                             finalResult = data.result;
+                            //setIsStreaming(false);
+                            //wait for page reload to set this to false. This will prevent the flashing of the action buttons. 
                             break;
                         }
                     } catch (parseError) {
@@ -322,6 +337,7 @@ export default function ResultsPage() {
 
         if (!finalResult) {
             setError('No result received from server');
+            setIsStreaming(false);
             return;
         }
 
@@ -334,6 +350,7 @@ export default function ResultsPage() {
         
         if (error) {
             setError(error.message);
+            setIsStreaming(false);
             // Loading state will be automatically managed by the content-watching useEffect
         } else {
             // Redirect to URL with explanation_id and userQueryId
@@ -441,6 +458,10 @@ export default function ResultsPage() {
         // If we have explanation content loaded, turn off loading and ensure UI updates
         if ((explanationTitle || content) && !error) {
             setIsPageLoading(false);
+            // Ensure streaming is off when content is fully loaded
+            if (!isStreaming) {
+                setIsStreaming(false);
+            }
         }
         // If we have matches loaded but no content, and we're not generating, turn off loading
         else if (matches.length > 0 && !error && prompt && !explanationTitle && !content) {
@@ -449,8 +470,9 @@ export default function ResultsPage() {
         // If there's an error, turn off loading to show error state
         else if (error) {
             setIsPageLoading(false);
+            setIsStreaming(false);
         }
-    }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved]);
+    }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved, isStreaming]);
 
     useEffect(() => {
         //Prevent this from double running in dev due to React strict mode
@@ -462,6 +484,7 @@ export default function ResultsPage() {
 
         const processParams = async () => {
             setIsPageLoading(true);
+            setIsStreaming(false); // Reset streaming state when processing new parameters
             
             // Immediately clear old content to prevent flash
             setExplanationTitle('');
@@ -580,7 +603,7 @@ export default function ResultsPage() {
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
-                    disabled: isPageLoading
+                    disabled: isPageLoading || isStreaming
                 }}
             />
 
@@ -590,6 +613,8 @@ export default function ResultsPage() {
                     <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
                 </div>
             )}
+
+
 
             <main className="container mx-auto px-4 py-8 max-w-7xl">
                 {error && (
@@ -618,7 +643,7 @@ export default function ResultsPage() {
                     {activeTab === 'output' && (
                         (explanationTitle || content) && (!isPageLoading) && (
                             <div className="mt-2">
-                                {!isModified && !isPageLoading && (
+                                {!isModified && !isPageLoading && !isStreaming && (
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                         {/* Action buttons - left side */}
                                         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -697,23 +722,25 @@ export default function ResultsPage() {
                                     </div>
                                 )}
                                 
-                                {/* Tags Bar */}
-                                <TagBar 
-                                    tags={tags} 
-                                    setTags={setTags}
-                                    className="mb-4" 
-                                    explanationId={explanationId}
-                                    modifiedStateOverride={modifiedStateOverride}
-                                    setModifiedStateOverride={setModifiedStateOverride}
-                                    isModified={isModified}
-                                    setIsModified={setIsModified}
-                                    onTagClick={(tag) => {
-                                        // Handle tag clicks here - you can implement search, filtering, etc.
-                                        console.log('Tag clicked:', tag);
-                                        // Example: could trigger a search for explanations with this tag
-                                        // or navigate to a tag-specific page
-                                    }}
-                                />
+                                {/* Tags Bar - hidden during streaming */}
+                                {!isStreaming && (
+                                    <TagBar 
+                                        tags={tags} 
+                                        setTags={setTags}
+                                        className="mb-4" 
+                                        explanationId={explanationId}
+                                        modifiedStateOverride={modifiedStateOverride}
+                                        setModifiedStateOverride={setModifiedStateOverride}
+                                        isModified={isModified}
+                                        setIsModified={setIsModified}
+                                        onTagClick={(tag) => {
+                                            // Handle tag clicks here - you can implement search, filtering, etc.
+                                            console.log('Tag clicked:', tag);
+                                            // Example: could trigger a search for explanations with this tag
+                                            // or navigate to a tag-specific page
+                                        }}
+                                    />
+                                )}
                                 
                                 <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                     {isMarkdownMode ? (
@@ -775,6 +802,8 @@ export default function ResultsPage() {
                                             {formattedExplanation}
                                         </pre>
                                     )}
+                                    
+
                                 </div>
                             </div>
                         )
