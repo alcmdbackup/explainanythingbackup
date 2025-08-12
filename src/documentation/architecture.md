@@ -58,3 +58,11 @@
 - Automatic consolidation of user saves and views into performance metrics
 - Database-optimized calculations with PostgreSQL stored procedures
 - **Detailed documentation**: See `src/documentation/AGGREGATE_METRICS_README.md`
+
+### Tag System Architecture
+- **Dual Tag Types**: Simple tags (individual) and preset tag collections (mutually exclusive groups)
+- **Junction Table Design**: Many-to-many relationship between explanations and tags via `explanation_tags` table
+- **Soft Delete Pattern**: Tags are marked as deleted rather than physically removed for data integrity
+- **AI-Powered Tagging**: Automatic tag assignment using GPT-4 evaluation of content characteristics
+- **Service Layer**: Dedicated services for tag operations (`tags.ts`, `explanationTags.ts`, `tagEvaluation.ts`)
+- **Detailed documentation**: See `src/documentation/tag_system.md`

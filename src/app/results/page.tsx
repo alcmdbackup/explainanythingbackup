@@ -25,7 +25,7 @@ export default function ResultsPage() {
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [explanationData, setExplanationData] = useState<explanationBaseType | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
+    const [isPageLoading, setIsPageLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -246,7 +246,7 @@ export default function ResultsPage() {
             return;
         }
         
-        //setIsLoading(true);
+        setIsPageLoading(true);
         setError(null);
         setMatches([]);
         setExplanationData(null);
@@ -298,7 +298,7 @@ export default function ResultsPage() {
                         
                         if (data.type === 'error') {
                             setError(data.error);
-                            setIsLoading(false);
+                            setIsPageLoading(false);
                             return;
                         }
 
@@ -440,15 +440,15 @@ export default function ResultsPage() {
     useEffect(() => {
         // If we have explanation content loaded, turn off loading and ensure UI updates
         if ((explanationTitle || content) && !error) {
-            setIsLoading(false);
+            setIsPageLoading(false);
         }
         // If we have matches loaded but no content, and we're not generating, turn off loading
         else if (matches.length > 0 && !error && prompt && !explanationTitle && !content) {
-            setIsLoading(false);
+            setIsPageLoading(false);
         }
         // If there's an error, turn off loading to show error state
         else if (error) {
-            setIsLoading(false);
+            setIsPageLoading(false);
         }
     }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved]);
 
@@ -461,7 +461,7 @@ export default function ResultsPage() {
         }*/
 
         const processParams = async () => {
-            setIsLoading(true);
+            setIsPageLoading(true);
             
             // Immediately clear old content to prevent flash
             setExplanationTitle('');
@@ -580,12 +580,12 @@ export default function ResultsPage() {
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
-                    disabled: isLoading
+                    disabled: isPageLoading
                 }}
             />
 
             {/* Progress Bar */}
-            {isLoading && (
+            {isPageLoading && (
                 <div className="w-full bg-gray-200 dark:bg-gray-700">
                     <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
                 </div>
@@ -616,9 +616,9 @@ export default function ResultsPage() {
                     </div>
                     {/* Tab Content */}
                     {activeTab === 'output' && (
-                        (explanationTitle || content) && (!isLoading) && (
+                        (explanationTitle || content) && (!isPageLoading) && (
                             <div className="mt-2">
-                                {!isModified && (
+                                {!isModified && !isPageLoading && (
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                         {/* Action buttons - left side */}
                                         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -626,7 +626,7 @@ export default function ResultsPage() {
                                                 <div className="relative inline-flex" ref={regenerateDropdownRef}>
                                                     <button
                                                         type="button"
-                                                        disabled={isLoading}
+                                                        disabled={isPageLoading}
                                                         onClick={() => setShowRegenerateDropdown(!showRegenerateDropdown)}
                                                         className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                                     >

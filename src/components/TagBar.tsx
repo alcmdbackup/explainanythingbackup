@@ -42,7 +42,6 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     const [filteredAvailableTags, setFilteredAvailableTags] = useState<TagFullDbType[]>([]);
     const [isLoadingAvailableTags, setIsLoadingAvailableTags] = useState(false);
     const [showAvailableTagsDropdown, setShowAvailableTagsDropdown] = useState(false);
-    const [localModifiedStateOverride, setLocalModifiedStateOverride] = useState(false);
     const [localIsModified, setLocalIsModified] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const modifiedMenuRef = useRef<HTMLDivElement>(null);
@@ -50,9 +49,6 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     const availableTagsDropdownRef = useRef<HTMLDivElement>(null);
 
     // Use external state if provided, otherwise use local state
-    const effectiveModifiedStateOverride = setModifiedStateOverride ? modifiedStateOverride : localModifiedStateOverride;
-    const setEffectiveModifiedStateOverride = setModifiedStateOverride || setLocalModifiedStateOverride;
-    
     const effectiveIsModified = externalIsModified !== undefined ? externalIsModified : localIsModified;
     const setEffectiveIsModified = externalSetIsModified || setLocalIsModified;
 
@@ -86,9 +82,9 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     // Update isModified state when tags change
     useEffect(() => {
         const hasModifications = hasModifiedTags();
-        const shouldBeModified = hasModifications || effectiveModifiedStateOverride;
+        const shouldBeModified = hasModifications || modifiedStateOverride;
         setEffectiveIsModified(shouldBeModified);
-    }, [tags, effectiveModifiedStateOverride, setEffectiveIsModified]);
+    }, [tags, modifiedStateOverride, setEffectiveIsModified]);
 
     /**
      * Detects if any tags are in a modified state
@@ -135,7 +131,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         });
         setTags(resetTags);
         setShowModifiedMenu(false);
-        setEffectiveModifiedStateOverride(false);
+        if (setModifiedStateOverride) setModifiedStateOverride(false);
         setEffectiveIsModified(false);
     };
 
@@ -178,7 +174,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
             
             setTags(updatedTags);
             setShowModifiedMenu(false);
-            setEffectiveModifiedStateOverride(false);
+            if (setModifiedStateOverride) setModifiedStateOverride(false);
             setEffectiveIsModified(false);
             
             console.log(`Successfully applied tags: ${result.added} added, ${result.removed} removed`);
@@ -469,6 +465,12 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
             {isModified ? (
                 /* Modified tags container with dark gray background */
                 <div className="bg-gray-800 dark:bg-gray-900 border border-gray-700 dark:border-gray-600 rounded-lg p-4">
+                    {/* Title based on modification state */}
+                    <div className="mb-3">
+                        <h3 className="text-sm font-semibold text-gray-200">
+                            {modifiedStateOverride ? "Edit explanation with tags" : "Apply tags to explanation"}
+                        </h3>
+                    </div>
                     {/* Original tags layout preserved exactly */}
                     <div className="flex items-center justify-between">
                         <div className="flex flex-wrap items-center gap-2">
