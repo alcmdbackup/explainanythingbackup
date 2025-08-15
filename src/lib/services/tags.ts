@@ -217,3 +217,23 @@ export async function getTagsByPresetId(presetTagIds: number[]): Promise<TagFull
   if (error) throw error;
   return data || [];
 } 
+
+/**
+ * Get temporary tags for "rewrite with tags" functionality
+ * • Retrieves two specific preset tags: "medium" (ID 2) and "moderate" (ID 5)
+ * • Returns tags with both tag_active_current and tag_active_initial set to true
+ * • Used by "rewrite with tags" functionality to start with minimal preset tags
+ * • Calls supabase tags table select operation for specific tag IDs
+ */
+export async function getTempTagsForRewriteWithTags(): Promise<TagFullDbType[]> {
+  const supabase = await createSupabaseServerClient()
+  
+  const { data, error } = await supabase
+    .from('tags')
+    .select()
+    .in('id', [2, 5])
+    .order('tag_name', { ascending: true });
+
+  if (error) throw error;
+  return data || [];
+} 

@@ -21,7 +21,7 @@ import {
   getMultipleExplanationMetrics, 
   refreshExplanationMetrics
 } from '@/lib/services/metrics';
-import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags } from '@/lib/services/tags';
+import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags, getTempTagsForRewriteWithTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 
@@ -563,6 +563,41 @@ export const getAllTagsAction = withLogging(
         }
     },
     'getAllTagsAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets temporary tags for "rewrite with tags" functionality (server action)
+ * 
+ * • Retrieves two specific preset tags: "medium" (ID 2) and "moderate" (ID 5)
+ * • Returns tags with both tag_active_current and tag_active_initial set to true
+ * • Used by "rewrite with tags" functionality to start with minimal preset tags
+ * • Calls getTempTagsForRewriteWithTags service function
+ */
+export const getTempTagsForRewriteWithTagsAction = withLogging(
+    async function getTempTagsForRewriteWithTagsAction(): Promise<{
+        success: boolean;
+        data: TagFullDbType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const tags = await getTempTagsForRewriteWithTags();
+            return {
+                success: true,
+                data: tags,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getTempTagsForRewriteWithTagsAction', {})
+            };
+        }
+    },
+    'getTempTagsForRewriteWithTagsAction',
     { 
         enabled: FILE_DEBUG
     }

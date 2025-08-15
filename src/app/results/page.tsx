@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction } from '@/actions/actions';
+import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -37,12 +37,54 @@ export default function ResultsPage() {
     const [authError, setAuthError] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [tags, setTags] = useState<TagUIType[]>([]);
+    const [tempTagsForRewriteWithTags, setTempTagsForRewriteWithTags] = useState<TagUIType[]>([]);
+    const [originalTags, setOriginalTags] = useState<TagUIType[]>([]);
     const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
     const [modifiedStateOverride, setModifiedStateOverride] = useState(false);
     const [isModified, setIsModified] = useState(false);
 
+
     const isFirstRun = useRef(true);
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdown when clicking outside and reset tags
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (regenerateDropdownRef.current && !regenerateDropdownRef.current.contains(event.target as Node)) {
+                if (showRegenerateDropdown) {
+                    setShowRegenerateDropdown(false);
+                    // Reset tags to original state when closing dropdown
+                    setTags(originalTags);
+                    setTempTagsForRewriteWithTags([]);
+                    setModifiedStateOverride(false);
+                }
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [showRegenerateDropdown]);
+
+    // Reset temp tags when modified state is reset
+    useEffect(() => {
+        if (!modifiedStateOverride && tempTagsForRewriteWithTags.length > 0) {
+            setTempTagsForRewriteWithTags([]);
+        }
+    }, [modifiedStateOverride, tempTagsForRewriteWithTags.length]);
+
+    /**
+     * Determines if we're currently in rewrite with tags mode
+     * 
+     * • Returns true if tempTagsForRewriteWithTags has content
+     * • Used to determine which tags to pass to TagBar and other components
+     * • Provides a clean way to check rewrite mode without state tracking
+     * 
+     * Used by: TagBar component props, tag reset logic
+     * Calls: None
+     */
+    const isInRewriteMode = () => tempTagsForRewriteWithTags.length > 0;
 
     /**
      * Fetches the current user's ID from authentication
@@ -71,6 +113,35 @@ export default function ResultsPage() {
         setUserid(userData.user.id);
         setAuthError(null);
         return userData.user.id;
+    };
+
+    /**
+     * Initializes temporary tags for "rewrite with tags" functionality
+     * 
+     * • Fetches two preset tags from database: "medium" (ID 2) and "moderate" (ID 5)
+     * • Converts database tags to TagUIType format with both active states set to true
+     * • Uses getTempTagsForRewriteWithTagsAction to retrieve actual tag data
+     * • Resets temporary tags to default state when called
+     * 
+     * Used by: "Rewrite with tags" button click handler
+     * Calls: getTempTagsForRewriteWithTagsAction
+     */
+    const initializeTempTagsForRewriteWithTags = async () => {
+        try {
+            const result = await getTempTagsForRewriteWithTagsAction();
+            if (result.success && result.data) {
+                const tempTags: TagUIType[] = result.data.map(tag => ({
+                    ...tag,
+                    tag_active_current: true,
+                    tag_active_initial: true
+                }));
+                setTempTagsForRewriteWithTags(tempTags);
+            } else {
+                console.error('Failed to fetch temp tags for rewrite with tags:', result.error);
+            }
+        } catch (error) {
+            console.error('Error initializing temp tags for rewrite with tags:', error);
+        }
     };
 
     /**
@@ -173,13 +244,18 @@ export default function ResultsPage() {
             // Check if this explanation is saved by the user
             await checkUserSaved(explanation.id);
 
+            // Reset temp tags when loading a new explanation
+            setTempTagsForRewriteWithTags([]);
+
             // Fetch tags for the explanation
             const tagsResult = await getTagsForExplanationAction(explanation.id);
             if (tagsResult.success && tagsResult.data) {
                 setTags(tagsResult.data);
+                setOriginalTags(tagsResult.data); // Save original tags
             } else {
                 logger.error('Failed to fetch tags for explanation:', { error: tagsResult.error });
                 setTags([]);
+                setOriginalTags([]);
             }
 
         } catch (err) {
@@ -254,7 +330,8 @@ export default function ResultsPage() {
         setExplanationData(null);
         setContent('');
         setExplanationTitle('');
-        setTags([]); // Reset tags when generating new explanation
+        setTags([]); // Reset tags when generating new explanation, but preserve temp tags for rewrite with tags
+
         
         // Call the API route directly
         const response = await fetch('/api/generate-explanation', {
@@ -302,6 +379,7 @@ export default function ResultsPage() {
                             setError(data.error);
                             setIsPageLoading(false);
                             setIsStreaming(false);
+
                             return;
                         }
 
@@ -347,6 +425,8 @@ export default function ResultsPage() {
         
         // Clear systemSavedId after the API call
         setSystemSavedId(null);
+        
+
         
         if (error) {
             setError(error.message);
@@ -652,7 +732,14 @@ export default function ResultsPage() {
                                                     <button
                                                         type="button"
                                                         disabled={isPageLoading}
-                                                        onClick={() => setShowRegenerateDropdown(!showRegenerateDropdown)}
+                                                        onClick={() => {
+                                                            if (showRegenerateDropdown) {
+                                                                // Reset tags to original state when closing dropdown
+                                                                setTags(originalTags);
+                                                                setTempTagsForRewriteWithTags([]);
+                                                            }
+                                                            setShowRegenerateDropdown(!showRegenerateDropdown);
+                                                        }}
                                                         className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                                     >
                                                         <span className="leading-none">Rewrite</span>
@@ -664,9 +751,11 @@ export default function ResultsPage() {
                                                         <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
                                                             <div className="py-1">
                                                                 <button
-                                                                    onClick={() => {
+                                                                    onClick={async () => {
                                                                         setShowRegenerateDropdown(false);
-                                                                        handleUserAction(explanationTitle, UserInputType.TitleFromRegenerate, mode, userid);
+                                                                        await initializeTempTagsForRewriteWithTags();
+                                                                        setModifiedStateOverride(true);
+                                                                        // Removed handleUserAction call - will handle rewriting later
                                                                     }}
                                                                     className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
                                                                 >
@@ -675,6 +764,7 @@ export default function ResultsPage() {
                                                                 <button
                                                                     onClick={() => {
                                                                         setShowRegenerateDropdown(false);
+                                                                        setTags(originalTags); // Restore original tags for editing
                                                                         setModifiedStateOverride(true);
                                                                     }}
                                                                     className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
@@ -725,8 +815,8 @@ export default function ResultsPage() {
                                 {/* Tags Bar - hidden during streaming */}
                                 {!isStreaming && (
                                     <TagBar 
-                                        tags={tags} 
-                                        setTags={setTags}
+                                        tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
+                                        setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
                                         className="mb-4" 
                                         explanationId={explanationId}
                                         modifiedStateOverride={modifiedStateOverride}
