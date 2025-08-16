@@ -194,3 +194,27 @@ Return your response as a JSON object with:
 Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
 `;
 }
+
+export function editExplanationPrompt(userInput: string, additionalRules: string[], existingContent: string): string {
+    const basePrompt = `You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
+
+Output format:
+- Title and content
+
+Rules:
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
+- Make only necessary changes to improve clarity, accuracy, or adherence to the rules
+- Preserve the overall structure and flow of the existing content
+- Only modify sections that need improvement based on the rules above
+
+Topic: ${userInput}
+
+Existing Content:
+${existingContent}`;
+
+    return basePrompt;
+}

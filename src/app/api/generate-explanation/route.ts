@@ -4,7 +4,7 @@ import { generateExplanationLogic, StreamingCallback } from '@/lib/services/gene
 
 export async function POST(request: NextRequest) {
     try {
-        const { userInput, savedId, matchMode, userid, userInputType, additionalRules } = await request.json();
+        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent } = await request.json();
         
         // Validate required parameters
         if (!userInput || !userid) {
@@ -19,6 +19,7 @@ export async function POST(request: NextRequest) {
         const finalMatchMode = matchMode ?? MatchMode.Normal;
         const finalUserInputType = userInputType ?? UserInputType.Query;
         const finalAdditionalRules = additionalRules ?? [];
+        const finalExistingContent = existingContent ?? undefined;
 
         // Create streaming response
         const encoder = new TextEncoder();
@@ -52,7 +53,8 @@ export async function POST(request: NextRequest) {
                         userid,
                         finalUserInputType,
                         finalAdditionalRules,
-                        streamingCallback
+                        streamingCallback,
+                        finalExistingContent
                     );
 
                     // Send streaming end signal

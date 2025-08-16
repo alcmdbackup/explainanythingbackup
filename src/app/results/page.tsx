@@ -342,7 +342,8 @@ export default function ResultsPage() {
             matchMode,
             userid: effectiveUserid,
             userInputType,
-            additionalRules
+            additionalRules,
+            existingContent: userInputType === UserInputType.EditWithTags ? formattedExplanation : undefined
         };
         console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
         

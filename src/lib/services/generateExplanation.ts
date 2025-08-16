@@ -1,5 +1,5 @@
 import { callOpenAIModel } from '@/lib/services/llms';
-import { createExplanationPrompt, createTitlePrompt } from '@/lib/prompts';
+import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
@@ -90,7 +90,8 @@ export const generateExplanationLogic = withLoggingAndTracing(
         userid: string,
         userInputType: UserInputType,
         additionalRules: string[],
-        onStreamingText?: StreamingCallback
+        onStreamingText?: StreamingCallback,
+        existingContent?: string
     ): Promise<{
         originalUserInput: string,
         match_found: Boolean | null,
@@ -195,8 +196,16 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 finalExplanationId = bestSourceResult.explanationId;
                 isMatchFound = true;
             } else {
-                // Use additionalRules (now required)
-                const formattedPrompt = createExplanationPrompt(titleResult, additionalRules);
+                // Choose prompt function based on userInputType
+                let formattedPrompt: string;
+                
+                if (userInputType === UserInputType.EditWithTags && existingContent) {
+                    formattedPrompt = editExplanationPrompt(titleResult, additionalRules, existingContent);
+                    console.log('Using editExplanationPrompt for EditWithTags mode');
+                } else {
+                    formattedPrompt = createExplanationPrompt(titleResult, additionalRules);
+                    console.log('Using createExplanationPrompt for standard mode');
+                }
                 
                 // Add console debugging for tag rules
                 if (additionalRules.length > 0) {
