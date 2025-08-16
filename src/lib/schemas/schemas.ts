@@ -11,7 +11,9 @@ export enum MatchMode {
 export enum UserInputType {
   Query = "query",
   TitleFromLink = "title from link",
-  TitleFromRegenerate = "title from regenerate"
+  TitleFromRegenerate = "title from regenerate",
+  RewriteWithTags = "rewrite with tags",
+  EditWithTags = "edit with tags"
 }
 
 export enum AnchorSet {

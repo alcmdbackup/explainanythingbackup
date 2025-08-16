@@ -312,6 +312,7 @@ export default function ResultsPage() {
      */
     const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[]) => {
         logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
+        console.log('handleUserAction received matchMode:', matchMode);
         if (!userInput.trim()) return;
         
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
@@ -335,20 +336,23 @@ export default function ResultsPage() {
             console.log('Using additional rules for explanation generation:', additionalRules);
         }
         
+        const requestBody = {
+            userInput,
+            savedId: systemSavedId,
+            matchMode,
+            userid: effectiveUserid,
+            userInputType,
+            additionalRules
+        };
+        console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
+        
         // Call the API route directly
         const response = await fetch('/api/generate-explanation', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                userInput,
-                savedId: systemSavedId,
-                matchMode,
-                userid: effectiveUserid,
-                userInputType,
-                additionalRules
-            })
+            body: JSON.stringify(requestBody)
         });
 
         if (!response.ok) {
@@ -447,6 +451,44 @@ export default function ResultsPage() {
             
             router.push(`/results?${params.toString()}`);
             // Note: setIsLoading(false) will be handled by the page reload
+        }
+    };
+
+    /**
+     * Handles apply button clicks from TagBar in rewrite or edit mode
+     * 
+     * • Routes to appropriate UserInputType based on current modeOverride
+     * • Calls handleUserAction with tag descriptions as additional rules
+     * • Supports both rewrite with tags and edit with tags modes
+     * 
+     * Used by: TagBar component tagBarApplyClickHandler prop
+     * Calls: handleUserAction
+     */
+    const handleTagBarApplyClick = async (tagDescriptions: string[]) => {
+        console.log('handleTagBarApplyClick called with tagDescriptions:', tagDescriptions);
+        console.log('modeOverride:', modeOverride);
+        console.log('TagBarMode.RewriteWithTags:', TagBarMode.RewriteWithTags);
+        console.log('prompt:', prompt);
+        console.log('explanationTitle:', explanationTitle);
+        console.log('userid:', userid);
+        
+        // Handle apply button click in rewrite or edit mode
+        if (modeOverride === TagBarMode.RewriteWithTags) {
+            console.log('Calling handleUserAction with RewriteWithTags');
+            console.log('Current mode:', mode);
+            // For rewrite with tags, use the current explanation title as input
+            const inputForRewrite = explanationTitle || prompt;
+            console.log('Using input for rewrite:', inputForRewrite);
+            await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions);
+        } else if (modeOverride === TagBarMode.EditWithTags) {
+            console.log('Calling handleUserAction with EditWithTags');
+            console.log('Current mode:', mode);
+            // For edit with tags, use the current explanation title as input
+            const inputForEdit = explanationTitle || prompt;
+            console.log('Using input for edit:', inputForEdit);
+            await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions);
+        } else {
+            console.log('No matching mode found, modeOverride:', modeOverride);
         }
     };
 
@@ -776,26 +818,6 @@ export default function ResultsPage() {
                                                                         setShowRegenerateDropdown(false);
                                                                         await initializeTempTagsForRewriteWithTags();
                                                                         setModeOverride(TagBarMode.RewriteWithTags);
-                                                                        
-                                                                        // Extract tag descriptions from temp tags and call handleUserAction
-                                                                        const tagDescriptions = tempTagsForRewriteWithTags
-                                                                            .filter(tag => tag.tag_active_current)
-                                                                            .map(tag => {
-                                                                                if ('tag_name' in tag) {
-                                                                                    // Simple tag - use tag_description directly
-                                                                                    return tag.tag_description;
-                                                                                } else {
-                                                                                    // Preset tag - get the current active tag's description
-                                                                                    const currentTag = tag.tags.find(t => t.id === tag.currentActiveTagId);
-                                                                                    return currentTag ? currentTag.tag_description : '';
-                                                                                }
-                                                                            })
-                                                                            .filter(description => description && description !== 'none' && description !== 'No description provided');
-                                                                        
-                                                                        console.log('Extracted tag descriptions for rewriting:', tagDescriptions);
-                                                                        
-                                                                        // Call handleUserAction with the original prompt and tag descriptions
-                                                                        await handleUserAction(prompt, UserInputType.Query, mode, userid, tagDescriptions);
                                                                     }}
                                                                     className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
                                                                 >
@@ -869,8 +891,20 @@ export default function ResultsPage() {
                                             // Example: could trigger a search for explanations with this tag
                                             // or navigate to a tag-specific page
                                         }}
+                                        tagBarApplyClickHandler={handleTagBarApplyClick}
                                     />
                                 )}
+                                {/* Debug logging */}
+                                {(() => {
+                                    console.log('TagBar props:', {
+                                        isInRewriteMode: isInRewriteMode(),
+                                        tempTagsForRewriteWithTags: tempTagsForRewriteWithTags,
+                                        tags: tags,
+                                        modeOverride: modeOverride,
+                                        explanationId: explanationId
+                                    });
+                                    return null;
+                                })()}
                                 
                                 <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                     {isMarkdownMode ? (

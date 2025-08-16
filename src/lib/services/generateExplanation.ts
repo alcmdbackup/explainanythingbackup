@@ -133,7 +133,9 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 }
                 titleResult = titlesGenerated.title;
             } else {
-                // For TitleFromLink, use the userInput directly as the title
+                // For TitleFromLink, TitleFromRegenerate, RewriteWithTags, EditWithTags, and any other types
+                // use the userInput directly as the title
+                // The additionalRules parameter will contain the tag descriptions for rewrite/edit modes
                 titleResult = userInput;
             }
             // Run anchorComparison and similarTexts in parallel

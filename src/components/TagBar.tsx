@@ -15,6 +15,7 @@ interface TagBarProps {
     setModeOverride?: (mode: TagBarMode) => void;
     isModified?: boolean;
     setIsModified?: (modified: boolean) => void;
+    tagBarApplyClickHandler?: (tagDescriptions: string[]) => void;
 }
 
 /**
@@ -33,7 +34,7 @@ interface TagBarProps {
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns, getAllTagsAction for available tags
  */
-export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isModified: externalIsModified, setIsModified: externalSetIsModified }: TagBarProps) {
+export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isModified: externalIsModified, setIsModified: externalSetIsModified, tagBarApplyClickHandler }: TagBarProps) {
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -136,24 +137,123 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     };
 
     /**
-     * Handles applying tag modifications to the explanation
+     * Routes apply button clicks to appropriate handler based on mode
+     * 
+     * • Routes to handleApplyRewriteWithTags for rewrite mode
+     * • Routes to handleApplyEditWithTags for edit mode  
+     * • Routes to handleApplyNormal for normal mode
+     * • Validates explanationId before routing
+     * 
+     * Used by: Apply button click handler
+     * Calls: handleApplyRewriteWithTags, handleApplyEditWithTags, handleApplyNormal
+     */
+    const handleApplyRouter = async () => {
+        console.log('handleApplyRouter called with modeOverride:', modeOverride);
+        console.log('TagBarMode.RewriteWithTags:', TagBarMode.RewriteWithTags);
+        console.log('explanationId:', explanationId);
+        
+        // Only require explanationId for normal mode (tag modification)
+        if (modeOverride === TagBarMode.Normal && !explanationId) {
+            console.error('No explanation ID provided for applying tags');
+            return;
+        }
+
+        if (modeOverride === TagBarMode.RewriteWithTags) {
+            console.log('Routing to handleApplyRewriteWithTags');
+            await handleApplyRewriteWithTags();
+        } else if (modeOverride === TagBarMode.EditWithTags) {
+            console.log('Routing to handleApplyEditWithTags');
+            await handleApplyEditWithTags();
+        } else {
+            console.log('Routing to handleApplyNormal');
+            await handleApplyNormal();
+        }
+    };
+
+    /**
+     * Extracts tag descriptions from active tags
+     * 
+     * • Iterates through all tags and extracts descriptions from active ones
+     * • Handles both simple tags and preset tag collections
+     * • Returns array of tag descriptions for active tags only
+     * • Used by handleApplyRewriteWithTags and handleApplyEditWithTags
+     * • Calls: None
+     */
+    const extractActiveTagDescriptions = (): string[] => {
+        console.log('extractActiveTagDescriptions called with tags:', tags);
+        const tagDescriptions: string[] = [];
+        tags.forEach(tag => {
+            if ('tag_name' in tag) {
+                // Simple tag - add description if active
+                console.log('Processing simple tag:', tag.tag_name, 'active:', tag.tag_active_current);
+                if (tag.tag_active_current) {
+                    tagDescriptions.push(tag.tag_description);
+                }
+            } else {
+                // Preset tag - add description of current active tag if active
+                console.log('Processing preset tag, active:', tag.tag_active_current, 'currentActiveTagId:', tag.currentActiveTagId);
+                if (tag.tag_active_current) {
+                    const currentTag = tag.tags.find(t => t.id === tag.currentActiveTagId);
+                    if (currentTag) {
+                        tagDescriptions.push(currentTag.tag_description);
+                    }
+                }
+            }
+        });
+        console.log('Extracted tag descriptions:', tagDescriptions);
+        return tagDescriptions;
+    };
+
+    /**
+     * Handles apply button click in rewrite with tags mode
+     * 
+     * • Extracts tag descriptions from active tags
+     * • Calls tagBarApplyClickHandler callback with tag descriptions
+     * • Used by handleApplyRouter for rewrite mode
+     * • Calls: tagBarApplyClickHandler, extractActiveTagDescriptions
+     */
+    const handleApplyRewriteWithTags = async () => {
+        console.log('handleApplyRewriteWithTags called');
+        console.log('tagBarApplyClickHandler exists:', !!tagBarApplyClickHandler);
+        
+        if (tagBarApplyClickHandler) {
+            const tagDescriptions = extractActiveTagDescriptions();
+            console.log('Calling tagBarApplyClickHandler for rewrite with tags:', tagDescriptions);
+            tagBarApplyClickHandler(tagDescriptions);
+        } else {
+            console.error('tagBarApplyClickHandler is not provided');
+        }
+    };
+
+    /**
+     * Handles apply button click in edit with tags mode
+     * 
+     * • Extracts tag descriptions from active tags
+     * • Calls tagBarApplyClickHandler callback with tag descriptions
+     * • Used by handleApplyRouter for edit mode
+     * • Calls: tagBarApplyClickHandler, extractActiveTagDescriptions
+     */
+    const handleApplyEditWithTags = async () => {
+        if (tagBarApplyClickHandler) {
+            const tagDescriptions = extractActiveTagDescriptions();
+            console.log('Calling tagBarApplyClickHandler for edit with tags:', tagDescriptions);
+            tagBarApplyClickHandler(tagDescriptions);
+        }
+    };
+
+    /**
+     * Handles apply button click in normal mode
      * 
      * • Calls handleApplyForModifyTags with current tags and explanationId
      * • Updates tags state to reflect the applied changes
      * • Closes the modified menu after successful application
      * • Handles errors and provides user feedback
-     * 
-     * Used by: Apply button click handler
-     * Calls: handleApplyForModifyTags, setTags, setShowModifiedMenu
+     * • Used by handleApplyRouter for normal mode
+     * • Calls: handleApplyForModifyTags, setTags, setShowModifiedMenu
      */
-    const handleApply = async () => {
-        if (!explanationId) {
-            console.error('No explanation ID provided for applying tags');
-            return;
-        }
-
+    const handleApplyNormal = async () => {
         try {
-            const result = await handleApplyForModifyTags(explanationId, tags);
+            const result = await handleApplyForModifyTags(explanationId!, tags);
             
             if (result.errors.length > 0) {
                 console.error('Errors applying tags:', result.errors);
@@ -673,7 +773,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                         {/* Action buttons - much smaller and right-aligned */}
                         <div className="flex space-x-2">
                             <button
-                                onClick={handleApply}
+                                onClick={handleApplyRouter}
                                 disabled={!explanationId}
                                 className={`px-2 py-1 text-xs font-medium rounded transition-colors duration-200 ${
                                     explanationId 
