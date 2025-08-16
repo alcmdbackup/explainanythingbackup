@@ -579,7 +579,7 @@ export const getAllTagsAction = withLogging(
 export const getTempTagsForRewriteWithTagsAction = withLogging(
     async function getTempTagsForRewriteWithTagsAction(): Promise<{
         success: boolean;
-        data: TagFullDbType[] | null;
+        data: TagUIType[] | null;
         error: ErrorResponse | null;
     }> {
         try {

@@ -2,6 +2,104 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type TagFullDbType, type TagInsertType, tagInsertSchema } from '@/lib/schemas/schemas';
+import { type TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/schemas/schemas';
+
+/**
+ * Helper function to convert raw database tags to UI format
+ * 
+ * • Groups tags by presetTagId for processing
+ * • Fetches all related tags for preset tag collections
+ * • Creates proper TagUIType objects (simple or preset collections)
+ * • Validates output with Zod schemas
+ * • Used by getTagsForExplanation and getTempTagsForRewriteWithTags
+ * • Calls getTagsByPresetId for fetching related preset tags
+ * 
+ * Used by: getTagsForExplanation, getTempTagsForRewriteWithTags
+ * Calls: getTagsByPresetId
+ */
+export async function convertTagsToUIFormat(rawTags: TagFullDbType[]): Promise<TagUIType[]> {
+  // Group tags by presetTagId for processing
+  const tagsByPresetId = new Map<number | null, TagFullDbType[]>();
+  
+  for (const tag of rawTags) {
+    const presetId = tag.presetTagId;
+    if (!tagsByPresetId.has(presetId)) {
+      tagsByPresetId.set(presetId, []);
+    }
+    tagsByPresetId.get(presetId)!.push(tag);
+  }
+  
+  // Collect all unique presetTagIds for fetching related tags
+  const uniquePresetTagIds = [...new Set(
+    rawTags
+      .filter(tag => tag.presetTagId !== null)
+      .map(tag => tag.presetTagId!)
+  )];
+  
+  // Fetch all tags with presetTagIds in a single call
+  const allPresetTags = uniquePresetTagIds.length > 0 
+    ? await getTagsByPresetId(uniquePresetTagIds)
+    : [];
+  
+  // Group all preset tags by presetTagId for quick lookup
+  const allPresetTagsByPresetId = new Map<number, TagFullDbType[]>();
+  for (const tag of allPresetTags) {
+    if (tag.presetTagId) {
+      if (!allPresetTagsByPresetId.has(tag.presetTagId)) {
+        allPresetTagsByPresetId.set(tag.presetTagId, []);
+      }
+      allPresetTagsByPresetId.get(tag.presetTagId)!.push(tag);
+    }
+  }
+  
+  const result: TagUIType[] = [];
+  
+  // Process each group
+  for (const [presetId, tags] of tagsByPresetId) {
+    if (presetId === null) {
+      // Simple tags - create individual simpleTagUI objects
+      for (const tag of tags) {
+        const simpleTagUI = {
+          ...tag,
+          tag_active_current: true,
+          tag_active_initial: true
+        };
+        
+        // Validate with zod schema
+        const validation = simpleTagUISchema.safeParse(simpleTagUI);
+        if (validation.success) {
+          result.push(validation.data);
+        } else {
+          console.error('Invalid simple tag UI data:', validation.error);
+        }
+      }
+    } else {
+      // Preset tags - use the pre-fetched all tags with this presetTagId
+      const allTagsWithPresetId = allPresetTagsByPresetId.get(presetId) || [];
+      
+      // Find the first tag from our input tags (we know at least one tag was selected)
+      const selectedTag = tags[0];
+      
+      const presetTagUI = {
+        tags: allTagsWithPresetId, // All available tags with this presetTagId
+        tag_active_current: true,
+        tag_active_initial: true,
+        currentActiveTagId: selectedTag.id, // The tag that was selected
+        originalTagId: selectedTag.id // The tag that was selected
+      };
+      
+      // Validate with zod schema
+      const validation = PresetTagUISchema.safeParse(presetTagUI);
+      if (validation.success) {
+        result.push(validation.data);
+      } else {
+        console.error('Invalid preset tag UI data:', validation.error);
+      }
+    }
+  }
+  
+  return result;
+}
 
 /**
  * Service for interacting with the tags table in Supabase
@@ -220,14 +318,17 @@ export async function getTagsByPresetId(presetTagIds: number[]): Promise<TagFull
 
 /**
  * Get temporary tags for "rewrite with tags" functionality
- * • Retrieves two specific preset tags: "medium" (ID 2) and "moderate" (ID 5)
- * • Returns tags with both tag_active_current and tag_active_initial set to true
+ * • Retrieves two specific preset tags: "Normal" (ID 2) and "Medium" (ID 5)
+ * • Returns tags in proper UI format (TagUIType[]) with both tag_active_current and tag_active_initial set to true
+ * • Groups tags by presetTagId to create proper preset tag collections
  * • Used by "rewrite with tags" functionality to start with minimal preset tags
+ * • Reuses the same pattern as getTagsForExplanation for consistency
  * • Calls supabase tags table select operation for specific tag IDs
  */
-export async function getTempTagsForRewriteWithTags(): Promise<TagFullDbType[]> {
+export async function getTempTagsForRewriteWithTags(): Promise<TagUIType[]> {
   const supabase = await createSupabaseServerClient()
   
+  // Get the specific tags we want (Normal difficulty and Medium length)
   const { data, error } = await supabase
     .from('tags')
     .select()
@@ -235,5 +336,9 @@ export async function getTempTagsForRewriteWithTags(): Promise<TagFullDbType[]> 
     .order('tag_name', { ascending: true });
 
   if (error) throw error;
-  return data || [];
+  
+  const rawTags = data || [];
+  
+  // Use the helper function to convert raw tags to UI format
+  return await convertTagsToUIFormat(rawTags);
 } 

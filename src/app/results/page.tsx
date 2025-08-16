@@ -130,12 +130,8 @@ export default function ResultsPage() {
         try {
             const result = await getTempTagsForRewriteWithTagsAction();
             if (result.success && result.data) {
-                const tempTags: TagUIType[] = result.data.map(tag => ({
-                    ...tag,
-                    tag_active_current: true,
-                    tag_active_initial: true
-                }));
-                setTempTagsForRewriteWithTags(tempTags);
+                // Tags are already in the correct UI format with proper active states
+                setTempTagsForRewriteWithTags(result.data);
             } else {
                 console.error('Failed to fetch temp tags for rewrite with tags:', result.error);
             }
