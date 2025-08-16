@@ -19,6 +19,21 @@ export enum AnchorSet {
 }
 
 /**
+ * Enum for TagBar display modes
+ * • Normal: Standard tag display without modification interface
+ * • RewriteWithTags: Shows modification interface for rewriting explanations with tags
+ * • EditWithTags: Shows modification interface for editing existing explanations with tags
+ * 
+ * Used by: TagBar component to determine display behavior
+ * Calls: None (enum definition)
+ */
+export enum TagBarMode {
+  Normal = "normal",
+  RewriteWithTags = "rewrite with tags",
+  EditWithTags = "edit with tags"
+}
+
+/**
  * Schema for validating allowed LLM models
  * • Restricts model parameter to approved OpenAI models only
  * • Ensures consistent model usage across the application

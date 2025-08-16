@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { TagFullDbType, TagUIType } from '@/lib/schemas/schemas';
+import { TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
 import { getAllTagsAction } from '@/actions/actions';
 import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
 
@@ -11,8 +11,8 @@ interface TagBarProps {
     className?: string;
     onTagClick?: (tag: TagFullDbType) => void;
     explanationId?: number | null;
-    modifiedStateOverride?: boolean;
-    setModifiedStateOverride?: (override: boolean) => void;
+    modeOverride?: TagBarMode;
+    setModeOverride?: (mode: TagBarMode) => void;
     isModified?: boolean;
     setIsModified?: (modified: boolean) => void;
 }
@@ -33,7 +33,7 @@ interface TagBarProps {
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns, getAllTagsAction for available tags
  */
-export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modifiedStateOverride = false, setModifiedStateOverride, isModified: externalIsModified, setIsModified: externalSetIsModified }: TagBarProps) {
+export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isModified: externalIsModified, setIsModified: externalSetIsModified }: TagBarProps) {
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -82,9 +82,9 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     // Update isModified state when tags change
     useEffect(() => {
         const hasModifications = hasModifiedTags();
-        const shouldBeModified = hasModifications || modifiedStateOverride;
+        const shouldBeModified = hasModifications || (modeOverride !== undefined && modeOverride !== TagBarMode.Normal);
         setEffectiveIsModified(shouldBeModified);
-    }, [tags, modifiedStateOverride, setEffectiveIsModified]);
+    }, [tags, modeOverride, setEffectiveIsModified]);
 
     /**
      * Detects if any tags are in a modified state
@@ -131,7 +131,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         });
         setTags(resetTags);
         setShowModifiedMenu(false);
-        if (setModifiedStateOverride) setModifiedStateOverride(false);
+        if (setModeOverride) setModeOverride(TagBarMode.Normal);
         setEffectiveIsModified(false);
     };
 
@@ -174,7 +174,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
             
             setTags(updatedTags);
             setShowModifiedMenu(false);
-            if (setModifiedStateOverride) setModifiedStateOverride(false);
+            if (setModeOverride) setModeOverride(TagBarMode.Normal);
             setEffectiveIsModified(false);
             
             console.log(`Successfully applied tags: ${result.added} added, ${result.removed} removed`);
@@ -468,7 +468,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                     {/* Title based on modification state */}
                     <div className="mb-3">
                         <h3 className="text-sm font-semibold text-gray-200">
-                            {modifiedStateOverride ? "Edit explanation with tags" : "Apply tags to explanation"}
+                            {modeOverride === TagBarMode.EditWithTags ? "Edit explanation with tags" : "Apply tags to explanation"}
                         </h3>
                     </div>
                     {/* Original tags layout preserved exactly */}

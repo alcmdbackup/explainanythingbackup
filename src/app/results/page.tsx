@@ -7,7 +7,7 @@ import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
@@ -40,7 +40,7 @@ export default function ResultsPage() {
     const [tempTagsForRewriteWithTags, setTempTagsForRewriteWithTags] = useState<TagUIType[]>([]);
     const [originalTags, setOriginalTags] = useState<TagUIType[]>([]);
     const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
-    const [modifiedStateOverride, setModifiedStateOverride] = useState(false);
+    const [modeOverride, setModeOverride] = useState<TagBarMode>(TagBarMode.Normal);
     const [isModified, setIsModified] = useState(false);
 
 
@@ -56,7 +56,7 @@ export default function ResultsPage() {
                     // Reset tags to original state when closing dropdown
                     setTags(originalTags);
                     setTempTagsForRewriteWithTags([]);
-                    setModifiedStateOverride(false);
+                    setModeOverride(TagBarMode.Normal);
                 }
             }
         };
@@ -69,10 +69,10 @@ export default function ResultsPage() {
 
     // Reset temp tags when modified state is reset
     useEffect(() => {
-        if (!modifiedStateOverride && tempTagsForRewriteWithTags.length > 0) {
+        if (modeOverride === TagBarMode.Normal && tempTagsForRewriteWithTags.length > 0) {
             setTempTagsForRewriteWithTags([]);
         }
-    }, [modifiedStateOverride, tempTagsForRewriteWithTags.length]);
+    }, [modeOverride, tempTagsForRewriteWithTags.length]);
 
     /**
      * Determines if we're currently in rewrite with tags mode
@@ -732,24 +732,42 @@ export default function ResultsPage() {
                                         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                             {(explanationTitle || content) && (
                                                 <div className="relative inline-flex" ref={regenerateDropdownRef}>
-                                                    <button
-                                                        type="button"
-                                                        disabled={isPageLoading}
-                                                        onClick={() => {
-                                                            if (showRegenerateDropdown) {
-                                                                // Reset tags to original state when closing dropdown
-                                                                setTags(originalTags);
-                                                                setTempTagsForRewriteWithTags([]);
-                                                            }
-                                                            setShowRegenerateDropdown(!showRegenerateDropdown);
-                                                        }}
-                                                        className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
-                                                    >
-                                                        <span className="leading-none">Rewrite</span>
-                                                        <svg className="w-4 h-4 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                        </svg>
-                                                    </button>
+                                                    <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
+                                                        <button
+                                                            type="button"
+                                                            disabled={isPageLoading}
+                                                            onClick={async () => {
+                                                                // Main rewrite button - regenerate the article
+                                                                // Use prompt if available, otherwise use explanation title
+                                                                const userInput = prompt.trim() || explanationTitle;
+                                                                if (!userInput) {
+                                                                    setError('No input available for rewriting. Please try again.');
+                                                                    return;
+                                                                }
+                                                                await handleUserAction(userInput, UserInputType.Query, mode, userid, []);
+                                                            }}
+                                                            className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg"
+                                                        >
+                                                            <span className="leading-none">Rewrite</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={isPageLoading}
+                                                            onClick={() => {
+                                                                if (showRegenerateDropdown) {
+                                                                    // Reset tags to original state when closing dropdown
+                                                                    setTags(originalTags);
+                                                                    setTempTagsForRewriteWithTags([]);
+                                                                }
+                                                                setShowRegenerateDropdown(!showRegenerateDropdown);
+                                                            }}
+                                                            className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500"
+                                                        >
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
                                                     {showRegenerateDropdown && (
                                                         <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
                                                             <div className="py-1">
@@ -757,7 +775,7 @@ export default function ResultsPage() {
                                                                     onClick={async () => {
                                                                         setShowRegenerateDropdown(false);
                                                                         await initializeTempTagsForRewriteWithTags();
-                                                                        setModifiedStateOverride(true);
+                                                                        setModeOverride(TagBarMode.RewriteWithTags);
                                                                         
                                                                         // Extract tag descriptions from temp tags and call handleUserAction
                                                                         const tagDescriptions = tempTagsForRewriteWithTags
@@ -787,7 +805,7 @@ export default function ResultsPage() {
                                                                     onClick={() => {
                                                                         setShowRegenerateDropdown(false);
                                                                         setTags(originalTags); // Restore original tags for editing
-                                                                        setModifiedStateOverride(true);
+                                                                        setModeOverride(TagBarMode.EditWithTags);
                                                                     }}
                                                                     className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
                                                                 >
@@ -841,8 +859,8 @@ export default function ResultsPage() {
                                         setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
                                         className="mb-4" 
                                         explanationId={explanationId}
-                                        modifiedStateOverride={modifiedStateOverride}
-                                        setModifiedStateOverride={setModifiedStateOverride}
+                                        modeOverride={modeOverride}
+                                        setModeOverride={setModeOverride}
                                         isModified={isModified}
                                         setIsModified={setIsModified}
                                         onTagClick={(tag) => {
