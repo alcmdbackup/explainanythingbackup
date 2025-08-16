@@ -468,7 +468,9 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
                     {/* Title based on modification state */}
                     <div className="mb-3">
                         <h3 className="text-sm font-semibold text-gray-200">
-                            {modeOverride === TagBarMode.EditWithTags ? "Edit explanation with tags" : "Apply tags to explanation"}
+                            {modeOverride === TagBarMode.Normal ? "Apply tags" : 
+                             modeOverride === TagBarMode.RewriteWithTags ? "Rewrite with tags" :
+                             modeOverride === TagBarMode.EditWithTags ? "Edit with tags" : "Apply tags"}
                         </h3>
                     </div>
                     {/* Original tags layout preserved exactly */}
