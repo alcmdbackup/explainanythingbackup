@@ -299,21 +299,23 @@ export default function ResultsPage() {
         }
     };
 
+
+
     /**
-     * Generates explanation using user provided query or title from link
+     * Handles user actions for generating explanations
      * 
-     * • Calls /api/generate-explanation with the search query and current systemSavedId
-     * • Handles both new explanations and existing matches
-     * • Updates UI state with explanation data and matches
-     * • Saves user query to database for new explanations
+     * • Processes user input and generates explanations via API
+     * • Supports streaming responses for real-time content updates
+     * • Handles both query and title-based input types
      * • Manages loading states and error handling
      * • Accepts optional userid parameter to override state variable
+     * • Accepts required additionalRules for tag-based rewriting
      * 
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: /api/generate-explanation, loadExplanation, saveUserQuery
      */
-    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null) => {
-        logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId }, FILE_DEBUG);
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[]) => {
+        logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
         if (!userInput.trim()) return;
         
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
@@ -332,6 +334,10 @@ export default function ResultsPage() {
         setExplanationTitle('');
         setTags([]); // Reset tags when generating new explanation, but preserve temp tags for rewrite with tags
 
+        // Add console debugging for tag rules
+        if (additionalRules.length > 0) {
+            console.log('Using additional rules for explanation generation:', additionalRules);
+        }
         
         // Call the API route directly
         const response = await fetch('/api/generate-explanation', {
@@ -344,7 +350,8 @@ export default function ResultsPage() {
                 savedId: systemSavedId,
                 matchMode,
                 userid: effectiveUserid,
-                userInputType
+                userInputType,
+                additionalRules
             })
         });
 
@@ -502,8 +509,8 @@ export default function ResultsPage() {
                 // Redirect to results page with title parameter
                 router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
             } else {
-                // Call handleUserAction directly
-                await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode, userid);
+                            // Call handleUserAction directly
+            await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode, userid, []);
             }
         }
     };
@@ -522,7 +529,7 @@ export default function ResultsPage() {
         if (!query.trim()) return;
         
         if (!FORCE_REGENERATION_ON_NAV) {
-            await handleUserAction(query, UserInputType.Query, mode, userid);
+            await handleUserAction(query, UserInputType.Query, mode, userid, []);
         } else {
             router.push(`/results?q=${encodeURIComponent(query)}`);
         }
@@ -595,11 +602,11 @@ export default function ResultsPage() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, []);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, []);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -755,7 +762,26 @@ export default function ResultsPage() {
                                                                         setShowRegenerateDropdown(false);
                                                                         await initializeTempTagsForRewriteWithTags();
                                                                         setModifiedStateOverride(true);
-                                                                        // Removed handleUserAction call - will handle rewriting later
+                                                                        
+                                                                        // Extract tag descriptions from temp tags and call handleUserAction
+                                                                        const tagDescriptions = tempTagsForRewriteWithTags
+                                                                            .filter(tag => tag.tag_active_current)
+                                                                            .map(tag => {
+                                                                                if ('tag_name' in tag) {
+                                                                                    // Simple tag - use tag_description directly
+                                                                                    return tag.tag_description;
+                                                                                } else {
+                                                                                    // Preset tag - get the current active tag's description
+                                                                                    const currentTag = tag.tags.find(t => t.id === tag.currentActiveTagId);
+                                                                                    return currentTag ? currentTag.tag_description : '';
+                                                                                }
+                                                                            })
+                                                                            .filter(description => description && description !== 'none' && description !== 'No description provided');
+                                                                        
+                                                                        console.log('Extracted tag descriptions for rewriting:', tagDescriptions);
+                                                                        
+                                                                        // Call handleUserAction with the original prompt and tag descriptions
+                                                                        await handleUserAction(prompt, UserInputType.Query, mode, userid, tagDescriptions);
                                                                     }}
                                                                     className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
                                                                 >

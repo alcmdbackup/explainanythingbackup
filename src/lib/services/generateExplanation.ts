@@ -89,6 +89,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
         matchMode: MatchMode,
         userid: string,
         userInputType: UserInputType,
+        additionalRules: string[],
         onStreamingText?: StreamingCallback
     ): Promise<{
         originalUserInput: string,
@@ -192,7 +193,13 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 finalExplanationId = bestSourceResult.explanationId;
                 isMatchFound = true;
             } else {
-                const formattedPrompt = createExplanationPrompt(titleResult);
+                // Use additionalRules (now required)
+                const formattedPrompt = createExplanationPrompt(titleResult, additionalRules);
+                
+                // Add console debugging for tag rules
+                if (additionalRules.length > 0) {
+                    console.log('Using tag rules for explanation generation:', additionalRules);
+                }
                 
                 // Determine if we should stream based on presence of callback
                 const shouldStream = onStreamingText !== undefined;

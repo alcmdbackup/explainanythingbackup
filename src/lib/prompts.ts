@@ -4,7 +4,7 @@
  * @param userInput - The topic or subject to be explained
  * @returns A formatted prompt string
  */
-export function createExplanationPrompt(userInput: string): string {
+export function createExplanationPrompt(userInput: string, additionalRules: string[]): string {
     const basePrompt = `Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
 
 Output format:
@@ -15,7 +15,7 @@ Rules:
 - Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
 - For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars 
 $$(expession)$$
-- Use lists and bullets sparingly
+- Use lists and bullets sparingly${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
 
 
 Topic: ${userInput}`;
