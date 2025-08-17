@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction } from '@/actions/actions';
+import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction } from '@/actions/actions';
 import ReactMarkdown from 'react-markdown';
 import 'katex/dist/katex.min.css';
 import remarkMath from 'remark-math';
@@ -42,6 +42,7 @@ export default function ResultsPage() {
     const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
     const [modeOverride, setModeOverride] = useState<TagBarMode>(TagBarMode.Normal);
     const [isModified, setIsModified] = useState(false);
+    const [explanationVector, setExplanationVector] = useState<any | null>(null);
 
 
     const isFirstRun = useRef(true);
@@ -254,6 +255,42 @@ export default function ResultsPage() {
                 setOriginalTags([]);
             }
 
+            // Load vector representation from Pinecone
+            logger.debug('Attempting to load vector for explanation:', { 
+                explanationId: explanation.id,
+                explanationTitle: explanation.explanation_title 
+            }, true);
+            const vectorResult = await loadFromPineconeUsingExplanationIdAction(explanation.id);
+            if (vectorResult.success) {
+                if (vectorResult.data) {
+                    setExplanationVector(vectorResult.data);
+                    logger.debug('Loaded explanation vector:', { 
+                        found: true,
+                        explanationId: explanation.id 
+                    }, true);
+                } else {
+                    // No vector found for this explanation (this is normal for older explanations)
+                    setExplanationVector(null);
+                    logger.debug('No vector found for explanation:', { 
+                        found: false,
+                        explanationId: explanation.id 
+                    } ,true);
+                }
+            } else {
+                // Check if this is a specific error or just no vector found
+                if (vectorResult.error && vectorResult.error.message) {
+                    logger.error('Failed to load explanation vector:', { 
+                        error: vectorResult.error,
+                        explanationId: explanation.id 
+                    });
+                } else {
+                    logger.debug('No vector found for explanation (normal for older explanations):', { 
+                        explanationId: explanation.id 
+                    });
+                }
+                setExplanationVector(null);
+            }
+
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
             setError(errorMessage);
@@ -330,6 +367,7 @@ export default function ResultsPage() {
         setContent('');
         setExplanationTitle('');
         setTags([]); // Reset tags when generating new explanation, but preserve temp tags for rewrite with tags
+        setExplanationVector(null); // Reset vector when generating new explanation
 
         // Add console debugging for tag rules
         if (additionalRules.length > 0) {
@@ -387,6 +425,7 @@ export default function ResultsPage() {
                             setError(data.error);
                             setIsPageLoading(false);
                             setIsStreaming(false);
+                            setExplanationVector(null); // Reset vector on error
 
                             return;
                         }
@@ -424,6 +463,7 @@ export default function ResultsPage() {
         if (!finalResult) {
             setError('No result received from server');
             setIsStreaming(false);
+            setExplanationVector(null); // Reset vector on error
             return;
         }
 
@@ -439,6 +479,7 @@ export default function ResultsPage() {
         if (error) {
             setError(error.message);
             setIsStreaming(false);
+            setExplanationVector(null); // Reset vector on error
             // Loading state will be automatically managed by the content-watching useEffect
         } else {
             // Redirect to URL with explanation_id and userQueryId
@@ -620,6 +661,7 @@ export default function ResultsPage() {
             setUserSaved(false);
             setExplanationId(null);
             setTags([]); // Reset tags when processing new parameters
+            setExplanationVector(null); // Reset vector when processing new parameters
 
             // Process mode first as an independent step
             const initialMode = initializeMode(router, searchParams);

@@ -40,8 +40,8 @@ interface Vector {
  * @param {number} chunkOverlap - Number of characters to overlap (default: 200)
  * @returns {Promise<Array<{text: string, startIdx: number, length: number}>>}
  */
-async function splitTextWithMetadata(document: string, chunkSize: number = 20000, chunkOverlap: number = 200): Promise<TextChunk[]> {
-    // Initialize the text splitter
+async function splitTextWithMetadata(document: string, chunkSize: number = 9999999999, chunkOverlap: number = 200): Promise<TextChunk[]> {
+    // Initialize the text splitter with extremely large chunk size to create single chunk
     const splitter = new RecursiveCharacterTextSplitter({
         chunkSize,
         chunkOverlap,
@@ -504,9 +504,101 @@ async function processContentToStoreEmbedding(
     };
 }
 
+/**
+ * Loads a single vector from Pinecone based on explanation_id metadata filter
+ * @param {number} explanationId - The explanation ID to search for in metadata
+ * @param {string} namespace - Optional namespace to search in (default: 'default')
+ * @returns {Promise<any>} Single vector with metadata and embedding, or null if not found
+ * • Queries Pinecone using metadata filter for specific explanation_id
+ * • Returns the first vector chunk associated with the explanation
+ * • Used by results page to load explanation vector for comparison
+ * • Calls no other functions
+ */
+async function loadFromPineconeUsingExplanationId(explanationId: number, namespace: string = 'default'): Promise<any | null> {
+    if (typeof explanationId !== 'number') {
+        throw new Error('explanationId must be a number');
+    }
+
+    logger.debug('Loading vectors from Pinecone for explanation:', {
+        explanationId,
+        namespace
+    }, FILE_DEBUG);
+
+    const indexName = getRequiredEnvVar('PINECONE_INDEX_NAME_ALL');
+    logger.debug('Using Pinecone index:', { 
+        indexName,
+        hasApiKey: !!getRequiredEnvVar('PINECONE_API_KEY'),
+        namespace 
+    }, FILE_DEBUG);
+    
+    const index = pc.Index(indexName);
+
+    const span = createVectorSpan('pinecone.query', {
+        'pinecone.operation': 'query',
+        'pinecone.namespace': namespace || 'default',
+        'pinecone.index': getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'),
+        'pinecone.filter.explanation_id': explanationId
+    });
+
+    let queryResponse;
+    // Create a dummy vector of the correct dimension for the query
+    // We'll use a zero vector since we're only filtering by metadata
+    const dummyVector = new Array(3072).fill(0); // text-embedding-3-large dimension
+
+    const queryParams: any = {
+        vector: dummyVector,
+        topK: 1, // Only get the first vector chunk for the explanation
+        includeMetadata: true,
+        filter: {
+            explanation_id: { "$eq": explanationId }
+        }
+    };
+
+    try {
+        queryResponse = await index.namespace(namespace).query(queryParams);
+        
+        span.setAttributes({
+            'pinecone.query.matches': queryResponse.matches?.length || 0,
+            'pinecone.query.success': 'true',
+            'pinecone.query.found': queryResponse.matches && queryResponse.matches.length > 0 ? 'true' : 'false'
+        });
+    } catch (error) {
+        span.recordException(error as Error);
+        span.setStatus({ code: 2, message: (error as Error).message });
+        throw error;
+    } finally {
+        span.end();
+    }
+
+    logger.debug('Pinecone query response for explanation:', {
+        explanationId,
+        matchesCount: queryResponse.matches?.length || 0,
+        found: queryResponse.matches && queryResponse.matches.length > 0,
+        responseKeys: queryResponse ? Object.keys(queryResponse) : []
+    }, FILE_DEBUG);
+
+    // Return the first match or null if no matches found
+    const result = queryResponse.matches && queryResponse.matches.length > 0 ? queryResponse.matches[0] : null;
+    
+    if (!result) {
+        logger.debug('No vector found in Pinecone for explanation:', {
+            explanationId,
+            namespace,
+            queryParams: {
+                topK: queryParams.topK,
+                includeMetadata: queryParams.includeMetadata,
+                filter: queryParams.filter
+            }
+        }, FILE_DEBUG);
+    }
+    
+    return result;
+}
+
 export { 
   findMatchesInVectorDb,
   processContentToStoreEmbedding,
   maxNumberAnchors,
-  calculateAllowedScores
+  calculateAllowedScores,
+  loadFromPineconeUsingExplanationId
 };

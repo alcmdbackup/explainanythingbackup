@@ -4,8 +4,7 @@ import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType } from '@/lib/schemas/schemas';
-import { processContentToStoreEmbedding } from '@/lib/services/vectorsim';
-import { findMatchesInVectorDb } from '@/lib/services/vectorsim';
+import { processContentToStoreEmbedding, findMatchesInVectorDb, loadFromPineconeUsingExplanationId } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
 import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
@@ -676,4 +675,56 @@ export const refreshExplanationMetricsAction = withLogging(
     { 
         enabled: FILE_DEBUG
     }
-); 
+);
+
+/**
+ * Loads a single vector from Pinecone based on explanation ID (server action)
+ *
+ * • Queries Pinecone using metadata filter for specific explanation_id
+ * • Returns the first vector chunk associated with the explanation
+ * • Used by results page to load explanation vector for comparison
+ * • Calls: loadFromPineconeUsingExplanationId
+ * • Used by: Results page for vector comparison and analysis
+ */
+export const loadFromPineconeUsingExplanationIdAction = withLogging(
+    async function loadFromPineconeUsingExplanationIdAction(explanationId: number, namespace: string = 'default'): Promise<{
+        success: boolean;
+        data: any | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const vector = await loadFromPineconeUsingExplanationId(explanationId, namespace);
+            
+            logger.debug('Vector loading result:', {
+                explanationId,
+                namespace,
+                found: !!vector,
+                vectorType: vector ? typeof vector : 'null'
+            }, FILE_DEBUG);
+            
+            return {
+                success: true,
+                data: vector,
+                error: null
+            };
+        } catch (error) {
+            logger.error('Error in loadFromPineconeUsingExplanationIdAction:', {
+                explanationId,
+                namespace,
+                error: error instanceof Error ? error.message : String(error),
+                errorType: typeof error,
+                errorKeys: error && typeof error === 'object' ? Object.keys(error) : []
+            });
+            
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'loadFromPineconeUsingExplanationIdAction', { explanationId, namespace })
+            };
+        }
+    },
+    'loadFromPineconeUsingExplanationIdAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
