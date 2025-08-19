@@ -347,7 +347,7 @@ export default function ResultsPage() {
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: /api/generate-explanation, loadExplanation, saveUserQuery
      */
-    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[]) => {
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null) => {
         logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
         console.log('handleUserAction received matchMode:', matchMode);
         if (!userInput.trim()) return;
@@ -381,7 +381,8 @@ export default function ResultsPage() {
             userid: effectiveUserid,
             userInputType,
             additionalRules,
-            existingContent: userInputType === UserInputType.EditWithTags ? formattedExplanation : undefined
+            existingContent: userInputType === UserInputType.EditWithTags ? formattedExplanation : undefined,
+            previousExplanationViewedId
         };
         console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
         
@@ -521,14 +522,14 @@ export default function ResultsPage() {
             // For rewrite with tags, use the current explanation title as input
             const inputForRewrite = explanationTitle || prompt;
             console.log('Using input for rewrite:', inputForRewrite);
-            await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions);
+            await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null);
         } else if (modeOverride === TagBarMode.EditWithTags) {
             console.log('Calling handleUserAction with EditWithTags');
             console.log('Current mode:', mode);
             // For edit with tags, use the current explanation title as input
             const inputForEdit = explanationTitle || prompt;
             console.log('Using input for edit:', inputForEdit);
-            await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions);
+            await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null);
         } else {
             console.log('No matching mode found, modeOverride:', modeOverride);
         }
@@ -590,7 +591,7 @@ export default function ResultsPage() {
                 router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
             } else {
                             // Call handleUserAction directly
-            await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode, userid, []);
+            await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode, userid, [], null);
             }
         }
     };
@@ -609,7 +610,7 @@ export default function ResultsPage() {
         if (!query.trim()) return;
         
         if (!FORCE_REGENERATION_ON_NAV) {
-            await handleUserAction(query, UserInputType.Query, mode, userid, []);
+            await handleUserAction(query, UserInputType.Query, mode, userid, [], null);
         } else {
             router.push(`/results?q=${encodeURIComponent(query)}`);
         }
@@ -683,11 +684,11 @@ export default function ResultsPage() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, []);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, []);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -829,7 +830,7 @@ export default function ResultsPage() {
                                                                     setError('No input available for rewriting. Please try again.');
                                                                     return;
                                                                 }
-                                                                await handleUserAction(userInput, UserInputType.Query, mode, userid, []);
+                                                                await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId);
                                                             }}
                                                             className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg"
                                                         >

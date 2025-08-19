@@ -12,6 +12,7 @@ export enum UserInputType {
   Query = "query",
   TitleFromLink = "title from link",
   TitleFromRegenerate = "title from regenerate",
+  Rewrite = "rewrite",
   RewriteWithTags = "rewrite with tags",
   EditWithTags = "edit with tags"
 }
@@ -138,6 +139,7 @@ export const userQueryInsertSchema = z.object({
     newExplanation: z.boolean(),
     userInputType: z.nativeEnum(UserInputType),
     allowedQuery: z.boolean(),
+    previousExplanationViewedId: z.number().nullable(),
 });
 
 /**

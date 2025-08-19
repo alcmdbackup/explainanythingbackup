@@ -91,7 +91,8 @@ export const generateExplanationLogic = withLoggingAndTracing(
         userInputType: UserInputType,
         additionalRules: string[],
         onStreamingText?: StreamingCallback,
-        existingContent?: string
+        existingContent?: string,
+        previousExplanationViewedId?: number | null
     ): Promise<{
         originalUserInput: string,
         match_found: Boolean | null,
@@ -160,7 +161,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 // Save user query with allowedQuery = false
                 let userQueryId: number | null = null;
                 if (userid) {
-                    const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, [], null, userid, false, userInputType, false);
+                    const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, [], null, userid, false, userInputType, false, previousExplanationViewedId ?? null);
                     if (!userQueryError) {
                         userQueryId = savedUserQueryId;
                     }
@@ -365,7 +366,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
             let userQueryId: number | null = null;
             if (finalExplanationId && userid) {
                 
-                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, matches, finalExplanationId, userid, !isMatchFound, userInputType, true);
+                const { error: userQueryError, id: savedUserQueryId } = await saveUserQuery(userInput, matches, finalExplanationId, userid, !isMatchFound, userInputType, true, previousExplanationViewedId ?? null);
                 if (userQueryError) {
                     // Error already logged by withLogging decorator
                 } else {
