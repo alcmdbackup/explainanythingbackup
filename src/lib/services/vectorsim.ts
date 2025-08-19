@@ -600,5 +600,6 @@ export {
   processContentToStoreEmbedding,
   maxNumberAnchors,
   calculateAllowedScores,
-  loadFromPineconeUsingExplanationId
+  loadFromPineconeUsingExplanationId,
+  searchForSimilarVectors
 };

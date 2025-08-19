@@ -92,7 +92,8 @@ export const matchSchema = z.object({
     explanation_id: z.number(),
     topic_id: z.number(),
     ranking: z.object({
-        similarity: z.number()
+        similarity: z.number(),
+        diversity_score: z.number().nullable()
     })
 });
 

@@ -1,9 +1,9 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
-import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores } from '@/lib/services/vectorsim';
+import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
-import { findMatches, enhanceMatchesWithCurrentContent } from '@/lib/services/findMatches';
+import { findMatches, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLoggingAndTracing, withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
@@ -92,7 +92,8 @@ export const generateExplanationLogic = withLoggingAndTracing(
         additionalRules: string[],
         onStreamingText?: StreamingCallback,
         existingContent?: string,
-        previousExplanationViewedId?: number | null
+        previousExplanationViewedId?: number | null,
+        previousExplanationViewedVector?: any | null // Vector representation of the previous explanation for context in rewrite operations
     ): Promise<{
         originalUserInput: string,
         match_found: Boolean | null,
@@ -140,10 +141,11 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 // The additionalRules parameter will contain the tag descriptions for rewrite/edit modes
                 titleResult = userInput;
             }
-            // Run anchorComparison and similarTexts in parallel
-            const [similarTexts, anchorComparison] = await Promise.all([
+            // Run anchorComparison, similarTexts, and diversityComparison in parallel
+            const [similarTexts, anchorComparison, diversityComparison] = await Promise.all([
                 findMatchesInVectorDb(titleResult, false, null),
-                findMatchesInVectorDb(titleResult, true, AnchorSet.Main, maxNumberAnchors)
+                findMatchesInVectorDb(titleResult, true, AnchorSet.Main, maxNumberAnchors),
+                previousExplanationViewedVector ? searchForSimilarVectors(previousExplanationViewedVector, false, null) : Promise.resolve([])
             ]);
             
             // Calculate allowed scores
@@ -180,7 +182,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
             }
             
             // Chain dependent operations
-            const matches = await enhanceMatchesWithCurrentContent(similarTexts);
+            const matches = await enhanceMatchesWithCurrentContentAndDiversity(similarTexts, diversityComparison);
             const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId, userid);
 
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 

@@ -179,12 +179,14 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
  * Key points:
  * - Adds current content from database to vector search results
  * - Maps over results to fetch full explanations
- * - Used by generateAiExplanation to enrich source data
+ * - Adds diversity scores based on comparison with previous explanation
+ * - Used by generateAiExplanation to enrich source data with diversity metrics
  * - Calls getExplanationById for each source
  */
-export async function enhanceMatchesWithCurrentContent(similarTexts: any[]): Promise<matchWithCurrentContentType[]> {
-    logger.debug('Starting enhanceMatchesWithCurrentContent', {
+export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts: any[], diversityComparison: any[] | null): Promise<matchWithCurrentContentType[]> {
+    logger.debug('Starting enhanceMatchesWithCurrentContentAndDiversity', {
         input_count: similarTexts?.length || 0,
+        diversity_comparison_count: diversityComparison?.length || 0,
         first_input: similarTexts?.[0]
     }, FILE_DEBUG);
 
@@ -201,6 +203,21 @@ export async function enhanceMatchesWithCurrentContent(similarTexts: any[]): Pro
             title: explanation?.explanation_title
         }, FILE_DEBUG);
 
+        // Find diversity score for this explanation
+        let diversityScore: number | null = null;
+        if (diversityComparison && diversityComparison.length > 0) {
+            const diversityMatch = diversityComparison.find((diversityResult: any) => 
+                diversityResult.metadata.explanation_id === result.metadata.explanation_id
+            );
+            if (diversityMatch) {
+                diversityScore = diversityMatch.score;
+                logger.debug('Found diversity score', {
+                    explanation_id: result.metadata.explanation_id,
+                    diversity_score: diversityScore
+                }, FILE_DEBUG);
+            }
+        }
+
         const enhancedSource = {
             text: result.metadata.text,
             explanation_id: result.metadata.explanation_id,
@@ -208,11 +225,12 @@ export async function enhanceMatchesWithCurrentContent(similarTexts: any[]): Pro
             current_title: explanation?.explanation_title || '',
             current_content: explanation?.content || '',
             ranking: {
-                similarity: result.score
+                similarity: result.score,
+                diversity_score: diversityScore
             }
         };
 
-        logger.debug('Enhanced source created', {
+        logger.debug('Enhanced source with diversity created', {
             source: enhancedSource
         }, FILE_DEBUG);
 
