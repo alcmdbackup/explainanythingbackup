@@ -1,10 +1,28 @@
 import { NextRequest } from 'next/server';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
 import { generateExplanationLogic, StreamingCallback } from '@/lib/services/generateExplanation';
+import { logger } from '@/lib/server_utilities';
+
+const FILE_DEBUG = true;
 
 export async function POST(request: NextRequest) {
     try {
         const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector } = await request.json();
+        
+        // Add debug logging for rewrite operations
+        if (userInputType === UserInputType.Rewrite) {
+            logger.debug('API route received REWRITE request', {
+                userInput,
+                userInputType,
+                previousExplanationViewedId,
+                previousExplanationViewedVector: previousExplanationViewedVector ? {
+                    hasValues: !!previousExplanationViewedVector.values,
+                    valuesType: typeof previousExplanationViewedVector.values,
+                    isArray: Array.isArray(previousExplanationViewedVector.values),
+                    valuesLength: previousExplanationViewedVector.values?.length
+                } : null
+            }, FILE_DEBUG);
+        }
         
         // Validate required parameters
         if (!userInput || !userid) {
@@ -60,6 +78,21 @@ export async function POST(request: NextRequest) {
                         finalPreviousExplanationViewedId,
                         finalPreviousExplanationViewedVector
                     );
+
+                    // Add debug logging for rewrite operations
+                    if (finalUserInputType === UserInputType.Rewrite) {
+                        logger.debug('API route calling generateExplanationLogic with REWRITE parameters', {
+                            userInput,
+                            userInputType: finalUserInputType,
+                            previousExplanationViewedId: finalPreviousExplanationViewedId,
+                            previousExplanationViewedVector: finalPreviousExplanationViewedVector ? {
+                                hasValues: !!finalPreviousExplanationViewedVector.values,
+                                valuesType: typeof finalPreviousExplanationViewedVector.values,
+                                isArray: Array.isArray(finalPreviousExplanationViewedVector.values),
+                                valuesLength: finalPreviousExplanationViewedVector.values?.length
+                            } : null
+                        }, FILE_DEBUG);
+                    }
 
                     // Send streaming end signal
                     const endData = JSON.stringify({

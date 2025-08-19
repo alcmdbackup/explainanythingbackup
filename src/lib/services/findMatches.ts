@@ -4,7 +4,7 @@ import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
 import { createMatchSelectionPrompt } from '@/lib/prompts';
 
-const FILE_DEBUG = false;
+const FILE_DEBUG = true;
 
 // Custom error types for better error handling
 type ErrorResponse = {
@@ -187,7 +187,11 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
     logger.debug('Starting enhanceMatchesWithCurrentContentAndDiversity', {
         input_count: similarTexts?.length || 0,
         diversity_comparison_count: diversityComparison?.length || 0,
-        first_input: similarTexts?.[0]
+        first_input: similarTexts?.[0],
+        diversity_comparison_sample: diversityComparison?.slice(0, 2) || [],
+        diversity_comparison_full: diversityComparison || null,
+        diversity_comparison_keys: diversityComparison?.[0] ? Object.keys(diversityComparison[0]) : [],
+        diversity_comparison_metadata_keys: diversityComparison?.[0]?.metadata ? Object.keys(diversityComparison[0].metadata) : []
     }, FILE_DEBUG);
 
     return Promise.all(similarTexts.map(async (result: any) => {
@@ -215,7 +219,18 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
                     explanation_id: result.metadata.explanation_id,
                     diversity_score: diversityScore
                 }, FILE_DEBUG);
+            } else {
+                logger.debug('No diversity match found for explanation', {
+                    explanation_id: result.metadata.explanation_id,
+                    diversity_comparison_ids: diversityComparison.map((d: any) => d.metadata.explanation_id)
+                }, FILE_DEBUG);
             }
+        } else {
+            logger.debug('No diversity comparison data available', {
+                explanation_id: result.metadata.explanation_id,
+                diversity_comparison_null: diversityComparison === null,
+                diversity_comparison_empty: diversityComparison?.length === 0
+            }, FILE_DEBUG);
         }
 
         const enhancedSource = {

@@ -5,7 +5,7 @@ import { Pinecone, RecordValues } from '@pinecone-database/pinecone';
 import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 import { AnchorSet } from '@/lib/schemas/schemas';
 
-const FILE_DEBUG = false
+const FILE_DEBUG = true
 const maxNumberAnchors = 1
 
 const openai = new OpenAI({
@@ -276,7 +276,7 @@ async function upsertEmbeddings(
  * @param {boolean} isAnchor Whether to filter for anchor vectors only
  * @param {AnchorSet | null} anchorSet The anchor set to filter by when isAnchor is true
  */
-async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boolean = false, anchorSet: AnchorSet | null = null, topK: number = 5, namespace: string = ''): Promise<any[]> {
+async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boolean = false, anchorSet: AnchorSet | null = null, topK: number = 5, namespace: string = 'default'): Promise<any[]> {
     // Validate that anchorSet is not null when isAnchor is true
     if (isAnchor && anchorSet === null) {
         throw new Error('anchorSet cannot be null when isAnchor is true');
@@ -297,7 +297,10 @@ async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boole
         topK,
         namespace,
         isAnchor,
-        anchorSet
+        anchorSet,
+        embeddingSample: queryEmbedding.slice(0, 5), // Show first 5 values
+        embeddingHasNaN: queryEmbedding.some(val => isNaN(val)),
+        embeddingHasInfinity: queryEmbedding.some(val => !isFinite(val))
     }, FILE_DEBUG);
 
     const index = pc.Index(getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'));
@@ -306,7 +309,7 @@ async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boole
     const span = createVectorSpan('pinecone.query', {
         'pinecone.operation': 'query',
         'pinecone.topK': topK,
-        'pinecone.namespace': namespace || 'default',
+        'pinecone.namespace': namespace,
         'pinecone.index': getRequiredEnvVar('PINECONE_INDEX_NAME_ALL'),
         'pinecone.embedding.dimensions': queryEmbedding.length
     });
@@ -317,7 +320,8 @@ async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boole
         const queryParams: any = {
             vector: queryEmbedding as RecordValues,
             topK,
-            includeMetadata: true
+            includeMetadata: true,
+            includeValues: true // Ensure vector values are returned
         };
 
         // Add metadata filter when searching for anchor vectors
@@ -342,7 +346,18 @@ async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boole
         span.end();
     }
 
-    logger.debug('Pinecone query response:', queryResponse, FILE_DEBUG);
+    logger.debug('Pinecone query response:', {
+        matches_count: queryResponse.matches?.length || 0,
+        matches_sample: queryResponse.matches?.slice(0, 2) || [],
+        isAnchor,
+        anchorSet,
+        queryParams: {
+            topK,
+            includeMetadata: true,
+            includeValues: true,
+            hasFilter: isAnchor
+        }
+    }, FILE_DEBUG);
 
     return queryResponse.matches;
 }
@@ -517,10 +532,10 @@ async function processContentToStoreEmbedding(
  * Loads a single vector from Pinecone based on explanation_id metadata filter
  * @param {number} explanationId - The explanation ID to search for in metadata
  * @param {string} namespace - Optional namespace to search in (default: 'default')
- * @returns {Promise<any>} Single vector with metadata and embedding, or null if not found
+ * @returns {Promise<any>} Single vector with metadata, embedding values, and vector data, or null if not found
  * • Queries Pinecone using metadata filter for specific explanation_id
- * • Returns the first vector chunk associated with the explanation
- * • Used by results page to load explanation vector for comparison
+ * • Returns the first vector chunk associated with the explanation with full vector values
+ * • Used by results page to load explanation vector for comparison and analysis
  * • Calls no other functions
  */
 async function loadFromPineconeUsingExplanationId(explanationId: number, namespace: string = 'default'): Promise<any | null> {
@@ -558,6 +573,7 @@ async function loadFromPineconeUsingExplanationId(explanationId: number, namespa
         vector: dummyVector as RecordValues,
         topK: 1, // Only get the first vector chunk for the explanation
         includeMetadata: true,
+        includeValues: true, // Ensure vector values are returned
         filter: {
             explanation_id: { "$eq": explanationId }
         }
@@ -598,6 +614,29 @@ async function loadFromPineconeUsingExplanationId(explanationId: number, namespa
                 includeMetadata: queryParams.includeMetadata,
                 filter: queryParams.filter
             }
+        }, FILE_DEBUG);
+    } else {
+        // Ensure the result has the expected structure with 'values' property
+        // Pinecone might return vectors with different property names
+        if (!result.values && (result as any).vector) {
+            result.values = (result as any).vector;
+        }
+        
+        logger.debug('Vector found in Pinecone for explanation:', {
+            explanationId,
+            namespace,
+            resultKeys: Object.keys(result),
+            hasValues: 'values' in result,
+            valuesType: typeof result.values,
+            isArray: Array.isArray(result.values),
+            valuesLength: result.values?.length || 0,
+            valuesPreview: result.values ? result.values.slice(0, 5) : null, // Preview of first 5 values
+            hasId: 'id' in result,
+            hasScore: 'score' in result,
+            hasMetadata: 'metadata' in result,
+            hasVector: 'vector' in (result as any),
+            vectorType: typeof (result as any).vector,
+            vectorLength: (result as any).vector?.length || 0
         }, FILE_DEBUG);
     }
     

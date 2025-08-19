@@ -263,10 +263,30 @@ export default function ResultsPage() {
             const vectorResult = await loadFromPineconeUsingExplanationIdAction(explanation.id);
             if (vectorResult.success) {
                 if (vectorResult.data) {
-                    setExplanationVector(vectorResult.data);
+                    // Ensure the vector data has the expected structure
+                    let vectorData = vectorResult.data;
+                    if (!vectorData.values && (vectorData as any).vector) {
+                        vectorData = {
+                            ...vectorData,
+                            values: (vectorData as any).vector
+                        };
+                    }
+                    
+                    setExplanationVector(vectorData);
                     logger.debug('Loaded explanation vector:', { 
                         found: true,
-                        explanationId: explanation.id 
+                        explanationId: explanation.id,
+                        vectorKeys: Object.keys(vectorData),
+                        hasValues: 'values' in vectorData,
+                        valuesType: typeof vectorData.values,
+                        isArray: Array.isArray(vectorData.values),
+                        valuesLength: vectorData.values?.length || 0,
+                        hasId: 'id' in vectorData,
+                        hasScore: 'score' in vectorData,
+                        hasMetadata: 'metadata' in vectorData,
+                        hasVector: 'vector' in (vectorData as any),
+                        vectorType: typeof (vectorData as any).vector,
+                        vectorLength: (vectorData as any).vector?.length || 0
                     }, true);
                 } else {
                     // No vector found for this explanation (this is normal for older explanations)
@@ -386,6 +406,21 @@ export default function ResultsPage() {
             previousExplanationViewedVector
         };
         console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
+        
+        // Add debug logging for rewrite operations
+        if (userInputType === UserInputType.Rewrite) {
+            logger.debug('handleUserAction sending REWRITE request to API', {
+                userInput,
+                userInputType,
+                previousExplanationViewedId,
+                previousExplanationViewedVector: previousExplanationViewedVector ? {
+                    hasValues: !!previousExplanationViewedVector.values,
+                    valuesType: typeof previousExplanationViewedVector.values,
+                    isArray: Array.isArray(previousExplanationViewedVector.values),
+                    valuesLength: previousExplanationViewedVector.values?.length
+                } : null
+            }, FILE_DEBUG);
+        }
         
         // Call the API route directly
         const response = await fetch('/api/generate-explanation', {
@@ -831,6 +866,20 @@ export default function ResultsPage() {
                                                                     setError('No input available for rewriting. Please try again.');
                                                                     return;
                                                                 }
+                                                                
+                                                                // Add debug logging for rewrite operation
+                                                                logger.debug('Rewrite button clicked', {
+                                                                    userInput,
+                                                                    explanationId,
+                                                                    explanationVector: explanationVector ? {
+                                                                        hasValues: !!explanationVector.values,
+                                                                        valuesType: typeof explanationVector.values,
+                                                                        isArray: Array.isArray(explanationVector.values),
+                                                                        valuesLength: explanationVector.values?.length
+                                                                    } : null,
+                                                                    userInputType: UserInputType.Rewrite
+                                                                }, FILE_DEBUG);
+                                                                
                                                                 await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                             }}
                                                             className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg"

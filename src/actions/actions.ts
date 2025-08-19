@@ -100,6 +100,25 @@ export const saveUserQuery = withLogging(
     async function saveUserQuery(userInput, matches, explanationId: number | null, userid: string, newExplanation: boolean, userInputType: UserInputType, allowedQuery: boolean, previousExplanationViewedId: number | null) {
         
         try {
+            // Add debug logging for rewrite operations
+            if (userInputType === UserInputType.Rewrite) {
+                logger.debug('saveUserQuery called for REWRITE operation', {
+                    userInput,
+                    matches_count: matches?.length || 0,
+                    explanationId,
+                    userid,
+                    newExplanation,
+                    userInputType,
+                    allowedQuery,
+                    previousExplanationViewedId,
+                    matches_with_diversity: matches?.map((match: any) => ({
+                        explanation_id: match.explanation_id,
+                        ranking: match.ranking,
+                        diversity_score: match.ranking?.diversity_score
+                    })) || []
+                }, FILE_DEBUG);
+            }
+
             const userQueryWithId = { user_query: userInput, matches, explanation_id: explanationId, userid, newExplanation, userInputType, allowedQuery, previousExplanationViewedId };
             
             const validatedData = userQueryInsertSchema.safeParse(userQueryWithId);
@@ -699,7 +718,9 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
                 explanationId,
                 namespace,
                 found: !!vector,
-                vectorType: vector ? typeof vector : 'null'
+                vectorType: vector ? typeof vector : 'null',
+                valuesPreview: vector?.values ? vector.values.slice(0, 5) : null, // Preview of first 5 values
+                valuesLength: vector?.values?.length || 0
             }, FILE_DEBUG);
             
             return {
