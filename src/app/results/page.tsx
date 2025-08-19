@@ -42,7 +42,7 @@ export default function ResultsPage() {
     const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
     const [modeOverride, setModeOverride] = useState<TagBarMode>(TagBarMode.Normal);
     const [isModified, setIsModified] = useState(false);
-    const [explanationVector, setExplanationVector] = useState<any | null>(null);
+    const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
 
 
     const isFirstRun = useRef(true);
@@ -347,7 +347,7 @@ export default function ResultsPage() {
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: /api/generate-explanation, loadExplanation, saveUserQuery
      */
-    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: any|null) => {
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null) => {
         logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
         console.log('handleUserAction received matchMode:', matchMode);
         if (!userInput.trim()) return;
@@ -1027,9 +1027,16 @@ export default function ResultsPage() {
                                             className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
                                         >
                                             <div className="mb-2 flex items-center justify-between">
-                                                <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                    Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
-                                                </span>
+                                                <div className="flex items-center gap-4">
+                                                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                        Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
+                                                    </span>
+                                                    {match.ranking.diversity_score !== null && (
+                                                        <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                                                            Diversity: {(match.ranking.diversity_score * 100).toFixed(1)}%
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <button 
                                                     onClick={() => loadExplanation(match.explanation_id, false)}
                                                     className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"

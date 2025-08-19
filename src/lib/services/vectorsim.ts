@@ -1,7 +1,7 @@
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { logger, getRequiredEnvVar } from '@/lib/server_utilities';
 import OpenAI from 'openai';
-import { Pinecone } from '@pinecone-database/pinecone';
+import { Pinecone, RecordValues } from '@pinecone-database/pinecone';
 import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 import { AnchorSet } from '@/lib/schemas/schemas';
 
@@ -282,6 +282,15 @@ async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boole
         throw new Error('anchorSet cannot be null when isAnchor is true');
     }
 
+    // Validate that queryEmbedding is an array of numbers
+    if (!Array.isArray(queryEmbedding)) {
+        throw new Error(`queryEmbedding must be an array, received ${typeof queryEmbedding}`);
+    }
+    
+    if (!queryEmbedding.every(val => typeof val === 'number')) {
+        throw new Error('queryEmbedding must contain only numbers');
+    }
+
     logger.debug('Search parameters:', {
         embeddingPreview: queryEmbedding.slice(0, 2),
         embeddingLength: queryEmbedding.length,
@@ -306,7 +315,7 @@ async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boole
     try {
         // Build query object with optional metadata filter
         const queryParams: any = {
-            vector: queryEmbedding,
+            vector: queryEmbedding as RecordValues,
             topK,
             includeMetadata: true
         };
@@ -546,7 +555,7 @@ async function loadFromPineconeUsingExplanationId(explanationId: number, namespa
     const dummyVector = new Array(3072).fill(0); // text-embedding-3-large dimension
 
     const queryParams: any = {
-        vector: dummyVector,
+        vector: dummyVector as RecordValues,
         topK: 1, // Only get the first vector chunk for the explanation
         includeMetadata: true,
         filter: {

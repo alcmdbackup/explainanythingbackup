@@ -93,7 +93,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
         onStreamingText?: StreamingCallback,
         existingContent?: string,
         previousExplanationViewedId?: number | null,
-        previousExplanationViewedVector?: any | null // Vector representation of the previous explanation for context in rewrite operations
+        previousExplanationViewedVector?: { values: number[] } | null // Pinecone match object with embedding values for context in rewrite operations
     ): Promise<{
         originalUserInput: string,
         match_found: Boolean | null,
@@ -145,8 +145,19 @@ export const generateExplanationLogic = withLoggingAndTracing(
             const [similarTexts, anchorComparison, diversityComparison] = await Promise.all([
                 findMatchesInVectorDb(titleResult, false, null),
                 findMatchesInVectorDb(titleResult, true, AnchorSet.Main, maxNumberAnchors),
-                previousExplanationViewedVector ? searchForSimilarVectors(previousExplanationViewedVector, false, null) : Promise.resolve([])
+                // Extract embedding values from Pinecone match object - previousExplanationViewedVector is a Pinecone match object with a 'values' property
+                previousExplanationViewedVector && previousExplanationViewedVector.values ? searchForSimilarVectors(previousExplanationViewedVector.values, false, null) : Promise.resolve([])
             ]);
+            
+            // Log debug information about the previous explanation vector
+            if (previousExplanationViewedVector) {
+                logger.debug('Previous explanation vector details:', {
+                    hasValues: !!previousExplanationViewedVector.values,
+                    valuesType: typeof previousExplanationViewedVector.values,
+                    isArray: Array.isArray(previousExplanationViewedVector.values),
+                    valuesLength: previousExplanationViewedVector.values?.length
+                }, FILE_DEBUG);
+            }
             
             // Calculate allowed scores
             const allowedScores = await calculateAllowedScores(anchorComparison, similarTexts);
