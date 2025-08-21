@@ -830,7 +830,31 @@ export default function ResultsPage() {
                     <div className="w-full max-w-4xl mx-auto h-full">
                         {/* Matches View */}
                         {showMatches && (
-                            <div className="h-full overflow-y-auto">
+                            <div 
+                                className="h-full overflow-y-auto"
+                                style={{ 
+                                    scrollbarWidth: 'thin',
+                                    scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent'
+                                }}
+                            >
+                                <style jsx>{`
+                                    div::-webkit-scrollbar {
+                                        width: 8px;
+                                    }
+                                    div::-webkit-scrollbar-track {
+                                        background: transparent;
+                                    }
+                                    div::-webkit-scrollbar-thumb {
+                                        background: rgba(156, 163, 175, 0.5);
+                                        border-radius: 4px;
+                                    }
+                                    div::-webkit-scrollbar-thumb:hover {
+                                        background: rgba(156, 163, 175, 0.7);
+                                    }
+                                    div::-webkit-scrollbar-thumb:active {
+                                        background: rgba(156, 163, 175, 0.9);
+                                    }
+                                `}</style>
                                 <div className="mt-2">
                                     <div className="flex items-center justify-between mb-4">
                                         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -905,6 +929,7 @@ export default function ResultsPage() {
                                                 </button>
                                             )}
                                         </div>
+                                        <div className="mt-4 border-b-2 border-gray-300 dark:border-gray-600"></div>
                                     </div>
                                 )}
                                 
@@ -1063,7 +1088,32 @@ export default function ResultsPage() {
                                 })()}
                                 
                                 {/* Scrollable Content Area */}
-                                <div className="flex-1 overflow-y-auto" style={{ height: 'calc(100vh - 300px)' }}>
+                                <div 
+                                    className="flex-1 overflow-y-auto" 
+                                    style={{ 
+                                        height: 'calc(100vh - 300px)',
+                                        scrollbarWidth: 'thin',
+                                        scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent'
+                                    }}
+                                >
+                                    <style jsx>{`
+                                        div::-webkit-scrollbar {
+                                            width: 8px;
+                                        }
+                                        div::-webkit-scrollbar-track {
+                                            background: transparent;
+                                        }
+                                        div::-webkit-scrollbar-thumb {
+                                            background: rgba(156, 163, 175, 0.5);
+                                            border-radius: 4px;
+                                        }
+                                        div::-webkit-scrollbar-thumb:hover {
+                                            background: rgba(156, 163, 175, 0.7);
+                                        }
+                                        div::-webkit-scrollbar-thumb:active {
+                                            background: rgba(156, 163, 175, 0.9);
+                                        }
+                                    `}</style>
                                     <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                         {isMarkdownMode ? (
                                             <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
