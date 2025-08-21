@@ -25,9 +25,8 @@ const MIN_SIMILARITY_INDEX = 0;
  * Key points:
  * - Generates article title from user query using LLM
  * - Validates the response format and returns first title
- * - Used by generateExplanation for title creation
+ * - Used by returnExplanation for title creation
  * - Calls createTitlePrompt, callOpenAIModel
- * - Used by generateExplanation
  */
 export const generateTitleFromUserQuery = withLogging(
     async function generateTitleFromUserQuery(userQuery: string, userid:string): Promise<{
@@ -96,7 +95,7 @@ function replaceAllExceptHeadings(content: string, originalTerm: string, replace
  * Calls: createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, evaluateTags,
  *        replaceAllExceptHeadings, cleanupAfterEnhancements
  */
-export const postprocessExplanationContent = withLogging(
+export const postprocessNewExplanationContent = withLogging(
     async function postprocessExplanationContent(
         rawContent: string,
         titleResult: string,
@@ -171,7 +170,7 @@ export const postprocessExplanationContent = withLogging(
  * - Validates the final explanation data
  * - Returns enhanced explanation data or error
  * 
- * Used by: generateExplanationLogic
+ * Used by: returnExplanationLogic
  * Calls: callOpenAIModel, postprocessExplanationContent
  */
 export const generateNewExplanation = withLogging(
@@ -238,7 +237,7 @@ export const generateNewExplanation = withLogging(
             }
 
             // Postprocess the content to add links and evaluate tags
-            const { enhancedContent, tagEvaluation, error: postprocessError } = await postprocessExplanationContent(
+            const { enhancedContent, tagEvaluation, error: postprocessError } = await postprocessNewExplanationContent(
                 parsedResult.data.content,
                 titleResult,
                 userid
@@ -299,7 +298,7 @@ export const generateNewExplanation = withLogging(
  * - Logs success/failure of tag application
  * - Gracefully handles errors without breaking main flow
  * 
- * Used by: generateExplanationLogic
+ * Used by: returnExplanationLogic
  * Calls: addTagsToExplanationAction
  */
 export const applyTagsToExplanation = withLogging(
@@ -369,8 +368,8 @@ export const applyTagsToExplanation = withLogging(
     }
 );
 
-export const generateExplanationLogic = withLoggingAndTracing(
-    async function generateExplanationLogic(
+export const returnExplanationLogic = withLoggingAndTracing(
+    async function returnExplanationLogic(
         userInput: string,
         savedId: number | null,
         matchMode: MatchMode,
@@ -612,7 +611,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
             return {
                 originalUserInput: userInput,
                 match_found: null,
-                error: handleError(error, 'generateExplanation', { userInput, matchMode, savedId, userid, userInputType }),
+                error: handleError(error, 'returnExplanation', { userInput, matchMode, savedId, userid, userInputType }),
                 explanationId: null,
                 matches: [],
                 data: null,
@@ -621,14 +620,14 @@ export const generateExplanationLogic = withLoggingAndTracing(
             };
         }
     },
-    'generateExplanation',
+    'returnExplanation',
     { 
         enabled: FILE_DEBUG
     },
     {
         enabled: true,
         customAttributes: {
-            'business.operation': 'generateExplanation',
+            'business.operation': 'returnExplanation',
             'business.context': 'ai_explanation_generation'
         }
     }

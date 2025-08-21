@@ -25,7 +25,7 @@ import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } fro
  * • Uses structured output from GPT-4o-mini for consistent JSON responses
  * • Gracefully handles errors by preserving original headings when generation fails
  * 
- * Used by: generateExplanation (to enhance content before saving to database)
+ * Used by: returnExplanation (to enhance content before saving to database)
  * Calls: createStandaloneTitlePrompt, callOpenAIModel, logger.debug, logger.error
  */
 export async function createMappingsHeadingsToLinks(
@@ -204,7 +204,7 @@ Return only the JSON object with the standalone titles array.`;
  * • Uses structured output from GPT-4o-mini for consistent JSON responses
  * • Gracefully handles errors by preserving original patterns when generation fails
  * 
- * Used by: generateExplanation (to enhance content with key term links before saving)
+ * Used by: returnExplanation (to enhance content with key term links before saving)
  * Calls: createKeyTermMappingPrompt, callOpenAIModel, logger.debug, logger.error
  */
 export async function createMappingsKeytermsToLinks(

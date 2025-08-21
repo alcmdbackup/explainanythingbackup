@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
-import { generateExplanationLogic, StreamingCallback } from '@/lib/services/generateExplanation';
+import { returnExplanationLogic, StreamingCallback } from '@/lib/services/returnExplanation';
 import { logger } from '@/lib/server_utilities';
 
 const FILE_DEBUG = true;
@@ -65,8 +65,8 @@ export async function POST(request: NextRequest) {
                         controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                     };
 
-                    // Call generateExplanationLogic with streaming support and additional rules
-                    const result = await generateExplanationLogic(
+                            // Call returnExplanationLogic with streaming support and additional rules
+        const result = await returnExplanationLogic(
                         userInput,
                         finalSavedId,
                         finalMatchMode,
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
 
                     // Add debug logging for rewrite operations
                     if (finalUserInputType === UserInputType.Rewrite) {
-                        logger.debug('API route calling generateExplanationLogic with REWRITE parameters', {
+                        logger.debug('API route calling returnExplanationLogic with REWRITE parameters', {
                             userInput,
                             userInputType: finalUserInputType,
                             previousExplanationViewedId: finalPreviousExplanationViewedId,
@@ -133,7 +133,7 @@ export async function POST(request: NextRequest) {
         });
 
     } catch (error) {
-        console.error('Error in generate-explanation API:', error);
+        console.error('Error in returnExplanation API:', error);
         return Response.json(
             { error: 'Internal server error' },
             { status: 500 }

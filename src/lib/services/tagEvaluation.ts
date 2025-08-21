@@ -23,7 +23,7 @@ type ErrorResponse = {
  * • Creates structured prompt for comprehensive tag evaluation
  * • Calls OpenAI GPT-4 model with tagEvaluationSchema for validation
  * • Returns difficulty level (1-3), length (4-6), and simple tags array
- * • Used by generateExplanation service for automatic multi-tag assignment
+ * • Used by returnExplanation service for automatic multi-tag assignment
  * • Calls createTagEvaluationPrompt and callOpenAIModel functions
  */
 export async function evaluateTags(

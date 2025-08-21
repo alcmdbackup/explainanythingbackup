@@ -37,7 +37,7 @@ const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
  * Key points:
  * - Saves new explanations and topics to database
  * - Creates embeddings for vector search
- * - Called internally by generateExplanation for new content
+ * - Called internally by returnExplanation for new content
  * - Uses createTopic, createExplanation, processContentToStoreEmbedding
  */
 export const saveExplanationAndTopic = withLogging(
@@ -93,7 +93,7 @@ export const saveExplanationAndTopic = withLogging(
  * Key points:
  * - Saves user queries to database with userInputType tracking
  * - Validates query data against schema including userInputType
- * - Called by generateExplanation for query tracking
+ * - Called by returnExplanation for query tracking
  * - Uses createUserQuery for database storage
  */
 export const saveUserQuery = withLogging(

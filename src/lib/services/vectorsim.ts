@@ -414,7 +414,7 @@ async function findMatchesInVectorDb(query: string, isAnchor: boolean, anchorSet
  * • anchorScore: sum of all anchor similarities divided by maxNumberAnchors
  * • explanationScore: average score of top 3 explanation matches (padding with 0 if <3)
  * • allowedTitle: true if average of anchorScore + explanationScore > 0.15
- * • Used by generateExplanationLogic to evaluate content relevance
+ * • Used by returnExplanationLogic to evaluate content relevance
  * • Calls no other functions
  */
 async function calculateAllowedScores(anchorMatches: any[], explanationMatches: any[]): Promise<{

@@ -365,7 +365,7 @@ export default function ResultsPage() {
      * • Accepts required additionalRules for tag-based rewriting
      * 
      * Used by: useEffect (initial query), Regenerate button, direct function calls
-     * Calls: /api/generate-explanation, loadExplanation, saveUserQuery
+     * Calls: /api/returnExplanation, loadExplanation, saveUserQuery
      */
     const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null) => {
         logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
@@ -423,7 +423,7 @@ export default function ResultsPage() {
         }
         
         // Call the API route directly
-        const response = await fetch('/api/generate-explanation', {
+        const response = await fetch('/api/returnExplanation', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -506,7 +506,7 @@ export default function ResultsPage() {
 
         const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = finalResult;
 
-        logger.debug('API /generate-explanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
+        logger.debug('API /returnExplanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
         
         // Clear systemSavedId after the API call
         setSystemSavedId(null);
