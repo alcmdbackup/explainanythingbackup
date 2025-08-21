@@ -856,16 +856,19 @@ export default function ResultsPage() {
                                     }
                                 `}</style>
                                 <div className="mt-2">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                                            All Matches
-                                        </h1>
-                                        <button
-                                            onClick={() => setShowMatches(false)}
-                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                                        >
-                                            ← Back
-                                        </button>
+                                    <div className="mb-4">
+                                        <div className="flex items-center justify-between">
+                                            <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
+                                                All Matches
+                                            </h1>
+                                            <button
+                                                onClick={() => setShowMatches(false)}
+                                                className="text-base text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
+                                            >
+                                                ← Back
+                                            </button>
+                                        </div>
+                                        <div className="mt-4 border-b-2 border-gray-300 dark:border-gray-600"></div>
                                     </div>
                                     <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
                                         {matches && matches.length > 0 ? (
@@ -923,7 +926,7 @@ export default function ResultsPage() {
                                             {matches && matches.length > 0 && (
                                                 <button
                                                     onClick={() => setShowMatches(true)}
-                                                    className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
+                                                    className="text-base text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
                                                 >
                                                     View all matches ({matches.length})
                                                 </button>
