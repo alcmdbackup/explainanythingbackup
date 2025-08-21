@@ -82,6 +82,293 @@ function replaceAllExceptHeadings(content: string, originalTerm: string, replace
     return processedLines.join('\n');
 }
 
+/**
+ * Postprocesses explanation content by adding links, evaluating tags, and validating the result
+ * 
+ * Key responsibilities:
+ * - Runs enhancement functions and tag evaluation in parallel
+ * - Applies heading and key term mappings to content
+ * - Cleans up formatting and removes unwanted patterns
+ * - Validates the final explanation data against schema
+ * - Returns enhanced content and tag evaluation results
+ * 
+ * Used by: generateNewExplanation
+ * Calls: createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, evaluateTags,
+ *        replaceAllExceptHeadings, cleanupAfterEnhancements
+ */
+export const postprocessExplanationContent = withLogging(
+    async function postprocessExplanationContent(
+        rawContent: string,
+        titleResult: string,
+        userid: string
+    ): Promise<{
+        enhancedContent: string;
+        tagEvaluation: any;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            // Run enhancement functions and tag evaluation in parallel
+            const [headingMappings, keyTermMappings, tagEvaluation] = await Promise.all([
+                createMappingsHeadingsToLinks(rawContent, titleResult, userid, FILE_DEBUG),
+                createMappingsKeytermsToLinks(rawContent, userid, FILE_DEBUG),
+                evaluateTags(titleResult, rawContent, userid)
+            ]);
+            
+            // Apply both heading and key term mappings to the content
+            let enhancedContent = rawContent;
+            
+            // Apply heading mappings first
+            for (const [originalHeading, linkedHeading] of Object.entries(headingMappings)) {
+                enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
+            }
+            
+            // Apply key term mappings second (only to non-heading lines)
+            // This is to prevent bugs in formatting 
+            for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
+                enhancedContent = replaceAllExceptHeadings(enhancedContent, originalKeyTerm, linkedKeyTerm);
+            }
+            
+            // Clean up any remaining **bold** patterns
+            enhancedContent = cleanupAfterEnhancements(enhancedContent);
+
+            logger.debug('Content postprocessing completed', {
+                originalContentLength: rawContent.length,
+                enhancedContentLength: enhancedContent.length,
+                headingMappingsCount: Object.keys(headingMappings).length,
+                keyTermMappingsCount: Object.keys(keyTermMappings).length,
+                hasTagEvaluation: !!tagEvaluation
+            });
+
+            return {
+                enhancedContent,
+                tagEvaluation,
+                error: null
+            };
+        } catch (error) {
+            return {
+                enhancedContent: '',
+                tagEvaluation: null,
+                error: handleError(error, 'postprocessExplanationContent', { 
+                    titleResult, 
+                    contentLength: rawContent.length 
+                })
+            };
+        }
+    },
+    'postprocessExplanationContent',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Generates a new explanation using AI and enhances it with links and tags
+ * 
+ * Key responsibilities:
+ * - Selects appropriate prompt based on userInputType (create vs edit)
+ * - Calls OpenAI model to generate explanation content
+ * - Postprocesses content to add links and evaluate tags
+ * - Validates the final explanation data
+ * - Returns enhanced explanation data or error
+ * 
+ * Used by: generateExplanationLogic
+ * Calls: callOpenAIModel, postprocessExplanationContent
+ */
+export const generateNewExplanation = withLogging(
+    async function generateNewExplanation(
+        titleResult: string,
+        additionalRules: string[],
+        userInputType: UserInputType,
+        userid: string,
+        existingContent?: string,
+        onStreamingText?: StreamingCallback
+    ): Promise<{
+        explanationData: explanationBaseType | null;
+        error: ErrorResponse | null;
+        tagEvaluation?: any;
+    }> {
+        try {
+            // Choose prompt function based on userInputType
+            let formattedPrompt: string;
+            
+            if (userInputType === UserInputType.EditWithTags && existingContent) {
+                formattedPrompt = editExplanationPrompt(titleResult, additionalRules, existingContent);
+                logger.debug('Using editExplanationPrompt for EditWithTags mode', {
+                    titleResult,
+                    additionalRulesCount: additionalRules.length,
+                    hasExistingContent: !!existingContent
+                });
+            } else {
+                formattedPrompt = createExplanationPrompt(titleResult, additionalRules);
+                logger.debug('Using createExplanationPrompt for standard mode', {
+                    titleResult,
+                    additionalRulesCount: additionalRules.length
+                });
+            }
+            
+            // Log tag rules for debugging
+            if (additionalRules.length > 0) {
+                logger.debug('Using tag rules for explanation generation', {
+                    rules: additionalRules
+                });
+            }
+            
+            // Determine if we should stream based on presence of callback
+            const shouldStream = onStreamingText !== undefined;
+            
+            const result = await callOpenAIModel(
+                formattedPrompt, 
+                "generateNewExplanation", 
+                userid, 
+                "gpt-4o-mini", 
+                shouldStream, 
+                shouldStream ? onStreamingText : null, 
+                explanationBaseSchema, 
+                'llmQuery'
+            );
+            
+            const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
+
+            if (!parsedResult.success) {
+                            return {
+                explanationData: null,
+                error: createValidationError('AI response did not match expected format', parsedResult.error),
+                tagEvaluation: undefined
+            };
+            }
+
+            // Postprocess the content to add links and evaluate tags
+            const { enhancedContent, tagEvaluation, error: postprocessError } = await postprocessExplanationContent(
+                parsedResult.data.content,
+                titleResult,
+                userid
+            );
+
+            if (postprocessError) {
+                return {
+                    explanationData: null,
+                    error: postprocessError,
+                    tagEvaluation: undefined
+                };
+            }
+
+            const newExplanationData = {
+                explanation_title: titleResult,
+                content: enhancedContent,
+            };
+            
+            const validatedUserQuery = explanationBaseSchema.safeParse(newExplanationData);
+            
+            if (!validatedUserQuery.success) {
+                return {
+                    explanationData: null,
+                    error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
+                    tagEvaluation: undefined
+                };
+            }
+
+            return {
+                explanationData: newExplanationData,
+                error: null,
+                tagEvaluation
+            };
+        } catch (error) {
+            return {
+                explanationData: null,
+                error: handleError(error, 'generateNewExplanation', { 
+                    titleResult, 
+                    userInputType, 
+                    additionalRulesCount: additionalRules.length 
+                }),
+                tagEvaluation: undefined
+            };
+        }
+    },
+    'generateNewExplanation',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Applies tags to an explanation based on AI evaluation
+ * 
+ * Key responsibilities:
+ * - Takes tag evaluation results and applies them to explanation
+ * - Handles difficulty, length, and simple tags
+ * - Logs success/failure of tag application
+ * - Gracefully handles errors without breaking main flow
+ * 
+ * Used by: generateExplanationLogic
+ * Calls: addTagsToExplanationAction
+ */
+export const applyTagsToExplanation = withLogging(
+    async function applyTagsToExplanation(
+        explanationId: number,
+        tagEvaluation: any,
+        userid: string
+    ): Promise<void> {
+        try {
+            if (!tagEvaluation || tagEvaluation.error) {
+                logger.debug('No valid tag evaluation to apply', {
+                    explanationId,
+                    hasTagEvaluation: !!tagEvaluation,
+                    hasError: tagEvaluation?.error
+                }, FILE_DEBUG);
+                return;
+            }
+
+            const tagsToApply: number[] = [];
+            
+            // Add difficulty tag if available
+            if (tagEvaluation.difficultyLevel) {
+                tagsToApply.push(tagEvaluation.difficultyLevel);
+            }
+            
+            // Add length tag if available
+            if (tagEvaluation.length) {
+                tagsToApply.push(tagEvaluation.length);
+            }
+            
+            // Add simple tags if available
+            if (tagEvaluation.simpleTags && tagEvaluation.simpleTags.length > 0) {
+                tagsToApply.push(...tagEvaluation.simpleTags);
+            }
+            
+            if (tagsToApply.length > 0) {
+                const tagResult = await addTagsToExplanationAction(explanationId, tagsToApply);
+                if (tagResult.error) {
+                    logger.error('Failed to apply tags to explanation', {
+                        explanationId,
+                        tags: tagsToApply,
+                        error: tagResult.error
+                    });
+                } else {
+                    logger.debug('Successfully applied tags to explanation', {
+                        explanationId,
+                        tags: tagsToApply
+                    });
+                }
+            } else {
+                logger.debug('No tags to apply to explanation', {
+                    explanationId,
+                    tagEvaluation
+                });
+            }
+        } catch (error) {
+            logger.error('Error applying tags to explanation', {
+                explanationId,
+                tags: tagEvaluation,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+        }
+    },
+    'applyTagsToExplanation',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
 export const generateExplanationLogic = withLoggingAndTracing(
     async function generateExplanationLogic(
         userInput: string,
@@ -156,7 +443,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
                         }, FILE_DEBUG);
                         return await searchForSimilarVectors(previousExplanationViewedVector.values, false, null);
                     } else {
-                        logger.debug('No previous vector available for diversity search', {}, FILE_DEBUG);
+                        logger.debug('No previous vector available for diversity search', {});
                         return [];
                     }
                 })()
@@ -238,43 +525,21 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 finalExplanationId = bestSourceResult.explanationId;
                 isMatchFound = true;
             } else {
-                // Choose prompt function based on userInputType
-                let formattedPrompt: string;
-                
-                if (userInputType === UserInputType.EditWithTags && existingContent) {
-                    formattedPrompt = editExplanationPrompt(titleResult, additionalRules, existingContent);
-                    console.log('Using editExplanationPrompt for EditWithTags mode');
-                } else {
-                    formattedPrompt = createExplanationPrompt(titleResult, additionalRules);
-                    console.log('Using createExplanationPrompt for standard mode');
-                }
-                
-                // Add console debugging for tag rules
-                if (additionalRules.length > 0) {
-                    console.log('Using tag rules for explanation generation:', additionalRules);
-                }
-                
-                // Determine if we should stream based on presence of callback
-                const shouldStream = onStreamingText !== undefined;
-                
-                const result = await callOpenAIModel(
-                    formattedPrompt, 
-                    "generateNewExplanation", 
+                // Generate new explanation using the extracted function
+                const { explanationData: newExplanationData, error: generationError, tagEvaluation } = await generateNewExplanation(
+                    titleResult, 
+                    additionalRules, 
+                    userInputType, 
                     userid, 
-                    "gpt-4o-mini", 
-                    shouldStream, 
-                    shouldStream ? onStreamingText : null, 
-                    explanationBaseSchema, 
-                    'llmQuery'
+                    existingContent, 
+                    onStreamingText
                 );
-                
-                const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
 
-                if (!parsedResult.success) {
+                if (generationError) {
                     return {
                         originalUserInput: userInput,
                         match_found: null,
-                        error: createValidationError('AI response did not match expected format', parsedResult.error),
+                        error: generationError,
                         explanationId: null,
                         matches: matches,
                         data: null,
@@ -283,51 +548,8 @@ export const generateExplanationLogic = withLoggingAndTracing(
                     };
                 }
 
-                // Run enhancement functions and tag evaluation in parallel
-                const [headingMappings, keyTermMappings, tagEvaluation] = await Promise.all([
-                    createMappingsHeadingsToLinks(parsedResult.data.content, titleResult, userid, FILE_DEBUG),
-                    createMappingsKeytermsToLinks(parsedResult.data.content, userid, FILE_DEBUG),
-                    evaluateTags(titleResult, parsedResult.data.content, userid)
-                ]);
-                
-                // Apply both heading and key term mappings to the content
-                let enhancedContent = parsedResult.data.content;
-                
-                // Apply heading mappings first
-                for (const [originalHeading, linkedHeading] of Object.entries(headingMappings)) {
-                    enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
-                }
-                
-                // Apply key term mappings second (only to non-heading lines
-                // This is to prevent bugs in formatting 
-                for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
-                    enhancedContent = replaceAllExceptHeadings(enhancedContent, originalKeyTerm, linkedKeyTerm);
-                }
-                
-                // Clean up any remaining **bold** patterns
-                enhancedContent = cleanupAfterEnhancements(enhancedContent);
-
-                const newExplanationData = {
-                    explanation_title: titleResult,
-                    content: enhancedContent,
-                };
-                
-                const validatedUserQuery = explanationBaseSchema.safeParse(newExplanationData);
-                
-                if (!validatedUserQuery.success) {
-                    return {
-                        originalUserInput: userInput,
-                        match_found: null,
-                        error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
-                        explanationId: null,
-                        matches: matches,
-                        data: null,
-                        userQueryId: null,
-                        userInputType
-                    };
-                }
-
-                const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userInput, validatedUserQuery.data);
+                // Save the generated explanation
+                const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userInput, newExplanationData!);
                 
                 if (explanationTopicError) {
                     return {
@@ -360,46 +582,7 @@ export const generateExplanationLogic = withLoggingAndTracing(
                 
                 // Apply tags if evaluation was successful
                 if (tagEvaluation && !tagEvaluation.error) {
-                    try {
-                        const tagsToApply: number[] = [];
-                        
-                        // Add difficulty tag if available
-                        if (tagEvaluation.difficultyLevel) {
-                            tagsToApply.push(tagEvaluation.difficultyLevel);
-                        }
-                        
-                        // Add length tag if available
-                        if (tagEvaluation.length) {
-                            tagsToApply.push(tagEvaluation.length);
-                        }
-                        
-                        // Add simple tags if available
-                        if (tagEvaluation.simpleTags && tagEvaluation.simpleTags.length > 0) {
-                            tagsToApply.push(...tagEvaluation.simpleTags);
-                        }
-                        
-                        if (tagsToApply.length > 0) {
-                            const tagResult = await addTagsToExplanationAction(newExplanationId, tagsToApply);
-                            if (tagResult.error) {
-                                logger.error('Failed to apply tags to explanation', {
-                                    explanationId: newExplanationId,
-                                    tags: tagsToApply,
-                                    error: tagResult.error
-                                });
-                            } else {
-                                logger.debug('Successfully applied tags to explanation', {
-                                    explanationId: newExplanationId,
-                                    tags: tagsToApply
-                                });
-                            }
-                        }
-                    } catch (error) {
-                        logger.error('Error applying tags to explanation', {
-                            explanationId: newExplanationId,
-                            tags: tagEvaluation,
-                            error: error instanceof Error ? error.message : 'Unknown error'
-                        });
-                    }
+                    await applyTagsToExplanation(newExplanationId, tagEvaluation, userid);
                 }
             }
 
