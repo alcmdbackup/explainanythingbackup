@@ -851,14 +851,14 @@ export default function ResultsPage() {
                                 {/* Explanation Title */}
                                 {explanationTitle && !isPageLoading && !isStreaming && (
                                     <div className="mb-4">
-                                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white leading-tight">
+                                        <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
                                             {explanationTitle}
                                         </h1>
                                     </div>
                                 )}
                                 
-                                {!isModified && !isPageLoading && !isStreaming && (
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                                                    {!isModified && !isPageLoading && !isStreaming && (
+                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
                                         {/* Action buttons - left side */}
                                         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                                             {(explanationTitle || content) && (
@@ -982,7 +982,7 @@ export default function ResultsPage() {
                                     <TagBar 
                                         tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
                                         setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
-                                        className="mb-4" 
+                                        className="mb-2" 
                                         explanationId={explanationId}
                                         modeOverride={modeOverride}
                                         setModeOverride={setModeOverride}
