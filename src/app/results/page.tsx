@@ -919,7 +919,7 @@ export default function ResultsPage() {
                                 {/* Explanation Title with View All Matches Link */}
                                 {explanationTitle && !isPageLoading && !isStreaming && (
                                     <div className="mb-4">
-                                        <div className="flex items-center justify-between">
+                                        <div className="flex items-center justify-between min-h-[2.5rem]">
                                             <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
                                                 {explanationTitle}
                                             </h1>
