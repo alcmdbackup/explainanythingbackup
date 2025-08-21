@@ -1009,7 +1009,7 @@ export default function ResultsPage() {
                                     return null;
                                 })()}
                                 
-                                <div className="p-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                     {isMarkdownMode ? (
                                         <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
                                             <ReactMarkdown
@@ -1017,7 +1017,7 @@ export default function ResultsPage() {
                                                 rehypePlugins={[rehypeKatex]}
                                                 components={{
                                                     p: (props: React.PropsWithChildren<{}>) => (
-                                                        <div className="my-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
+                                                        <div className="mt-1 mb-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
                                                     ),
                                                     h1: (props: React.PropsWithChildren<{}>) => (
                                                         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
