@@ -18,7 +18,7 @@ type ErrorResponse = {
  * - Formats top 5 matches into a numbered list
  * - Excludes any match matching savedId
  * - Truncates content to 1000 chars for prompt size
- * - Used by findMatches for LLM ranking
+ * - Used by findBestMatchFromList for LLM ranking
  */
 function formatTopMatches(matches: matchWithCurrentContentType[], savedId: number | null): string {
     const topMatches = matches.slice(0, 5);
@@ -49,7 +49,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
    * - Called by generateAiExplanation for matching
    * - Uses formatTopMatches and createMatchSelectionPrompt
    */
-  export async function findMatches(
+  export async function findBestMatchFromList(
     userQuery: string, 
     matches: matchWithCurrentContentType[],
     matchMode: MatchMode,
@@ -97,7 +97,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callOpenAIModel(selectionPrompt, 'findMatches', userid, "gpt-4o-mini", false, null, matchFoundFromListSchema, 'matchSelection');
+      const result = await callOpenAIModel(selectionPrompt, 'findBestMatchFromList', userid, "gpt-4o-mini", false, null, matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));
@@ -157,7 +157,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
         error: null 
       };
     } catch (error) {
-      logger.error('Error in findMatches', {
+      logger.error('Error in findBestMatchFromList', {
         error_message: error instanceof Error ? error.message : 'Unknown error',
         user_query: userQuery
       });

@@ -125,7 +125,7 @@ Example format:
  * • Generates instructions for LLM to select most relevant source
  * • Forces single integer response (0-5) for structured processing
  * • Returns 0 if no good match is found
- * • Used by findMatches service for intelligent match selection
+ * • Used by findBestMatchFromList service for intelligent match selection
  * 
  * @param userQuery - The original user query to match against
  * @param formattedMatches - Pre-formatted numbered list of potential matches

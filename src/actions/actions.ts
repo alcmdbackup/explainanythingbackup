@@ -8,7 +8,7 @@ import { processContentToStoreEmbedding, findMatchesInVectorDb, loadFromPinecone
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
 import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
-import { findMatches, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
+import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';

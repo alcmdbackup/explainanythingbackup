@@ -3,7 +3,7 @@ import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt } fro
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
-import { findMatches, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
+import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLoggingAndTracing, withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
@@ -434,54 +434,15 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 // Extract embedding values from Pinecone match object - previousExplanationViewedVector is a Pinecone match object with a 'values' property
                 (async () => {
                     if (previousExplanationViewedVector && previousExplanationViewedVector.values) {
-                        logger.debug('Starting diversity search with vector:', {
-                            vectorLength: previousExplanationViewedVector.values.length,
-                            vectorPreview: previousExplanationViewedVector.values.slice(0, 3),
-                            hasNaN: previousExplanationViewedVector.values.some(val => isNaN(val)),
-                            hasInfinity: previousExplanationViewedVector.values.some(val => !isFinite(val))
-                        }, FILE_DEBUG);
                         return await searchForSimilarVectors(previousExplanationViewedVector.values, false, null);
                     } else {
-                        logger.debug('No previous vector available for diversity search', {});
                         return [];
                     }
                 })()
             ]);
             
-            // Log debug information about the previous explanation vector
-            if (previousExplanationViewedVector) {
-                logger.debug('Previous explanation vector details:', {
-                    hasValues: !!previousExplanationViewedVector.values,
-                    valuesType: typeof previousExplanationViewedVector.values,
-                    isArray: Array.isArray(previousExplanationViewedVector.values),
-                    valuesLength: previousExplanationViewedVector.values?.length
-                }, FILE_DEBUG);
-            } else {
-                logger.debug('No previous explanation vector provided', {
-                    userInputType,
-                    titleResult
-                }, FILE_DEBUG);
-            }
-            
-            // Log diversity comparison results
-            logger.debug('Diversity comparison results:', {
-                diversity_comparison_count: diversityComparison?.length || 0,
-                diversity_comparison_sample: diversityComparison?.slice(0, 2) || [],
-                userInputType,
-                has_previous_vector: !!previousExplanationViewedVector,
-                previous_vector_values_preview: previousExplanationViewedVector?.values?.slice(0, 3) || null,
-                previous_vector_length: previousExplanationViewedVector?.values?.length || 0
-            }, FILE_DEBUG);
-            
             // Calculate allowed scores
             const allowedScores = await calculateAllowedScores(anchorComparison, similarTexts);
-            
-            logger.debug('Allowed scores for title:', {
-                titleResult,
-                anchorScore: allowedScores.anchorScore,
-                explanationScore: allowedScores.explanationScore,
-                allowedTitle: allowedScores.allowedTitle
-            }, FILE_DEBUG);
             
             // Check if title is allowed
             if (!allowedScores.allowedTitle) {
@@ -508,7 +469,7 @@ export const returnExplanationLogic = withLoggingAndTracing(
             
             // Chain dependent operations
             const matches = await enhanceMatchesWithCurrentContentAndDiversity(similarTexts, diversityComparison);
-            const bestSourceResult = await findMatches(titleResult, matches, matchMode, savedId, userid);
+            const bestSourceResult = await findBestMatchFromList(titleResult, matches, matchMode, savedId, userid);
 
             const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
                 bestSourceResult.selectedIndex && 
