@@ -799,7 +799,7 @@ export default function ResultsPage() {
 
 
     return (
-        <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
             {/* Top Navigation Bar */}
             <Navigation 
                 showSearchBar={true}
@@ -819,307 +819,316 @@ export default function ResultsPage() {
                 </div>
             )}
 
-            <main className="container mx-auto px-4 py-8 max-w-7xl">
-                {error && (
-                    <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
-                        {error}
-                    </div>
-                )}
-                
-                <div className="w-full max-w-4xl mx-auto">
-                    {/* Matches View */}
-                    {showMatches && (
-                        <div className="mt-2">
-                            <div className="flex items-center justify-between mb-4">
-                                <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
-                                    All Matches
-                                </h1>
-                                <button
-                                    onClick={() => setShowMatches(false)}
-                                    className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-                                >
-                                    ← Back
-                                </button>
-                            </div>
-                            <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
-                                {matches && matches.length > 0 ? (
-                                    matches.map((match, index) => (
-                                        <div 
-                                            key={index}
-                                            className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
-                                        >
-                                            <div className="mb-2 flex items-center justify-between">
-                                                <div className="flex items-center gap-4">
-                                                    <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                        Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
-                                                    </span>
-                                                    {match.ranking.diversity_score !== null && (
-                                                        <span className="text-sm font-semibold text-green-600 dark:text-green-400">
-                                                            Diversity: {(match.ranking.diversity_score * 100).toFixed(1)}%
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <button 
-                                                    onClick={() => loadExplanation(match.explanation_id, false)}
-                                                    className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                                                >
-                                                    View →
-                                                </button>
-                                            </div>
-                                            <h3 className="font-medium text-gray-900 dark:text-white mb-2">
-                                                {match.current_title || match.text}
-                                            </h3>
-                                            <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
-                                                {match.current_content || match.text}
-                                            </p>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <p className="text-gray-500 dark:text-gray-400 text-center italic">
-                                        No matches available yet. Generate an explanation to see related matches.
-                                    </p>
-                                )}
-                            </div>
+            <main className="flex-1 overflow-hidden">
+                <div className="container mx-auto px-4 py-8 max-w-7xl h-full">
+                    {error && (
+                        <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
+                            {error}
                         </div>
                     )}
-
-                    {/* Generated Output View (Default) */}
-                    {!showMatches && (explanationTitle || content) && (!isPageLoading) && (
-                        <div className="mt-2">
-                            {/* Explanation Title with View All Matches Link */}
-                            {explanationTitle && !isPageLoading && !isStreaming && (
-                                <div className="mb-4">
-                                    <div className="flex items-center justify-between">
-                                        <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
-                                            {explanationTitle}
+                    
+                    <div className="w-full max-w-4xl mx-auto h-full">
+                        {/* Matches View */}
+                        {showMatches && (
+                            <div className="h-full overflow-y-auto">
+                                <div className="mt-2">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
+                                            All Matches
                                         </h1>
-                                        {matches && matches.length > 0 && (
-                                            <button
-                                                onClick={() => setShowMatches(true)}
-                                                className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
-                                            >
-                                                View all matches ({matches.length})
-                                            </button>
+                                        <button
+                                            onClick={() => setShowMatches(false)}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
+                                        >
+                                            ← Back
+                                        </button>
+                                    </div>
+                                    <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
+                                        {matches && matches.length > 0 ? (
+                                            matches.map((match, index) => (
+                                                <div 
+                                                    key={index}
+                                                    className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                                                >
+                                                    <div className="mb-2 flex items-center justify-between">
+                                                        <div className="flex items-center gap-4">
+                                                            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
+                                                                Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
+                                                            </span>
+                                                            {match.ranking.diversity_score !== null && (
+                                                                <span className="text-sm font-semibold text-green-600 dark:text-green-400">
+                                                                    Diversity: {(match.ranking.diversity_score * 100).toFixed(1)}%
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <button 
+                                                            onClick={() => loadExplanation(match.explanation_id, false)}
+                                                            className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
+                                                        >
+                                                            View →
+                                                        </button>
+                                                    </div>
+                                                    <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                                        {match.current_title || match.text}
+                                                    </h3>
+                                                    <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                                        {match.current_content || match.text}
+                                                    </p>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <p className="text-gray-500 dark:text-gray-400 text-center italic">
+                                                No matches available yet. Generate an explanation to see related matches.
+                                            </p>
                                         )}
                                     </div>
                                 </div>
-                            )}
-                            
-                            {!isModified && !isPageLoading && !isStreaming && (
-                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
-                                {/* Action buttons - left side */}
-                                <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                                    {(explanationTitle || content) && (
-                                        <div className="relative inline-flex" ref={regenerateDropdownRef}>
-                                            <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
+                            </div>
+                        )}
+
+                        {/* Generated Output View (Default) */}
+                        {!showMatches && (explanationTitle || content) && (!isPageLoading) && (
+                            <div className="h-full flex flex-col">
+                                {/* Explanation Title with View All Matches Link */}
+                                {explanationTitle && !isPageLoading && !isStreaming && (
+                                    <div className="mb-4">
+                                        <div className="flex items-center justify-between">
+                                            <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
+                                                {explanationTitle}
+                                            </h1>
+                                            {matches && matches.length > 0 && (
                                                 <button
-                                                    type="button"
-                                                    disabled={isPageLoading}
-                                                    onClick={async () => {
-                                                        // Main rewrite button - regenerate the article
-                                                        // Use prompt if available, otherwise use explanation title
-                                                        const userInput = prompt.trim() || explanationTitle;
-                                                        if (!userInput) {
-                                                            setError('No input available for rewriting. Please try again.');
-                                                            return;
-                                                        }
-                                                        
-                                                        // Add debug logging for rewrite operation
-                                                        logger.debug('Rewrite button clicked', {
-                                                            userInput,
-                                                            explanationId,
-                                                            explanationVector: explanationVector ? {
-                                                                hasValues: !!explanationVector.values,
-                                                                valuesType: typeof explanationVector.values,
-                                                                isArray: Array.isArray(explanationVector.values),
-                                                                valuesLength: explanationVector.values?.length
-                                                            } : null,
-                                                            userInputType: UserInputType.Rewrite
-                                                        }, FILE_DEBUG);
-                                                        
-                                                        await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
-                                                    }}
-                                                    className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg"
+                                                    onClick={() => setShowMatches(true)}
+                                                    className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
                                                 >
-                                                    <span className="leading-none">Rewrite</span>
+                                                    View all matches ({matches.length})
                                                 </button>
-                                                <button
-                                                    type="button"
-                                                    disabled={isPageLoading}
-                                                    onClick={() => {
-                                                        if (showRegenerateDropdown) {
-                                                            // Reset tags to original state when closing dropdown
-                                                            setTags(originalTags);
-                                                            setTempTagsForRewriteWithTags([]);
-                                                        }
-                                                        setShowRegenerateDropdown(!showRegenerateDropdown);
-                                                    }}
-                                                    className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500"
-                                                >
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                            {showRegenerateDropdown && (
-                                                <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
-                                                    <div className="py-1">
-                                                        <button
-                                                            onClick={async () => {
-                                                                setShowRegenerateDropdown(false);
-                                                                await initializeTempTagsForRewriteWithTags();
-                                                                setModeOverride(TagBarMode.RewriteWithTags);
-                                                            }}
-                                                            className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
-                                                        >
-                                                            Rewrite with tags
-                                                        </button>
-                                                        <button
-                                                            onClick={() => {
-                                                                setShowRegenerateDropdown(false);
-                                                                setTags(originalTags); // Restore original tags for editing
-                                                                setModeOverride(TagBarMode.EditWithTags);
-                                                            }}
-                                                            className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
-                                                        >
-                                                            Edit with tags
-                                                        </button>
-                                                    </div>
-                                                </div>
                                             )}
                                         </div>
-                                    )}
-                                    <button
-                                        onClick={handleSave}
-                                        disabled={isSaving || !explanationTitle || !content || userSaved}
-                                        className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
-                                    >
-                                        <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
-                                    </button>
-                                    <button
-                                        onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                        className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
-                                    >
-                                        <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
-                                    </button>
-                                </div>
-                                
-                                {/* Mode dropdown - right side */}
-                                <div className="flex items-center gap-2">
-                                    <label htmlFor="mode-select" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                        Mode:
-                                    </label>
-                                    <select
-                                        id="mode-select"
-                                        value={mode}
-                                        onChange={(e) => {
-                                            setMode(e.target.value as MatchMode);
-                                        }}
-                                        className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
-                                    >
-                                        <option value={MatchMode.Normal}>Normal</option>
-                                        <option value={MatchMode.SkipMatch}>Skip Match</option>
-                                        <option value={MatchMode.ForceMatch}>Force Match</option>
-                                    </select>
-                                </div>
-                            </div>
-                            )}
-                            
-                            {/* Tags Bar - hidden during streaming */}
-                            {!isStreaming && (
-                                <TagBar 
-                                    tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
-                                    setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
-                                    className="mb-2" 
-                                    explanationId={explanationId}
-                                    modeOverride={modeOverride}
-                                    setModeOverride={setModeOverride}
-                                    isModified={isModified}
-                                    setIsModified={setIsModified}
-                                    onTagClick={(tag) => {
-                                        // Handle tag clicks here - you can implement search, filtering, etc.
-                                        console.log('Tag clicked:', tag);
-                                        // Example: could trigger a search for explanations with this tag
-                                        // or navigate to a tag-specific page
-                                    }}
-                                    tagBarApplyClickHandler={handleTagBarApplyClick}
-                                />
-                            )}
-                            {/* Debug logging */}
-                            {(() => {
-                                console.log('TagBar props:', {
-                                    isInRewriteMode: isInRewriteMode(),
-                                    tempTagsForRewriteWithTags: tempTagsForRewriteWithTags,
-                                    tags: tags,
-                                    modeOverride: modeOverride,
-                                    explanationId: explanationId
-                                });
-                                return null;
-                            })()}
-                            
-                            <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
-                                {isMarkdownMode ? (
-                                    <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
-                                        <ReactMarkdown
-                                            remarkPlugins={[remarkMath]}
-                                            rehypePlugins={[rehypeKatex]}
-                                            components={{
-                                                p: (props: React.PropsWithChildren<{}>) => (
-                                                    <div className="mt-1 mb-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
-                                                ),
-                                                h1: (props: React.PropsWithChildren<{}>) => (
-                                                    <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
-                                                ),
-                                                h2: (props: React.PropsWithChildren<{}>) => (
-                                                    <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight">
-                                                        {props.children}
-                                                    </h2>
-                                                ),
-                                                h3: (props: React.PropsWithChildren<{}>) => (
-                                                    <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight">
-                                                        {props.children}
-                                                    </h3>
-                                                ),
-                                                ul: (props: React.PropsWithChildren<{}>) => (
-                                                    <ul className="my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300">{props.children}</ul>
-                                                ),
-                                                ol: (props: React.PropsWithChildren<{}>) => (
-                                                    <ol className="my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300">{props.children}</ol>
-                                                ),
-                                                li: (props: React.PropsWithChildren<{}>) => (
-                                                    <li className="my-1 leading-relaxed">{props.children}</li>
-                                                ),
-                                                code: (props: React.PropsWithChildren<{}>) => (
-                                                    <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200">{props.children}</code>
-                                                ),
-                                                pre: (props: React.PropsWithChildren<{}>) => (
-                                                    <pre className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4">{props.children}</pre>
-                                                ),
-                                                blockquote: (props: React.PropsWithChildren<{}>) => (
-                                                    <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>
-                                                ),
-                                                a: (props: React.PropsWithChildren<{href?: string}>) => (
-                                                    <a 
-                                                        href={props.href}
-                                                        onClick={(e) => props.href && handleStandaloneTitleClick(props.href, e)}
-                                                        className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
-                                                    >
-                                                        {props.children}
-                                                    </a>
-                                                )
-                                            }}
-                                        >
-                                            {formattedExplanation}
-                                        </ReactMarkdown>
-                                    </article>
-                                ) : (
-                                    <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
-                                        {formattedExplanation}
-                                    </pre>
+                                    </div>
                                 )}
+                                
+                                {!isModified && !isPageLoading && !isStreaming && (
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                                    {/* Action buttons - left side */}
+                                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                        {(explanationTitle || content) && (
+                                            <div className="relative inline-flex" ref={regenerateDropdownRef}>
+                                                <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
+                                                    <button
+                                                        type="button"
+                                                        disabled={isPageLoading}
+                                                        onClick={async () => {
+                                                            // Main rewrite button - regenerate the article
+                                                            // Use prompt if available, otherwise use explanation title
+                                                            const userInput = prompt.trim() || explanationTitle;
+                                                            if (!userInput) {
+                                                                setError('No input available for rewriting. Please try again.');
+                                                                return;
+                                                            }
+                                                            
+                                                            // Add debug logging for rewrite operation
+                                                            logger.debug('Rewrite button clicked', {
+                                                                userInput,
+                                                                explanationId,
+                                                                explanationVector: explanationVector ? {
+                                                                    hasValues: !!explanationVector.values,
+                                                                    valuesType: typeof explanationVector.values,
+                                                                    isArray: Array.isArray(explanationVector.values),
+                                                                    valuesLength: explanationVector.values?.length
+                                                                } : null,
+                                                                userInputType: UserInputType.Rewrite
+                                                            }, FILE_DEBUG);
+                                                            
+                                                            await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
+                                                        }}
+                                                        className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg"
+                                                    >
+                                                        <span className="leading-none">Rewrite</span>
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        disabled={isPageLoading}
+                                                        onClick={() => {
+                                                            if (showRegenerateDropdown) {
+                                                                // Reset tags to original state when closing dropdown
+                                                                setTags(originalTags);
+                                                                setTempTagsForRewriteWithTags([]);
+                                                            }
+                                                            setShowRegenerateDropdown(!showRegenerateDropdown);
+                                                        }}
+                                                        className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500"
+                                                    >
+                                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                                                        </svg>
+                                                    </button>
+                                                </div>
+                                                {showRegenerateDropdown && (
+                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
+                                                        <div className="py-1">
+                                                            <button
+                                                                onClick={async () => {
+                                                                    setShowRegenerateDropdown(false);
+                                                                    await initializeTempTagsForRewriteWithTags();
+                                                                    setModeOverride(TagBarMode.RewriteWithTags);
+                                                                }}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                                                            >
+                                                                Rewrite with tags
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    setShowRegenerateDropdown(false);
+                                                                    setTags(originalTags); // Restore original tags for editing
+                                                                    setModeOverride(TagBarMode.EditWithTags);
+                                                                }}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                                                            >
+                                                                Edit with tags
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                        <button
+                                            onClick={handleSave}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved}
+                                            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                        >
+                                            <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                        >
+                                            <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
+                                        </button>
+                                    </div>
+                                    
+                                    {/* Mode dropdown - right side */}
+                                    <div className="flex items-center gap-2">
+                                        <label htmlFor="mode-select" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                            Mode:
+                                        </label>
+                                        <select
+                                            id="mode-select"
+                                            value={mode}
+                                            onChange={(e) => {
+                                                setMode(e.target.value as MatchMode);
+                                            }}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                        >
+                                            <option value={MatchMode.Normal}>Normal</option>
+                                            <option value={MatchMode.SkipMatch}>Skip Match</option>
+                                            <option value={MatchMode.ForceMatch}>Force Match</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                )}
+                                
+                                {/* Tags Bar - hidden during streaming */}
+                                {!isStreaming && (
+                                    <div className="mb-2">
+                                        <TagBar 
+                                            tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
+                                            setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
+                                            className="mb-2" 
+                                            explanationId={explanationId}
+                                            modeOverride={modeOverride}
+                                            setModeOverride={setModeOverride}
+                                            isModified={isModified}
+                                            setIsModified={setIsModified}
+                                            onTagClick={(tag) => {
+                                                // Handle tag clicks here - you can implement search, filtering, etc.
+                                                console.log('Tag clicked:', tag);
+                                                // Example: could trigger a search for explanations with this tag
+                                                // or navigate to a tag-specific page
+                                            }}
+                                            tagBarApplyClickHandler={handleTagBarApplyClick}
+                                        />
+                                    </div>
+                                )}
+                                {/* Debug logging */}
+                                {(() => {
+                                    console.log('TagBar props:', {
+                                        isInRewriteMode: isInRewriteMode(),
+                                        tempTagsForRewriteWithTags: tempTagsForRewriteWithTags,
+                                        tags: tags,
+                                        modeOverride: modeOverride,
+                                        explanationId: explanationId
+                                    });
+                                    return null;
+                                })()}
+                                
+                                {/* Scrollable Content Area */}
+                                <div className="flex-1 overflow-y-auto" style={{ height: 'calc(100vh - 300px)' }}>
+                                    <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                        {isMarkdownMode ? (
+                                            <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
+                                                <ReactMarkdown
+                                                    remarkPlugins={[remarkMath]}
+                                                    rehypePlugins={[rehypeKatex]}
+                                                    components={{
+                                                        p: (props: React.PropsWithChildren<{}>) => (
+                                                            <div className="mt-1 mb-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
+                                                        ),
+                                                        h1: (props: React.PropsWithChildren<{}>) => (
+                                                            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
+                                                        ),
+                                                        h2: (props: React.PropsWithChildren<{}>) => (
+                                                            <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight">
+                                                                {props.children}
+                                                            </h2>
+                                                        ),
+                                                        h3: (props: React.PropsWithChildren<{}>) => (
+                                                            <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight">
+                                                                {props.children}
+                                                            </h3>
+                                                        ),
+                                                        ul: (props: React.PropsWithChildren<{}>) => (
+                                                            <ul className="my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300">{props.children}</ul>
+                                                        ),
+                                                        ol: (props: React.PropsWithChildren<{}>) => (
+                                                            <ol className="my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300">{props.children}</ol>
+                                                        ),
+                                                        li: (props: React.PropsWithChildren<{}>) => (
+                                                            <li className="my-1 leading-relaxed">{props.children}</li>
+                                                        ),
+                                                        code: (props: React.PropsWithChildren<{}>) => (
+                                                            <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200">{props.children}</code>
+                                                        ),
+                                                        pre: (props: React.PropsWithChildren<{}>) => (
+                                                            <pre className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4">{props.children}</pre>
+                                                        ),
+                                                        blockquote: (props: React.PropsWithChildren<{}>) => (
+                                                            <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>
+                                                        ),
+                                                        a: (props: React.PropsWithChildren<{href?: string}>) => (
+                                                            <a 
+                                                                href={props.href}
+                                                                onClick={(e) => props.href && handleStandaloneTitleClick(props.href, e)}
+                                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
+                                                            >
+                                                                {props.children}
+                                                            </a>
+                                                        )
+                                                    }}
+                                                >
+                                                    {formattedExplanation}
+                                                </ReactMarkdown>
+                                            </article>
+                                        ) : (
+                                            <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
+                                                {formattedExplanation}
+                                            </pre>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
                 </div>
             </main>
         </div>
