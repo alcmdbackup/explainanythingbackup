@@ -596,7 +596,7 @@ export default function ResultsPage() {
         setIsSaving(false);
     };
 
-    const formattedExplanation = explanationTitle || content ? `# ${explanationTitle}\n\n${content}` : '';
+    const formattedExplanation = content ? content : '';
 
     /**
      * Handles clicks on custom standalone title links
@@ -848,6 +848,15 @@ export default function ResultsPage() {
                     {activeTab === 'output' && (
                         (explanationTitle || content) && (!isPageLoading) && (
                             <div className="mt-2">
+                                {/* Explanation Title */}
+                                {explanationTitle && !isPageLoading && !isStreaming && (
+                                    <div className="mb-4">
+                                        <h1 className="text-2xl font-bold text-gray-900 dark:text-white leading-tight">
+                                            {explanationTitle}
+                                        </h1>
+                                    </div>
+                                )}
+                                
                                 {!isModified && !isPageLoading && !isStreaming && (
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                         {/* Action buttons - left side */}
