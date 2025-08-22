@@ -497,7 +497,7 @@ export default function ResultsPage() {
 
                         if (data.type === 'streaming_end') {
                             logger.debug('Client received streaming_end', { data }, FILE_DEBUG);
-                            setIsStreaming(false);
+                            // Do not set isStreaming to false at the end of streaming, keep the buttons disabled until page refreshes
                         }
 
                         if (data.type === 'complete' && data.result) {
@@ -989,7 +989,7 @@ export default function ResultsPage() {
                                                             
                                                             await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                         }}
-                                                        className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg"
+                                                        className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
                                                         <span className="leading-none">Rewrite</span>
                                                     </button>
@@ -1004,7 +1004,7 @@ export default function ResultsPage() {
                                                             }
                                                             setShowRegenerateDropdown(!showRegenerateDropdown);
                                                         }}
-                                                        className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500"
+                                                        className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1015,22 +1015,24 @@ export default function ResultsPage() {
                                                     <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
                                                         <div className="py-1">
                                                             <button
+                                                                disabled={isPageLoading || isStreaming}
                                                                 onClick={async () => {
                                                                     setShowRegenerateDropdown(false);
                                                                     await initializeTempTagsForRewriteWithTags();
                                                                     setModeOverride(TagBarMode.RewriteWithTags);
                                                                 }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
                                                                 Rewrite with tags
                                                             </button>
                                                             <button
+                                                                disabled={isPageLoading || isStreaming}
                                                                 onClick={() => {
                                                                     setShowRegenerateDropdown(false);
                                                                     setTags(originalTags); // Restore original tags for editing
                                                                     setModeOverride(TagBarMode.EditWithTags);
                                                                 }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
+                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
                                                                 Edit with tags
                                                             </button>
