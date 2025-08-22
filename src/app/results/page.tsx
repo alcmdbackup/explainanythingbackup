@@ -1140,7 +1140,15 @@ export default function ResultsPage() {
                                         }
                                     `}</style>
                                     <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
-                                        {isMarkdownMode ? (
+                                        {isStreaming && !content ? (
+                                            <div className="flex items-center justify-center py-12">
+                                                <div className="flex space-x-1">
+                                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                                                </div>
+                                            </div>
+                                        ) : isMarkdownMode ? (
                                             <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
                                                 <ReactMarkdown
                                                     remarkPlugins={[remarkMath]}
