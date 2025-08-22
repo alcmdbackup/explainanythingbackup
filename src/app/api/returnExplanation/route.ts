@@ -9,20 +9,18 @@ export async function POST(request: NextRequest) {
     try {
         const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector } = await request.json();
         
-        // Add debug logging for rewrite operations
-        if (userInputType === UserInputType.Rewrite) {
-            logger.debug('API route received REWRITE request', {
-                userInput,
-                userInputType,
-                previousExplanationViewedId,
-                previousExplanationViewedVector: previousExplanationViewedVector ? {
-                    hasValues: !!previousExplanationViewedVector.values,
-                    valuesType: typeof previousExplanationViewedVector.values,
-                    isArray: Array.isArray(previousExplanationViewedVector.values),
-                    valuesLength: previousExplanationViewedVector.values?.length
-                } : null
-            }, FILE_DEBUG);
-        }
+        // Add debug logging for all requests
+        logger.debug('API route received request', {
+            userInput,
+            userInputType,
+            previousExplanationViewedId,
+            previousExplanationViewedVector: previousExplanationViewedVector ? {
+                hasValues: !!previousExplanationViewedVector.values,
+                valuesType: typeof previousExplanationViewedVector.values,
+                isArray: Array.isArray(previousExplanationViewedVector.values),
+                valuesLength: previousExplanationViewedVector.values?.length
+            } : null
+        }, FILE_DEBUG);
         
         // Validate required parameters
         if (!userInput || !userid) {
@@ -56,13 +54,42 @@ export async function POST(request: NextRequest) {
 
                     // Streaming callback that forwards content to the client
                     const streamingCallback = (content: string) => {
-                        const data = JSON.stringify({ 
-                            type: 'content',
-                            content: content,
-                            isStreaming: true, // Always true when we receive content
-                            isComplete: false 
-                        });
-                        controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                        console.log('API route streamingCallback called with content:', content);
+                        logger.debug('API route streamingCallback called with content', { content }, FILE_DEBUG);
+                        try {
+                            // Check if this is a progress event (JSON string)
+                            const parsedContent = JSON.parse(content);
+                            if (parsedContent.type === 'progress') {
+                                // Forward progress events directly
+                                console.log('API route forwarding progress event:', parsedContent);
+                                logger.debug('API route forwarding progress event', parsedContent, FILE_DEBUG);
+                                const data = JSON.stringify({ 
+                                    type: 'progress',
+                                    ...parsedContent,
+                                    isStreaming: true,
+                                    isComplete: false 
+                                });
+                                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                            } else {
+                                // Regular content
+                                const data = JSON.stringify({ 
+                                    type: 'content',
+                                    content: content,
+                                    isStreaming: true, // Always true when we receive content
+                                    isComplete: false 
+                                });
+                                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                            }
+                        } catch (parseError) {
+                            // If parsing fails, treat as regular content
+                            const data = JSON.stringify({ 
+                                type: 'content',
+                                content: content,
+                                isStreaming: true, // Always true when we receive content
+                                isComplete: false 
+                            });
+                            controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                        }
                     };
 
                             // Call returnExplanationLogic with streaming support and additional rules

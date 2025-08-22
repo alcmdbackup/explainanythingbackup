@@ -411,12 +411,46 @@ export const returnExplanationLogic = withLoggingAndTracing(
                     };
                 }
                 titleResult = titlesGenerated.title;
+                
+                // Send progress event when title is generated
+                if (onStreamingText) {
+                    const progressData = {
+                        type: 'progress',
+                        stage: 'title_generated',
+                        title: titleResult
+                    };
+                    logger.debug('Sending title_generated progress event', progressData, true);
+                    onStreamingText(JSON.stringify(progressData));
+                }
             } else {
                 // For TitleFromLink, TitleFromRegenerate, RewriteWithTags, EditWithTags, and any other types
                 // use the userInput directly as the title
                 // The additionalRules parameter will contain the tag descriptions for rewrite/edit modes
                 titleResult = userInput;
+                
+                // Send progress event for non-query input types
+                if (onStreamingText) {
+                    const progressData = {
+                        type: 'progress',
+                        stage: 'title_direct',
+                        title: titleResult,
+                        userInputType: userInputType
+                    };
+                    logger.debug('Sending title_direct progress event', progressData, true);
+                    onStreamingText(JSON.stringify(progressData));
+                }
             }
+            // Send progress event for searching matches
+            if (onStreamingText) {
+                const progressData = {
+                    type: 'progress',
+                    stage: 'searching_matches',
+                    title: titleResult
+                };
+                logger.debug('Sending searching_matches progress event', progressData, true);
+                onStreamingText(JSON.stringify(progressData));
+            }
+            
             // Run anchorComparison, similarTexts, and diversityComparison in parallel
             const [similarTexts, anchorComparison, diversityComparison] = await Promise.all([
                 findMatchesInVectorDb(titleResult, false, null),

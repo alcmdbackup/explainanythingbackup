@@ -368,7 +368,7 @@ export default function ResultsPage() {
      * Calls: /api/returnExplanation, loadExplanation, saveUserQuery
      */
     const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null) => {
-        logger.debug('handleUserAction called', { userInput, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
+        logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
         console.log('handleUserAction received matchMode:', matchMode);
         if (!userInput.trim()) return;
         
@@ -451,12 +451,15 @@ export default function ResultsPage() {
             if (done) break;
 
             const chunk = decoder.decode(value);
+            logger.debug('Client received chunk:', { chunkLength: chunk.length, chunk: chunk.substring(0, 200) }, FILE_DEBUG);
             const lines = chunk.split('\n');
 
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
+                        console.log('Client received streaming data:', data);
+                        logger.debug('Client received streaming data:', { data }, FILE_DEBUG);
                         
                         if (data.type === 'error') {
                             setError(data.error);
@@ -468,21 +471,37 @@ export default function ResultsPage() {
                         }
 
                         if (data.type === 'streaming_start') {
+                            logger.debug('Client received streaming_start', { data }, FILE_DEBUG);
                             setIsStreaming(true);
                         }
 
                         if (data.type === 'content') {
                             // Handle streaming content - update the UI in real-time
+                            logger.debug('Client received content', { contentLength: data.content?.length }, FILE_DEBUG);
                             setContent(data.content);
                             // Ensure streaming state is true when receiving content
                             setIsStreaming(true);
                         }
 
+                        if (data.type === 'progress') {
+                            // Handle progress events
+                            console.log('Client received progress data:', data);
+                            logger.debug('Received progress data:', { data }, FILE_DEBUG);
+                            if (data.stage === 'title_generated' && data.title) {
+                                setExplanationTitle(data.title);
+                            }
+                            if (data.stage === 'searching_matches' && data.title) {
+                                setExplanationTitle(data.title);
+                            }
+                        }
+
                         if (data.type === 'streaming_end') {
+                            logger.debug('Client received streaming_end', { data }, FILE_DEBUG);
                             setIsStreaming(false);
                         }
 
                         if (data.type === 'complete' && data.result) {
+                            logger.debug('Client received complete', { hasResult: !!data.result }, FILE_DEBUG);
                             finalResult = data.result;
                             //setIsStreaming(false);
                             //wait for page reload to set this to false. This will prevent the flashing of the action buttons. 
@@ -917,7 +936,7 @@ export default function ResultsPage() {
                         {!showMatches && (explanationTitle || content) && (!isPageLoading) && (
                             <div className="h-full flex flex-col">
                                 {/* Explanation Title with View All Matches Link */}
-                                {explanationTitle && !isPageLoading && !isStreaming && (
+                                {explanationTitle && !isPageLoading && (
                                     <div className="mb-4">
                                         <div className="flex items-center justify-between min-h-[2.5rem]">
                                             <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
