@@ -936,7 +936,7 @@ export default function ResultsPage() {
                                     </div>
                                 )}
                                 
-                                {!isModified && !isPageLoading && !isStreaming && (
+                                {!isModified && !isPageLoading && (
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -945,7 +945,7 @@ export default function ResultsPage() {
                                                 <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
                                                     <button
                                                         type="button"
-                                                        disabled={isPageLoading}
+                                                        disabled={isPageLoading || isStreaming}
                                                         onClick={async () => {
                                                             // Main rewrite button - regenerate the article
                                                             // Use prompt if available, otherwise use explanation title
@@ -976,7 +976,7 @@ export default function ResultsPage() {
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        disabled={isPageLoading}
+                                                        disabled={isPageLoading || isStreaming}
                                                         onClick={() => {
                                                             if (showRegenerateDropdown) {
                                                                 // Reset tags to original state when closing dropdown
@@ -1022,13 +1022,14 @@ export default function ResultsPage() {
                                         )}
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !explanationTitle || !content || userSaved}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming}
                                             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
                                         </button>
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                            disabled={isStreaming}
                                             className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
@@ -1046,7 +1047,8 @@ export default function ResultsPage() {
                                             onChange={(e) => {
                                                 setMode(e.target.value as MatchMode);
                                             }}
-                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                            disabled={isStreaming}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
                                         >
                                             <option value={MatchMode.Normal}>Normal</option>
                                             <option value={MatchMode.SkipMatch}>Skip Match</option>
@@ -1056,28 +1058,27 @@ export default function ResultsPage() {
                                 </div>
                                 )}
                                 
-                                {/* Tags Bar - hidden during streaming */}
-                                {!isStreaming && (
-                                    <div className="mb-2">
-                                        <TagBar 
-                                            tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
-                                            setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
-                                            className="mb-2" 
-                                            explanationId={explanationId}
-                                            modeOverride={modeOverride}
-                                            setModeOverride={setModeOverride}
-                                            isModified={isModified}
-                                            setIsModified={setIsModified}
-                                            onTagClick={(tag) => {
-                                                // Handle tag clicks here - you can implement search, filtering, etc.
-                                                console.log('Tag clicked:', tag);
-                                                // Example: could trigger a search for explanations with this tag
-                                                // or navigate to a tag-specific page
-                                            }}
-                                            tagBarApplyClickHandler={handleTagBarApplyClick}
-                                        />
-                                    </div>
-                                )}
+                                {/* Tags Bar - shown during streaming with only add tag button */}
+                                <div className="mb-2">
+                                    <TagBar 
+                                        tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
+                                        setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
+                                        className="mb-2" 
+                                        explanationId={explanationId}
+                                        modeOverride={modeOverride}
+                                        setModeOverride={setModeOverride}
+                                        isModified={isModified}
+                                        setIsModified={setIsModified}
+                                        onTagClick={(tag) => {
+                                            // Handle tag clicks here - you can implement search, filtering, etc.
+                                            console.log('Tag clicked:', tag);
+                                            // Example: could trigger a search for explanations with this tag
+                                            // or navigate to a tag-specific page
+                                        }}
+                                        tagBarApplyClickHandler={handleTagBarApplyClick}
+                                        isStreaming={isStreaming}
+                                    />
+                                </div>
                                 {/* Debug logging */}
                                 {(() => {
                                     console.log('TagBar props:', {

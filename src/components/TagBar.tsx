@@ -16,6 +16,7 @@ interface TagBarProps {
     isModified?: boolean;
     setIsModified?: (modified: boolean) => void;
     tagBarApplyClickHandler?: (tagDescriptions: string[]) => void;
+    isStreaming?: boolean;
 }
 
 /**
@@ -34,7 +35,7 @@ interface TagBarProps {
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns, getAllTagsAction for available tags
  */
-export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isModified: externalIsModified, setIsModified: externalSetIsModified, tagBarApplyClickHandler }: TagBarProps) {
+export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isModified: externalIsModified, setIsModified: externalSetIsModified, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -554,6 +555,31 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         // The useEffect will automatically update isModified state
     };
 
+    // During streaming, always show the TagBar even if there are no tags
+    console.log('TagBar: isStreaming =', isStreaming, 'tags.length =', tags?.length);
+    if (isStreaming) {
+        return (
+            <div className={`relative ${className}`}>
+                <div className="flex flex-wrap items-center gap-2 py-2">
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                        Tags:
+                    </span>
+                    <button
+                        disabled={true}
+                        className="inline-flex items-center px-2.5 py-0.5 text-xs font-medium text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-full cursor-not-allowed opacity-50"
+                        title="Add new tag (disabled during streaming)"
+                    >
+                        <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                        </svg>
+                        Add tag
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // If not streaming and no tags, don't show anything
     if (!tags || tags.length === 0) {
         return null;
     }
