@@ -215,30 +215,20 @@ export const generateNewExplanation = withLogging(
             // Determine if we should stream based on presence of callback
             const shouldStream = onStreamingText !== undefined;
             
-            const result = await callOpenAIModel(
+            const newExplanationContent = await callOpenAIModel(
                 formattedPrompt, 
                 "generateNewExplanation", 
                 userid, 
                 "gpt-4o-mini", 
                 shouldStream, 
                 shouldStream ? onStreamingText : null, 
-                explanationBaseSchema, 
+                null, 
                 'llmQuery'
             );
-            
-            const parsedResult = explanationBaseSchema.safeParse(JSON.parse(result));
-
-            if (!parsedResult.success) {
-                            return {
-                explanationData: null,
-                error: createValidationError('AI response did not match expected format', parsedResult.error),
-                tagEvaluation: undefined
-            };
-            }
 
             // Postprocess the content to add links and evaluate tags
             const { enhancedContent, tagEvaluation, error: postprocessError } = await postprocessNewExplanationContent(
-                parsedResult.data.content,
+                newExplanationContent,
                 titleResult,
                 userid
             );
