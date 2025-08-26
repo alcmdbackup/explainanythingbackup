@@ -23,6 +23,9 @@ import {
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags, getTempTagsForRewriteWithTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
+import { createEditorSuggestionPrompt } from '@/editorFiles/EditorPrompts';
+import { editorSuggestionResponseSchema } from '@/editorFiles/editorSchemas';
+import { patchChangeSchema, type PatchChangeType } from '@/editorFiles/editorSchemas';
 
 const FILE_DEBUG = true;
 
@@ -745,6 +748,101 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
         }
     },
     'loadFromPineconeUsingExplanationIdAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets AI-powered edit suggestions for content (server action)
+ *
+ * • Calls OpenAI model to analyze content and suggest specific patch changes
+ * • Uses structured output to ensure consistent patch format
+ * • Validates response against patchChangeSchema before returning
+ * • Logs results using server utilities logger
+ * • Used by: Editor components for AI-powered edit suggestions
+ * • Calls: callOpenAIModel, patchChangeSchema validation
+ * • Used by: LexicalEditor, editor test components
+ */
+export const getEditorSuggestionsAction = withLogging(
+    async function getEditorSuggestionsAction(
+        content: string, 
+        userRequest?: string,
+        userid: string = 'anonymous'
+    ): Promise<{
+        success: boolean;
+        data: PatchChangeType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const prompt = createEditorSuggestionPrompt(content, userRequest);
+            
+            const response = await callOpenAIModel(
+                prompt,
+                'editor_suggestions',
+                userid,
+                'gpt-4o-mini',
+                false, // non-streaming
+                null,  // no setText for non-streaming
+                editorSuggestionResponseSchema,
+                'editorSuggestions',
+                true   // debug enabled
+            );
+
+            // Parse the response to extract patches
+            let parsedResponse;
+            try {
+                parsedResponse = JSON.parse(response);
+            } catch (parseError) {
+                logger.error('Failed to parse LLM response as JSON', {
+                    response,
+                    error: parseError instanceof Error ? parseError.message : String(parseError)
+                });
+                throw new Error('Invalid JSON response from LLM');
+            }
+
+            // Validate the structured response
+            const validationResult = editorSuggestionResponseSchema.safeParse(parsedResponse);
+            if (!validationResult.success) {
+                logger.error('LLM response validation failed', {
+                    errors: validationResult.error.errors,
+                    parsedResponse
+                });
+                throw new Error('LLM response does not match expected schema');
+            }
+
+            const validatedPatches = validationResult.data.patches;
+
+            logger.debug('Editor suggestions generated successfully', {
+                contentLength: content.length,
+                userRequest,
+                patchesCount: validatedPatches.length,
+                patches: validatedPatches.map(p => ({
+                    id: p.id,
+                    kind: p.kind,
+                    startG: p.startG,
+                    endG: p.endG,
+                    summary: p.summary
+                }))
+            });
+
+            return {
+                success: true,
+                data: validatedPatches,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getEditorSuggestionsAction', { 
+                    contentLength: content.length, 
+                    userRequest 
+                })
+            };
+        }
+    },
+    'getEditorSuggestionsAction',
     { 
         enabled: FILE_DEBUG
     }
