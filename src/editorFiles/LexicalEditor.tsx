@@ -48,11 +48,13 @@ function InitialContentPlugin({
   return null;
 }
 
-// Custom plugin for tracking content changes
+// Custom plugin for tracking content changes and editor state
 function ContentChangePlugin({ 
-  onContentChange 
+  onContentChange,
+  onEditorStateChange
 }: { 
-  onContentChange?: (content: string) => void 
+  onContentChange?: (content: string) => void;
+  onEditorStateChange?: (editorStateJson: string) => void;
 }) {
   const [editor] = useLexicalComposerContext();
 
@@ -62,9 +64,32 @@ function ContentChangePlugin({
       const content = editorState.read(() => $getRoot().getTextContent());
       onContentChange(content);
     }
-  }, [editor, onContentChange]);
+    
+    if (onEditorStateChange) {
+      const editorState = editor.getEditorState();
+      const editorStateJson = JSON.stringify(editorState.toJSON(), null, 2);
+      onEditorStateChange(editorStateJson);
+    }
+  }, [editor, onContentChange, onEditorStateChange]);
 
   return <OnChangePlugin onChange={handleChange} />;
+}
+
+// Component to display editor state as JSON
+function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
+  return (
+    <div className="mt-4">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Editor State (JSON)
+      </h3>
+      <textarea
+        value={editorStateJson}
+        readOnly
+        className="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-mono text-sm resize-none"
+        placeholder="Editor state will appear here..."
+      />
+    </div>
+  );
 }
 
 // Custom plugin for AI suggestions (inert for now)
@@ -92,14 +117,17 @@ interface LexicalEditorProps {
   className?: string;
   initialContent?: string;
   onContentChange?: (content: string) => void;
+  showEditorState?: boolean;
 }
 
 export default function LexicalEditor({ 
   placeholder = "Enter some text...", 
   className = "",
   initialContent = "",
-  onContentChange
+  onContentChange,
+  showEditorState = true
 }: LexicalEditorProps) {
+  const [editorStateJson, setEditorStateJson] = useState<string>('');
 
   const initialConfig = {
     namespace: 'MyEditor',
@@ -111,7 +139,10 @@ export default function LexicalEditor({
     <div className={className}>
       <LexicalComposer initialConfig={initialConfig}>
         <InitialContentPlugin initialContent={initialContent} />
-        <ContentChangePlugin onContentChange={onContentChange} />
+        <ContentChangePlugin 
+          onContentChange={onContentChange} 
+          onEditorStateChange={setEditorStateJson}
+        />
         <SuggestionsPlugin />
         <RichTextPlugin
           contentEditable={
@@ -129,6 +160,10 @@ export default function LexicalEditor({
         <HistoryPlugin />
         <AutoFocusPlugin />
       </LexicalComposer>
+      
+      {showEditorState && (
+        <EditorStateDisplay editorStateJson={editorStateJson} />
+      )}
     </div>
   );
 }
