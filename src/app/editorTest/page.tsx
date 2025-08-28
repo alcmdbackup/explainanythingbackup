@@ -1,13 +1,9 @@
 'use client';
 
 import LexicalEditor from '../../editorFiles/LexicalEditor';
-import { getEditorSuggestionsAction } from '@/actions/actions';
 import { useState } from 'react';
-import { type PatchChangeType } from '@/editorFiles/editorSchemas';
 
 export default function EditorTestPage() {
-    const [suggestions, setSuggestions] = useState<PatchChangeType[] | null>(null);
-    const [isLoading, setIsLoading] = useState(false);
     const [currentContent, setCurrentContent] = useState<string>('');
 
     // Default content about Albert Einstein
@@ -27,32 +23,7 @@ Einstein's legacy continues to influence modern physics, with his theories formi
 
 The impact of Einstein's discoveries extends far beyond the scientific community. His theories have practical applications in technologies we use every day, from GPS systems that must account for relativistic effects to medical imaging techniques that rely on our understanding of matter and energy.`;
 
-    /**
-     * Test function to get AI suggestions for sample content
-     * • Calls server action with sample text to test LLM integration
-     * • Updates state with suggestions and logs to console
-     * • Used by: Test button for verifying AI suggestions functionality
-     * • Calls: getEditorSuggestionsAction
-     */
-    const handleTestSuggestions = async () => {
-        setIsLoading(true);
-        try {
-            const result = await getEditorSuggestionsAction(currentContent, "Improve the writing style and add more details about his contributions");
-            
-            if (result.success && result.data) {
-                setSuggestions(result.data);
-                console.log('Test AI Edit Suggestions:', result.data);
-            } else {
-                console.error('Failed to get test suggestions:', result.error);
-                alert('Failed to get test suggestions. Please try again.');
-            }
-        } catch (error) {
-            console.error('Error getting test suggestions:', error);
-            alert('Error getting test suggestions. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+
 
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
@@ -76,68 +47,6 @@ The impact of Einstein's discoveries extends far beyond the scientific community
                 </div>
 
                 <div className="max-w-4xl mx-auto space-y-6">
-                    {/* Test AI Suggestions Button */}
-                    <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                        <div className="p-6">
-                            <h3 className="text-lg font-semibold text-blue-900 dark:text-blue-100 mb-3">
-                                Test AI Edit Suggestions
-                            </h3>
-                            <p className="text-blue-800 dark:text-blue-200 text-sm mb-4">
-                                Click the button below to test the AI-powered edit suggestions with the current content in the editor.
-                            </p>
-                            <button
-                                onClick={handleTestSuggestions}
-                                disabled={isLoading}
-                                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium rounded-md transition-colors duration-200 flex items-center space-x-2"
-                            >
-                                {isLoading ? (
-                                    <>
-                                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
-                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                        </svg>
-                                        <span>Getting Suggestions...</span>
-                                    </>
-                                ) : (
-                                    <>
-                                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                                        </svg>
-                                        <span>Test AI Suggestions</span>
-                                    </>
-                                )}
-                            </button>
-                        </div>
-                    </div>
-
-                    {/* Test Suggestions Display */}
-                    {suggestions && suggestions.length > 0 && (
-                        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                            <div className="p-6">
-                                <h3 className="text-lg font-semibold text-green-800 dark:text-green-200 mb-3">
-                                    Test AI Suggestions ({suggestions.length})
-                                </h3>
-                                <div className="space-y-3">
-                                    {suggestions.map((suggestion, index) => (
-                                        <div key={suggestion.id || index} className="text-sm text-green-700 dark:text-green-300 p-3 bg-green-100 dark:bg-green-800/30 rounded-md">
-                                            <div className="font-medium mb-1">
-                                                {suggestion.kind.charAt(0).toUpperCase() + suggestion.kind.slice(1)}: {suggestion.summary}
-                                            </div>
-                                            {suggestion.newText && (
-                                                <div className="text-xs text-green-600 dark:text-green-400 mt-1">
-                                                    <strong>New text:</strong> "{suggestion.newText}"
-                                                </div>
-                                            )}
-                                            <div className="text-xs text-green-500 dark:text-green-400 mt-1">
-                                                <strong>Position:</strong> {suggestion.startG}-{suggestion.endG}
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
                     {/* Main Editor */}
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
                         <div className="p-6">
@@ -166,7 +75,8 @@ The impact of Einstein's discoveries extends far beyond the scientific community
                                 </p>
                                 <p>
                                     The editor supports rich text formatting, undo/redo functionality, and is designed to be 
-                                    highly customizable and performant.
+                                    highly customizable and performant. It includes a disabled AI suggestions feature that can be 
+                                    re-enabled in the future.
                                 </p>
                             </div>
                         </div>
