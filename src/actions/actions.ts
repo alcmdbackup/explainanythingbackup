@@ -23,6 +23,7 @@ import {
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags, getTempTagsForRewriteWithTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
+import { createAISuggestionPrompt, createApplyEditsPrompt } from '../editorFiles/aiSuggestion';
 
 
 const FILE_DEBUG = true;
@@ -746,6 +747,139 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
         }
     },
     'loadFromPineconeUsingExplanationIdAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Generates AI suggestions for text improvement (server action)
+ *
+ * • Creates a prompt using the provided text and improvement type
+ * • Calls OpenAI model to generate editing suggestions
+ * • Returns the AI response for text improvement
+ * • Calls: createAISuggestionPrompt, callOpenAIModel
+ * • Used by: Editor test pages for AI-powered text suggestions
+ */
+export const generateAISuggestionsAction = withLogging(
+    async function generateAISuggestionsAction(
+        currentText: string,
+        userid: string
+    ): Promise<{
+        success: boolean;
+        data: string | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const prompt = createAISuggestionPrompt(currentText);
+            
+            logger.debug('AI Suggestion Request', {
+                textLength: currentText.length,
+                promptLength: prompt.length,
+                userid
+            }, FILE_DEBUG);
+
+            const response = await callOpenAIModel(
+                prompt,
+                'editor_ai_suggestions',
+                userid,
+                'gpt-4o-mini',
+                false,
+                null
+            );
+
+            logger.debug('AI Suggestion Response', {
+                responseLength: response.length,
+                response: response
+            }, FILE_DEBUG);
+
+            return {
+                success: true,
+                data: response,
+                error: null
+            };
+        } catch (error) {
+            logger.error('AI Suggestion Error', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'generateAISuggestionsAction', { textLength: currentText.length })
+            };
+        }
+    },
+    'generateAISuggestionsAction',
+    { 
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Applies AI suggestions to the original content (server action)
+ *
+ * • Creates a prompt using createApplyEditsPrompt to apply AI suggestions
+ * • Calls OpenAI model to generate the final edited text
+ * • Returns the complete text with all edits applied
+ * • Calls: createApplyEditsPrompt, callOpenAIModel
+ * • Used by: Editor test pages to apply AI suggestions to content
+ */
+export const applyAISuggestionsAction = withLogging(
+    async function applyAISuggestionsAction(
+        aiSuggestions: string,
+        originalContent: string,
+        userid: string
+    ): Promise<{
+        success: boolean;
+        data: string | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const prompt = createApplyEditsPrompt(aiSuggestions, originalContent);
+            
+            logger.debug('Apply AI Suggestions Request', {
+                suggestionsLength: aiSuggestions.length,
+                originalContentLength: originalContent.length,
+                promptLength: prompt.length,
+                userid
+            }, FILE_DEBUG);
+
+            const response = await callOpenAIModel(
+                prompt,
+                'editor_apply_suggestions',
+                userid,
+                'gpt-4o-mini',
+                false,
+                null
+            );
+
+            logger.debug('Apply AI Suggestions Response', {
+                responseLength: response.length,
+                response: response
+            }, FILE_DEBUG);
+
+            return {
+                success: true,
+                data: response,
+                error: null
+            };
+        } catch (error) {
+            logger.error('Apply AI Suggestions Error', {
+                error: error instanceof Error ? error.message : String(error)
+            });
+            
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'applyAISuggestionsAction', { 
+                    suggestionsLength: aiSuggestions.length, 
+                    originalContentLength: originalContent.length 
+                })
+            };
+        }
+    },
+    'applyAISuggestionsAction',
     { 
         enabled: FILE_DEBUG
     }
