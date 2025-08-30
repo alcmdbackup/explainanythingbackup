@@ -10,11 +10,9 @@
  * @returns A formatted prompt string for the AI model
  */
 export function createAISuggestionPrompt(currentText: string): string {
-    const basePrompt = `Propose edits to the article below to improve its quality.
+    const basePrompt = `Make significant edits to the article below to improve its quality.
 
-This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the amount of unchanged text you include.
-
-When writing the edits, specify each edit in sequence, using the special marker ... existing text ... to represent unchanged passages in between edited sections.
+<output_format> When writing the edits, specify each edit in sequence, using the special marker ... existing text ... to represent unchanged passages in between edited sections.
 
 For example:
 
@@ -25,16 +23,17 @@ SECOND_EDIT
 ... existing text ...
 THIRD_EDIT
 ... existing text ...
+</output_format>
 
-Replace each FIRST_EDIT, SECOND_EDIT... above with the new updated text along with some unchanged text before and after to help identify the change later 
-
-Only return ... existing text ... markers and the updated text, do not return anything else. Do not actually print FIRST_EDIT, SECOND_EDIT, etc - you need to replace this with the updated text for the edits
-
-You should still bias toward repeating as little of the original article as possible, while giving enough surrounding context to make it clear where the change belongs.
-
-DO NOT omit spans of pre-existing text without replacing them with the ... existing text ... marker. If you omit the marker, the model may inadvertently delete those parts of the article.
-
+<individual_edit>
+Replace each FIRST_EDIT, SECOND_EDIT... above with the updated text along with some unchanged text before and after to help identify the change later 
 Make sure each edit is unambiguous about what should change and where it should be applied.
+</individual_edit>
+
+<existing_text_marker>
+Only return ... existing text ... markers and the updated text, do not return anything else. Do not actually print FIRST_EDIT, SECOND_EDIT, etc - you need to replace this with the updated text for the edits
+DO NOT omit spans of pre-existing text without replacing them with the ... existing text ... marker. If you omit the marker, the model may inadvertently delete those parts of the article.
+</existing_text_marker>
 
 == Article to edit ==: 
 

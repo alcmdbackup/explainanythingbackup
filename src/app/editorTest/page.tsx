@@ -4,6 +4,7 @@ import LexicalEditor from '../../editorFiles/LexicalEditor';
 import { useState, useEffect } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
+import { createUnifiedDiff, formatDiffForDisplay, createVisualDiff, VisualDiffSegment } from '../../lib/utils/diffUtils';
 
 export default function EditorTestPage() {
     const [currentContent, setCurrentContent] = useState<string>('');
@@ -13,6 +14,9 @@ export default function EditorTestPage() {
     const [appliedEdits, setAppliedEdits] = useState<string>('');
     const [isApplyingEdits, setIsApplyingEdits] = useState<boolean>(false);
     const [applyError, setApplyError] = useState<string>('');
+    const [diffResult, setDiffResult] = useState<ReturnType<typeof createUnifiedDiff> | null>(null);
+    const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
+    const [diffError, setDiffError] = useState<string>('');
 
     // Default content about Albert Einstein
     const defaultContent = `Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
@@ -104,6 +108,39 @@ The impact of Einstein's discoveries extends far beyond the scientific community
             setApplyError(error instanceof Error ? error.message : 'An unexpected error occurred');
         } finally {
             setIsApplyingEdits(false);
+        }
+    };
+
+    // Handle applying 2-pass diff
+    const handleApplyDiff = () => {
+        if (!currentContent) {
+            setDiffError('No original content available.');
+            return;
+        }
+
+        if (!appliedEdits) {
+            setDiffError('No applied edits available. Please apply AI suggestions first.');
+            return;
+        }
+
+        setIsApplyingDiff(true);
+        setDiffError('');
+        setDiffResult(null);
+
+        try {
+            const result = createUnifiedDiff(currentContent, appliedEdits);
+            setDiffResult(result);
+            logger.debug('Unified diff applied successfully', {
+                totalSegments: result.summary.totalSegments,
+                wordAddedSegments: result.summary.wordAddedSegments,
+                wordRemovedSegments: result.summary.wordRemovedSegments,
+                lineAddedSegments: result.summary.lineAddedSegments,
+                lineRemovedSegments: result.summary.lineRemovedSegments
+            });
+        } catch (error) {
+            setDiffError(error instanceof Error ? error.message : 'An unexpected error occurred while applying diff');
+        } finally {
+            setIsApplyingDiff(false);
         }
     };
 
@@ -240,6 +277,104 @@ The impact of Einstein's discoveries extends far beyond the scientific community
                             </div>
                         </div>
                     )}
+
+                    {/* Diff Applied Panel */}
+                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                        <div className="p-6">
+                            <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-3">
+                                Diff Applied
+                            </h3>
+                            <div className="text-purple-800 dark:text-purple-200 text-sm space-y-4">
+                                <p>
+                                    Apply a 2-pass diff (line-level then word-level) between the original content and the applied edits.
+                                </p>
+                                
+                                <div className="flex flex-wrap gap-2">
+                                    <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
+                                        Original content: {currentContent.length} characters | 
+                                        Applied edits: {appliedEdits.length} characters |
+                                        Button disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'}
+                                    </div>
+                                    <button
+                                        onClick={handleApplyDiff}
+                                        disabled={!currentContent || !appliedEdits || isApplyingDiff}
+                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            !currentContent || !appliedEdits || isApplyingDiff
+                                                ? 'bg-purple-300 text-white cursor-not-allowed'
+                                                : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                        }`}
+                                    >
+                                        {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
+                                    </button>
+                                </div>
+
+                                {diffError && (
+                                    <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                        <p className="text-red-800 dark:text-red-200 text-sm">
+                                            Error: {diffError}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {diffResult && (
+                                    <div className="mt-4 space-y-4">
+                                        <div className="bg-purple-100 dark:bg-purple-800/30 rounded-md p-3">
+                                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
+                                                Diff Summary:
+                                            </h4>
+                                            <div className="text-sm space-y-1">
+                                                <p>Total segments: {diffResult.summary.totalSegments}</p>
+                                                <p>Word added segments: {diffResult.summary.wordAddedSegments}</p>
+                                                <p>Word removed segments: {diffResult.summary.wordRemovedSegments}</p>
+                                                <p>Line added segments: {diffResult.summary.lineAddedSegments}</p>
+                                                <p>Line removed segments: {diffResult.summary.lineRemovedSegments}</p>
+                                                <p>Word-level comparisons: {diffResult.summary.wordLevelComparisons}</p>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
+                                                Detailed Diff:
+                                            </h4>
+                                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
+                                                <pre className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap font-mono">
+                                                    {formatDiffForDisplay(diffResult)}
+                                                </pre>
+                                            </div>
+                                        </div>
+
+                                        <div>
+                                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
+                                                Visual Diff:
+                                            </h4>
+                                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
+                                                <div className="text-sm space-y-1">
+                                                    {createVisualDiff(diffResult).map((segment: VisualDiffSegment, index: number) => (
+                                                        <div
+                                                            key={index}
+                                                            className={`p-1 rounded ${
+                                                                segment.className === 'diff-header'
+                                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 font-bold'
+                                                                    : segment.className === 'diff-subheader'
+                                                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold'
+                                                                    : segment.type === 'added' 
+                                                                    ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200' 
+                                                                    : segment.type === 'removed'
+                                                                    ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
+                                                                    : 'text-gray-700 dark:text-gray-300'
+                                                            }`}
+                                                        >
+                                                            {segment.content}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
 
                     {/* Instructions Panel */}
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
