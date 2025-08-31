@@ -1,7 +1,7 @@
 'use client';
 
-import LexicalEditor from '../../editorFiles/LexicalEditor';
-import { useState, useEffect } from 'react';
+import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor';
+import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { createUnifiedDiff, renderAnnotatedHTML } from '../../lib/utils/diffUtils';
@@ -18,6 +18,7 @@ export default function EditorTestPage() {
     const [diffHtml, setDiffHtml] = useState<string>('');
     const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
     const [diffError, setDiffError] = useState<string>('');
+    const editorRef = useRef<LexicalEditorRef>(null);
 
     // Default content about Albert Einstein
     const defaultContent = `Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
@@ -167,6 +168,7 @@ Einstein's most famous equation, E = mc², demonstrates the equivalence of mass 
                                 Rich Text Editor
                             </label>
                             <LexicalEditor
+                                ref={editorRef}
                                 placeholder="Start writing your story about Albert Einstein or any other topic..."
                                 className="w-full"
                                 initialContent={defaultContent}
@@ -330,6 +332,23 @@ Einstein's most famous equation, E = mc², demonstrates the equivalence of mass 
                                                     className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap"
                                                     dangerouslySetInnerHTML={{ __html: diffHtml }}
                                                 />
+                                            </div>
+                                            <div className="mt-4">
+                                                <button
+                                                    onClick={() => {
+                                                        if (editorRef.current && diffHtml) {
+                                                            editorRef.current.setContentFromHTML(diffHtml);
+                                                        }
+                                                    }}
+                                                    disabled={!diffHtml}
+                                                    className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                        !diffHtml
+                                                            ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                            : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                                    }`}
+                                                >
+                                                    Update Editor with Diff HTML
+                                                </button>
                                             </div>
                                         </div>
 

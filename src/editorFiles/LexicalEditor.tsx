@@ -1,7 +1,8 @@
 'use client';
 
 import { $getRoot, $getSelection, $createParagraphNode, $createTextNode } from 'lexical';
-import { useState, useCallback, useEffect } from 'react';
+import { $generateNodesFromDOM } from '@lexical/html';
+import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 
@@ -11,6 +12,57 @@ import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
+
+// Import custom DiffTagNode
+import { DiffTagNode } from './DiffTagNode';
+
+/**
+ * Replace the editor content entirely from an HTML string.
+ * 
+ * • Parses HTML string using DOMParser and converts to Lexical nodes
+ * • Clears current editor content and appends new nodes
+ * • Sets cursor position to start or end of content
+ * • Calls: $generateNodesFromDOM, $getRoot, editor.update
+ * • Used by: LexicalEditor component to update content from diff HTML
+ */
+export function setEditorFromHTML(editor: any, html: string, opts?: {
+  placeCursor?: "start" | "end";   // where to put the caret after import
+  clearHistory?: boolean;          // clear undo stack after import (default true)
+}) {
+  const { placeCursor = "end", clearHistory = true } = opts ?? {};
+
+  // Apply in a single update so it's one undo step
+  editor.update(() => {
+    // 1) Parse HTML (sanitize first if the source is untrusted!)
+    const doc = new DOMParser().parseFromString(html, "text/html");
+
+    // 2) Convert DOM -> Lexical nodes using importDOM mappings from registered nodes
+    const nodes = $generateNodesFromDOM(editor, doc);
+
+    // 3) Update the editor content
+    const root = $getRoot();
+    root.clear();
+    
+    // Process nodes and wrap text nodes in paragraph nodes
+    const processedNodes = nodes.map(node => {
+      if (node.getType() === 'text') {
+        // Wrap text nodes in paragraph nodes
+        const paragraph = $createParagraphNode();
+        paragraph.append(node);
+        return paragraph;
+      }
+      return node;
+    });
+    
+    root.append(...processedNodes);
+
+    // Optional: set the selection
+    if (placeCursor === "start") root.selectStart();
+    else root.selectEnd();
+  });
+
+  // Note: clearHistory functionality removed since @lexical/history is not installed
+}
 
 // Theme configuration for the editor
 const theme = {
@@ -120,24 +172,47 @@ interface LexicalEditorProps {
   showEditorState?: boolean;
 }
 
-export default function LexicalEditor({ 
+/**
+ * Reference interface for LexicalEditor component
+ * 
+ * • Provides methods to control the editor from parent components
+ * • setContentFromHTML: Updates editor content using HTML string
+ * • Used by: Editor test pages to update editor with diff HTML
+ */
+export interface LexicalEditorRef {
+  setContentFromHTML: (html: string) => void;
+}
+
+const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({ 
   placeholder = "Enter some text...", 
   className = "",
   initialContent = "",
   onContentChange,
   showEditorState = true
-}: LexicalEditorProps) {
+}, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
+  const [editor, setEditor] = useState<any>(null);
 
   const initialConfig = {
     namespace: 'MyEditor',
     theme,
     onError,
+    nodes: [DiffTagNode],
   };
+
+  // Expose the setContentFromHTML function via ref
+  useImperativeHandle(ref, () => ({
+    setContentFromHTML: (html: string) => {
+      if (editor) {
+        setEditorFromHTML(editor, html);
+      }
+    }
+  }), [editor]);
 
   return (
     <div className={className}>
       <LexicalComposer initialConfig={initialConfig}>
+        <EditorRefPlugin setEditor={setEditor} />
         <InitialContentPlugin initialContent={initialContent} />
         <ContentChangePlugin 
           onContentChange={onContentChange} 
@@ -166,4 +241,17 @@ export default function LexicalEditor({
       )}
     </div>
   );
+});
+
+// Plugin to capture the editor instance
+function EditorRefPlugin({ setEditor }: { setEditor: (editor: any) => void }) {
+  const [editor] = useLexicalComposerContext();
+  
+  useEffect(() => {
+    setEditor(editor);
+  }, [editor, setEditor]);
+  
+  return null;
 }
+
+export default LexicalEditor;
