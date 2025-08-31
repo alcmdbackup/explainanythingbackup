@@ -154,6 +154,7 @@ function coalesceAtoms(atoms: Atom[]): Atom[] {
  * - Unchanged: plain text
  * - Deleted: <del class="diff-del">…</del>
  * - Inserted: <ins class="diff-ins">…</ins>
+ * - Wrapped in a div to ensure proper inline rendering in Lexical
  */
 export function renderAnnotatedHTML(
   atoms: Atom[],
@@ -161,7 +162,7 @@ export function renderAnnotatedHTML(
 ): string {
   const delClass = opt?.delClass ?? "diff-del";
   const insClass = opt?.insClass ?? "diff-ins";
-  return atoms
+  const content = atoms
     .map((a) => {
       if (a.kind === "orig" && !a.deleted) return escapeHTML(a.text);
       if (a.kind === "orig" && a.deleted)
@@ -170,6 +171,9 @@ export function renderAnnotatedHTML(
       return `<ins class="${insClass}">${escapeHTML(a.text)}</ins>`;
     })
     .join("");
+  
+  // Wrap in a div to ensure proper inline rendering when replacing entire editor content
+  return `<div>${content}</div>`;
 }
 
 function escapeHTML(s: string): string {

@@ -34,48 +34,21 @@ export function setEditorFromHTML(editor: any, html: string, opts?: {
   // Apply in a single update so it's one undo step
   editor.update(() => {
     // 1) Parse HTML (sanitize first if the source is untrusted!)
-    const doc = new DOMParser().parseFromString(html, "text/html");
+    const parser = new DOMParser();
+    const dom = parser.parseFromString(html, "text/html");
 
     // 2) Convert DOM -> Lexical nodes using importDOM mappings from registered nodes
-    const nodes = $generateNodesFromDOM(editor, doc);
+    const nodes = $generateNodesFromDOM(editor, dom);
 
-    // 3) Update the editor content
+    // 3) Replace the whole document
     const root = $getRoot();
     root.clear();
-    
-    // Process nodes and group consecutive inline nodes into paragraphs
-    const processedNodes = [];
-    let currentParagraph = null;
-    
-    for (const node of nodes) {
-      if (node.getType() === 'text' || (node.getType() === 'diff-tag' && node.isInline())) {
-        // Create paragraph if we don't have one
-        if (!currentParagraph) {
-          currentParagraph = $createParagraphNode();
-        }
-        currentParagraph.append(node);
-      } else {
-        // If we have a paragraph with content, add it to processed nodes
-        if (currentParagraph && currentParagraph.getChildrenSize() > 0) {
-          processedNodes.push(currentParagraph);
-          currentParagraph = null;
-        }
-        // Add the non-inline node
-        processedNodes.push(node);
-      }
-    }
-    
-    // Don't forget the last paragraph if it has content
-    if (currentParagraph && currentParagraph.getChildrenSize() > 0) {
-      processedNodes.push(currentParagraph);
-    }
-    
-    root.append(...processedNodes);
+    root.append(...nodes);
 
     // Optional: set the selection
     if (placeCursor === "start") root.selectStart();
     else root.selectEnd();
-  });
+  }, { discrete: true });
 
   // Note: clearHistory functionality removed since @lexical/history is not installed
 }
