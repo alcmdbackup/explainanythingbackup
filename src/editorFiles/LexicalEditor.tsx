@@ -43,16 +43,32 @@ export function setEditorFromHTML(editor: any, html: string, opts?: {
     const root = $getRoot();
     root.clear();
     
-    // Process nodes and wrap text nodes in paragraph nodes
-    const processedNodes = nodes.map(node => {
-      if (node.getType() === 'text') {
-        // Wrap text nodes in paragraph nodes
-        const paragraph = $createParagraphNode();
-        paragraph.append(node);
-        return paragraph;
+    // Process nodes and group consecutive inline nodes into paragraphs
+    const processedNodes = [];
+    let currentParagraph = null;
+    
+    for (const node of nodes) {
+      if (node.getType() === 'text' || (node.getType() === 'diff-tag' && node.isInline())) {
+        // Create paragraph if we don't have one
+        if (!currentParagraph) {
+          currentParagraph = $createParagraphNode();
+        }
+        currentParagraph.append(node);
+      } else {
+        // If we have a paragraph with content, add it to processed nodes
+        if (currentParagraph && currentParagraph.getChildrenSize() > 0) {
+          processedNodes.push(currentParagraph);
+          currentParagraph = null;
+        }
+        // Add the non-inline node
+        processedNodes.push(node);
       }
-      return node;
-    });
+    }
+    
+    // Don't forget the last paragraph if it has content
+    if (currentParagraph && currentParagraph.getChildrenSize() > 0) {
+      processedNodes.push(currentParagraph);
+    }
     
     root.append(...processedNodes);
 
