@@ -35,6 +35,10 @@ Only return ... existing text ... markers and the updated text, do not return an
 DO NOT omit spans of pre-existing text without replacing them with the ... existing text ... marker. If you omit the marker, the model may inadvertently delete those parts of the article.
 </existing_text_marker>
 
+<markdown_formatting>
+Preserve any markdown formatting included in edits as appropriate>
+</markdown_formatting>
+
 == Article to edit ==: 
 
 ${currentText}`;
