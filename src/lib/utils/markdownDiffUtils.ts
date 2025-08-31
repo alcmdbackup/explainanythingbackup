@@ -1,4 +1,4 @@
-import { Atom } from './diffUtils';
+import { Atom } from '../../editorFiles/diffUtils';
 
 /**
  * Convert diff atoms to Markdown with standard strikethrough/bold annotations

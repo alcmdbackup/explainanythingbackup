@@ -4,7 +4,7 @@ import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor
 import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
-import { createUnifiedDiff, renderAnnotatedHTML } from '../../lib/utils/diffUtils';
+import { createUnifiedDiff, renderAnnotatedHTML } from '../../editorFiles/diffUtils';
 
 export default function EditorTestPage() {
     const [currentContent, setCurrentContent] = useState<string>('');

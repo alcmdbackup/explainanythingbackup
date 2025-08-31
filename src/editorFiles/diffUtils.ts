@@ -150,29 +150,30 @@ function coalesceAtoms(atoms: Atom[]): Atom[] {
 ----------------------------------------*/
 
 /**
- * Render atoms to Markdown with special diff annotations.
+ * Render atoms to HTML that preserves the original text exactly.
  * - Unchanged: plain text
- * - Deleted: ~~text~~ (strikethrough)
- * - Inserted: **text** (bold) with special diff marker
- * - Preserves existing markdown formatting within diff sections
+ * - Deleted: <del class="diff-del">…</del>
+ * - Inserted: <ins class="diff-ins">…</ins>
+ * - Wrapped in a div to ensure proper inline rendering in Lexical
  */
-export function renderAnnotatedMarkdown(
+export function renderAnnotatedHTML(
   atoms: Atom[],
-  opt?: { delMarker?: string; insMarker?: string }
+  opt?: { delClass?: string; insClass?: string }
 ): string {
-  const delMarker = opt?.delMarker ?? "~~";
-  const insMarker = opt?.insMarker ?? "**";
+  const delClass = opt?.delClass ?? "diff-del";
+  const insClass = opt?.insClass ?? "diff-ins";
   const content = atoms
     .map((a) => {
-      if (a.kind === "orig" && !a.deleted) return a.text;
+      if (a.kind === "orig" && !a.deleted) return escapeHTML(a.text);
       if (a.kind === "orig" && a.deleted)
-        return `${delMarker}${a.text}${delMarker}`;
+        return `<del class="${delClass}">${escapeHTML(a.text)}</del>`;
       // insert
-      return `${insMarker}${a.text}${insMarker}`;
+      return `<ins class="${insClass}">${escapeHTML(a.text)}</ins>`;
     })
     .join("");
   
-  return content;
+  // Wrap in a div to ensure proper inline rendering when replacing entire editor content
+  return `<div>${content}</div>`;
 }
 
 function escapeHTML(s: string): string {
