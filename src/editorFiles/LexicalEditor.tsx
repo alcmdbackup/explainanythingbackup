@@ -106,7 +106,16 @@ function onError(error: Error) {
   console.error(error);
 }
 
-// Custom plugin for setting initial content
+/**
+ * Plugin for setting initial content in the editor
+ * 
+ * • Sets initial content when component mounts or initialContent changes
+ * • Converts markdown to rich text when in markdown mode
+ * • Sets plain text when not in markdown mode
+ * • Does not re-run when isMarkdownMode changes to preserve user edits
+ * • Calls: $convertFromMarkdownString, $getRoot, $createParagraphNode, $createTextNode
+ * • Used by: LexicalEditor to initialize content without overwriting user edits
+ */
 function InitialContentPlugin({ 
   initialContent,
   isMarkdownMode
@@ -130,7 +139,7 @@ function InitialContentPlugin({
         });
       }
     }
-  }, [editor, initialContent, isMarkdownMode]);
+  }, [editor, initialContent]); // Removed isMarkdownMode from dependencies
 
   return null;
 }
@@ -225,12 +234,14 @@ interface LexicalEditorProps {
  * • Provides methods to control the editor from parent components
  * • setContentFromHTML: Updates editor content using HTML string
  * • setContentFromMarkdown: Updates editor content using markdown string
+ * • setContentFromText: Updates editor content using plain text string
  * • getContentAsMarkdown: Gets current content as markdown string
  * • Used by: Editor test pages to update editor with diff HTML and markdown
  */
 export interface LexicalEditorRef {
   setContentFromHTML: (html: string) => void;
   setContentFromMarkdown: (markdown: string) => void;
+  setContentFromText: (text: string) => void;
   getContentAsMarkdown: () => string;
 }
 
@@ -275,6 +286,19 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       if (editor) {
         editor.update(() => {
           $convertFromMarkdownString(markdown, MARKDOWN_TRANSFORMERS);
+        });
+      }
+    },
+    setContentFromText: (text: string) => {
+      if (editor) {
+        editor.update(() => {
+          const root = $getRoot();
+          root.clear();
+          
+          // Use Lexical's built-in pattern: convert text to markdown with no transformers
+          // This creates proper paragraph structure without any formatting
+          const emptyTransformers: any[] = [];
+          $convertFromMarkdownString(text, emptyTransformers);
         });
       }
     },

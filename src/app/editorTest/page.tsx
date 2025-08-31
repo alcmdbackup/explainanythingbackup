@@ -44,9 +44,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     const handleMarkdownToggle = () => {
         if (editorRef.current) {
             if (isMarkdownMode) {
-                // Switching from markdown to raw text - get current content as plain text
-                const plainText = editorRef.current.getContentAsMarkdown();
-                setCurrentContent(plainText);
+                // Switching from markdown to raw text - get current content as markdown and set as plain text
+                const markdownContent = editorRef.current.getContentAsMarkdown();
+                setCurrentContent(markdownContent);
+                editorRef.current.setContentFromText(markdownContent);
             } else {
                 // Switching from raw text to markdown - set content as markdown
                 editorRef.current.setContentFromMarkdown(currentContent);
