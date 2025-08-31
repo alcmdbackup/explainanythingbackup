@@ -138,17 +138,28 @@ function InitialContentPlugin({
 // Custom plugin for tracking content changes and editor state
 function ContentChangePlugin({ 
   onContentChange,
-  onEditorStateChange
+  onEditorStateChange,
+  isMarkdownMode = false
 }: { 
   onContentChange?: (content: string) => void;
   onEditorStateChange?: (editorStateJson: string) => void;
+  isMarkdownMode?: boolean;
 }) {
   const [editor] = useLexicalComposerContext();
 
   const handleChange = useCallback(() => {
     if (onContentChange) {
       const editorState = editor.getEditorState();
-      const content = editorState.read(() => $getRoot().getTextContent());
+      let content: string;
+      
+      if (isMarkdownMode) {
+        // Get content as markdown when in markdown mode
+        content = editorState.read(() => $convertToMarkdownString(MARKDOWN_TRANSFORMERS));
+      } else {
+        // Get content as plain text when not in markdown mode
+        content = editorState.read(() => $getRoot().getTextContent());
+      }
+      
       onContentChange(content);
     }
     
@@ -157,7 +168,7 @@ function ContentChangePlugin({
       const editorStateJson = JSON.stringify(editorState.toJSON(), null, 2);
       onEditorStateChange(editorStateJson);
     }
-  }, [editor, onContentChange, onEditorStateChange]);
+  }, [editor, onContentChange, onEditorStateChange, isMarkdownMode]);
 
   return <OnChangePlugin onChange={handleChange} />;
 }
@@ -287,6 +298,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <ContentChangePlugin 
           onContentChange={onContentChange} 
           onEditorStateChange={setEditorStateJson}
+          isMarkdownMode={isMarkdownMode}
         />
         <MarkdownShortcutsPlugin isEnabled={isMarkdownMode} />
         <SuggestionsPlugin />
