@@ -54,3 +54,115 @@ body {
     color: #86efac;
   }
 }
+
+/* Lexical Editor Markdown Styling */
+.lexical-editor h1 {
+  font-size: 1.875rem !important;
+  line-height: 2.25rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 1rem !important;
+  margin-top: 1.5rem !important;
+  color: rgb(17 24 39) !important;
+}
+
+.lexical-editor h2 {
+  font-size: 1.5rem !important;
+  line-height: 2rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 0.75rem !important;
+  margin-top: 1.25rem !important;
+  color: rgb(17 24 39) !important;
+}
+
+.lexical-editor h3 {
+  font-size: 1.25rem !important;
+  line-height: 1.75rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 0.5rem !important;
+  margin-top: 1rem !important;
+  color: rgb(17 24 39) !important;
+}
+
+.lexical-editor h4 {
+  font-size: 1.125rem !important;
+  line-height: 1.75rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 0.5rem !important;
+  margin-top: 0.75rem !important;
+  color: rgb(17 24 39) !important;
+}
+
+.lexical-editor h5 {
+  font-size: 1rem !important;
+  line-height: 1.5rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 0.25rem !important;
+  margin-top: 0.5rem !important;
+  color: rgb(17 24 39) !important;
+}
+
+.lexical-editor h6 {
+  font-size: 0.875rem !important;
+  line-height: 1.25rem !important;
+  font-weight: 700 !important;
+  margin-bottom: 0.25rem !important;
+  margin-top: 0.5rem !important;
+  color: rgb(17 24 39) !important;
+}
+
+/* Dark mode heading styling */
+@media (prefers-color-scheme: dark) {
+  .lexical-editor h1,
+  .lexical-editor h2,
+  .lexical-editor h3,
+  .lexical-editor h4,
+  .lexical-editor h5,
+  .lexical-editor h6 {
+    color: rgb(255 255 255) !important;
+  }
+}
+
+/* Additional markdown element styling */
+.lexical-editor blockquote {
+  border-left: 4px solid rgb(209 213 219) !important;
+  padding-left: 1rem !important;
+  font-style: italic !important;
+  margin-bottom: 0.5rem !important;
+  color: rgb(55 65 81) !important;
+}
+
+.lexical-editor ul {
+  list-style-type: disc !important;
+  list-style-position: inside !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.lexical-editor ol {
+  list-style-type: decimal !important;
+  list-style-position: inside !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.lexical-editor li {
+  margin-bottom: 0.25rem !important;
+}
+
+.lexical-editor code {
+  background-color: rgb(243 244 246) !important;
+  padding: 0.125rem 0.25rem !important;
+  border-radius: 0.25rem !important;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace !important;
+  font-size: 0.875rem !important;
+}
+
+/* Dark mode additional styling */
+@media (prefers-color-scheme: dark) {
+  .lexical-editor blockquote {
+    border-left-color: rgb(75 85 99) !important;
+    color: rgb(209 213 219) !important;
+  }
+  
+  .lexical-editor code {
+    background-color: rgb(31 41 55) !important;
+  }
+}

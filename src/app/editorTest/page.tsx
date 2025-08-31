@@ -18,18 +18,42 @@ export default function EditorTestPage() {
     const [diffHtml, setDiffHtml] = useState<string>('');
     const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
     const [diffError, setDiffError] = useState<string>('');
+    const [isMarkdownMode, setIsMarkdownMode] = useState<boolean>(true);
     const editorRef = useRef<LexicalEditorRef>(null);
 
     // Default content about Albert Einstein
-    const defaultContent = `Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+    const defaultContent = `# Albert Einstein: The Revolutionary Physicist
 
-Einstein's most famous equation, E = mc², demonstrates the equivalence of mass and energy, showing that a small amount of mass can be converted into a tremendous amount of energy. This insight laid the groundwork for nuclear power and fundamentally altered our understanding of the physical world.`;
+Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+
+## The Famous Equation
+
+Einstein's most famous equation, **E = mc²**, demonstrates the equivalence of mass and energy, showing that a small amount of mass can be converted into a tremendous amount of energy. This insight laid the groundwork for nuclear power and fundamentally altered our understanding of the physical world.
+
+## Legacy and Impact
+
+Einstein's contributions to physics earned him the Nobel Prize in Physics in 1921, and his work continues to influence scientific research and technological development to this day.`;
 
     // Set initial content when component mounts
     useEffect(() => {
         setCurrentContent(defaultContent);
         console.log('Initial content set:', defaultContent.length, 'characters');
     }, []);
+
+    // Handle markdown mode toggle
+    const handleMarkdownToggle = () => {
+        if (editorRef.current) {
+            if (isMarkdownMode) {
+                // Switching from markdown to raw text - get current content as plain text
+                const plainText = editorRef.current.getContentAsMarkdown();
+                setCurrentContent(plainText);
+            } else {
+                // Switching from raw text to markdown - set content as markdown
+                editorRef.current.setContentFromMarkdown(currentContent);
+            }
+        }
+        setIsMarkdownMode(!isMarkdownMode);
+    };
 
     // Handle AI suggestions
     const handleGetAISuggestions = async () => {
@@ -157,6 +181,15 @@ Einstein's most famous equation, E = mc², demonstrates the equivalence of mass 
                             <li>• <strong>Ctrl+Z</strong> or <strong>Cmd+Z</strong> to undo</li>
                             <li>• <strong>Ctrl+Y</strong> or <strong>Cmd+Y</strong> to redo</li>
                         </ul>
+                        {isMarkdownMode && (
+                            <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-md border border-blue-200 dark:border-blue-800">
+                                <p className="font-medium text-blue-900 dark:text-blue-100 mb-2">Markdown Mode Active</p>
+                                <p className="text-blue-800 dark:text-blue-200 text-xs">
+                                    You can use markdown syntax: <strong>**bold**</strong>, <em>*italic*</em>, <code>`code`</code>, 
+                                    <code># heading</code>, <code>- list</code>, <code>{'>'} quote</code>
+                                </p>
+                            </div>
+                        )}
                     </div>
                 </div>
 
@@ -164,14 +197,35 @@ Einstein's most famous equation, E = mc², demonstrates the equivalence of mass 
                     {/* Main Editor */}
                     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700">
                         <div className="p-6">
-                            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                Rich Text Editor
-                            </label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                                    Rich Text Editor
+                                </label>
+                                <div className="flex items-center space-x-2">
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">Raw Text</span>
+                                    <button
+                                        onClick={handleMarkdownToggle}
+                                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                                            isMarkdownMode 
+                                                ? 'bg-blue-600' 
+                                                : 'bg-gray-200 dark:bg-gray-700'
+                                        }`}
+                                    >
+                                        <span
+                                            className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                                isMarkdownMode ? 'translate-x-6' : 'translate-x-1'
+                                            }`}
+                                        />
+                                    </button>
+                                    <span className="text-sm text-gray-600 dark:text-gray-400">Markdown</span>
+                                </div>
+                            </div>
                             <LexicalEditor
                                 ref={editorRef}
                                 placeholder="Start writing your story about Albert Einstein or any other topic..."
                                 className="w-full"
                                 initialContent={defaultContent}
+                                isMarkdownMode={isMarkdownMode}
                                 onContentChange={(content) => {
                                     console.log('Content changed:', content.length, 'characters');
                                     setCurrentContent(content);

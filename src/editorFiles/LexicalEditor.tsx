@@ -13,8 +13,46 @@ import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
 
+// Import markdown functionality
+import { 
+  $convertFromMarkdownString, 
+  $convertToMarkdownString, 
+  registerMarkdownShortcuts,
+  HEADING,
+  QUOTE,
+  CODE,
+  UNORDERED_LIST,
+  ORDERED_LIST,
+  INLINE_CODE,
+  BOLD_STAR,
+  ITALIC_STAR,
+  STRIKETHROUGH,
+  LINK
+} from '@lexical/markdown';
+
+// Import markdown nodes
+import { HeadingNode, QuoteNode } from '@lexical/rich-text';
+import { ListNode, ListItemNode } from '@lexical/list';
+import { CodeNode, CodeHighlightNode } from '@lexical/code';
+import { LinkNode } from '@lexical/link';
+import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
+
 // Import custom DiffTagNode
 import { DiffTagNode } from './DiffTagNode';
+
+// Define custom transformers array with only the ones we need
+const MARKDOWN_TRANSFORMERS = [
+  HEADING,
+  QUOTE,
+  CODE,
+  UNORDERED_LIST,
+  ORDERED_LIST,
+  INLINE_CODE,
+  BOLD_STAR,
+  ITALIC_STAR,
+  STRIKETHROUGH,
+  LINK
+];
 
 /**
  * Replace the editor content entirely from an HTML string.
@@ -70,21 +108,29 @@ function onError(error: Error) {
 
 // Custom plugin for setting initial content
 function InitialContentPlugin({ 
-  initialContent 
+  initialContent,
+  isMarkdownMode
 }: { 
-  initialContent: string 
+  initialContent: string;
+  isMarkdownMode: boolean;
 }) {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
     if (initialContent) {
-      editor.update(() => {
-        const root = $getRoot();
-        root.clear();
-        root.append($createParagraphNode().append($createTextNode(initialContent)));
-      });
+      if (isMarkdownMode) {
+        editor.update(() => {
+          $convertFromMarkdownString(initialContent, MARKDOWN_TRANSFORMERS);
+        });
+      } else {
+        editor.update(() => {
+          const root = $getRoot();
+          root.clear();
+          root.append($createParagraphNode().append($createTextNode(initialContent)));
+        });
+      }
     }
-  }, [editor, initialContent]);
+  }, [editor, initialContent, isMarkdownMode]);
 
   return null;
 }
@@ -159,6 +205,7 @@ interface LexicalEditorProps {
   initialContent?: string;
   onContentChange?: (content: string) => void;
   showEditorState?: boolean;
+  isMarkdownMode?: boolean;
 }
 
 /**
@@ -166,10 +213,14 @@ interface LexicalEditorProps {
  * 
  * • Provides methods to control the editor from parent components
  * • setContentFromHTML: Updates editor content using HTML string
- * • Used by: Editor test pages to update editor with diff HTML
+ * • setContentFromMarkdown: Updates editor content using markdown string
+ * • getContentAsMarkdown: Gets current content as markdown string
+ * • Used by: Editor test pages to update editor with diff HTML and markdown
  */
 export interface LexicalEditorRef {
   setContentFromHTML: (html: string) => void;
+  setContentFromMarkdown: (markdown: string) => void;
+  getContentAsMarkdown: () => string;
 }
 
 const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({ 
@@ -177,7 +228,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   className = "",
   initialContent = "",
   onContentChange,
-  showEditorState = true
+  showEditorState = true,
+  isMarkdownMode = false
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -186,15 +238,44 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
     namespace: 'MyEditor',
     theme,
     onError,
-    nodes: [DiffTagNode],
+    nodes: [
+      DiffTagNode,
+      HeadingNode,
+      QuoteNode,
+      ListNode,
+      ListItemNode,
+      CodeNode,
+      CodeHighlightNode,
+      LinkNode,
+      TableNode,
+      TableCellNode,
+      TableRowNode
+    ],
   };
 
-  // Expose the setContentFromHTML function via ref
+  // Expose the editor functions via ref
   useImperativeHandle(ref, () => ({
     setContentFromHTML: (html: string) => {
       if (editor) {
         setEditorFromHTML(editor, html);
       }
+    },
+    setContentFromMarkdown: (markdown: string) => {
+      if (editor) {
+        editor.update(() => {
+          $convertFromMarkdownString(markdown, MARKDOWN_TRANSFORMERS);
+        });
+      }
+    },
+    getContentAsMarkdown: () => {
+      if (editor) {
+        let markdown = '';
+        editor.update(() => {
+          markdown = $convertToMarkdownString(MARKDOWN_TRANSFORMERS);
+        });
+        return markdown;
+      }
+      return '';
     }
   }), [editor]);
 
@@ -202,16 +283,17 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
     <div className={className}>
       <LexicalComposer initialConfig={initialConfig}>
         <EditorRefPlugin setEditor={setEditor} />
-        <InitialContentPlugin initialContent={initialContent} />
+        <InitialContentPlugin initialContent={initialContent} isMarkdownMode={isMarkdownMode} />
         <ContentChangePlugin 
           onContentChange={onContentChange} 
           onEditorStateChange={setEditorStateJson}
         />
+        <MarkdownShortcutsPlugin isEnabled={isMarkdownMode} />
         <SuggestionsPlugin />
         <RichTextPlugin
           contentEditable={
             <ContentEditable
-              className="min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+              className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white prose dark:prose-invert max-w-none"
             />
           }
           placeholder={
@@ -239,6 +321,20 @@ function EditorRefPlugin({ setEditor }: { setEditor: (editor: any) => void }) {
   useEffect(() => {
     setEditor(editor);
   }, [editor, setEditor]);
+  
+  return null;
+}
+
+// Plugin to register markdown shortcuts
+function MarkdownShortcutsPlugin({ isEnabled }: { isEnabled: boolean }) {
+  const [editor] = useLexicalComposerContext();
+  
+  useEffect(() => {
+    if (isEnabled) {
+      const removeMarkdownShortcuts = registerMarkdownShortcuts(editor, MARKDOWN_TRANSFORMERS);
+      return removeMarkdownShortcuts;
+    }
+  }, [editor, isEnabled]);
   
   return null;
 }
