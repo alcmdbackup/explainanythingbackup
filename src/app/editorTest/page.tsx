@@ -4,7 +4,7 @@ import LexicalEditor from '../../editorFiles/LexicalEditor';
 import { useState, useEffect } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
-import { createUnifiedDiff, formatDiffForDisplay, createVisualDiff, VisualDiffSegment } from '../../lib/utils/diffUtils';
+import { createUnifiedDiff, renderAnnotatedHTML } from '../../lib/utils/diffUtils';
 
 export default function EditorTestPage() {
     const [currentContent, setCurrentContent] = useState<string>('');
@@ -15,25 +15,14 @@ export default function EditorTestPage() {
     const [isApplyingEdits, setIsApplyingEdits] = useState<boolean>(false);
     const [applyError, setApplyError] = useState<string>('');
     const [diffResult, setDiffResult] = useState<ReturnType<typeof createUnifiedDiff> | null>(null);
+    const [diffHtml, setDiffHtml] = useState<string>('');
     const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
     const [diffError, setDiffError] = useState<string>('');
 
     // Default content about Albert Einstein
     const defaultContent = `Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
 
-Einstein's most famous equation, E = mc², demonstrates the equivalence of mass and energy, showing that a small amount of mass can be converted into a tremendous amount of energy. This insight laid the groundwork for nuclear power and fundamentally altered our understanding of the physical world.
-
-The theory of relativity, which Einstein developed in two parts, completely transformed physics. His special theory of relativity, published in 1905, showed that time and space are not absolute but relative to the observer's motion. This theory introduced the concept that the speed of light is constant for all observers, regardless of their relative motion.
-
-In 1915, Einstein published his general theory of relativity, which described gravity not as a force but as a curvature of spacetime caused by mass and energy. This theory predicted phenomena such as gravitational waves and black holes, which have since been confirmed by modern observations.
-
-Einstein's work extended beyond physics into philosophy, particularly in his views on determinism and free will. He famously said, "God does not play dice with the universe," expressing his belief in a deterministic universe governed by precise laws rather than probability.
-
-Throughout his life, Einstein was also a passionate advocate for peace and civil rights. He spoke out against war and nationalism, and his fame gave him a platform to address social and political issues. His letter to President Roosevelt about the potential for nuclear weapons led to the Manhattan Project, though Einstein himself was not involved in the development of the atomic bomb.
-
-Einstein's legacy continues to influence modern physics, with his theories forming the foundation for much of our current understanding of the universe. His work on quantum mechanics, while often in disagreement with other physicists of his time, helped shape the field and continues to inspire new generations of scientists.
-
-The impact of Einstein's discoveries extends far beyond the scientific community. His theories have practical applications in technologies we use every day, from GPS systems that must account for relativistic effects to medical imaging techniques that rely on our understanding of matter and energy.`;
+Einstein's most famous equation, E = mc², demonstrates the equivalence of mass and energy, showing that a small amount of mass can be converted into a tremendous amount of energy. This insight laid the groundwork for nuclear power and fundamentally altered our understanding of the physical world.`;
 
     // Set initial content when component mounts
     useEffect(() => {
@@ -126,16 +115,21 @@ The impact of Einstein's discoveries extends far beyond the scientific community
         setIsApplyingDiff(true);
         setDiffError('');
         setDiffResult(null);
+        setDiffHtml('');
 
         try {
             const result = createUnifiedDiff(currentContent, appliedEdits);
             setDiffResult(result);
+            
+            // Generate HTML output using renderAnnotatedHTML
+            const htmlOutput = renderAnnotatedHTML(result.atoms, {
+                delClass: 'diff-del',
+                insClass: 'diff-ins'
+            });
+            setDiffHtml(htmlOutput);
+            
             logger.debug('Unified diff applied successfully', {
-                totalSegments: result.summary.totalSegments,
-                wordAddedSegments: result.summary.wordAddedSegments,
-                wordRemovedSegments: result.summary.wordRemovedSegments,
-                lineAddedSegments: result.summary.lineAddedSegments,
-                lineRemovedSegments: result.summary.lineRemovedSegments
+                totalAtoms: result.atoms.length
             });
         } catch (error) {
             setDiffError(error instanceof Error ? error.message : 'An unexpected error occurred while applying diff');
@@ -323,53 +317,23 @@ The impact of Einstein's discoveries extends far beyond the scientific community
                                                 Diff Summary:
                                             </h4>
                                             <div className="text-sm space-y-1">
-                                                <p>Total segments: {diffResult.summary.totalSegments}</p>
-                                                <p>Word added segments: {diffResult.summary.wordAddedSegments}</p>
-                                                <p>Word removed segments: {diffResult.summary.wordRemovedSegments}</p>
-                                                <p>Line added segments: {diffResult.summary.lineAddedSegments}</p>
-                                                <p>Line removed segments: {diffResult.summary.lineRemovedSegments}</p>
-                                                <p>Word-level comparisons: {diffResult.summary.wordLevelComparisons}</p>
+                                                <p>Total atoms: {diffResult.atoms.length}</p>
                                             </div>
                                         </div>
 
                                         <div>
                                             <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
-                                                Detailed Diff:
+                                                Annotated HTML Diff:
                                             </h4>
                                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
-                                                <pre className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap font-mono">
-                                                    {formatDiffForDisplay(diffResult)}
-                                                </pre>
+                                                <div 
+                                                    className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap"
+                                                    dangerouslySetInnerHTML={{ __html: diffHtml }}
+                                                />
                                             </div>
                                         </div>
 
-                                        <div>
-                                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
-                                                Visual Diff:
-                                            </h4>
-                                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
-                                                <div className="text-sm space-y-1">
-                                                    {createVisualDiff(diffResult).map((segment: VisualDiffSegment, index: number) => (
-                                                        <div
-                                                            key={index}
-                                                            className={`p-1 rounded ${
-                                                                segment.className === 'diff-header'
-                                                                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 font-bold'
-                                                                    : segment.className === 'diff-subheader'
-                                                                    ? 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 font-semibold'
-                                                                    : segment.type === 'added' 
-                                                                    ? 'bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-200' 
-                                                                    : segment.type === 'removed'
-                                                                    ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200'
-                                                                    : 'text-gray-700 dark:text-gray-300'
-                                                            }`}
-                                                        >
-                                                            {segment.content}
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                        </div>
+
                                     </div>
                                 )}
                             </div>

@@ -25,3 +25,32 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Diff styling */
+.diff-del {
+  background-color: #fecaca;
+  color: #dc2626;
+  text-decoration: line-through;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+.diff-ins {
+  background-color: #bbf7d0;
+  color: #16a34a;
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* Dark mode diff styling */
+@media (prefers-color-scheme: dark) {
+  .diff-del {
+    background-color: #7f1d1d;
+    color: #fca5a5;
+  }
+  
+  .diff-ins {
+    background-color: #14532d;
+    color: #86efac;
+  }
+}
