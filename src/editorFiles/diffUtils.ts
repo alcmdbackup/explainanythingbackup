@@ -174,7 +174,7 @@ export function renderAnnotatedMarkdown(
 
 import type { TextMatchTransformer } from "@lexical/markdown";
 import { $createTextNode, TextNode, LexicalNode } from "lexical";
-import { DiffTagNode } from "./DiffTagNode";
+import { DiffTagNode, $createDiffTagNode } from "./DiffTagNode";
 
 
 
@@ -212,7 +212,7 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
     const tag = marks === "++" ? "ins" : "del";
     console.log("🏷️ Creating DiffTagNode with tag:", tag);
     
-    const diff = new DiffTagNode(tag);
+    const diff = $createDiffTagNode(tag);
     const textNodeContent = $createTextNode(inner);
     console.log("📝 Created TextNode with content length:", textNodeContent.getTextContent().length);
     
@@ -232,7 +232,7 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
     console.log("🚫 CRITIC_MARKUP export called (should not happen)");
     return null;
   },
-  dependencies: [],
+  dependencies: [DiffTagNode]
 };
 
 /**

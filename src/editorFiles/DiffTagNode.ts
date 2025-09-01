@@ -1,4 +1,4 @@
-import type {EditorConfig, LexicalEditor, NodeKey} from "lexical";
+import type {EditorConfig, LexicalEditor, NodeKey, DOMConversionMap, DOMConversionOutput, DOMExportOutput} from "lexical";
 import {ElementNode, LexicalNode} from "lexical";
 
 type DiffTag = "ins" | "del";
@@ -20,58 +20,9 @@ export class DiffTagNode extends ElementNode {
     console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key);
   }
 
-  // Render as the actual HTML tag so copy/paste & export are obvious.
-  createDOM(_config: EditorConfig): HTMLElement {
-    console.log("🎨 Creating DOM for DiffTagNode with tag:", this.__tag);
-    const el = document.createElement(this.__tag);
-    el.classList.add(this.__tag === "ins" ? "diff-ins" : "diff-del");
-    console.log("🎨 Created DOM element:", el.tagName, "with classes:", el.className);
-    return el;
-  }
-  updateDOM(prev: DiffTagNode, dom: HTMLElement): boolean {
-    console.log("🔄 updateDOM called for DiffTagNode:", this.__tag, "prev tag:", prev.__tag);
-    if (prev.__tag !== this.__tag) {
-      console.log("🔄 Tag changed, updating DOM element");
-      const next = document.createElement(this.__tag);
-      next.className = dom.className;
-      while (dom.firstChild) next.appendChild(dom.firstChild);
-      dom.replaceWith(next);
-      return true;
-    }
-    console.log("🔄 No DOM update needed");
-    return false;
-  }
+
   isInline(): boolean {
     return true;
-  }
-
-  /** Map HTML → this node during $generateNodesFromDOM */
-  static importDOM() {
-    const conv = (tag: DiffTag) => ({
-      conversion: () => ({node: new DiffTagNode(tag)}),
-      priority: 1 as const, // higher than default text conversion
-    });
-    return {
-      ins: () => conv("ins"),
-      del: () => conv("del"),
-
-      // Optional: support <span data-diff="ins|del"> or class-based marks
-      span: (el: HTMLElement) => {
-        const data = el.getAttribute?.("data-diff");
-        const hasIns = el.classList?.contains("diff-ins");
-        const hasDel = el.classList?.contains("diff-del");
-        if (data === "ins" || hasIns) return conv("ins");
-        if (data === "del" || hasDel) return conv("del");
-        return null;
-      },
-    };
-  }
-
-  /** Map this node → HTML when exporting DOM */
-  exportDOM(_editor: LexicalEditor) {
-    const element = document.createElement(this.__tag);
-    element.classList.add(this.__tag === "ins" ? "diff-ins" : "diff-del");
-    return {element};
   }
 
   /** Map this node → CriticMarkup when exporting to markdown */
@@ -88,9 +39,93 @@ export class DiffTagNode extends ElementNode {
   exportJSON() {
     return {...super.exportJSON(), type: "diff-tag", version: 1, tag: this.__tag};
   }
+
+  /**
+   * Creates DOM element for rendering the DiffTagNode
+   * • Creates <ins> or <del> HTML elements based on the tag type
+   * • Applies appropriate styling classes for visual distinction
+   * • Used by Lexical to render the node in the DOM
+   * • Called by: Lexical's rendering system
+   */
+  createDOM(): HTMLElement {
+    const element = document.createElement(this.__tag);
+    element.className = this.__tag === "ins" 
+      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1" 
+      : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through";
+    return element;
+  }
+
+  /**
+   * Updates DOM element when node properties change
+   * • Handles updates to the tag type or other properties
+   * • Returns true if DOM update is needed, false otherwise
+   * • Used by Lexical to optimize DOM updates
+   * • Called by: Lexical's update system
+   */
+  updateDOM(prevNode: DiffTagNode): boolean {
+    return prevNode.__tag !== this.__tag;
+  }
+
+  /**
+   * Exports node to DOM for serialization
+   * • Creates DOM element for export operations
+   * • Used by Lexical for HTML export functionality
+   * • Called by: Lexical's export system
+   */
+  exportDOM(): DOMExportOutput {
+    const element = document.createElement(this.__tag);
+    return { element };
+  }
+
+  /**
+   * Converts DOM element back to DiffTagNode
+   * • Handles conversion from HTML <ins>/<del> elements
+   * • Used by Lexical for HTML import functionality
+   * • Called by: Lexical's import system
+   */
+  static importDOM(): DOMConversionMap | null {
+    return {
+      ins: () => ({
+        conversion: convertDiffTagElement,
+        priority: 1,
+      }),
+      del: () => ({
+        conversion: convertDiffTagElement,
+        priority: 1,
+      }),
+    };
+  }
 }
 
-// Helpers
-export function $createInsNode() { return new DiffTagNode("ins"); }
-export function $createDelNode() { return new DiffTagNode("del"); }
-export function $isDiffTagNode(n?: LexicalNode | null): n is DiffTagNode { return n instanceof DiffTagNode; }
+/**
+ * Converts DOM element to DiffTagNode
+ * • Determines tag type from element tagName
+ * • Creates new DiffTagNode with appropriate tag
+ * • Used by importDOM for HTML conversion
+ * • Called by: Lexical's DOM import system
+ */
+function convertDiffTagElement(domNode: HTMLElement): DOMConversionOutput {
+  const tag = domNode.tagName.toLowerCase() as DiffTag;
+  const node = $createDiffTagNode(tag);
+  return { node };
+}
+
+/**
+ * Creates a new DiffTagNode instance
+ * • Factory function for creating DiffTagNode instances
+ * • Used by other parts of the codebase to create diff nodes
+ * • Called by: CRITIC_MARKUP transformer, import functions
+ */
+export function $createDiffTagNode(tag: DiffTag): DiffTagNode {
+  return new DiffTagNode(tag);
+}
+
+/**
+ * Checks if a node is a DiffTagNode
+ * • Type guard function for DiffTagNode instances
+ * • Used for type checking in other parts of the codebase
+ * • Called by: Various utility functions
+ */
+export function $isDiffTagNode(node: LexicalNode | null | undefined): node is DiffTagNode {
+  return node instanceof DiffTagNode;
+}
