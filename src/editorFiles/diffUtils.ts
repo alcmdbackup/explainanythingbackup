@@ -146,39 +146,153 @@ function coalesceAtoms(atoms: Atom[]): Atom[] {
 }
 
 /* ---------------------------------------
-   Optional: HTML renderer (safe & minimal)
+   CriticMarkup renderer for markdown export
 ----------------------------------------*/
 
 /**
- * Render atoms to HTML that preserves the original text exactly.
+ * Render atoms to CriticMarkup that preserves the original text exactly.
  * - Unchanged: plain text
- * - Deleted: <del class="diff-del">…</del>
- * - Inserted: <ins class="diff-ins">…</ins>
- * - Wrapped in a div to ensure proper inline rendering in Lexical
+ * - Deleted: {--deleted text--}
+ * - Inserted: {++inserted text++}
+ * - Returns markdown-compatible CriticMarkup syntax
  */
-export function renderAnnotatedHTML(
-  atoms: Atom[],
-  opt?: { delClass?: string; insClass?: string }
+export function renderAnnotatedMarkdown(
+  atoms: Atom[]
 ): string {
-  const delClass = opt?.delClass ?? "diff-del";
-  const insClass = opt?.insClass ?? "diff-ins";
   const content = atoms
     .map((a) => {
-      if (a.kind === "orig" && !a.deleted) return escapeHTML(a.text);
+      if (a.kind === "orig" && !a.deleted) return a.text;
       if (a.kind === "orig" && a.deleted)
-        return `<del class="${delClass}">${escapeHTML(a.text)}</del>`;
+        return `{--${a.text}--}`;
       // insert
-      return `<ins class="${insClass}">${escapeHTML(a.text)}</ins>`;
+      return `{++${a.text}++}`;
     })
     .join("");
   
-  // Wrap in a div to ensure proper inline rendering when replacing entire editor content
-  return `<div>${content}</div>`;
+  return content;
 }
 
-function escapeHTML(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+import type { TextMatchTransformer } from "@lexical/markdown";
+import { $createTextNode, TextNode, LexicalNode } from "lexical";
+import { DiffTagNode } from "./DiffTagNode";
+
+
+
+/**
+ * Custom transformer for CriticMarkup syntax
+ * - Parses {--deleted text--} into DiffTagNode with "del" tag
+ * - Parses {++inserted text++} into DiffTagNode with "ins" tag
+ * - Uses proper text replacement mechanism for accurate node positioning
+ * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodes
+ */
+export const CRITIC_MARKUP: TextMatchTransformer = {
+  type: "text-match",
+  trigger: "{",
+  // Match {++...++} or {--...--}, non-greedy, multiline
+  regExp: /\{([+-]{2})([\s\S]+?)\1\}/,
+  importRegExp: /\{([+-]{2})([\s\S]+?)\1\}/,
+  replace: (textNode, match) => {
+    console.log("🔍 CRITIC_MARKUP replace called");
+    console.log("📝 TextNode content:", textNode.getTextContent());
+    console.log("📝 TextNode content length:", textNode.getTextContent().length);
+    console.log("📝 TextNode key:", textNode.getKey());
+    console.log("🎯 Full match:", match[0]);
+    console.log("🎯 Full match length:", match[0].length);
+    console.log("🏷️ Marks:", match[1]);
+    console.log("📄 Inner content length:", match[2]?.length);
+    console.log("📄 Inner content preview:", match[2]?.substring(0, 100) + "...");
+    console.log("🔍 Match index in TextNode:", textNode.getTextContent().indexOf(match[0]));
+    
+    // match[0] = full "{++...++}" or "{--...--}"
+    // match[1] = "++" or "--"
+    // match[2] = inner content
+    const marks = match[1]!;
+    const inner = match[2] ?? "";
+
+    const tag = marks === "++" ? "ins" : "del";
+    console.log("🏷️ Creating DiffTagNode with tag:", tag);
+    
+    const diff = new DiffTagNode(tag);
+    const textNodeContent = $createTextNode(inner);
+    console.log("📝 Created TextNode with content length:", textNodeContent.getTextContent().length);
+    
+    diff.append(textNodeContent);
+    console.log("🔗 Appended TextNode to DiffTagNode");
+    console.log("📊 DiffTagNode children count:", diff.getChildrenSize());
+    console.log("📊 DiffTagNode text content length:", diff.getTextContent().length);
+
+    // Simply replace the text node with our diff node
+    // Lexical will handle the text replacement automatically
+    console.log("🔄 Replacing text node with diff node");
+    textNode.replace(diff);
+    console.log("✅ Replace operation completed");
+  },
+  // We only handle import; exporting is done by an Element transformer for DiffTagNode
+  export: () => {
+    console.log("🚫 CRITIC_MARKUP export called (should not happen)");
+    return null;
+  },
+  dependencies: [],
+};
+
+/**
+ * Debug function to test CRITIC_MARKUP regex matching
+ * - Tests the regex pattern against a given text
+ * - Logs all matches found
+ * - Helps identify why certain text might not be matched
+ */
+export function debugCriticMarkupMatching(text: string): void {
+  console.log("🔍 Debugging CRITIC_MARKUP matching for text:");
+  console.log("📝 Text length:", text.length);
+  console.log("📝 Text preview:", text.substring(0, 200) + "...");
+  
+  const regex = /\{([+-]{2})([\s\S]+?)\1\}/g;
+  let match;
+  let matchCount = 0;
+  
+  while ((match = regex.exec(text)) !== null) {
+    matchCount++;
+    console.log(`🎯 Match ${matchCount}:`);
+    console.log("  Full match:", match[0]);
+    console.log("  Marks:", match[1]);
+    console.log("  Inner content length:", match[2]?.length);
+    console.log("  Inner content preview:", match[2]?.substring(0, 100) + "...");
+    console.log("  Match index:", match.index);
+    console.log("---");
+  }
+  
+  console.log(`📊 Total matches found: ${matchCount}`);
+}
+
+/**
+ * Debug function to analyze text node structure
+ * - Helps understand how text is being split into TextNodes
+ * - Shows the full text content and how it's fragmented
+ */
+export function debugTextNodeStructure(editor: any): void {
+  console.log("🔍 Debugging TextNode structure:");
+  
+  // Get all text nodes in the editor
+  const textNodes: any[] = [];
+  editor.getEditorState().read(() => {
+    const root = editor.getEditorState()._nodeMap.get('root');
+    if (root) {
+      const traverse = (node: any) => {
+        if (node.getType() === 'text') {
+          textNodes.push({
+            key: node.getKey(),
+            content: node.getTextContent(),
+            length: node.getTextContent().length
+          });
+        }
+        node.getChildren().forEach(traverse);
+      };
+      traverse(root);
+    }
+  });
+  
+  console.log("📊 Found", textNodes.length, "TextNodes:");
+  textNodes.forEach((node, index) => {
+    console.log(`  ${index + 1}. Key: ${node.key}, Length: ${node.length}, Content: "${node.content}"`);
+  });
 }

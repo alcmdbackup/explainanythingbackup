@@ -4,7 +4,7 @@ import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor
 import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
-import { createUnifiedDiff, renderAnnotatedHTML } from '../../editorFiles/diffUtils';
+import { createUnifiedDiff, renderAnnotatedMarkdown } from '../../editorFiles/diffUtils';
 
 export default function EditorTestPage() {
     const [currentContent, setCurrentContent] = useState<string>('');
@@ -15,7 +15,7 @@ export default function EditorTestPage() {
     const [isApplyingEdits, setIsApplyingEdits] = useState<boolean>(false);
     const [applyError, setApplyError] = useState<string>('');
     const [diffResult, setDiffResult] = useState<ReturnType<typeof createUnifiedDiff> | null>(null);
-    const [diffHtml, setDiffHtml] = useState<string>('');
+    const [diffMarkdown, setDiffMarkdown] = useState<string>('');
     const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
     const [diffError, setDiffError] = useState<string>('');
     const [isMarkdownMode, setIsMarkdownMode] = useState<boolean>(true);
@@ -141,18 +141,15 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         setIsApplyingDiff(true);
         setDiffError('');
         setDiffResult(null);
-        setDiffHtml('');
+        setDiffMarkdown('');
 
         try {
             const result = createUnifiedDiff(currentContent, appliedEdits);
             setDiffResult(result);
             
-            // Generate HTML output using renderAnnotatedHTML
-            const htmlOutput = renderAnnotatedHTML(result.atoms, {
-                delClass: 'diff-del',
-                insClass: 'diff-ins'
-            });
-            setDiffHtml(htmlOutput);
+            // Generate markdown output using renderAnnotatedMarkdown
+            const markdownOutput = renderAnnotatedMarkdown(result.atoms);
+            setDiffMarkdown(markdownOutput);
             
             logger.debug('Unified diff applied successfully', {
                 totalAtoms: result.atoms.length
@@ -380,29 +377,30 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
                                         <div>
                                             <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
-                                                Annotated HTML Diff:
+                                                Annotated Markdown Diff:
                                             </h4>
                                             <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
-                                                <div 
+                                                <pre 
                                                     className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap"
-                                                    dangerouslySetInnerHTML={{ __html: diffHtml }}
-                                                />
+                                                >
+                                                    {diffMarkdown}
+                                                </pre>
                                             </div>
                                             <div className="mt-4">
                                                 <button
                                                     onClick={() => {
-                                                        if (editorRef.current && diffHtml) {
-                                                            editorRef.current.setContentFromHTML(diffHtml);
+                                                        if (editorRef.current && diffMarkdown) {
+                                                            editorRef.current.setContentFromMarkdown(diffMarkdown);
                                                         }
                                                     }}
-                                                    disabled={!diffHtml}
+                                                    disabled={!diffMarkdown}
                                                     className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                        !diffHtml
+                                                        !diffMarkdown
                                                             ? 'bg-gray-400 text-white cursor-not-allowed'
                                                             : 'bg-blue-600 hover:bg-blue-700 text-white'
                                                     }`}
                                                 >
-                                                    Update Editor with Diff HTML
+                                                    Update Editor with Diff Markdown
                                                 </button>
                                             </div>
                                         </div>
