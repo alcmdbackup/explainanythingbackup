@@ -5,10 +5,16 @@ import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { createUnifiedDiff, renderAnnotatedMarkdown } from '../../editorFiles/diffUtils';
+import { 
+    mergeAISuggestionOutput, 
+    validateAISuggestionOutput,
+    type AISuggestionOutput 
+} from '../../editorFiles/aiSuggestion';
 
 export default function EditorTestPage() {
     const [currentContent, setCurrentContent] = useState<string>('');
     const [aiSuggestions, setAiSuggestions] = useState<string>('');
+    const [rawAIResponse, setRawAIResponse] = useState<string>('');
     const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
     const [suggestionError, setSuggestionError] = useState<string>('');
     const [appliedEdits, setAppliedEdits] = useState<string>('');
@@ -68,16 +74,31 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         setAiSuggestions('');
 
         try {
+            // Use the existing action to get AI suggestions
             const result = await generateAISuggestionsAction(
                 currentContent,
                 'test-user'
             );
 
             if (result.success && result.data) {
-                setAiSuggestions(result.data);
-                logger.debug('AI suggestions received', {
-                    responseLength: result.data.length
-                });
+                // Store the raw response for debugging
+                setRawAIResponse(result.data);
+
+                // Validate the response against the schema
+                const validationResult = validateAISuggestionOutput(result.data);
+                
+                if (validationResult.success) {
+                    // Merge the structured output into a readable format
+                    const mergedOutput = mergeAISuggestionOutput(validationResult.data);
+                    setAiSuggestions(mergedOutput);
+                    
+                    logger.debug('AI suggestions received and validated', {
+                        responseLength: result.data.length,
+                        editsCount: validationResult.data.edits.length
+                    });
+                } else {
+                    setSuggestionError(`AI response validation failed: ${validationResult.error.message}`);
+                }
             } else {
                 setSuggestionError(result.error?.message || 'Failed to generate AI suggestions');
             }
@@ -105,6 +126,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         setAppliedEdits('');
 
         try {
+            // Use the existing action to apply AI suggestions
             const result = await applyAISuggestionsAction(
                 aiSuggestions,
                 currentContent,
@@ -280,10 +302,23 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     </div>
                                 )}
 
+                                {rawAIResponse && (
+                                    <div className="mt-4">
+                                        <h4 className="font-semibold text-orange-900 dark:text-orange-100 mb-2">
+                                            Raw AI Response (JSON):
+                                        </h4>
+                                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-orange-300 dark:border-orange-600">
+                                            <pre className="text-sm text-orange-900 dark:text-orange-100 whitespace-pre-wrap font-mono">
+                                                {rawAIResponse}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {aiSuggestions && (
                                     <div className="mt-4">
                                         <h4 className="font-semibold text-orange-900 dark:text-orange-100 mb-2">
-                                            AI Suggestions:
+                                            Merged AI Suggestions:
                                         </h4>
                                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-orange-300 dark:border-orange-600">
                                             <pre className="text-sm text-orange-900 dark:text-orange-100 whitespace-pre-wrap font-mono">

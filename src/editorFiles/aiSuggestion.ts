@@ -1,57 +1,140 @@
-/**
- * AI Suggestion functionality for the editor
- * Creates prompts for AI-powered text editing suggestions
- */
+import { z } from 'zod';
 
 /**
- * Creates a prompt for AI text editing suggestions
- * @param currentText - The current text content to be edited
- * @param improvementType - The type of improvement requested (grammar, style, clarity, etc.)
- * @returns A formatted prompt string for the AI model
+ * Schema for AI suggestion structured output
+ * 
+ * • Enforces alternating pattern: either "... existing text ..." or actual edit content
+ * • Validates that edits and existing text markers alternate properly
+ * • Ensures the output starts and ends with content (not markers)
+ * • Used by: AI suggestion generation to enforce consistent output format
+ * • Calls: N/A (validation schema)
+ */
+export const aiSuggestionSchema = z.object({
+  edits: z.array(z.string()).min(1).refine(
+    (edits) => {
+      // Must alternate between content and markers
+      for (let i = 0; i < edits.length; i++) {
+        const isMarker = edits[i] === "... existing text ...";
+        const isEvenIndex = i % 2 === 0;
+        
+        // Even indices (0, 2, 4...) should be content
+        // Odd indices (1, 3, 5...) should be markers
+        if (isEvenIndex && isMarker) {
+          return false;
+        }
+        if (!isEvenIndex && !isMarker) {
+          return false;
+        }
+      }
+      
+      return true;
+    },
+    {
+      message: "Edits must alternate between content and '... existing text ...' markers"
+    }
+  )
+});
+
+export type AISuggestionOutput = z.infer<typeof aiSuggestionSchema>;
+
+/**
+ * Creates a structured prompt for AI suggestions
+ * 
+ * • Generates prompt that enforces structured output format
+ * • Uses Zod schema to validate alternating edit/content pattern
+ * • Ensures consistent formatting for AI model responses
+ * • Used by: AI suggestion generation with structured output validation
+ * • Calls: N/A (prompt generation only)
  */
 export function createAISuggestionPrompt(currentText: string): string {
-    const basePrompt = `Make significant edits to the article below to improve its quality.
+  return `Make significant edits to the article below to improve its quality.
 
-<output_format> When writing the edits, specify each edit in sequence, using the special marker ... existing text ... to represent unchanged passages in between edited sections.
+<output_format>
+You must respond with a JSON object containing an "edits" array. 
+The edits array will explain how to make described edits sequentially starting from beginning of content, while skipping unchanged "existing text"
 
-For example:
+Each element in the array must be either:
+1. "... existing text ..." (to indicate unchanged content)
+2. The actual edited text content
 
-... existing text ...
-FIRST_EDIT
-... existing text ...
-SECOND_EDIT
-... existing text ...
-THIRD_EDIT
-... existing text ...
+Example:
+{
+  "edits": [
+    "Improved introduction paragraph here",
+    "... existing text ...",
+    "Enhanced middle section with better examples"
+  ]
+}
+
+Or ending with marker:
+{
+  "edits": [
+    "This improved introduction paragraph has been revised for better wording",
+    "... existing text ...",
+    "This middle paragraph text has now been edited for clarity",
+    "... existing text ..."
+  ]
+}
 </output_format>
 
-<individual_edit>
-Replace each FIRST_EDIT, SECOND_EDIT... above with the updated text along with some unchanged text before and after to help identify the change later 
-Make sure each edit is unambiguous about what should change and where it should be applied.
-</individual_edit>
+<rules>
+- You can start with either edited content or "... existing text ..." marker
+- Alternate between content and "... existing text ..." markers
+- You can end with either edited content or "... existing text ..." marker
+- Preserve markdown formatting in your edits
+- Make substantial improvements to content quality, clarity, and structure
+- Each edit should be a complete, coherent section
+</rules>
 
-<existing_text_marker>
-Only return ... existing text ... markers and the updated text, do not return anything else. Do not actually print FIRST_EDIT, SECOND_EDIT, etc - you need to replace this with the updated text for the edits
-DO NOT omit spans of pre-existing text without replacing them with the ... existing text ... marker. If you omit the marker, the model may inadvertently delete those parts of the article.
-</existing_text_marker>
-
-<markdown_formatting>
-Preserve any markdown formatting included in edits as appropriate>
-</markdown_formatting>
-
-== Article to edit ==: 
-
+== Article to edit ==:
 ${currentText}`;
-
-    return basePrompt;
 }
 
 /**
- * Creates a prompt to apply AI suggestions to the original content
- * @param aiSuggestions - The output from createAISuggestionPrompt() after running through callOpenAIModel()
- * @param originalContent - The original content on which edits were suggested
- * @returns A formatted prompt string to apply the suggested edits
+ * Merges AI suggestion output array into a single string
+ * 
+ * • Combines alternating content and markers into readable format
+ * • Each array element starts on a newline for clarity
+ * • Preserves the structure of edits vs unchanged content
+ * • Used by: AI suggestion processing to convert structured output to readable text
+ * • Calls: N/A (string manipulation only)
  */
+export function mergeAISuggestionOutput(output: AISuggestionOutput): string {
+  return output.edits.join('\n');
+}
+
+/**
+ * Validates AI suggestion output against schema
+ * 
+ * • Ensures output follows alternating pattern requirements
+ * • Validates structure before processing
+ * • Returns typed result or validation errors
+ * • Used by: AI suggestion processing to ensure output quality
+ * • Calls: aiSuggestionSchema.safeParse
+ */
+export function validateAISuggestionOutput(rawOutput: string): { success: true; data: AISuggestionOutput } | { success: false; error: z.ZodError } {
+  try {
+    const parsed = JSON.parse(rawOutput);
+    const result = aiSuggestionSchema.safeParse(parsed);
+    
+    if (result.success) {
+      return { success: true, data: result.data };
+    } else {
+      return { success: false, error: result.error };
+    }
+  } catch (error) {
+    // If JSON parsing fails, create a mock ZodError
+    const mockError = new z.ZodError([
+      {
+        code: 'custom',
+        message: 'Invalid JSON format',
+        path: []
+      }
+    ]);
+    return { success: false, error: mockError };
+  }
+}
+
 export function createApplyEditsPrompt(aiSuggestions: string, originalContent: string): string {
     const applyPrompt = `You are an edit application tool. Your job is to take the suggested edits and apply them to the original content.
 

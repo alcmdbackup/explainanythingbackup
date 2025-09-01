@@ -23,7 +23,7 @@ import {
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags, getTempTagsForRewriteWithTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
-import { createAISuggestionPrompt, createApplyEditsPrompt } from '../editorFiles/aiSuggestion';
+import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 
 
 const FILE_DEBUG = true;
@@ -779,13 +779,16 @@ export const generateAISuggestionsAction = withLogging(
                 userid
             }, FILE_DEBUG);
 
+            // Call OpenAI with structured output validation using the schema
             const response = await callOpenAIModel(
                 prompt,
                 'editor_ai_suggestions',
                 userid,
                 'gpt-4o-mini',
                 false,
-                null
+                null,
+                aiSuggestionSchema,
+                'aiSuggestion'
             );
 
             logger.debug('AI Suggestion Response', {
