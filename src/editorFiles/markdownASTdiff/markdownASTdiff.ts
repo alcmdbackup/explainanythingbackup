@@ -331,7 +331,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     if (aText !== bText) {
       const gran = options?.textGranularity === 'char' ? 'char' : 'word';
       const runs = diffTextGranularWithLib(aText, bText, gran);
-      return toCriticMarkup(runs);
+      return decorateWithContainerMarkup(a, toCriticMarkup(runs), stringify);
     }
   }
 
