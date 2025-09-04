@@ -77,13 +77,13 @@ export default function MdASTdiffDemoPage() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 py-8">
+        <div className="min-h-screen bg-gray-50 py-8 text-black">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="text-center mb-8">
-                    <h1 className="text-3xl font-bold text-gray-900 mb-2">
+                    <h1 className="text-3xl font-bold text-black mb-2">
                         Markdown AST Diff Demo
                     </h1>
-                    <p className="text-gray-600">
+                    <p className="text-black">
                         Compare two markdown texts and see the diff overlaid on the original
                     </p>
                 </div>
@@ -92,14 +92,14 @@ export default function MdASTdiffDemoPage() {
                     {/* Before Text */}
                     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
                         <div className="px-4 py-3 border-b border-gray-200">
-                            <h2 className="text-lg font-semibold text-gray-900">Before</h2>
+                            <h2 className="text-lg font-semibold text-black">Before</h2>
                         </div>
                         <div className="p-4">
                             <textarea
                                 value={beforeText}
                                 onChange={(e) => setBeforeText(e.target.value)}
                                 placeholder="Enter your original markdown text here..."
-                                className="w-full h-64 p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                className="w-full h-64 p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                             />
                         </div>
                     </div>
@@ -107,14 +107,14 @@ export default function MdASTdiffDemoPage() {
                     {/* After Text */}
                     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
                         <div className="px-4 py-3 border-b border-gray-200">
-                            <h2 className="text-lg font-semibold text-gray-900">After</h2>
+                            <h2 className="text-lg font-semibold text-black">After</h2>
                         </div>
                         <div className="p-4">
                             <textarea
                                 value={afterText}
                                 onChange={(e) => setAfterText(e.target.value)}
                                 placeholder="Enter your modified markdown text here..."
-                                className="w-full h-64 p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                className="w-full h-64 p-3 border border-gray-300 rounded-md resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-black"
                             />
                         </div>
                     </div>
@@ -166,18 +166,18 @@ export default function MdASTdiffDemoPage() {
                 {diffOutput && (
                     <div className="bg-white rounded-lg shadow-sm border border-gray-200">
                         <div className="px-4 py-3 border-b border-gray-200">
-                            <h2 className="text-lg font-semibold text-gray-900">Diff Output</h2>
-                            <p className="text-sm text-gray-600 mt-1">
+                            <h2 className="text-lg font-semibold text-black">Diff Output</h2>
+                            <p className="text-sm text-black mt-1">
                                 Shows the diff overlaid on the original text using CriticMarkup syntax
                             </p>
                         </div>
                         <div className="p-4">
                             <div className="bg-gray-50 rounded-md p-4 border">
-                                <pre className="whitespace-pre-wrap text-sm text-gray-800 font-mono">
+                                <pre className="whitespace-pre-wrap text-sm text-black font-mono">
                                     {diffOutput}
                                 </pre>
                             </div>
-                            <div className="mt-4 text-sm text-gray-600">
+                            <div className="mt-4 text-sm text-black">
                                 <p><strong>Legend:</strong></p>
                                 <ul className="list-disc list-inside mt-2 space-y-1">
                                     <li><code className="bg-red-100 px-1 rounded">{'{--deleted text--}'}</code> - Text that was removed</li>
@@ -191,8 +191,8 @@ export default function MdASTdiffDemoPage() {
 
                 {/* Info Section */}
                 <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold text-blue-900 mb-2">About This Demo</h3>
-                    <div className="text-blue-800 space-y-2">
+                    <h3 className="text-lg font-semibold text-black mb-2">About This Demo</h3>
+                    <div className="text-black space-y-2">
                         <p>
                             This demo uses the <code className="bg-blue-100 px-1 rounded">markdownASTdiff</code> library 
                             to compute intelligent differences between markdown documents.

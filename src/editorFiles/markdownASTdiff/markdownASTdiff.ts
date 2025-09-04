@@ -59,17 +59,70 @@ interface PropsComparison {
   afterProps: MdastNode;
 }
 
+// ========= Atomic diff policy =========
+
+// Node types that should be treated as atomic blocks (delete+insert on any change)
+const ATOMIC_BLOCKS = new Set<string>([
+  'heading',
+  'code',
+  'table',
+  'thematicBreak',
+  'html',
+  'yaml',
+  'toml',
+  // MDX / footnotes (if present in your tree)
+  'mdxjsEsm',
+  'mdxFlowExpression',
+  'mdxJsxFlowElement',
+  'footnoteDefinition'
+]);
+
+// Inline nodes that are fragile; prefer atomic replacement
+const ATOMIC_INLINE = new Set<string>([
+  'inlineCode',
+  'math',
+  'inlineMath',
+  'image',
+  'imageReference',
+  'linkReference',
+  'footnoteReference'
+]);
+
+function isAtomicNode(n: MdastNode): boolean {
+  return ATOMIC_BLOCKS.has(n.type) || ATOMIC_INLINE.has(n.type);
+}
+
+// Structural changes that should flip otherwise-granular nodes to atomic
+function structuralChange(a: MdastNode, b: MdastNode): boolean {
+  if (a.type !== b.type) return true;
+  switch (a.type) {
+    case 'heading':
+      return a.depth !== b.depth;
+    case 'list':
+      return a.ordered !== b.ordered || a.start !== b.start || a.spread !== b.spread;
+    case 'listItem':
+      return a.checked !== b.checked || a.spread !== b.spread;
+    case 'code':
+      return a.lang !== b.lang || a.meta !== b.meta;
+    case 'table':
+      return JSON.stringify(a.align || []) !== JSON.stringify((b as any).align || []);
+    case 'link':
+      return a.url !== b.url || a.title !== b.title;
+    case 'image':
+      return a.url !== b.url || a.alt !== b.alt || a.title !== b.title;
+    default:
+      return false;
+  }
+}
+
+// 🔧 For atomic nodes, equality must consider full serialized content, not just props.
+function atomicEqual(a: MdastNode, b: MdastNode, stringify: (n: MdastNode) => string): boolean {
+  if (a.type !== b.type) return false;
+  return stringify(a) === stringify(b);
+}
+
 // ========= Public API =========
 
-/**
- * Performs a minimal MDAST-aware diff between two markdown AST trees.
- * 
- * • Compares AST nodes recursively using configurable keyer and equality functions
- * • Produces granular text diffs for text nodes using word or character-level changes
- * • Returns array of diff operations with insert/delete/update operations and paths
- * • Used by diff rendering systems to track changes between markdown versions
- * • Calls walkNode for recursive tree traversal and walkChildren for child comparison
- */
 export function diffMdast(before: MdastNode, after: MdastNode, options: DiffOptions = {}): DiffOperation[] {
   const k = options.keyer || defaultKeyer;
   const eq = options.eqNode || defaultNodeEqual;
@@ -78,15 +131,6 @@ export function diffMdast(before: MdastNode, after: MdastNode, options: DiffOpti
   return diffs;
 }
 
-/**
- * Builds a CriticMarkup string overlayed on the original markdown.
- * 
- * • Uses granular text diffs for text updates with word or character-level precision
- * • Wraps whole-node inserts/deletes in CriticMarkup syntax {++ ++} and {-- --}
- * • Recursively processes AST nodes to generate human-readable diff markup
- * • Used by diff visualization systems to show changes in markdown format
- * • Calls emitCriticForPair for recursive node comparison and markup generation
- */
 export function renderCriticMarkup(beforeRoot: MdastNode, afterRoot: MdastNode, options: DiffOptions = {}): string {
   const stringify = options.stringify || fallbackStringify;
   return emitCriticForPair(beforeRoot, afterRoot, options, stringify);
@@ -94,15 +138,6 @@ export function renderCriticMarkup(beforeRoot: MdastNode, afterRoot: MdastNode, 
 
 // ========= Core tree diff =========
 
-/**
- * Recursively walks and compares two MDAST nodes to generate diff operations.
- * 
- * • Handles node deletions, insertions, and type changes at the current level
- * • Compares scalar properties between nodes of the same type
- * • Generates granular text diffs for text nodes using word or character-level changes
- * • Recursively processes child nodes to build complete diff operation tree
- * • Called by diffMdast to initiate the diff process and by walkChildren for child comparison
- */
 function walkNode(
   a: MdastNode | undefined, 
   b: MdastNode | undefined, 
@@ -112,27 +147,24 @@ function walkNode(
   out: DiffOperation[], 
   options: DiffOptions
 ): void {
-  // Node deleted
-  if (a && !b) {
-    out.push({ op: 'delete', path, before: a });
-    return;
-  }
-  // Node inserted
-  if (!a && b) {
-    out.push({ op: 'insert', path, after: b });
-    return;
-  }
-  // Type changed → replace
-  if (a && b && a.type !== b.type) {
-    out.push({ op: 'update', path, before: a, after: b });
-    return;
-  }
+  if (a && !b) { out.push({ op: 'delete', path, before: a }); return; }
+  if (!a && b) { out.push({ op: 'insert', path, after: b }); return; }
+  if (a && b && a.type !== b.type) { out.push({ op: 'update', path, before: a, after: b }); return; }
 
-  // Same type: compare salient scalar props (excluding children)
   if (!a || !b) return;
   const { changed, beforeProps, afterProps } = compareProps(a, b);
 
-  // Special case: text node granular delta via `diff` lib
+  // 🔒 Atomic policy: if node is atomic or a structural change occurred, replace whole node
+  if (a.type === b.type && (isAtomicNode(a) || structuralChange(a, b))) {
+    const str = options.stringify || fallbackStringify;
+    // If truly identical (by full serialization), skip; otherwise force delete+insert
+    if (!atomicEqual(a, b, str)) {
+      out.push({ op: 'delete', path, before: a });
+      out.push({ op: 'insert', path, after: b });
+      return;
+    }
+  }
+
   if (a.type === 'text') {
     const beforeVal = a.value ?? '';
     const afterVal  = b.value ?? '';
@@ -148,32 +180,27 @@ function walkNode(
         meta: {
           kind: 'text-delta',
           granularity: gran,
-          runs,            // [{ t:'eq'|'ins'|'del', s:'...' }]
+          runs,
           criticMarkup: critic
         }
       });
     } else if (changed) {
       out.push({ op: 'update', path, before: beforeProps, after: afterProps });
     }
-    return; // text nodes have no children
+    return;
   }
 
-  // Non-text nodes: emit prop updates if any
   if (changed) {
     out.push({ op: 'update', path, before: beforeProps, after: afterProps });
   }
 
-  // Recurse into children
   if (!a || !b) return;
   const aKids = a.children || [];
   const bKids = b.children || [];
   if (aKids.length || bKids.length) {
-    // Container-level granular diff on concatenated inline markdown,
-    // even if children include inline nodes (strong/emphasis/link/etc.)
     if (shouldApplyGranularTextDiff(a, b, options)) {
       const aText = extractTextFromChildren(aKids);
       const bText = extractTextFromChildren(bKids);
-      
       if (aText !== bText) {
         const gran = options?.textGranularity === 'char' ? 'char' : 'word';
         const runs = diffTextGranularWithLib(aText, bText, gran);
@@ -189,24 +216,13 @@ function walkNode(
             criticMarkup: toCriticMarkup(runs)
           }
         });
-        return; // Skip normal child processing (we already emitted the granular delta)
+        return;
       }
     }
-    
     walkChildren(aKids, bKids, path.concat('children'), keyer, eqNode, out, options);
   }
 }
 
-/**
- * Pairs and compares child nodes using Longest Common Subsequence (LCS) algorithm.
- * 
- * • Uses configurable keyer function to generate stable keys for child node pairing
- * • Applies LCS algorithm to find optimal matching between before and after child arrays
- * • Generates delete operations for unmatched nodes in the before array
- * • Generates insert operations for unmatched nodes in the after array
- * • Recursively calls walkNode for matched child pairs to process nested changes
- * • Called by walkNode when processing nodes with children
- */
 function walkChildren(
   aKids: MdastNode[], 
   bKids: MdastNode[], 
@@ -218,7 +234,6 @@ function walkChildren(
 ): void {
   const aKeys = aKids.map(keyer);
   const bKeys = bKids.map(keyer);
-
   const matches = lcsIndices(aKeys, bKeys);
 
   const matchedA = new Set(matches.map(m => m.i));
@@ -247,21 +262,11 @@ function walkChildren(
 
 // ========= Text granular diff using `diff` lib =========
 
-/**
- * Performs granular text diffing using the 'diff' library with word or character precision.
- * 
- * • Uses jsdiff library to generate character or word-level differences between text strings
- * • Merges adjacent runs of the same operation type for cleaner output
- * • Returns array of text runs with operation type (equal, insert, delete) and content
- * • Used by walkNode for text node comparison and by emitCriticForPair for markup generation
- * • Calls diffChars or diffWordsWithSpace from the 'diff' library based on granularity setting
- */
 function diffTextGranularWithLib(aStr: string, bStr: string, granularity: 'char' | 'word' = 'word'): TextRun[] {
   const parts = granularity === 'char'
     ? diffChars(aStr, bStr)
     : diffWordsWithSpace(aStr, bStr);
 
-  // Merge adjacent same-type runs (jsdiff usually already coalesces, but be safe)
   const runs: TextRun[] = [];
   for (const p of parts) {
     const t: 'eq' | 'ins' | 'del' = p.added ? 'ins' : p.removed ? 'del' : 'eq';
@@ -273,14 +278,6 @@ function diffTextGranularWithLib(aStr: string, bStr: string, granularity: 'char'
   return runs;
 }
 
-/**
- * Converts text diff runs into CriticMarkup syntax for human-readable diff display.
- * 
- * • Transforms text runs into CriticMarkup format with {--deleted--} and {++inserted++} syntax
- * • Preserves unchanged text as-is for clean diff visualization
- * • Used by walkNode and emitCriticForPair to generate markup for text changes
- * • Called by diffTextGranularWithLib consumers to format diff results
- */
 function toCriticMarkup(runs: TextRun[]): string {
   let out = '';
   for (const r of runs) {
@@ -293,25 +290,21 @@ function toCriticMarkup(runs: TextRun[]): string {
 
 // ========= CriticMarkup rendering over the original =========
 
-/**
- * Recursively generates CriticMarkup by comparing node pairs for diff visualization.
- * 
- * • Handles deleted, inserted, and type-changed nodes with appropriate markup wrapping
- * • Generates inline text deltas for text nodes using granular diffing
- * • Recursively processes child nodes and stitches together the final markup
- * • Uses LCS algorithm for optimal child node pairing and ordering
- * • Called by renderCriticMarkup to generate the complete diff markup string
- */
 function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, options: DiffOptions, stringify: (node: MdastNode) => string): string {
-  // Deleted subtree
   if (a && !b) return wrapDel(stringify(a));
-  // Inserted subtree
   if (!a && b) return wrapIns(stringify(b));
-  // Type replaced
   if (a && b && a.type !== b.type) return wrapDel(stringify(a)) + wrapIns(stringify(b));
 
-  // Same type
   if (!a || !b) return '';
+
+  // 🔒 Atomic policy in overlay: atomic nodes or structural change → whole replace
+  if (a.type === b.type && (isAtomicNode(a) || structuralChange(a, b))) {
+    if (!atomicEqual(a, b, stringify)) {
+      return wrapDel(stringify(a)) + wrapIns(stringify(b));
+    }
+    return stringify(a);
+  }
+
   if (a.type === 'text') {
     const beforeVal = a.value ?? '';
     const afterVal  = b.value ?? '';
@@ -321,13 +314,11 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     return toCriticMarkup(runs);
   }
 
-  // Check if this is a container node that should have granular text diffing applied
   if (shouldApplyGranularTextDiff(a, b, options)) {
     const aKids = a.children || [];
     const bKids = b.children || [];
     const aText = extractTextFromChildren(aKids);
     const bText = extractTextFromChildren(bKids);
-    
     if (aText !== bText) {
       const gran = options?.textGranularity === 'char' ? 'char' : 'word';
       const runs = diffTextGranularWithLib(aText, bText, gran);
@@ -335,8 +326,6 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     }
   }
 
-  // Nodes with/without children
-  if (!a || !b) return '';
   const aKids = a.children || [];
   const bKids = b.children || [];
   if (!aKids.length && !bKids.length) {
@@ -344,7 +333,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     return changed ? wrapDel(stringify(a)) + wrapIns(stringify(b)) : stringify(a);
   }
 
-  // Pair children via keys and LCS, then recursively emit
+  // Pair children via keys and LCS (interleave del/ins to keep replacements adjacent)
   const keyer = options.keyer || defaultKeyer;
   const aKeys = aKids.map(keyer);
   const bKeys = bKids.map(keyer);
@@ -354,25 +343,36 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
   const matchedB = new Set(matches.map(m => m.j));
 
   let out = '';
+  let iCursor = 0, jCursor = 0, k = 0;
+  while (iCursor < aKids.length || jCursor < bKids.length) {
+    const nextMatch = k < matches.length ? matches[k] : null;
+    const iMatch = nextMatch ? nextMatch.i : aKids.length;
+    const jMatch = nextMatch ? nextMatch.j : bKids.length;
 
-  // Deletions (unmatched aKids)
-  for (let i = 0; i < aKids.length; i++) {
-    if (!matchedA.has(i)) out += wrapDel(stringify(aKids[i]));
-  }
-
-  // Merged matched pairs and insertions in destination order
-  let jCursor = 0;
-  for (const { i, j } of matches) {
-    while (jCursor < j) {
+    while (iCursor < iMatch) {
+      if (!matchedA.has(iCursor)) out += wrapDel(stringify(aKids[iCursor]));
+      iCursor++;
+    }
+    while (jCursor < jMatch) {
       if (!matchedB.has(jCursor)) out += wrapIns(stringify(bKids[jCursor]));
       jCursor++;
     }
-    out += emitCriticForPair(aKids[i], bKids[j], options, stringify);
-    jCursor++;
-  }
-  while (jCursor < bKids.length) {
-    if (!matchedB.has(jCursor)) out += wrapIns(stringify(bKids[jCursor]));
-    jCursor++;
+
+    if (nextMatch) {
+      out += emitCriticForPair(aKids[iMatch], bKids[jMatch], options, stringify);
+      iCursor = iMatch + 1;
+      jCursor = jMatch + 1;
+      k++;
+    } else {
+      while (iCursor < aKids.length || jCursor < bKids.length) {
+        if (iCursor < aKids.length && !matchedA.has(iCursor)) {
+          out += wrapDel(stringify(aKids[iCursor])); iCursor++;
+        }
+        if (jCursor < bKids.length && !matchedB.has(jCursor)) {
+          out += wrapIns(stringify(bKids[jCursor])); jCursor++;
+        }
+      }
+    }
   }
 
   if (a && requiresWholeNodeSerialize(a)) {
@@ -397,14 +397,12 @@ function decorateWithContainerMarkup(node: MdastNode, inner: string, stringify: 
     case 'paragraph':
       return `${inner}\n\n`;
     case 'listItem': {
-      // naive unordered; extend for ordered/start as needed
       const bullet = '- ';
       return `${bullet}${inner.replace(/\n+$/,'')}\n`;
     }
     case 'blockquote':
       return inner.split('\n').map(l => (l ? `> ${l}` : l)).join('\n') + '\n\n';
     default:
-      // Safe fallback: stringify full node (may ignore `inner`)
       return stringify({ ...node, children: undefined }) || inner;
   }
 }
@@ -415,47 +413,27 @@ function wrapIns(s: string): string { return s ? `{++${s}++}` : ''; }
 
 // ========= Granular text diffing helpers =========
 
-/**
- * Determines if granular text diffing should be applied to children of container nodes.
- * 
- * • Checks if the node is a container type that typically contains text nodes
- * • Ensures both nodes have the same type and structure for meaningful comparison
- * • Used by walkNode to decide whether to apply granular text diffing to nested content
- * • Called before applyGranularTextDiffToChildren to determine diffing strategy
- */
 function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
+  if (a.type !== b.type) return false;
+  // Exclude atomic blocks/inline from granular path
+  if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) return false;
+
   const containerTypes = [
     'paragraph',
-    'heading',
-    'listItem',
-    'blockquote',
+    // 'listItem', ← remove this
+    'blockquote', // optional: you may also remove blockquote for the same reason
     'strong',
     'emphasis',
     'inlineCode',
     'delete'
   ];
-  if (a.type !== b.type) return false;
   if (!containerTypes.includes(a.type)) return false;
-
-  // Must contain *some* text on both sides to be useful
   return hasTextContent(a) && hasTextContent(b);
 }
 
-/**
- * Checks if a node contains text content that could benefit from granular diffing.
- * 
- * • Recursively searches for text nodes within the given node
- * • Returns true if any text nodes are found with non-empty content
- * • Used by shouldApplyGranularTextDiff to determine if granular diffing is worthwhile
- * • Called recursively to traverse nested node structures
- */
 function hasTextContent(node: MdastNode): boolean {
-  if (node.type === 'text' && node.value && node.value.trim()) {
-    return true;
-  }
-  if (node.children) {
-    return node.children.some(child => hasTextContent(child));
-  }
+  if (node.type === 'text' && node.value && node.value.trim()) return true;
+  if (node.children) return node.children.some(child => hasTextContent(child));
   return false;
 }
 
@@ -466,18 +444,14 @@ function hasTextContent(node: MdastNode): boolean {
 function extractTextFromChildren(children: MdastNode[]): string {
   let out = '';
   for (const child of children) {
-    if (child.type === 'text') {
-      out += child.value || '';
-    } else {
-      out += fallbackStringify(child);
-    }
+    if (child.type === 'text') out += child.value || '';
+    else out += fallbackStringify(child);
   }
   return out;
 }
 
 // ========= Helpers =========
 
-// A conservative set of mdast props worth diffing for common nodes.
 function compareProps(a: MdastNode, b: MdastNode): PropsComparison {
   const propsByType = {
     text: ['value'],
@@ -523,8 +497,6 @@ function isEqualScalar(a: any, b: any): boolean { return a === b || (a == null &
 function defaultKeyer(node: MdastNode): string {
   const type = node?.type || '';
   const parts = [type];
-
-  // Only structural props, never text content.
   switch (type) {
     case 'heading':
       parts.push(String((node as any).depth ?? ''));
@@ -546,23 +518,12 @@ function defaultKeyer(node: MdastNode): string {
       parts.push(String((node as any).url ?? ''), String((node as any).alt ?? ''));
       break;
     default:
-      // paragraphs, blockquote, strong, emphasis, etc. → type only
       break;
   }
-
-  // Text nodes: give a neutral marker so siblings don't all collapse
   if (type === 'text') parts.push('~');
   return parts.join('|');
 }
 
-/**
- * Implements Longest Common Subsequence algorithm to find optimal node pairings.
- * 
- * • Uses dynamic programming to find the longest common subsequence between two arrays
- * • Returns array of matched index pairs representing optimal alignment
- * • Used by walkChildren and emitCriticForPair for intelligent child node pairing
- * • Called with string keys generated by the keyer function for stable matching
- */
 function lcsIndices(a: string[], b: string[]): LcsMatch[] {
   const n = a.length, m = b.length;
   const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0));
@@ -581,15 +542,6 @@ function lcsIndices(a: string[], b: string[]): LcsMatch[] {
   return pairs;
 }
 
-/**
- * Provides minimal markdown stringify fallback for MDAST nodes.
- * 
- * • Converts MDAST nodes back to markdown text using basic string concatenation
- * • Handles common node types like headings, paragraphs, lists, code blocks, and links
- * • Used as default stringify function when no custom stringify is provided
- * • Called by renderCriticMarkup and emitCriticForPair for node-to-text conversion
- * • For higher fidelity, pass custom stringify using unified/remark-stringify
- */
 function fallbackStringify(node: MdastNode): string {
   if (!node) return '';
   switch (node.type) {
