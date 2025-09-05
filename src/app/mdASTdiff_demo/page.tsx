@@ -5,6 +5,7 @@ import { logger } from '@/lib/client_utilities';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { diffMdast, renderCriticMarkup } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
+import { runAllTests, formatTestResults, TestResult } from '@/editorFiles/markdownASTdiff/testRunner';
 
 export default function MdASTdiffDemoPage() {
     const [beforeText, setBeforeText] = useState('');
@@ -12,6 +13,8 @@ export default function MdASTdiffDemoPage() {
     const [diffOutput, setDiffOutput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [testResults, setTestResults] = useState<TestResult[]>([]);
+    const [isRunningTests, setIsRunningTests] = useState(false);
 
     // Default example content
     const defaultBefore = `# Hello
@@ -74,6 +77,45 @@ export default function MdASTdiffDemoPage() {
         setAfterText('');
         setDiffOutput('');
         setError(null);
+        setTestResults([]);
+    };
+
+    const handleRunTests = async () => {
+        setIsRunningTests(true);
+        setError(null);
+        setTestResults([]);
+
+        try {
+            // Import test cases content
+            const testCasesResponse = await fetch('/api/test-cases');
+            if (!testCasesResponse.ok) {
+                throw new Error('Failed to load test cases');
+            }
+            const testCasesContent = await testCasesResponse.text();
+
+            // Run all tests
+            const results = runAllTests(testCasesContent);
+            setTestResults(results);
+
+            // Generate formatted output and save to file
+            const formattedResults = formatTestResults(results);
+            
+            // Save to test_responses.txt via API
+            await fetch('/api/test-responses');
+            
+            logger.debug('Test suite completed', { 
+                totalTests: results.length,
+                passedTests: results.filter(r => r.success).length,
+                failedTests: results.filter(r => !r.success).length
+            });
+
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to run tests';
+            setError(errorMessage);
+            logger.error('Error running tests', { error: errorMessage });
+        } finally {
+            setIsRunningTests(false);
+        }
     };
 
     return (
@@ -138,6 +180,23 @@ export default function MdASTdiffDemoPage() {
                     </button>
                     
                     <button
+                        onClick={handleRunTests}
+                        disabled={isRunningTests}
+                        className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+                    >
+                        {isRunningTests ? 'Running Tests...' : 'Run Test Suite'}
+                    </button>
+                    
+                    {testResults.length > 0 && (
+                        <button
+                            onClick={() => window.open('/api/test-responses', '_blank')}
+                            className="px-6 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 transition-colors"
+                        >
+                            Download Test Results
+                        </button>
+                    )}
+                    
+                    <button
                         onClick={handleClear}
                         className="px-6 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
                     >
@@ -184,6 +243,65 @@ export default function MdASTdiffDemoPage() {
                                     <li><code className="bg-green-100 px-1 rounded">{'{++inserted text++}'}</code> - Text that was added</li>
                                     <li>Regular text - Unchanged content</li>
                                 </ul>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Test Results */}
+                {testResults.length > 0 && (
+                    <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-6">
+                        <div className="px-4 py-3 border-b border-gray-200">
+                            <h2 className="text-lg font-semibold text-black">Test Suite Results</h2>
+                            <p className="text-sm text-black mt-1">
+                                Results from running all 10 test cases
+                            </p>
+                        </div>
+                        <div className="p-4">
+                            <div className="mb-4 flex gap-4 text-sm">
+                                <span className="text-green-600 font-medium">
+                                    ✅ Passed: {testResults.filter(r => r.success).length}
+                                </span>
+                                <span className="text-red-600 font-medium">
+                                    ❌ Failed: {testResults.filter(r => !r.success).length}
+                                </span>
+                                <span className="text-gray-600">
+                                    Total: {testResults.length}
+                                </span>
+                            </div>
+                            
+                            <div className="space-y-4 max-h-96 overflow-y-auto">
+                                {testResults.map((result, index) => (
+                                    <div key={index} className="border border-gray-200 rounded-md p-3">
+                                        <div className="flex items-center justify-between mb-2">
+                                            <h3 className="font-medium text-black">
+                                                Test {result.testCase.id}: {result.testCase.description}
+                                            </h3>
+                                            <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                                result.success 
+                                                    ? 'bg-green-100 text-green-800' 
+                                                    : 'bg-red-100 text-red-800'
+                                            }`}>
+                                                {result.success ? 'PASS' : 'FAIL'}
+                                            </span>
+                                        </div>
+                                        
+                                        {result.success ? (
+                                            <div className="text-sm text-gray-600">
+                                                <p><strong>Diff Operations:</strong> {result.diffOps.length}</p>
+                                                <div className="mt-2 bg-gray-50 rounded p-2">
+                                                    <pre className="whitespace-pre-wrap text-xs">
+                                                        {result.criticMarkup}
+                                                    </pre>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="text-sm text-red-600">
+                                                <p><strong>Error:</strong> {result.error}</p>
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
                             </div>
                         </div>
                     </div>

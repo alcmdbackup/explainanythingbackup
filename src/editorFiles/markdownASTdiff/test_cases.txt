@@ -1,0 +1,214 @@
+# Markdown AST Diff Test Cases
+
+## Test Case 1: Simple Text Deletion
+**Description**: Remove a word from the beginning of a paragraph
+**Expected Diff**: Word-level deletion at start
+
+### Before:
+```
+Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+```
+
+### After:
+```
+Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+```
+
+---
+
+## Test Case 2: Text Insertion in Middle
+**Description**: Add text in the middle of a sentence
+**Expected Diff**: Word-level insertion
+
+### Before:
+```
+The quick brown fox jumps over the lazy dog.
+```
+
+### After:
+```
+The quick brown fox jumps over the very lazy dog.
+```
+
+---
+
+## Test Case 3: Heading Level Change
+**Description**: Change heading depth from h1 to h2
+**Expected Diff**: Atomic replacement of entire heading
+
+### Before:
+```
+# Introduction to Machine Learning
+
+Machine learning is a subset of artificial intelligence.
+```
+
+### After:
+```
+## Introduction to Machine Learning
+
+Machine learning is a subset of artificial intelligence.
+```
+
+---
+
+## Test Case 4: List Item Addition
+**Description**: Add new item to unordered list
+**Expected Diff**: Insert new list item
+
+### Before:
+```
+## Key Features
+- Feature 1
+- Feature 2
+- Feature 3
+```
+
+### After:
+```
+## Key Features
+- Feature 1
+- Feature 2
+- Feature 3
+- Feature 4
+```
+
+---
+
+## Test Case 5: Code Block Replacement
+**Description**: Replace entire code block with different language and content
+**Expected Diff**: Atomic replacement of code block
+
+### Before:
+```
+Here's a simple function:
+
+```javascript
+function greet(name) {
+    return "Hello, " + name;
+}
+```
+```
+
+### After:
+```
+Here's a simple function:
+
+```python
+def greet(name):
+    return f"Hello, {name}"
+```
+```
+
+---
+
+## Test Case 6: Link URL Update
+**Description**: Change URL in a link while keeping text
+**Expected Diff**: Update link properties
+
+### Before:
+```
+Visit [our website](https://old-site.com) for more information.
+```
+
+### After:
+```
+Visit [our website](https://new-site.com) for more information.
+```
+
+---
+
+## Test Case 7: Emphasis and Strong Text Changes
+**Description**: Change text formatting from emphasis to strong
+**Expected Diff**: Update formatting nodes
+
+### Before:
+```
+This is *important* text that needs attention.
+```
+
+### After:
+```
+This is **important** text that needs attention.
+```
+
+---
+
+## Test Case 8: Paragraph Restructuring
+**Description**: Split one paragraph into two paragraphs
+**Expected Diff**: Delete original paragraph, insert two new paragraphs
+
+### Before:
+```
+This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability. The first idea is about structure. The second idea is about readability.
+```
+
+### After:
+```
+This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.
+
+The first idea is about structure. The second idea is about readability.
+```
+
+---
+
+## Test Case 9: Table Structure Change
+**Description**: Add new column to table
+**Expected Diff**: Atomic replacement of entire table
+
+### Before:
+```
+| Name | Age |
+|------|-----|
+| John | 25  |
+| Jane | 30  |
+```
+
+### After:
+```
+| Name | Age | City    |
+|------|-----|---------|
+| John | 25  | New York|
+| Jane | 30  | Boston  |
+```
+
+---
+
+## Test Case 10: Complex Mixed Changes
+**Description**: Multiple types of changes in one document
+**Expected Diff**: Multiple operations including text changes, formatting, and structure
+
+### Before:
+```
+# Project Overview
+
+This project aims to solve complex problems using *machine learning*.
+
+## Features
+- Feature A
+- Feature B
+
+```python
+print("Hello World")
+```
+
+For more information, visit [our docs](https://docs.example.com).
+```
+
+### After:
+```
+# Project Overview
+
+This project aims to solve **complex problems** using machine learning and artificial intelligence.
+
+## Features
+- Feature A
+- Feature B
+- Feature C
+
+```javascript
+console.log("Hello World");
+```
+
+For more information, visit [our documentation](https://docs.example.com).
+```
