@@ -63,19 +63,21 @@ interface PropsComparison {
 
 // Node types that should be treated as atomic blocks (delete+insert on any change)
 const ATOMIC_BLOCKS = new Set<string>([
-  'heading',
-  'code',
-  'table',
-  'thematicBreak',
-  'html',
-  'yaml',
-  'toml',
-  // MDX / footnotes (if present in your tree)
-  'mdxjsEsm',
-  'mdxFlowExpression',
-  'mdxJsxFlowElement',
-  'footnoteDefinition'
-]);
+    'heading',
+    'code',
+    'table',
+    'thematicBreak',
+    'html',
+    'yaml',
+    'toml',
+    // MDX / footnotes (if present in your tree)
+    'mdxjsEsm',
+    'mdxFlowExpression',
+    'mdxJsxFlowElement',
+    'footnoteDefinition',
+    // 👇 NEW: lists are atomic
+    'list'
+  ]);
 
 // Inline nodes that are fragile; prefer atomic replacement
 const ATOMIC_INLINE = new Set<string>([
@@ -149,7 +151,16 @@ function walkNode(
 ): void {
   if (a && !b) { out.push({ op: 'delete', path, before: a }); return; }
   if (!a && b) { out.push({ op: 'insert', path, after: b }); return; }
-  if (a && b && a.type !== b.type) { out.push({ op: 'update', path, before: a, after: b }); return; }
+  if (a && b && a.type !== b.type) {
+    // If either side is a list, force atomic replacement
+    if (a.type === 'list' || b.type === 'list') {
+      out.push({ op: 'delete', path, before: a });
+      out.push({ op: 'insert', path, after: b });
+    } else {
+      out.push({ op: 'update', path, before: a, after: b });
+    }
+    return;
+  }
 
   if (!a || !b) return;
   const { changed, beforeProps, afterProps } = compareProps(a, b);
@@ -384,7 +395,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
 
 // Whether we should bail out to whole-node stringify (e.g., code blocks, tables)
 function requiresWholeNodeSerialize(node: MdastNode): boolean {
-  return node.type === 'code' || node.type === 'table';
+    return node.type === 'code' || node.type === 'table' || node.type === 'list'; // 👈 add 'list'
 }
 
 // Re-wrap child text back into the container’s markdown shell when needed.

@@ -1,6 +1,6 @@
 # Markdown AST Diff Test Results
 
-Generated on: 2025-09-05T15:03:27.293Z
+Generated on: 2025-09-05T15:12:39.896Z
 Total tests: 10
 Successful: 10
 Failed: 0
@@ -25,8 +25,8 @@ Einstein was a German-born theoretical physicist who developed the theory of rel
 
 **Rendered Diff with CriticMarkup:**
 
-{--Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.--}
-{++Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.++}
+{--Albert --}Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+
 
 
 > **Note**: The diff above uses CriticMarkup syntax where:
@@ -56,8 +56,8 @@ The quick brown fox jumps over the very lazy dog.
 
 **Rendered Diff with CriticMarkup:**
 
-{--The quick brown fox jumps over the lazy dog.--}
-{++The quick brown fox jumps over the very lazy dog.++}
+The quick brown fox jumps over the {++very ++}lazy dog.
+
 
 
 > **Note**: The diff above uses CriticMarkup syntax where:
@@ -91,8 +91,12 @@ Machine learning is a subset of artificial intelligence.
 
 **Rendered Diff with CriticMarkup:**
 
-Introduction to Machine Learning
-Machine learning is a subset of artificial intelligence.
+{--# Introduction to Machine Learning
+
+--}{++## Introduction to Machine Learning
+
+++}Machine learning is a subset of artificial intelligence.
+
 
 
 > **Note**: The diff above uses CriticMarkup syntax where:
@@ -125,19 +129,22 @@ Machine learning is a subset of artificial intelligence.
 - Feature 4
 ```
 
-**Diff Operations Count**: 1
+**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
-Key Features
-{--{++- Feature 1++}
-{++- Feature 2++}
-{++- Feature 3++}--}
-{++{++- Feature 1++}
-{++- Feature 2++}
-{++- Feature 3++}
-{++- Feature 4++}++}
+## Key Features
 
+{--- Feature 1
+- Feature 2
+- Feature 3
+
+--}{++- Feature 1
+- Feature 2
+- Feature 3
+- Feature 4
+
+++}
 
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
@@ -171,6 +178,7 @@ Here's a simple function:
 Here's a simple function:
 
 
+
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
 > - `{++inserted text++}` shows added content
@@ -194,11 +202,12 @@ Visit [our website](https://old-site.com) for more information.
 Visit [our website](https://new-site.com) for more information.
 ```
 
-**Diff Operations Count**: 2
+**Diff Operations Count**: 1
 
 **Rendered Diff with CriticMarkup:**
 
-Visit [our website](https://old-site.com) for more information.
+Visit [our website](https://{--old--}{++new++}-site.com) for more information.
+
 
 
 > **Note**: The diff above uses CriticMarkup syntax where:
@@ -224,11 +233,12 @@ This is *important* text that needs attention.
 This is **important** text that needs attention.
 ```
 
-**Diff Operations Count**: 2
+**Diff Operations Count**: 1
 
 **Rendered Diff with CriticMarkup:**
 
-This is *important* text that needs attention.
+This is *{++*++}important*{++*++} text that needs attention.
+
 
 
 > **Note**: The diff above uses CriticMarkup syntax where:
@@ -260,10 +270,11 @@ The first idea is about structure. The second idea is about readability.
 
 **Rendered Diff with CriticMarkup:**
 
-{--This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability. The first idea is about structure. The second idea is about readability.--}
-{++This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.++}
-{++The first idea is about structure. The second idea is about readability.++}
+This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.{-- The first idea is about structure. The second idea is about readability.--}
 
+{++The first idea is about structure. The second idea is about readability.
+
+++}
 
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
@@ -298,14 +309,11 @@ The first idea is about structure. The second idea is about readability.
 
 **Rendered Diff with CriticMarkup:**
 
-{--| Name | Age |
-|------|-----|
-| John | 25  |
-| Jane | 30  |--}
-{++| Name | Age | City    |
-|------|-----|---------|
-| John | 25  | New York|
-| Jane | 30  | Boston  |++}
+| Name | Age |{++ City    |++}
+|------|-----|{++---------|++}
+| John | 25  |{++ New York|++}
+| Jane | 30  |{++ Boston  |++}
+
 
 
 > **Note**: The diff above uses CriticMarkup syntax where:
@@ -346,20 +354,24 @@ This project aims to solve **complex problems** using machine learning and artif
 
 ```
 
-**Diff Operations Count**: 2
+**Diff Operations Count**: 3
 
 **Rendered Diff with CriticMarkup:**
 
-Project Overview
-{--This project aims to solve complex problems using *machine learning*.--}
-{++This project aims to solve **complex problems** using machine learning and artificial intelligence.++}
-Features
-{--{++- Feature A++}
-{++- Feature B++}--}
-{++{++- Feature A++}
-{++- Feature B++}
-{++- Feature C++}++}
+# Project Overview
 
+This project aims to solve {++**++}complex problems{++**++} using {--*--}machine learning{--*--}{++ and artificial intelligence++}.
+
+## Features
+
+{--- Feature A
+- Feature B
+
+--}{++- Feature A
+- Feature B
+- Feature C
+
+++}
 
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
