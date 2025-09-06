@@ -193,21 +193,26 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
   importRegExp: /\{([+-]{2})([\s\S]+?)\1\}/,
   replace: (textNode, match) => {
     console.log("🔍 CRITIC_MARKUP replace called");
-    console.log("📝 TextNode content:", textNode.getTextContent());
+    console.log("📝 TextNode content:", JSON.stringify(textNode.getTextContent()));
     console.log("📝 TextNode content length:", textNode.getTextContent().length);
     console.log("📝 TextNode key:", textNode.getKey());
-    console.log("🎯 Full match:", match[0]);
+    console.log("🎯 Full match:", JSON.stringify(match[0]));
     console.log("🎯 Full match length:", match[0].length);
     console.log("🏷️ Marks:", match[1]);
     console.log("📄 Inner content length:", match[2]?.length);
-    console.log("📄 Inner content preview:", match[2]?.substring(0, 100) + "...");
+    console.log("📄 Inner content preview:", JSON.stringify(match[2]?.substring(0, 100)));
     console.log("🔍 Match index in TextNode:", textNode.getTextContent().indexOf(match[0]));
     
     // match[0] = full "{++...++}" or "{--...--}"
     // match[1] = "++" or "--"
     // match[2] = inner content
     const marks = match[1]!;
-    const inner = match[2] ?? "";
+    let inner = match[2] ?? "";
+
+    // Convert \n back to actual newlines if they were normalized during preprocessing
+    if (inner.includes('\\n')) {
+      inner = inner.replace(/\\n/g, '\n');
+    }
 
     const tag = marks === "++" ? "ins" : "del";
     console.log("🏷️ Creating DiffTagNode with tag:", tag);
@@ -265,6 +270,30 @@ export function debugCriticMarkupMatching(text: string): void {
 }
 
 /**
+ * Preprocesses markdown to normalize multiline CriticMarkup
+ * - Converts multiline CriticMarkup to single-line format
+ * - Preserves newlines within CriticMarkup content as \n
+ * - Ensures existing single-line CriticMarkup remains unchanged
+ * - Used before passing markdown to Lexical to prevent text node splitting issues
+ */
+export function preprocessCriticMarkup(markdown: string): string {
+  // Regex to match multiline CriticMarkup patterns
+  // This matches {--...--} or {++...++} that may span multiple lines
+  const multilineCriticMarkupRegex = /\{([+-]{2})([\s\S]*?)\1\}/g;
+  
+  return markdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
+    // Check if the content contains actual newlines (not just \n characters)
+    if (content.includes('\n')) {
+      // Replace actual newlines with \n characters to preserve them in single-line format
+      const normalizedContent = content.replace(/\n/g, '\\n');
+      return `{${marks}${normalizedContent}${marks}}`;
+    }
+    // If no newlines, return the original match unchanged
+    return match;
+  });
+}
+
+/**
  * Debug function to analyze text node structure
  * - Helps understand how text is being split into TextNodes
  * - Shows the full text content and how it's fragmented
@@ -282,7 +311,8 @@ export function debugTextNodeStructure(editor: any): void {
           textNodes.push({
             key: node.getKey(),
             content: node.getTextContent(),
-            length: node.getTextContent().length
+            length: node.getTextContent().length,
+            contentJson: JSON.stringify(node.getTextContent())
           });
         }
         node.getChildren().forEach(traverse);
@@ -293,6 +323,7 @@ export function debugTextNodeStructure(editor: any): void {
   
   console.log("📊 Found", textNodes.length, "TextNodes:");
   textNodes.forEach((node, index) => {
-    console.log(`  ${index + 1}. Key: ${node.key}, Length: ${node.length}, Content: "${node.content}"`);
+    console.log(`  ${index + 1}. Key: ${node.key}, Length: ${node.length}`);
+    console.log(`      Content: ${node.contentJson}`);
   });
 }

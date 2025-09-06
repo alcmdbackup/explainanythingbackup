@@ -44,14 +44,15 @@ export class DiffTagNode extends ElementNode {
    * Creates DOM element for rendering the DiffTagNode
    * • Creates <ins> or <del> HTML elements based on the tag type
    * • Applies appropriate styling classes for visual distinction
+   * • Preserves newlines with whitespace-pre-wrap for proper formatting
    * • Used by Lexical to render the node in the DOM
    * • Called by: Lexical's rendering system
    */
   createDOM(): HTMLElement {
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1" 
-      : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through";
+      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap" 
+      : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through whitespace-pre-wrap";
     return element;
   }
 
@@ -68,12 +69,16 @@ export class DiffTagNode extends ElementNode {
 
   /**
    * Exports node to DOM for serialization
-   * • Creates DOM element for export operations
+   * • Creates DOM element for export operations with proper styling
+   * • Preserves newlines with whitespace-pre-wrap for proper formatting
    * • Used by Lexical for HTML export functionality
    * • Called by: Lexical's export system
    */
   exportDOM(): DOMExportOutput {
     const element = document.createElement(this.__tag);
+    element.className = this.__tag === "ins" 
+      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap" 
+      : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through whitespace-pre-wrap";
     return { element };
   }
 

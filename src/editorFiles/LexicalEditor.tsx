@@ -39,7 +39,7 @@ import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 
 // Import custom DiffTagNode and CriticMarkup transformer
 import { DiffTagNode } from './DiffTagNode';
-import { CRITIC_MARKUP } from './diffUtils';
+import { CRITIC_MARKUP, preprocessCriticMarkup } from './diffUtils';
 
 // Define custom transformers array with only the ones we need
 const MARKDOWN_TRANSFORMERS = [
@@ -239,7 +239,9 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
     setContentFromMarkdown: (markdown: string) => {
       if (editor) {
         editor.update(() => {
-          $convertFromMarkdownString(markdown, MARKDOWN_TRANSFORMERS);
+          // Preprocess markdown to normalize multiline CriticMarkup
+          const preprocessedMarkdown = preprocessCriticMarkup(markdown);
+          $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
         });
       }
     },
