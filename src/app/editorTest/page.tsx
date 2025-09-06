@@ -17,6 +17,7 @@ import {
 
 export default function EditorTestPage() {
     const [currentContent, setCurrentContent] = useState<string>('');
+    const [rawMarkdownContent, setRawMarkdownContent] = useState<string>('');
     const [aiSuggestions, setAiSuggestions] = useState<string>('');
     const [rawAIResponse, setRawAIResponse] = useState<string>('');
     const [isLoadingSuggestions, setIsLoadingSuggestions] = useState<boolean>(false);
@@ -49,6 +50,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     // Set initial content when component mounts
     useEffect(() => {
         setCurrentContent(defaultContent);
+        setRawMarkdownContent(defaultContent);
         console.log('Initial content set:', defaultContent.length, 'characters');
     }, []);
 
@@ -56,13 +58,14 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     const handleMarkdownToggle = () => {
         if (editorRef.current) {
             if (isMarkdownMode) {
-                // Switching from markdown to raw text - get current content as markdown and set as plain text
+                // Switching from markdown to raw text mode
+                // Get the current markdown content and store it
                 const markdownContent = editorRef.current.getContentAsMarkdown();
-                setCurrentContent(markdownContent);
-                editorRef.current.setContentFromText(markdownContent);
+                setRawMarkdownContent(markdownContent);
             } else {
-                // Switching from raw text to markdown - set content as markdown
-                editorRef.current.setContentFromMarkdown(currentContent);
+                // Switching from raw text to markdown mode
+                // Update the editor with the raw markdown content
+                editorRef.current.setContentFromMarkdown(rawMarkdownContent);
             }
         }
         setIsMarkdownMode(!isMarkdownMode);
@@ -270,6 +273,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 className="w-full"
                                 initialContent={defaultContent}
                                 isMarkdownMode={isMarkdownMode}
+                                rawMarkdownContent={rawMarkdownContent}
+                                onRawMarkdownChange={(content) => {
+                                    console.log('Raw markdown changed:', content.length, 'characters');
+                                    setRawMarkdownContent(content);
+                                }}
                                 onContentChange={(content) => {
                                     console.log('Content changed:', content.length, 'characters');
                                     setCurrentContent(content);
