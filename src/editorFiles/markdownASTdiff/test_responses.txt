@@ -1,6 +1,6 @@
 # Markdown AST Diff Test Results
 
-Generated on: 2025-09-06T03:50:31.536Z
+Generated on: 2025-09-06T04:14:30.431Z
 Total tests: 10
 Successful: 10
 Failed: 0
@@ -222,11 +222,11 @@ Visit [our website](https://old-site.com) for more information.
 Visit [our website](https://new-site.com) for more information.
 ```
 
-**Diff Operations Count**: 1
+**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
-Visit [our website](https://{--old--}{++new++}-site.com) for more information.
+Visit {--[our website](https://old-site.com)--}{++[our website](https://new-site.com)++} for more information.
 
 
 

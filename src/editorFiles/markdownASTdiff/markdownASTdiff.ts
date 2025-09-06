@@ -63,21 +63,21 @@ interface PropsComparison {
 
 // Node types that should be treated as atomic blocks (delete+insert on any change)
 const ATOMIC_BLOCKS = new Set<string>([
-    'heading',
-    'code',
-    'table',
-    'thematicBreak',
-    'html',
-    'yaml',
-    'toml',
-    // MDX / footnotes (if present in your tree)
-    'mdxjsEsm',
-    'mdxFlowExpression',
-    'mdxJsxFlowElement',
-    'footnoteDefinition',
-    // 👇 NEW: lists are atomic
-    'list'
-  ]);
+  'heading',
+  'code',
+  'table',
+  'thematicBreak',
+  'html',
+  'yaml',
+  'toml',
+  // MDX / footnotes (if present in your tree)
+  'mdxjsEsm',
+  'mdxFlowExpression',
+  'mdxJsxFlowElement',
+  'footnoteDefinition',
+  // 👇 lists are atomic
+  'list'
+]);
 
 // Inline nodes that are fragile; prefer atomic replacement
 const ATOMIC_INLINE = new Set<string>([
@@ -87,11 +87,24 @@ const ATOMIC_INLINE = new Set<string>([
   'image',
   'imageReference',
   'linkReference',
-  'footnoteReference'
+  'footnoteReference',
+  // 👇 make links atomic
+  'link'
 ]);
 
 function isAtomicNode(n: MdastNode): boolean {
   return ATOMIC_BLOCKS.has(n.type) || ATOMIC_INLINE.has(n.type);
+}
+
+// 👇 New: detect if a node contains any atomic descendant (e.g., link inside paragraph)
+function containsAtomicDescendant(node: MdastNode): boolean {
+  const stack: MdastNode[] = (node.children || []).slice();
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (isAtomicNode(n)) return true;
+    if (n.children && n.children.length) stack.push(...n.children);
+  }
+  return false;
 }
 
 // Structural changes that should flip otherwise-granular nodes to atomic
@@ -395,7 +408,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
 
 // Whether we should bail out to whole-node stringify (e.g., code blocks, tables)
 function requiresWholeNodeSerialize(node: MdastNode): boolean {
-    return node.type === 'code' || node.type === 'table' || node.type === 'list'; // 👈 add 'list'
+  return node.type === 'code' || node.type === 'table' || node.type === 'list';
 }
 
 // Re-wrap child text back into the container’s markdown shell when needed.
@@ -426,13 +439,16 @@ function wrapIns(s: string): string { return s ? `{++${s}++}` : ''; }
 
 function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
   if (a.type !== b.type) return false;
-  // Exclude atomic blocks/inline from granular path
+  // Exclude atomic blocks/inline from granular path for the node itself
   if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) return false;
+
+  // 👇 New: if either side contains atomic descendants (e.g., a link inside), don't flatten
+  if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) return false;
 
   const containerTypes = [
     'paragraph',
-    // 'listItem', ← remove this
-    'blockquote', // optional: you may also remove blockquote for the same reason
+    // 'listItem',  // intentionally not granular
+    'blockquote', // optional to keep granular; remove if you prefer atomic
     'strong',
     'emphasis',
     'inlineCode',
