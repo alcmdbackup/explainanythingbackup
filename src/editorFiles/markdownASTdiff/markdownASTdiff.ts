@@ -33,6 +33,10 @@ interface DiffOperation {
     granularity?: 'char' | 'word';
     runs?: TextRun[];
     criticMarkup?: string;
+    // NEW: grouping & wrapper metadata for atomic format changes
+    group?: string;
+    wrapperFrom?: string;
+    wrapperTo?: string;
   };
 }
 
@@ -76,7 +80,10 @@ const ATOMIC_BLOCKS = new Set<string>([
   'mdxJsxFlowElement',
   'footnoteDefinition',
   // 👇 lists are atomic
-  'list'
+  'list',
+  // 👇 NEW: treat table parts as atomic too (we never want to recurse)
+  'tableRow',
+  'tableCell',
 ]);
 
 // Inline nodes that are fragile; prefer atomic replacement
@@ -107,6 +114,17 @@ function containsAtomicDescendant(node: MdastNode): boolean {
   return false;
 }
 
+// NEW: detect if a node contains any wrapper descendant (emphasis/strong/inlineCode/link)
+function containsWrapperDescendant(node: MdastNode): boolean {
+  const stack: MdastNode[] = (node.children || []).slice();
+  while (stack.length) {
+    const n = stack.pop()!;
+    if (WRAPPER_TYPES.has(n.type)) return true;
+    if (n.children && n.children.length) stack.push(...n.children);
+  }
+  return false;
+}
+
 // Structural changes that should flip otherwise-granular nodes to atomic
 function structuralChange(a: MdastNode, b: MdastNode): boolean {
   if (a.type !== b.type) return true;
@@ -119,8 +137,20 @@ function structuralChange(a: MdastNode, b: MdastNode): boolean {
       return a.checked !== b.checked || a.spread !== b.spread;
     case 'code':
       return a.lang !== b.lang || a.meta !== b.meta;
-    case 'table':
-      return JSON.stringify(a.align || []) !== JSON.stringify((b as any).align || []);
+    case 'table': {
+      // More robust: treat shape changes as structural (alignments, row/col counts)
+      const aAlign = a.align || [];
+      const bAlign = (b as any).align || [];
+      if (JSON.stringify(aAlign) !== JSON.stringify(bAlign)) return true;
+
+      const aRows = a.children || [];
+      const bRows = (b as any).children || [];
+      if (aRows.length !== bRows.length) return true;
+
+      const aCols = aRows[0]?.children?.length ?? 0;
+      const bCols = bRows[0]?.children?.length ?? 0;
+      return aCols !== bCols;
+    }
     case 'link':
       return a.url !== b.url || a.title !== b.title;
     case 'image':
@@ -134,6 +164,63 @@ function structuralChange(a: MdastNode, b: MdastNode): boolean {
 function atomicEqual(a: MdastNode, b: MdastNode, stringify: (n: MdastNode) => string): boolean {
   if (a.type !== b.type) return false;
   return stringify(a) === stringify(b);
+}
+
+// ========= Wrapper-change detection (NEW) =========
+
+// Inline wrappers we treat as format wrappers
+const WRAPPER_TYPES = new Set<string>(['emphasis', 'strong', 'inlineCode', 'link']);
+
+function isWrapperType(t: string): boolean {
+  return WRAPPER_TYPES.has(t);
+}
+
+// plain text of a node, ignoring wrapper marks
+function plainText(n?: MdastNode): string {
+  if (!n) return '';
+  switch (n.type) {
+    case 'text':
+      return n.value || '';
+    case 'inlineCode':
+      return n.value || '';
+    default:
+      return (n.children || []).map(plainText).join('');
+  }
+}
+
+type WrapperChange =
+  | { kind: 'wrap'; from: 'text'; to: string }
+  | { kind: 'unwrap'; from: string; to: 'text' }
+  | { kind: 'retag'; from: string; to: string };
+
+// Detect text<->wrapper and wrapper<->wrapper (retag) when the underlying text is identical
+function detectWrapperChange(a: MdastNode, b: MdastNode): WrapperChange | null {
+  const aText = plainText(a);
+  const bText = plainText(b);
+  if (aText !== bText) return null;
+
+  const aIsWrap = isWrapperType(a.type);
+  const bIsWrap = isWrapperType(b.type);
+
+  if (a.type === 'text' && bIsWrap) return { kind: 'wrap', from: 'text', to: b.type };
+  if (b.type === 'text' && aIsWrap) return { kind: 'unwrap', from: a.type, to: 'text' };
+  if (aIsWrap && bIsWrap && a.type !== b.type) return { kind: 'retag', from: a.type, to: b.type };
+
+  return null;
+}
+
+// NEW: detect pipe-table paragraphs (when remark-gfm isn't enabled)
+function isPipeTableParagraph(n: MdastNode | undefined): boolean {
+  if (!n || n.type !== 'paragraph') return false;
+  const txt = plainText(n).trim();
+  // Look for a header line: | a | b | and a separator line: | --- | --- |
+  return /^\|.+\|\s*$/.test(txt) && /\n\|\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|/m.test(txt);
+}
+
+let __GROUP_COUNTER = 0;
+function newGroupId(): string {
+  __GROUP_COUNTER += 1;
+  return 'g_' + __GROUP_COUNTER.toString(36);
 }
 
 // ========= Public API =========
@@ -164,7 +251,27 @@ function walkNode(
 ): void {
   if (a && !b) { out.push({ op: 'delete', path, before: a }); return; }
   if (!a && b) { out.push({ op: 'insert', path, after: b }); return; }
+
   if (a && b && a.type !== b.type) {
+    // NEW: atomic delete+insert for wrapper/unwrap/retag over identical plain text
+    const wc = detectWrapperChange(a, b);
+    if (wc) {
+      const group = newGroupId();
+      out.push({
+        op: 'delete',
+        path,
+        before: a,
+        meta: { kind: `format-${wc.kind}`, group, wrapperFrom: wc.from, wrapperTo: wc.to }
+      });
+      out.push({
+        op: 'insert',
+        path,
+        after: b,
+        meta: { kind: `format-${wc.kind}`, group, wrapperFrom: wc.from, wrapperTo: wc.to }
+      });
+      return;
+    }
+
     // If either side is a list, force atomic replacement
     if (a.type === 'list' || b.type === 'list') {
       out.push({ op: 'delete', path, before: a });
@@ -176,6 +283,31 @@ function walkNode(
   }
 
   if (!a || !b) return;
+
+  // 🔒 Table hard gate: if either content or shape differs, emit del+ins and stop
+  if (a.type === 'table' && b.type === 'table') {
+    const str = options.stringify || fallbackStringify;
+    if (!atomicEqual(a, b, str)) {
+      out.push({ op: 'delete', path, before: a });
+      out.push({ op: 'insert', path, after: b });
+      return;
+    }
+    // identical table → no op; do not recurse
+    return;
+  }
+
+  // 🔒 Fallback for pipe-table paragraphs (when GFM isn't used)
+  if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
+    const str = options.stringify || fallbackStringify;
+    const aStr = a ? str(a) : '';
+    const bStr = b ? str(b) : '';
+    if (aStr !== bStr) {
+      if (a) out.push({ op: 'delete', path, before: a });
+      if (b) out.push({ op: 'insert', path, after: b });
+    }
+    return;
+  }
+
   const { changed, beforeProps, afterProps } = compareProps(a, b);
 
   // 🔒 Atomic policy: if node is atomic or a structural change occurred, replace whole node
@@ -254,7 +386,7 @@ function walkChildren(
   keyer: (node: MdastNode) => string, 
   eqNode: (a: MdastNode, b: MdastNode) => boolean, 
   out: DiffOperation[], 
-  options: DiffOptions
+  _options: DiffOptions
 ): void {
   const aKeys = aKids.map(keyer);
   const bKeys = bKids.map(keyer);
@@ -280,7 +412,7 @@ function walkChildren(
 
   // Updates (recurse on matched pairs, using destination index j)
   matches.forEach(({ i, j }) => {
-    walkNode(aKids[i], bKids[j], path.concat(j), keyer, eqNode, out, options);
+    walkNode(aKids[i], bKids[j], path.concat(j), keyer, eqNode, out, _options);
   });
 }
 
@@ -320,6 +452,22 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
   if (a && b && a.type !== b.type) return wrapDel(stringify(a)) + wrapIns(stringify(b));
 
   if (!a || !b) return '';
+
+  // 🔒 Real tables: never drill into children; replace whole thing on change
+  if (a.type === 'table' && b.type === 'table') {
+    if (!atomicEqual(a, b, stringify)) {
+      return wrapDel(stringify(a)) + wrapIns(stringify(b));
+    }
+    return stringify(a); // identical
+  }
+
+  // 🔒 Fallback: pipe-table paragraph handled atomically
+  if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
+    const aStr = stringify(a);
+    const bStr = stringify(b);
+    if (aStr !== bStr) return wrapDel(aStr) + wrapIns(bStr);
+    return aStr;
+  }
 
   // 🔒 Atomic policy in overlay: atomic nodes or structural change → whole replace
   if (a.type === b.type && (isAtomicNode(a) || structuralChange(a, b))) {
@@ -408,7 +556,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
 
 // Whether we should bail out to whole-node stringify (e.g., code blocks, tables)
 function requiresWholeNodeSerialize(node: MdastNode): boolean {
-  return node.type === 'code' || node.type === 'table' || node.type === 'list';
+  return node.type === 'code' || node.type === 'table' || node.type === 'list' || node.type === 'tableRow' || node.type === 'tableCell';
 }
 
 // Re-wrap child text back into the container’s markdown shell when needed.
@@ -422,7 +570,7 @@ function decorateWithContainerMarkup(node: MdastNode, inner: string, stringify: 
       return `${inner}\n\n`;
     case 'listItem': {
       const bullet = '- ';
-      return `${bullet}${inner.replace(/\n+$/,'')}\n`;
+      return `${bullet}${inner.replace(/\n+$/, '')}\n`;
     }
     case 'blockquote':
       return inner.split('\n').map(l => (l ? `> ${l}` : l)).join('\n') + '\n\n';
@@ -439,19 +587,25 @@ function wrapIns(s: string): string { return s ? `{++${s}++}` : ''; }
 
 function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
   if (a.type !== b.type) return false;
+  // NEW: avoid granularizing pipe-table paragraphs
+  if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) return false;
+  // Do not granularize tables or their parts
+  if (a.type === 'table' || a.type === 'tableRow' || a.type === 'tableCell') return false;
+
   // Exclude atomic blocks/inline from granular path for the node itself
   if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) return false;
 
-  // 👇 New: if either side contains atomic descendants (e.g., a link inside), don't flatten
+  // If either side contains atomic descendants (e.g., a link inside), don't flatten
   if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) return false;
+
+  // NEW: if either side contains wrapper descendants (emphasis/strong/inlineCode/link),
+  // avoid flattening so wrapper changes render as atomic del+ins pairs.
+  if (containsWrapperDescendant(a) || containsWrapperDescendant(b)) return false;
 
   const containerTypes = [
     'paragraph',
     // 'listItem',  // intentionally not granular
-    'blockquote', // optional to keep granular; remove if you prefer atomic
-    'strong',
-    'emphasis',
-    'inlineCode',
+    'blockquote', // keep granular only if no wrappers/atomics inside
     'delete'
   ];
   if (!containerTypes.includes(a.type)) return false;
@@ -498,8 +652,8 @@ function compareProps(a: MdastNode, b: MdastNode): PropsComparison {
     table: ['align'],
     tableRow: [],
     tableCell: [],
-  };
-  const fields = propsByType[a.type as keyof typeof propsByType] || [];
+  } as const;
+  const fields = (propsByType as any)[a.type] || [];
   const beforeProps: MdastNode = { type: a.type };
   const afterProps: MdastNode = { type: b.type };
   let changed = false;
@@ -584,11 +738,11 @@ function fallbackStringify(node: MdastNode): string {
     case 'list': {
       const bullet = node.ordered ? '1.' : '-';
       return (node.children || [])
-        .map((li: MdastNode) => `${bullet} ${fallbackStringify(li).replace(/\n+$/,'')}\n`)
+        .map((li: MdastNode) => `${bullet} ${fallbackStringify(li).replace(/\n+$/, '')}\n`)
         .join('') + '\n';
     }
     case 'listItem':
-      return (node.children || []).map(fallbackStringify).join('').replace(/\n+$/,'');
+      return (node.children || []).map(fallbackStringify).join('').replace(/\n+$/, '');
     case 'blockquote':
       return (node.children || []).map(fallbackStringify).join('')
         .split('\n').map((l: string) => (l ? `> ${l}` : l)).join('\n') + '\n\n';
@@ -608,6 +762,32 @@ function fallbackStringify(node: MdastNode): string {
       return `![${node.alt || ''}](${node.url || ''}${node.title ? ` "${node.title}"` : ''})`;
     case 'thematicBreak':
       return `\n---\n\n`;
+    case 'table': {
+      const rows: MdastNode[] = node.children || [];
+      const cellsOf = (row: MdastNode) => (row.children || []).map(cell =>
+        (cell.children || []).map(fallbackStringify).join('').replace(/\n+/g, ' ').trim()
+      );
+
+      if (rows.length === 0) return '\n\n';
+      const header = cellsOf(rows[0]);
+      const align = node.align || [];
+      const sep = header.map((_, i) => {
+        const a = align[i] || null;
+        if (a === 'left') return ':---';
+        if (a === 'right') return '---:';
+        if (a === 'center') return ':---:';
+        return '---';
+      });
+
+      const lines: string[] = [];
+      lines.push('| ' + header.join(' | ') + ' |');
+      lines.push('| ' + sep.join(' | ') + ' |');
+      for (let r = 1; r < rows.length; r++) {
+        const rowCells = cellsOf(rows[r]);
+        lines.push('| ' + rowCells.join(' | ') + ' |');
+      }
+      return lines.join('\n') + '\n\n';
+    }
     default:
       return (node.children || []).map(fallbackStringify).join('');
   }

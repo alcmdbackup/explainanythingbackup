@@ -1,6 +1,6 @@
 # Markdown AST Diff Test Results
 
-Generated on: 2025-09-06T04:14:30.431Z
+Generated on: 2025-09-06T04:52:15.093Z
 Total tests: 10
 Successful: 10
 Failed: 0
@@ -253,11 +253,11 @@ This is *important* text that needs attention.
 This is **important** text that needs attention.
 ```
 
-**Diff Operations Count**: 1
+**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
-This is *{++*++}important*{++*++} text that needs attention.
+This is {--*important*--}{++**important**++} text that needs attention.
 
 
 
