@@ -6,6 +6,7 @@ import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../act
 import { logger } from '../../lib/client_utilities';
 import { createUnifiedDiff, renderAnnotatedMarkdown } from '../../editorFiles/diffUtils';
 import { diffMdast, renderCriticMarkup } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
+import { CriticMarkupRenderer } from '../../components/CriticMarkupRenderer';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { 
@@ -452,11 +453,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                                     Markdown AST Diff Result (CriticMarkup):
                                                 </h4>
                                                 <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
-                                                    <pre 
-                                                        className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap"
-                                                    >
-                                                        {markdownASTDiffResult}
-                                                    </pre>
+                                                    <CriticMarkupRenderer 
+                                                        content={markdownASTDiffResult}
+                                                        className="text-purple-900 dark:text-purple-100"
+                                                    />
                                                 </div>
                                                 <div className="mt-4">
                                                     <button

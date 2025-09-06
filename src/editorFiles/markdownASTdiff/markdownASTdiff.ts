@@ -3,6 +3,25 @@
 // ESM:
 import { diffWordsWithSpace, diffChars } from 'diff';
 
+// DEBUG USAGE:
+// To enable debug logging for similarity calculations, pass debug: true in multipass options:
+// 
+// const options = {
+//   multipass: {
+//     debug: true,
+//     paragraphAtomicDiffIfDiffAbove: 0.40,
+//     sentenceAtomicDiffIfDiffAbove: 0.50
+//   }
+// };
+// 
+// const diffs = diffMdast(beforeNode, afterNode, options);
+// 
+// This will log detailed similarity calculations showing:
+// - Paragraph-level similarity ratios and decisions
+// - Sentence tokenization and alignment
+// - Word-level diff operations
+// - Threshold comparisons and atomic vs granular decisions
+
 // ========= Type Definitions =========
 
 interface MdastNode {
@@ -45,11 +64,37 @@ interface TextRun {
   s: string;
 }
 
+// ADD: configurable thresholds for the multipass
+interface MultiPassOptions {
+  /**
+   * If the *paragraph-level* before/after is > this diff ratio (0..1),
+   * replace the entire paragraph atomically (delete+insert).
+   * Default: 0.20 (i.e., >20% different → atomic paragraph).
+   */
+  paragraphAtomicDiffIfDiffAbove?: number;
+
+  /**
+   * If a matched *sentence pair* before/after is > this diff ratio (0..1),
+   * replace that entire sentence atomically (as {--...--}{++...++} in the runs).
+   * Default: 0.35.
+   */
+  sentenceAtomicDiffIfDiffAbove?: number;
+
+  /** Locale hint for sentence segmentation (used if Intl.Segmenter is available). */
+  sentenceLocale?: string;
+
+  /** Enable debug logging for similarity calculations */
+  debug?: boolean;
+}
+
 interface DiffOptions {
   keyer?: (node: MdastNode) => string;
   eqNode?: (a: MdastNode, b: MdastNode) => boolean;
   textGranularity?: 'char' | 'word';
   stringify?: (node: MdastNode) => string;
+
+  // NEW: multipass thresholds/options
+  multipass?: MultiPassOptions;
 }
 
 interface LcsMatch {
@@ -223,6 +268,300 @@ function newGroupId(): string {
   return 'g_' + __GROUP_COUNTER.toString(36);
 }
 
+// ========== Multi-pass helpers (paragraph → sentence → word) ==========
+
+const MP_DEFAULTS: Required<MultiPassOptions> = {
+  paragraphAtomicDiffIfDiffAbove: 0.10,
+  sentenceAtomicDiffIfDiffAbove:  0.10,
+  sentenceLocale:          'en',
+  debug:                   true
+};
+
+// Align sentences by similarity instead of exact matching
+function alignSentencesBySimilarity(
+  sentencesA: string[], 
+  sentencesB: string[], 
+  threshold: number,
+  debug = false
+): LcsMatch[] {
+  if (debug) {
+    console.log(`    🔗 SIMILARITY-BASED SENTENCE ALIGNMENT:`);
+  }
+  
+  const pairs: LcsMatch[] = [];
+  const usedB = new Set<number>();
+  
+  // For each sentence in A, find the best match in B
+  for (let i = 0; i < sentencesA.length; i++) {
+    const sentenceA = sentencesA[i];
+    let bestMatch = -1;
+    let bestSimilarity = 0;
+    
+    for (let j = 0; j < sentencesB.length; j++) {
+      if (usedB.has(j)) continue; // Skip already matched sentences
+      
+      const sentenceB = sentencesB[j];
+      const similarity = 1 - diffRatioWords(sentenceA, sentenceB, false); // Get similarity (not diff ratio)
+      
+      if (similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        bestMatch = j;
+      }
+    }
+    
+    // If we found a good match (similarity > threshold), pair them
+    if (bestMatch !== -1 && bestSimilarity > (1 - threshold)) {
+      pairs.push({ i, j: bestMatch });
+      usedB.add(bestMatch);
+      
+      if (debug) {
+        console.log(`      ✅ PAIRED: A[${i}] ↔ B[${bestMatch}] (similarity: ${(bestSimilarity * 100).toFixed(1)}%)`);
+        console.log(`        A: "${sentenceA}"`);
+        console.log(`        B: "${sentencesB[bestMatch]}"`);
+      }
+    } else if (debug) {
+      console.log(`      ❌ NO MATCH: A[${i}] (best similarity: ${(bestSimilarity * 100).toFixed(1)}%, threshold: ${((1 - threshold) * 100).toFixed(1)}%)`);
+    }
+  }
+  
+  if (debug) {
+    console.log(`    📊 ALIGNMENT RESULT: ${pairs.length} sentence pairs found`);
+  }
+  
+  return pairs;
+}
+
+// Sentence tokenize, preserving trailing whitespace for lossless re-join.
+function sentenceTokens(text: string, locale = MP_DEFAULTS.sentenceLocale): string[] {
+  if (!text) return [];
+  const S: any = (globalThis as any).Intl?.Segmenter;
+  if (S) {
+    try {
+      const seg = new S(locale, { granularity: 'sentence' });
+      const segments = (seg as any).segment(text);
+      const toks: string[] = [];
+      let lastIndex = 0;
+      for (const part of segments as any) {
+        if (typeof part.segment === 'string') {
+          toks.push(part.segment);
+          lastIndex += part.segment.length;
+        } else {
+          const nextIndex = (part.index as number) ?? lastIndex;
+          if (nextIndex > lastIndex) toks.push(text.slice(lastIndex, nextIndex));
+          lastIndex = nextIndex;
+        }
+      }
+      if (lastIndex < text.length) toks.push(text.slice(lastIndex));
+      if (toks.length) return toks;
+    } catch { /* fall back */ }
+  }
+  // Regex fallback: capture to ., !, ? followed by spaces/closing, or multiple newlines, or end.
+  const out: string[] = [];
+  const rx = /[\s\S]*?(?:[.!?](?=[\s'")\]]|\s*$)|\n{2,}|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = rx.exec(text))) {
+    const token = m[0];
+    if (!token) break;
+    out.push(token);
+    if (rx.lastIndex >= text.length) break;
+  }
+  return mergeAbbrevSuffix(out);
+}
+
+function mergeAbbrevSuffix(tokens: string[]): string[] {
+  const ABBREV = /\b(?:Mr|Mrs|Ms|Mx|Dr|Prof|Sr|Jr|St|Mt|vs|etc|No|Fig|Eq|Ref|cf|al|e\.g|i\.e)\.\s*$/i;
+  const merged: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (i + 1 < tokens.length && ABBREV.test(t)) {
+      merged.push(t + tokens[i + 1]);
+      i++;
+    } else {
+      merged.push(t);
+    }
+  }
+  return merged;
+}
+
+// Compute a normalized "diff ratio" (0..1) using LCS similarity.
+function diffRatioWords(aStr: string, bStr: string, debug = false): number {
+  if (aStr === bStr) return 0;
+  
+  // Split into words for LCS comparison
+  const aWords = aStr.split(/\s+/);
+  const bWords = bStr.split(/\s+/);
+  
+  // Use existing LCS function to find matches
+  const matches = lcsIndices(aWords, bWords);
+  const lcsLength = matches.length;
+  
+  // Calculate similarity ratio: 1 - (LCS length / max length)
+  const maxLength = Math.max(aWords.length, bWords.length);
+  if (maxLength === 0) return 0;
+  
+  const similarity = lcsLength / maxLength;
+  const diffRatio = 1 - similarity; // Convert to diff ratio (0 = identical, 1 = completely different)
+  
+  // DEBUG: Log similarity calculations
+  if (debug) {
+    console.log('🔍 DIFF RATIO CALCULATION:');
+    console.log(`  Text A: "${aStr}"`);
+    console.log(`  Text B: "${bStr}"`);
+    console.log(`  Words A: [${aWords.join(', ')}] (${aWords.length} words)`);
+    console.log(`  Words B: [${bWords.join(', ')}] (${bWords.length} words)`);
+    console.log(`  LCS matches: ${lcsLength} words`);
+    console.log(`  Max length: ${maxLength} words`);
+    console.log(`  Similarity: ${similarity.toFixed(3)} (${(similarity * 100).toFixed(1)}%)`);
+    console.log(`  Diff ratio: ${diffRatio.toFixed(3)} (${(diffRatio * 100).toFixed(1)}%)`);
+    console.log('---');
+  }
+  
+  return diffRatio;
+}
+
+// Convert a diffParts (from 'diff' lib) into TextRun[]
+function wordRuns(aStr: string, bStr: string, debug = false): TextRun[] {
+  if (debug) {
+    console.log(`    🔤 WORD-LEVEL DIFF:`);
+    console.log(`      A: "${aStr}"`);
+    console.log(`      B: "${bStr}"`);
+  }
+  
+  const parts = diffWordsWithSpace(aStr, bStr);
+  if (debug) {
+    console.log(`      Raw diff parts: ${parts.length} parts`);
+  }
+  
+  const runs: TextRun[] = [];
+  for (const p of parts) {
+    const t: TextRun['t'] = p.added ? 'ins' : p.removed ? 'del' : 'eq';
+    const s = p.value || '';
+    if (!s) continue;
+    const last = runs[runs.length - 1];
+    if (last && last.t === t) last.s += s; else runs.push({ t, s });
+  }
+  
+  if (debug) {
+    console.log(`      Generated runs: ${runs.length} runs`);
+    runs.forEach((run, i) => {
+      const type = run.t === 'eq' ? '=' : run.t === 'ins' ? '+' : '-';
+      console.log(`        ${i + 1}. [${type}] "${run.s}"`);
+    });
+  }
+  
+  return runs;
+}
+
+// Append helper that merges adjacent same-type runs
+function appendRun(target: TextRun[], t: TextRun['t'], s: string) {
+  if (!s) return;
+  const last = target[target.length - 1];
+  if (last && last.t === t) last.s += s;
+  else target.push({ t, s });
+}
+
+// Build TextRuns for a paragraph with sentence alignment and thresholds.
+function buildParagraphMultiPassRuns(
+  aText: string,
+  bText: string,
+  mp: Required<MultiPassOptions>
+): { paragraphAtomic: boolean; runs?: TextRun[] } {
+  if (mp.debug) {
+    console.log('📝 PARAGRAPH MULTI-PASS ANALYSIS:');
+    console.log(`  Paragraph A: "${aText}"`);
+    console.log(`  Paragraph B: "${bText}"`);
+    console.log(`  Thresholds: paragraph=${mp.paragraphAtomicDiffIfDiffAbove}, sentence=${mp.sentenceAtomicDiffIfDiffAbove}`);
+  }
+  
+  // Pass 1: paragraph-level similarity
+  const paraDiff = diffRatioWords(aText, bText, mp.debug);
+  if (mp.debug) {
+    console.log(`  📊 PARAGRAPH DECISION: diff=${paraDiff.toFixed(3)}, threshold=${mp.paragraphAtomicDiffIfDiffAbove}`);
+  }
+  
+  if (paraDiff > mp.paragraphAtomicDiffIfDiffAbove) {
+    if (mp.debug) {
+      console.log(`  ✅ PARAGRAPH ATOMIC: ${(paraDiff * 100).toFixed(1)}% > ${(mp.paragraphAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold`);
+    }
+    return { paragraphAtomic: true };
+  }
+  
+  if (mp.debug) {
+    console.log(`  🔄 PARAGRAPH GRANULAR: ${(paraDiff * 100).toFixed(1)}% <= ${(mp.paragraphAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold, proceeding to sentence analysis`);
+  }
+
+  // Pass 2: sentence alignment + per-sentence decision
+  const SA = sentenceTokens(aText, mp.sentenceLocale);
+  const SB = sentenceTokens(bText, mp.sentenceLocale);
+  const pairs = alignSentencesBySimilarity(SA, SB, mp.sentenceAtomicDiffIfDiffAbove, mp.debug); // similarity-based alignment
+  
+  if (mp.debug) {
+    console.log(`  📝 SENTENCE ANALYSIS:`);
+    console.log(`    Sentences A: [${SA.map(s => `"${s}"`).join(', ')}] (${SA.length} sentences)`);
+    console.log(`    Sentences B: [${SB.map(s => `"${s}"`).join(', ')}] (${SB.length} sentences)`);
+    console.log(`    LCS matches: ${pairs.length} sentence pairs`);
+  }
+  
+  const runs: TextRun[] = [];
+
+  let i = 0, j = 0, k = 0;
+  while (i < SA.length || j < SB.length) {
+    const next = k < pairs.length ? pairs[k] : null;
+    const iMatch = next ? next.i : SA.length;
+    const jMatch = next ? next.j : SB.length;
+
+    while (i < iMatch) { 
+      if (mp.debug) {
+        console.log(`    🗑️  DELETED SENTENCE: "${SA[i]}"`);
+      }
+      appendRun(runs, 'del', SA[i]); 
+      i++; 
+    }
+    while (j < jMatch) { 
+      if (mp.debug) {
+        console.log(`    ➕ INSERTED SENTENCE: "${SB[j]}"`);
+      }
+      appendRun(runs, 'ins', SB[j]); 
+      j++; 
+    }
+
+    if (next) {
+      const sA = SA[i], sB = SB[j];
+      if (mp.debug) {
+        console.log(`    🔍 COMPARING SENTENCE PAIR:`);
+        console.log(`      A: "${sA}"`);
+        console.log(`      B: "${sB}"`);
+      }
+      
+      const sDiff = diffRatioWords(sA, sB, mp.debug);
+      if (mp.debug) {
+        console.log(`      📊 SENTENCE DECISION: diff=${sDiff.toFixed(3)}, threshold=${mp.sentenceAtomicDiffIfDiffAbove}`);
+      }
+      
+      if (sDiff > mp.sentenceAtomicDiffIfDiffAbove) {
+        if (mp.debug) {
+          console.log(`      ✅ SENTENCE ATOMIC: ${(sDiff * 100).toFixed(1)}% > ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold`);
+        }
+        appendRun(runs, 'del', sA);
+        appendRun(runs, 'ins', sB);
+      } else {
+        if (mp.debug) {
+          console.log(`      🔄 SENTENCE GRANULAR: ${(sDiff * 100).toFixed(1)}% <= ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold, doing word-level diff`);
+        }
+        const inner = wordRuns(sA, sB, mp.debug);
+        for (const r of inner) appendRun(runs, r.t, r.s);
+      }
+      i++; j++; k++;
+    }
+  }
+  
+  if (mp.debug) {
+    console.log(`  📋 FINAL RUNS: ${runs.length} text runs generated`);
+    console.log('---');
+  }
+  return { paragraphAtomic: false, runs };
+}
+
 // ========= Public API =========
 
 export function diffMdast(before: MdastNode, after: MdastNode, options: DiffOptions = {}): DiffOperation[] {
@@ -358,6 +697,33 @@ function walkNode(
       const aText = extractTextFromChildren(aKids);
       const bText = extractTextFromChildren(bKids);
       if (aText !== bText) {
+        // NEW: paragraph → sentence → word multipass (paragraph nodes only)
+        if (a.type === 'paragraph' && b.type === 'paragraph') {
+          const mp = { ...MP_DEFAULTS, ...(options.multipass || {}) };
+          const decision = buildParagraphMultiPassRuns(aText, bText, mp);
+
+          if (decision.paragraphAtomic) {
+            out.push({ op: 'delete', path, before: a });
+            out.push({ op: 'insert', path, after: b });
+            return;
+          } else if (decision.runs && decision.runs.length) {
+            out.push({
+              op: 'update',
+              path: path.concat('children'),
+              before: { type: 'text', value: aText },
+              after:  { type: 'text', value: bText },
+              meta: {
+                kind: 'granular-text-delta',
+                granularity: 'word',
+                runs: decision.runs,
+                criticMarkup: toCriticMarkup(decision.runs)
+              }
+            });
+            return;
+          }
+        }
+
+        // Fallback: original granular behavior
         const gran = options?.textGranularity === 'char' ? 'char' : 'word';
         const runs = diffTextGranularWithLib(aText, bText, gran);
         out.push({
@@ -492,6 +858,17 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     const aText = extractTextFromChildren(aKids);
     const bText = extractTextFromChildren(bKids);
     if (aText !== bText) {
+      if (a.type === 'paragraph' && b.type === 'paragraph') {
+        const mp = { ...MP_DEFAULTS, ...(options.multipass || {}) };
+        const decision = buildParagraphMultiPassRuns(aText, bText, mp);
+        if (decision.paragraphAtomic) {
+          return wrapDel(stringify(a)) + wrapIns(stringify(b));
+        }
+        if (decision.runs && decision.runs.length) {
+          return decorateWithContainerMarkup(a, toCriticMarkup(decision.runs), stringify);
+        }
+      }
+      // Fallback to original granular behavior
       const gran = options?.textGranularity === 'char' ? 'char' : 'word';
       const runs = diffTextGranularWithLib(aText, bText, gran);
       return decorateWithContainerMarkup(a, toCriticMarkup(runs), stringify);
