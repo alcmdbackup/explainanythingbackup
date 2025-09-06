@@ -1,5 +1,6 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
+import { Root } from 'mdast';
 import { diffMdast, renderCriticMarkup } from './markdownASTdiff';
 
 export interface TestCase {
@@ -90,16 +91,38 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
         inCodeBlock = true;
         currentContent = [];
       } else {
-        // Closing code block
-        inCodeBlock = false;
-        const content = currentContent.join('\n');
-        if (currentSection === 'before') {
-          currentTestCase.before = content;
-        } else if (currentSection === 'after') {
-          currentTestCase.after = content;
+        // Closing code block - check if this is the final closing
+        // We need to look ahead to see if there are more lines after this closing
+        let isFinalClosing = false;
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = lines[j].trim();
+          if (nextLine === '---' || nextLine.startsWith('## Test Case')) {
+            isFinalClosing = true;
+            break;
+          }
+          if (nextLine.startsWith('### After:') || nextLine.startsWith('### Before:')) {
+            isFinalClosing = true;
+            break;
+          }
+          if (nextLine) {
+            break; // There's content after this closing, so it's not final
+          }
         }
-        currentSection = '';
-        currentContent = [];
+        
+        if (isFinalClosing) {
+          inCodeBlock = false;
+          const content = currentContent.join('\n');
+          if (currentSection === 'before') {
+            currentTestCase.before = content;
+          } else if (currentSection === 'after') {
+            currentTestCase.after = content;
+          }
+          currentSection = '';
+          currentContent = [];
+        } else {
+          // This is a nested code block, include the closing marker
+          currentContent.push(line);
+        }
       }
       continue;
     }
@@ -125,16 +148,16 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
 export function runSingleTest(testCase: TestCase): TestResult {
   try {
     // Parse markdown strings into AST
-    const beforeAST = unified().use(remarkParse).parse(testCase.before);
-    const afterAST = unified().use(remarkParse).parse(testCase.after);
+    const beforeAST = unified().use(remarkParse).parse(testCase.before) as Root;
+    const afterAST = unified().use(remarkParse).parse(testCase.after) as Root;
     
     // Compute the diff using markdownASTdiff
-    const diffOps = diffMdast(beforeAST, afterAST, { 
+    const diffOps = diffMdast(beforeAST as any, afterAST as any, { 
       textGranularity: 'word' 
     });
     
     // Generate CriticMarkup output
-    const criticMarkup = renderCriticMarkup(beforeAST, afterAST, {
+    const criticMarkup = renderCriticMarkup(beforeAST as any, afterAST as any, {
       textGranularity: 'word'
     });
     

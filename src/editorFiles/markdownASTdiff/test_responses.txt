@@ -1,6 +1,6 @@
 # Markdown AST Diff Test Results
 
-Generated on: 2025-09-05T15:12:39.896Z
+Generated on: 2025-09-06T03:50:31.536Z
 Total tests: 10
 Successful: 10
 Failed: 0
@@ -163,21 +163,41 @@ Machine learning is a subset of artificial intelligence.
 ```
 Here's a simple function:
 
+```javascript
+function greet(name) {
+    return "Hello, " + name;
+}
+```
 ```
 
 **After:**
 ```
 Here's a simple function:
 
+```python
+def greet(name):
+    return f"Hello, {name}"
+```
 ```
 
-**Diff Operations Count**: 0
+**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
 Here's a simple function:
 
+{--```javascript
+function greet(name) {
+    return "Hello, " + name;
+}
+```
 
+--}{++```python
+def greet(name):
+    return f"Hello, {name}"
+```
+
+++}
 
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
@@ -339,39 +359,38 @@ This project aims to solve complex problems using *machine learning*.
 - Feature A
 - Feature B
 
+```python
+print("Hello World")
+```
+
+For more information, visit [our docs](https://docs.example.com).
 ```
 
 **After:**
 ```
-# Project Overview
-
-This project aims to solve **complex problems** using machine learning and artificial intelligence.
-
-## Features
-- Feature A
-- Feature B
-- Feature C
 
 ```
 
-**Diff Operations Count**: 3
+**Diff Operations Count**: 6
 
 **Rendered Diff with CriticMarkup:**
 
-# Project Overview
+{--# Project Overview
 
-This project aims to solve {++**++}complex problems{++**++} using {--*--}machine learning{--*--}{++ and artificial intelligence++}.
+--}{--This project aims to solve complex problems using *machine learning*.
 
-## Features
+--}{--## Features
 
-{--- Feature A
+--}{--- Feature A
 - Feature B
 
---}{++- Feature A
-- Feature B
-- Feature C
+--}{--```python
+print("Hello World")
+```
 
-++}
+--}{--For more information, visit [our docs](https://docs.example.com).
+
+--}
 
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
