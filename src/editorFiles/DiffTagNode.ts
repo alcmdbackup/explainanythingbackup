@@ -29,7 +29,16 @@ export class DiffTagNode extends ElementNode {
   exportMarkdown() {
     const content = this.getTextContent();
     const marker = this.__tag === "ins" ? "++" : "--";
-    return `{${marker}${content}${marker}}`;
+    const result = `{${marker}${content}${marker}}`;
+    
+    console.log("📤 DiffTagNode.exportMarkdown() called");
+    console.log("🏷️ Tag type:", this.__tag);
+    console.log("📝 Content length:", content.length);
+    console.log("📝 Content preview:", JSON.stringify(content.substring(0, 100)));
+    console.log("🎯 Generated CriticMarkup:", JSON.stringify(result));
+    console.log("🔑 Node key:", this.getKey());
+    
+    return result;
   }
 
   // JSON round-trip (editorState persistence)

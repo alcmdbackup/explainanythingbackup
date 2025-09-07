@@ -172,9 +172,9 @@ export function renderAnnotatedMarkdown(
   return content;
 }
 
-import type { TextMatchTransformer } from "@lexical/markdown";
+import type { TextMatchTransformer, ElementTransformer } from "@lexical/markdown";
 import { $createTextNode, TextNode, LexicalNode } from "lexical";
-import { DiffTagNode, $createDiffTagNode } from "./DiffTagNode";
+import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
 
 
 
@@ -238,6 +238,37 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
     return null;
   },
   dependencies: [DiffTagNode]
+};
+
+/**
+ * Element transformer for DiffTagNode to handle markdown export
+ * - Converts DiffTagNode instances to CriticMarkup syntax during export
+ * - Handles both "ins" and "del" tag types
+ * - Used by Lexical markdown export to convert DiffTagNodes to text
+ */
+export const DIFF_TAG_ELEMENT: ElementTransformer = {
+  type: "element",
+  dependencies: [DiffTagNode], // ✅ Specify DiffTagNode as dependency
+  export: (node: LexicalNode) => {
+    console.log("📤 DIFF_TAG_ELEMENT export called");
+    console.log("🔍 Node type:", node.getType());
+    console.log("🔍 Is DiffTagNode?", $isDiffTagNode(node));
+    
+    if ($isDiffTagNode(node)) {
+      console.log("✅ Processing DiffTagNode for export");
+      const result = node.exportMarkdown();
+      console.log("🎯 DIFF_TAG_ELEMENT export result:", JSON.stringify(result));
+      return result;
+    }
+    
+    console.log("❌ Not a DiffTagNode, returning null");
+    return null;
+  },
+  regExp: /^$/, // This won't be used for import, only export
+  replace: () => {
+    // This won't be called since we only handle export
+    return false;
+  }
 };
 
 /**

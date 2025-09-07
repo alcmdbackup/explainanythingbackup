@@ -39,7 +39,7 @@ import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 
 // Import custom DiffTagNode and CriticMarkup transformer
 import { DiffTagNode } from './DiffTagNode';
-import { CRITIC_MARKUP, preprocessCriticMarkup } from './diffUtils';
+import { CRITIC_MARKUP, DIFF_TAG_ELEMENT, preprocessCriticMarkup } from './diffUtils';
 
 // Define custom transformers array with only the ones we need
 const MARKDOWN_TRANSFORMERS = [
@@ -53,24 +53,74 @@ const MARKDOWN_TRANSFORMERS = [
   ITALIC_STAR,
   STRIKETHROUGH,
   LINK,
-  CRITIC_MARKUP
+  CRITIC_MARKUP,
 ];
 
 /**
  * Custom markdown export function that handles DiffTagNodes
  * 
  * • Converts Lexical nodes to markdown string with CriticMarkup support
- * • Handles DiffTagNodes by converting them to CriticMarkup syntax
+ * • Manually traverses the node tree to handle DiffTagNodes
+ * • Converts DiffTagNodes to CriticMarkup syntax during traversal
  * • Falls back to standard markdown conversion for other nodes
- * • Calls: $convertToMarkdownString, DiffTagNode.exportMarkdown
  * • Used by: LexicalEditor to export content with diff annotations
  */
 export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string {
-  // For now, use the standard markdown conversion
-  // The DiffTagNodes will be handled by their exportDOM method
-  // In a full implementation, you'd need to traverse the editor state
-  // and replace DiffTagNodes with their CriticMarkup representation
-  return $convertToMarkdownString(transformers);
+  console.log("🔄 $convertToMarkdownWithCriticMarkup called");
+  
+  // Get the root node
+  const root = $getRoot();
+  
+  // Recursively traverse the node tree and build markdown
+  function traverseNode(node: any): string {
+    console.log("🔍 Traversing node type:", node.getType());
+    
+    if (node.getType() === 'diff-tag') {
+      console.log("✅ Found DiffTagNode, calling exportMarkdown()");
+      const result = node.exportMarkdown();
+      console.log("🎯 DiffTagNode export result:", JSON.stringify(result));
+      return result;
+    }
+    
+    // For other nodes, get their text content
+    if (node.getType() === 'text') {
+      return node.getTextContent();
+    }
+    
+    // For element nodes, traverse their children
+    if (node.getChildren) {
+      const children = node.getChildren();
+      let result = '';
+      
+      children.forEach((child: any) => {
+        result += traverseNode(child);
+      });
+      
+      // Add appropriate markdown formatting based on node type
+      switch (node.getType()) {
+        case 'heading':
+          const level = node.getTag();
+          const headingLevel = level ? level.replace('h', '') : '1';
+          return `${'#'.repeat(parseInt(headingLevel))} ${result}\n\n`;
+        case 'paragraph':
+          return `${result}\n\n`;
+        case 'list':
+          return `${result}\n`;
+        case 'listitem':
+          return `- ${result}\n`;
+        default:
+          return result;
+      }
+    }
+    
+    return '';
+  }
+  
+  // Start traversal from root
+  const markdown = traverseNode(root);
+  console.log("📤 Final markdown result:", JSON.stringify(markdown));
+  
+  return markdown;
 }
 
 // Theme configuration for the editor
