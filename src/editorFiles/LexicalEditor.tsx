@@ -341,7 +341,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           onEditorStateChange={setEditorStateJson}
           isMarkdownMode={isMarkdownMode}
         />
-        {showToolbar && <ToolbarPlugin />}
+        {showToolbar && <ToolbarPlugin isMarkdownMode={isMarkdownMode} />}
         <MarkdownShortcutsPlugin isEnabled={isMarkdownMode} />
         {isMarkdownMode && <MarkdownShortcutPlugin />}
         {isMarkdownMode ? (

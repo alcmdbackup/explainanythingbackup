@@ -443,9 +443,10 @@ function BlockOptionsDropdownList({
  * • Code language selection for code blocks
  * • Dropdown menus for block type selection
  * • Uses Lexical commands for all formatting operations
+ * • Hides when in plain text mode (isMarkdownMode = false)
  * • Used by: LexicalEditor for comprehensive rich text editing
  */
-export default function ToolbarPlugin() {
+export default function ToolbarPlugin({ isMarkdownMode = true }: { isMarkdownMode?: boolean }) {
   const [editor] = useLexicalComposerContext();
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [blockType, setBlockType] = useState("paragraph");
@@ -545,6 +546,11 @@ export default function ToolbarPlugin() {
       editor.dispatchCommand(TOGGLE_LINK_COMMAND, null);
     }
   }, [editor, isLink]);
+
+  // Hide toolbar when in plain text mode
+  if (!isMarkdownMode) {
+    return null;
+  }
 
   return (
     <div className="toolbar flex flex-wrap gap-1 p-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 mb-2" ref={toolbarRef}>
