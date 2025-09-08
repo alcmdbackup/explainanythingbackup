@@ -60,6 +60,8 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 // Get the current markdown content and store it in currentContent
                 const markdownContent = editorRef.current.getContentAsMarkdown();
                 setCurrentContent(markdownContent);
+                // Update the editor to show the raw markdown text
+                editorRef.current.setContentFromText(markdownContent);
             } else {
                 // Switching from raw text to markdown mode
                 // Update the editor with the current content (which contains raw markdown)
@@ -177,8 +179,8 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             if (useMarkdownASTDiff) {
                 // Use markdown AST diff
                 const processor = unified().use(remarkParse);
-                const beforeAST = processor.parse(currentContent);
-                const afterAST = processor.parse(appliedEdits);
+                const beforeAST = processor.parse(currentContent) as any;
+                const afterAST = processor.parse(appliedEdits) as any;
                 
                 const criticMarkup = renderCriticMarkup(beforeAST, afterAST);
                 setMarkdownASTDiffResult(criticMarkup);
@@ -271,11 +273,6 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 className="w-full"
                                 initialContent={defaultContent}
                                 isMarkdownMode={isMarkdownMode}
-                                rawMarkdownContent={currentContent}
-                                onRawMarkdownChange={(content) => {
-                                    console.log('Raw markdown changed:', content.length, 'characters');
-                                    setCurrentContent(content);
-                                }}
                                 onContentChange={(content) => {
                                     console.log('Content changed:', content.length, 'characters');
                                     setCurrentContent(content);

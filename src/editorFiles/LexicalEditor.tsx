@@ -9,6 +9,7 @@ import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 import { AutoFocusPlugin } from '@lexical/react/LexicalAutoFocusPlugin';
 import { LexicalComposer } from '@lexical/react/LexicalComposer';
 import { RichTextPlugin } from '@lexical/react/LexicalRichTextPlugin';
+import { PlainTextPlugin } from '@lexical/react/LexicalPlainTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
@@ -29,6 +30,7 @@ import {
   STRIKETHROUGH,
   LINK
 } from '@lexical/markdown';
+
 
 // Import markdown nodes
 import { HeadingNode, QuoteNode } from '@lexical/rich-text';
@@ -195,7 +197,7 @@ function ContentChangePlugin({
         // Get content as markdown when in markdown mode
         content = editorState.read(() => $convertToMarkdownWithCriticMarkup(MARKDOWN_TRANSFORMERS));
       } else {
-        // Get content as plain text when not in markdown mode
+        // Get content as plain text when in plain text mode
         content = editorState.read(() => $getRoot().getTextContent());
       }
       
@@ -212,47 +214,6 @@ function ContentChangePlugin({
   return <OnChangePlugin onChange={handleChange} />;
 }
 
-// Custom ContentEditable that can display raw markdown or rich text
-function CustomContentEditable({ 
-  isMarkdownMode = false,
-  rawMarkdownContent = '',
-  onRawMarkdownChange
-}: { 
-  isMarkdownMode?: boolean;
-  rawMarkdownContent?: string;
-  onRawMarkdownChange?: (content: string) => void;
-}) {
-  const [editor] = useLexicalComposerContext();
-  const [isComposing, setIsComposing] = useState(false);
-
-  if (!isMarkdownMode) {
-    // Raw text mode - show markdown syntax
-    return (
-      <div
-        className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
-        contentEditable
-        suppressContentEditableWarning
-        onInput={(e) => {
-          if (onRawMarkdownChange) {
-            onRawMarkdownChange(e.currentTarget.textContent || '');
-          }
-        }}
-        onCompositionStart={() => setIsComposing(true)}
-        onCompositionEnd={() => setIsComposing(false)}
-        style={{ whiteSpace: 'pre-wrap' }}
-      >
-        {rawMarkdownContent}
-      </div>
-    );
-  }
-
-  // Rich text mode - use normal ContentEditable
-  return (
-    <ContentEditable
-      className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white prose dark:prose-invert max-w-none"
-    />
-  );
-}
 
 // Component to display editor state as JSON
 function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
@@ -278,8 +239,6 @@ interface LexicalEditorProps {
   onContentChange?: (content: string) => void;
   showEditorState?: boolean;
   isMarkdownMode?: boolean;
-  rawMarkdownContent?: string;
-  onRawMarkdownChange?: (content: string) => void;
 }
 
 /**
@@ -304,9 +263,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   initialContent = "",
   onContentChange,
   showEditorState = true,
-  isMarkdownMode = false,
-  rawMarkdownContent = "",
-  onRawMarkdownChange
+  isMarkdownMode = false
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -377,21 +334,35 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           isMarkdownMode={isMarkdownMode}
         />
         <MarkdownShortcutsPlugin isEnabled={isMarkdownMode} />
-        <RichTextPlugin
-          contentEditable={
-            <CustomContentEditable
-              isMarkdownMode={isMarkdownMode}
-              rawMarkdownContent={rawMarkdownContent}
-              onRawMarkdownChange={onRawMarkdownChange}
-            />
-          }
-          placeholder={
-            <div className="absolute top-4 left-4 text-gray-400 dark:text-gray-500 pointer-events-none">
-              {placeholder}
-            </div>
-          }
-          ErrorBoundary={LexicalErrorBoundary}
-        />
+        {isMarkdownMode ? (
+          <RichTextPlugin
+            contentEditable={
+              <ContentEditable
+                className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white prose dark:prose-invert max-w-none"
+              />
+            }
+            placeholder={
+              <div className="absolute top-4 left-4 text-gray-400 dark:text-gray-500 pointer-events-none">
+                {placeholder}
+              </div>
+            }
+            ErrorBoundary={LexicalErrorBoundary}
+          />
+        ) : (
+          <PlainTextPlugin
+            contentEditable={
+              <ContentEditable
+                className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+              />
+            }
+            placeholder={
+              <div className="absolute top-4 left-4 text-gray-400 dark:text-gray-500 pointer-events-none">
+                {placeholder}
+              </div>
+            }
+            ErrorBoundary={LexicalErrorBoundary}
+          />
+        )}
         <HistoryPlugin />
         <AutoFocusPlugin />
       </LexicalComposer>
@@ -427,5 +398,6 @@ function MarkdownShortcutsPlugin({ isEnabled }: { isEnabled: boolean }) {
   
   return null;
 }
+
 
 export default LexicalEditor;
