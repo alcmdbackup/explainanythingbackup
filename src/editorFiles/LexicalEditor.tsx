@@ -1,7 +1,6 @@
 'use client';
 
-import { $getRoot, $getSelection } from 'lexical';
-import { $generateNodesFromDOM } from '@lexical/html';
+import { $getRoot } from 'lexical';
 import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
@@ -13,6 +12,8 @@ import { PlainTextPlugin } from '@lexical/react/LexicalPlainTextPlugin';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
 import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
+import { TreeView } from '@lexical/react/LexicalTreeView';
+import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
 
 // Import markdown functionality
 import { 
@@ -38,10 +39,12 @@ import { ListNode, ListItemNode } from '@lexical/list';
 import { CodeNode, CodeHighlightNode } from '@lexical/code';
 import { LinkNode } from '@lexical/link';
 import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
+import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNode and CriticMarkup transformer
 import { DiffTagNode } from './DiffTagNode';
 import { CRITIC_MARKUP, DIFF_TAG_ELEMENT, preprocessCriticMarkup } from './diffUtils';
+import ToolbarPlugin from './ToolbarPlugin';
 
 // Define custom transformers array with only the ones we need
 const MARKDOWN_TRANSFORMERS = [
@@ -239,6 +242,8 @@ interface LexicalEditorProps {
   onContentChange?: (content: string) => void;
   showEditorState?: boolean;
   isMarkdownMode?: boolean;
+  showTreeView?: boolean;
+  showToolbar?: boolean;
 }
 
 /**
@@ -263,7 +268,9 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   initialContent = "",
   onContentChange,
   showEditorState = true,
-  isMarkdownMode = false
+  isMarkdownMode = false,
+  showTreeView = true,
+  showToolbar = true
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -283,7 +290,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       LinkNode,
       TableNode,
       TableCellNode,
-      TableRowNode
+      TableRowNode,
+      HorizontalRuleNode
     ],
   };
 
@@ -333,7 +341,9 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           onEditorStateChange={setEditorStateJson}
           isMarkdownMode={isMarkdownMode}
         />
+        {showToolbar && <ToolbarPlugin />}
         <MarkdownShortcutsPlugin isEnabled={isMarkdownMode} />
+        {isMarkdownMode && <MarkdownShortcutPlugin />}
         {isMarkdownMode ? (
           <RichTextPlugin
             contentEditable={
@@ -365,6 +375,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         )}
         <HistoryPlugin />
         <AutoFocusPlugin />
+        {showTreeView && <TreeViewPlugin />}
       </LexicalComposer>
       
       {showEditorState && (
@@ -397,6 +408,37 @@ function MarkdownShortcutsPlugin({ isEnabled }: { isEnabled: boolean }) {
   }, [editor, isEnabled]);
   
   return null;
+}
+
+
+/**
+ * TreeView plugin for debugging and visualizing editor state
+ * 
+ * • Provides visual representation of the editor's node tree structure
+ * • Includes time travel functionality to navigate through editor history
+ * • Uses TreeView component from @lexical/react/LexicalTreeView
+ * • Styled with Tailwind classes for consistent appearance
+ * • Used by: LexicalEditor for debugging and development purposes
+ */
+function TreeViewPlugin() {
+  const [editor] = useLexicalComposerContext();
+  
+  return (
+    <div className="mt-4">
+      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+        Editor Tree View
+      </h3>
+      <TreeView
+        viewClassName="tree-view-output max-h-96 overflow-auto border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 p-4 font-mono text-sm"
+        treeTypeButtonClassName="debug-treetype-button px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+        timeTravelPanelClassName="debug-timetravel-panel mt-4 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700"
+        timeTravelButtonClassName="debug-timetravel-button px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
+        timeTravelPanelSliderClassName="debug-timetravel-panel-slider w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer"
+        timeTravelPanelButtonClassName="debug-timetravel-panel-button px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+        editor={editor}
+      />
+    </div>
+  );
 }
 
 
