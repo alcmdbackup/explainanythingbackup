@@ -86,14 +86,19 @@ function FloatingLinkEditor({ editor }: { editor: any }) {
 
   const updateLinkEditor = useCallback(() => {
     const selection = $getSelection();
+    console.log("🔍 FloatingLinkEditor updateLinkEditor called, selection:", selection);
     if ($isRangeSelection(selection)) {
       const node = getSelectedNode(selection);
       const parent = node.getParent();
+      console.log("🔍 Node:", node, "Parent:", parent);
       if ($isLinkNode(parent)) {
+        console.log("✅ Found link in parent, URL:", parent.getURL());
         setLinkUrl(parent.getURL());
       } else if ($isLinkNode(node)) {
+        console.log("✅ Found link in node, URL:", node.getURL());
         setLinkUrl(node.getURL());
       } else {
+        console.log("❌ No link found, clearing URL");
         setLinkUrl("");
       }
     }
@@ -540,11 +545,20 @@ export default function ToolbarPlugin({ isMarkdownMode = true }: { isMarkdownMod
   );
 
   const insertLink = useCallback(() => {
-    if (!isLink) {
-      editor.dispatchCommand(TOGGLE_LINK_COMMAND, "https://");
-    } else {
-      editor.dispatchCommand(TOGGLE_LINK_COMMAND, null);
-    }
+    console.log("🔗 Link button clicked, isLink:", isLink);
+    
+    editor.update(() => {
+      const selection = $getSelection();
+      console.log("📝 Current selection:", selection);
+      
+      if (!isLink) {
+        console.log("🚀 Dispatching TOGGLE_LINK_COMMAND with https://");
+        editor.dispatchCommand(TOGGLE_LINK_COMMAND, "https://");
+      } else {
+        console.log("🗑️ Dispatching TOGGLE_LINK_COMMAND with null to remove link");
+        editor.dispatchCommand(TOGGLE_LINK_COMMAND, null);
+      }
+    });
   }, [editor, isLink]);
 
   // Hide toolbar when in plain text mode

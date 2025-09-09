@@ -14,6 +14,7 @@ import { HistoryPlugin } from '@lexical/react/LexicalHistoryPlugin';
 import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
 import { TreeView } from '@lexical/react/LexicalTreeView';
 import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
+import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
 
 // Import markdown functionality
 import { 
@@ -62,13 +63,14 @@ const MARKDOWN_TRANSFORMERS = [
 ];
 
 /**
- * Custom markdown export function that handles DiffTagNodes
+ * Custom markdown export function that handles DiffTagNodes and hyperlinks
  * 
  * • Converts Lexical nodes to markdown string with CriticMarkup support
- * • Manually traverses the node tree to handle DiffTagNodes
+ * • Manually traverses the node tree to handle DiffTagNodes and LinkNodes
  * • Converts DiffTagNodes to CriticMarkup syntax during traversal
+ * • Converts LinkNodes to markdown link syntax [text](url)
  * • Falls back to standard markdown conversion for other nodes
- * • Used by: LexicalEditor to export content with diff annotations
+ * • Used by: LexicalEditor to export content with diff annotations and hyperlinks
  */
 export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string {
   console.log("🔄 $convertToMarkdownWithCriticMarkup called");
@@ -87,9 +89,35 @@ export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string 
       return result;
     }
     
-    // For other nodes, get their text content
+    // For text nodes, check for formatting and apply markdown syntax
     if (node.getType() === 'text') {
-      return node.getTextContent();
+      let text = node.getTextContent();
+      
+      // Check for text formatting and wrap with appropriate markdown syntax
+      if (node.hasFormat('bold')) {
+        text = `**${text}**`;
+      }
+      if (node.hasFormat('italic')) {
+        text = `*${text}*`;
+      }
+      if (node.hasFormat('strikethrough')) {
+        text = `~~${text}~~`;
+      }
+      
+      return text;
+    }
+    
+    // Handle link nodes specifically
+    if (node.getType() === 'link') {
+      const url = node.getURL();
+      const children = node.getChildren();
+      let linkText = '';
+      
+      children.forEach((child: any) => {
+        linkText += traverseNode(child);
+      });
+      
+      return `[${linkText}](${url})`;
     }
     
     // For element nodes, traverse their children
@@ -375,6 +403,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         )}
         <HistoryPlugin />
         <AutoFocusPlugin />
+        <LinkPlugin />
         {showTreeView && <TreeViewPlugin />}
       </LexicalComposer>
       
