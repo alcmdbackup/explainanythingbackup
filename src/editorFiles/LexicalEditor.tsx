@@ -64,94 +64,21 @@ const MARKDOWN_TRANSFORMERS = [
 ];
 
 /**
- * Custom markdown export function that handles DiffTagNodes and hyperlinks
+ * Custom markdown export function that handles DiffTagNodes using standard transformers
  * 
- * • Converts Lexical nodes to markdown string with CriticMarkup support
- * • Manually traverses the node tree to handle DiffTagNodes and LinkNodes
- * • Converts DiffTagNodes to CriticMarkup syntax during traversal
- * • Converts LinkNodes to markdown link syntax [text](url)
- * • Falls back to standard markdown conversion for other nodes
- * • Used by: LexicalEditor to export content with diff annotations and hyperlinks
+ * • Uses standard Lexical $convertToMarkdownString with custom transformers
+ * • Relies on DIFF_TAG_ELEMENT transformer to handle DiffTagNode export
+ * • Leverages standard transformers for all other node types (headings, links, formatting)
+ * • Eliminates manual node tree traversal in favor of transformer-based approach
+ * • Used by: LexicalEditor to export content with diff annotations using standard patterns
  */
 export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string {
-  console.log("🔄 $convertToMarkdownWithCriticMarkup called");
+  console.log("🔄 $convertToMarkdownWithCriticMarkup called with transformers:", transformers.length);
   
-  // Get the root node
-  const root = $getRoot();
+  // Use standard Lexical markdown conversion with the provided transformers
+  // The DIFF_TAG_ELEMENT transformer will handle DiffTagNode export automatically
+  const markdown = $convertToMarkdownString(transformers);
   
-  // Recursively traverse the node tree and build markdown
-  function traverseNode(node: any): string {
-    console.log("🔍 Traversing node type:", node.getType());
-    
-    if (node.getType() === 'diff-tag') {
-      console.log("✅ Found DiffTagNode, calling exportMarkdown()");
-      const result = node.exportMarkdown();
-      console.log("🎯 DiffTagNode export result:", JSON.stringify(result));
-      return result;
-    }
-    
-    // For text nodes, check for formatting and apply markdown syntax
-    if (node.getType() === 'text') {
-      let text = node.getTextContent();
-      
-      // Check for text formatting and wrap with appropriate markdown syntax
-      if (node.hasFormat('bold')) {
-        text = `**${text}**`;
-      }
-      if (node.hasFormat('italic')) {
-        text = `*${text}*`;
-      }
-      if (node.hasFormat('strikethrough')) {
-        text = `~~${text}~~`;
-      }
-      
-      return text;
-    }
-    
-    // Handle link nodes specifically
-    if (node.getType() === 'link') {
-      const url = node.getURL();
-      const children = node.getChildren();
-      let linkText = '';
-      
-      children.forEach((child: any) => {
-        linkText += traverseNode(child);
-      });
-      
-      return `[${linkText}](${url})`;
-    }
-    
-    // For element nodes, traverse their children
-    if (node.getChildren) {
-      const children = node.getChildren();
-      let result = '';
-      
-      children.forEach((child: any) => {
-        result += traverseNode(child);
-      });
-      
-      // Add appropriate markdown formatting based on node type
-      switch (node.getType()) {
-        case 'heading':
-          const level = node.getTag();
-          const headingLevel = level ? level.replace('h', '') : '1';
-          return `${'#'.repeat(parseInt(headingLevel))} ${result}\n\n`;
-        case 'paragraph':
-          return `${result}\n\n`;
-        case 'list':
-          return `${result}\n`;
-        case 'listitem':
-          return `- ${result}\n`;
-        default:
-          return result;
-      }
-    }
-    
-    return '';
-  }
-  
-  // Start traversal from root
-  const markdown = traverseNode(root);
   console.log("📤 Final markdown result:", JSON.stringify(markdown));
   
   return markdown;
