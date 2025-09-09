@@ -185,6 +185,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 const criticMarkup = renderCriticMarkup(beforeAST, afterAST);
                 setMarkdownASTDiffResult(criticMarkup);
                 
+                // Print the markdown with CriticMarkup to console
+                console.log('📝 Diff Applied - Markdown with CriticMarkup (AST Diff):');
+                console.log(criticMarkup);
+                
                 logger.debug('Markdown AST diff applied successfully', {
                     beforeLength: currentContent.length,
                     afterLength: appliedEdits.length,
@@ -198,6 +202,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 // Generate markdown output using renderAnnotatedMarkdown
                 const markdownOutput = renderAnnotatedMarkdown(result.atoms);
                 setDiffMarkdown(markdownOutput);
+                
+                // Print the markdown with CriticMarkup to console
+                console.log('📝 Diff Applied - Markdown with CriticMarkup (Unified Diff):');
+                console.log(markdownOutput);
                 
                 logger.debug('Unified diff applied successfully', {
                     totalAtoms: result.atoms.length
