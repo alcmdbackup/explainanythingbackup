@@ -1,6 +1,6 @@
 'use client';
 
-import { $getRoot, $isElementNode, $isTextNode, $createTextNode } from 'lexical';
+import { $getRoot, $isElementNode, $isTextNode, $createTextNode, $getSelection, $setSelection } from 'lexical';
 import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
@@ -66,6 +66,7 @@ const MARKDOWN_TRANSFORMERS = [
 /**
  * Replaces DiffTagNodes with their CriticMarkup text representation
  * 
+ * • Clears current selection to prevent "selection has been lost" errors
  * • Traverses the editor tree and replaces diff-tag nodes with text nodes containing CriticMarkup
  * • Preserves all other node types and formatting
  * • Used as a preprocessing step before using Lexical's built-in markdown export
@@ -73,6 +74,10 @@ const MARKDOWN_TRANSFORMERS = [
  */
 export function replaceDiffTagNodes(): void {
   console.log("🔄 replaceDiffTagNodes called");
+  
+  // Clear the current selection to prevent "selection has been lost" errors
+  // when replacing nodes that might be selected
+  $setSelection(null);
   
   const root = $getRoot();
   
@@ -122,8 +127,6 @@ export function replaceDiffTagNodesAndExportMarkdown(): string {
   
   return markdown;
 }
-
-
 
 // Theme configuration for the editor
 const theme = {
@@ -188,22 +191,7 @@ function ContentChangePlugin({
 }) {
   const [editor] = useLexicalComposerContext();
 
-  const handleChange = useCallback(() => {
-    /*if (onContentChange) {
-      const editorState = editor.getEditorState();
-      let content: string;
-      
-      if (isMarkdownMode) {
-        // Get content as markdown when in markdown mode
-        content = editorState.read(() => replaceDiffTagNodesAndExportMarkdown());
-      } else {
-        // Get content as plain text when in plain text mode
-        content = editorState.read(() => $getRoot().getTextContent());
-      }
-      
-      onContentChange(content);
-    }*/
-    
+  const handleChange = useCallback(() => {    
     if (onEditorStateChange) {
       const editorState = editor.getEditorState();
       const editorStateJson = JSON.stringify(editorState.toJSON(), null, 2);
@@ -213,7 +201,6 @@ function ContentChangePlugin({
 
   return <OnChangePlugin onChange={handleChange} />;
 }
-
 
 // Component to display editor state as JSON
 function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
@@ -247,19 +234,15 @@ interface LexicalEditorProps {
  * Reference interface for LexicalEditor component
  * 
  * • Provides methods to control the editor from parent components
- * • setContentFromHTML: Updates editor content using HTML string
  * • setContentFromMarkdown: Updates editor content using markdown string
- * • setContentFromText: Updates editor content using plain text string
  * • getContentAsMarkdown: Gets current content as markdown string
- * • getContentAsText: Gets current content as plain text string
  * • toggleMarkdownMode: Switches between markdown and plain text modes
+ * • getMarkdownMode: Returns current markdown mode state
  * • Used by: Editor test pages to update editor with diff HTML and markdown
  */
 export interface LexicalEditorRef {
   setContentFromMarkdown: (markdown: string) => void;
-  setContentFromText: (text: string) => void;
   getContentAsMarkdown: () => string;
-  getContentAsText: () => string;
   toggleMarkdownMode: () => void;
   getMarkdownMode: () => boolean;
 }
@@ -309,19 +292,6 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         });
       }
     },
-    setContentFromText: (text: string) => {
-      if (editor) {
-        editor.update(() => {
-          const root = $getRoot();
-          root.clear();
-          
-          // Use Lexical's built-in pattern: convert text to markdown with no transformers
-          // This creates proper paragraph structure without any formatting
-          const emptyTransformers: any[] = [];
-          $convertFromMarkdownString(text, emptyTransformers);
-        });
-      }
-    },
     getContentAsMarkdown: () => {
       if (editor) {
         let markdown = '';
@@ -329,16 +299,6 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           markdown = replaceDiffTagNodesAndExportMarkdown();
         });
         return markdown;
-      }
-      return '';
-    },
-    getContentAsText: () => {
-      if (editor) {
-        let text = '';
-        editor.update(() => {
-          text = $getRoot().getTextContent();
-        });
-        return text;
       }
       return '';
     },
