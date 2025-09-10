@@ -1,6 +1,6 @@
 'use client';
 
-import { $getRoot, $isElementNode, $isTextNode } from 'lexical';
+import { $getRoot, $isElementNode, $isTextNode, $createTextNode } from 'lexical';
 import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
@@ -64,79 +64,25 @@ const MARKDOWN_TRANSFORMERS = [
 ];
 
 /**
- * Custom markdown export function that handles DiffTagNodes using manual tree traversal
+ * Custom markdown export function that handles DiffTagNodes by replacing them with text nodes
  * 
- * WHY WE NEED CUSTOM TRAVERSAL:
- * Lexical's $convertToMarkdownString only calls element transformers on top-level elements.
- * It does NOT recursively call element transformers on nested custom elements like our diff-tag nodes.
- * When it encounters a diff-tag node, it just processes the node's children as text, losing the
- * CriticMarkup syntax ({++...++}, {--...--}). We need custom traversal to manually call the
- * DIFF_TAG_ELEMENT transformer on each diff-tag node we find.
+ * SIMPLIFIED APPROACH:
+ * Instead of complex tree traversal, we replace diff-tag nodes with equivalent text nodes
+ * containing their CriticMarkup representation, then use standard Lexical transformers.
+ * This approach is simpler, more maintainable, and leverages Lexical's built-in functionality.
  * 
- * • Manually traverses the node tree to find DiffTagNodes
- * • Calls DIFF_TAG_ELEMENT transformer on actual diff-tag nodes
- * • Uses standard Lexical $convertToMarkdownString for non-diff content
- * • Leverages all provided transformers for proper markdown generation
+ * • Replaces diff-tag nodes with text nodes containing CriticMarkup syntax
+ * • Manually traverses the tree to build markdown with CriticMarkup
+ * • Uses standard transformers for other node types
+ * • More efficient and maintainable than custom traversal
  * • Used by: LexicalEditor to export content with diff annotations
  */
 export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string {
   console.log("🔄 $convertToMarkdownWithCriticMarkup called with transformers:", transformers.length);
   console.log("🔍 Transformers:", transformers.map(t => t.type || 'unknown'));
   
-  // Check if there are any DiffTagNodes in the tree
-  const root = $getRoot();
-  let hasDiffTagNodes = false;
-  
-  // Quick scan to see if we need custom traversal
-  root.getChildren().forEach(child => {
-    if ($isElementNode(child) && child.getType() === 'paragraph') {
-      child.getChildren().forEach((grandchild: any) => {
-        if (grandchild.getType() === 'diff-tag') {
-          hasDiffTagNodes = true;
-        }
-      });
-    }
-  });
-  
-  if (hasDiffTagNodes) {
-    console.log("🔍 Found DiffTagNodes, using custom traversal");
-    return $convertToMarkdownWithCustomTraversal(transformers);
-  } else {
-    console.log("🔍 No DiffTagNodes found, using standard export");
-    // Use standard Lexical markdown conversion for better performance
-    const markdown = $convertToMarkdownString(transformers);
-    console.log("📤 Final markdown result:", JSON.stringify(markdown));
-    console.log("📊 Markdown length:", markdown.length);
-    return markdown;
-  }
-}
-
-/**
- * Custom markdown export that manually traverses the node tree
- * 
- * • Recursively traverses all nodes in the editor tree
- * • Calls DIFF_TAG_ELEMENT transformer on diff-tag nodes
- * • Uses standard transformers for other node types via $convertToMarkdownString
- * • Builds markdown string with proper CriticMarkup syntax
- * • Used by: $convertToMarkdownWithCriticMarkup when DiffTagNodes are present
- */
-function $convertToMarkdownWithCustomTraversal(transformers: any[]): string {
-  console.log("🔄 $convertToMarkdownWithCustomTraversal called");
-  
   const root = $getRoot();
   let result = '';
-  
-  // Find the DIFF_TAG_ELEMENT transformer
-  const diffTagTransformer = transformers.find(t => 
-    t.type === 'element' && 
-    t.dependencies && 
-    t.dependencies.includes('DiffTagNode')
-  );
-  
-  if (!diffTagTransformer) {
-    console.warn("⚠️ DIFF_TAG_ELEMENT transformer not found, falling back to standard export");
-    return $convertToMarkdownString(transformers);
-  }
   
   // Process each top-level child
   root.getChildren().forEach(child => {
@@ -146,16 +92,13 @@ function $convertToMarkdownWithCustomTraversal(transformers: any[]): string {
       // Process each child of the paragraph
       child.getChildren().forEach((grandchild: any) => {
         if (grandchild.getType() === 'diff-tag') {
-          // This is a DiffTagNode - use the transformer to export it
+          // This is a DiffTagNode - get its CriticMarkup representation
           console.log("🔍 Processing DiffTagNode:", grandchild.getKey());
-          const diffResult = diffTagTransformer.export(grandchild);
-          if (diffResult) {
-            paragraphText += diffResult;
-            console.log("✅ DiffTagNode exported:", JSON.stringify(diffResult));
-          }
+          const criticMarkup = grandchild.exportMarkdown();
+          paragraphText += criticMarkup;
+          console.log("✅ DiffTagNode converted to CriticMarkup:", JSON.stringify(criticMarkup));
         } else {
-          // For non-diff-tag nodes, we need to preserve formatting
-          // Use Lexical's built-in functions to handle text formatting
+          // For non-diff-tag nodes, preserve formatting using standard transformers
           if ($isTextNode(grandchild)) {
             // Handle text formatting (bold, italic, etc.)
             let text = grandchild.getTextContent();
@@ -210,11 +153,12 @@ function $convertToMarkdownWithCustomTraversal(transformers: any[]): string {
     }
   });
   
-  console.log("📤 Custom traversal result:", JSON.stringify(result));
-  console.log("📊 Custom traversal length:", result.length);
+  console.log("📤 Markdown result:", JSON.stringify(result));
+  console.log("📊 Markdown length:", result.length);
   
   return result;
 }
+
 
 
 // Theme configuration for the editor
