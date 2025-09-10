@@ -252,6 +252,7 @@ export const DIFF_TAG_ELEMENT: ElementTransformer = {
   export: (node: LexicalNode) => {
     console.log("📤 DIFF_TAG_ELEMENT export called");
     console.log("🔍 Node type:", node.getType());
+    console.log("🔍 Node key:", node.getKey());
     console.log("🔍 Is DiffTagNode?", $isDiffTagNode(node));
     
     if ($isDiffTagNode(node)) {

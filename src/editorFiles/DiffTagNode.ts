@@ -35,6 +35,7 @@ export class DiffTagNode extends ElementNode {
     console.log("🏷️ Tag type:", this.__tag);
     console.log("📝 Content length:", content.length);
     console.log("📝 Content preview:", JSON.stringify(content.substring(0, 100)));
+    console.log("📝 Full content:", JSON.stringify(content));
     console.log("🎯 Generated CriticMarkup:", JSON.stringify(result));
     console.log("🔑 Node key:", this.getKey());
     

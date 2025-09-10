@@ -1,6 +1,6 @@
 'use client';
 
-import { $getRoot } from 'lexical';
+import { $getRoot, $isElementNode, $isTextNode } from 'lexical';
 import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
@@ -43,7 +43,7 @@ import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNode and CriticMarkup transformer
-import { DiffTagNode } from './DiffTagNode';
+import { DiffTagNode, $isDiffTagNode } from './DiffTagNode';
 import { CRITIC_MARKUP, DIFF_TAG_ELEMENT, preprocessCriticMarkup } from './diffUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
@@ -64,25 +64,158 @@ const MARKDOWN_TRANSFORMERS = [
 ];
 
 /**
- * Custom markdown export function that handles DiffTagNodes using standard transformers
+ * Custom markdown export function that handles DiffTagNodes using manual tree traversal
  * 
- * • Uses standard Lexical $convertToMarkdownString with custom transformers
- * • Relies on DIFF_TAG_ELEMENT transformer to handle DiffTagNode export
- * • Leverages standard transformers for all other node types (headings, links, formatting)
- * • Eliminates manual node tree traversal in favor of transformer-based approach
- * • Used by: LexicalEditor to export content with diff annotations using standard patterns
+ * WHY WE NEED CUSTOM TRAVERSAL:
+ * Lexical's $convertToMarkdownString only calls element transformers on top-level elements.
+ * It does NOT recursively call element transformers on nested custom elements like our diff-tag nodes.
+ * When it encounters a diff-tag node, it just processes the node's children as text, losing the
+ * CriticMarkup syntax ({++...++}, {--...--}). We need custom traversal to manually call the
+ * DIFF_TAG_ELEMENT transformer on each diff-tag node we find.
+ * 
+ * • Manually traverses the node tree to find DiffTagNodes
+ * • Calls DIFF_TAG_ELEMENT transformer on actual diff-tag nodes
+ * • Uses standard Lexical $convertToMarkdownString for non-diff content
+ * • Leverages all provided transformers for proper markdown generation
+ * • Used by: LexicalEditor to export content with diff annotations
  */
 export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string {
   console.log("🔄 $convertToMarkdownWithCriticMarkup called with transformers:", transformers.length);
+  console.log("🔍 Transformers:", transformers.map(t => t.type || 'unknown'));
   
-  // Use standard Lexical markdown conversion with the provided transformers
-  // The DIFF_TAG_ELEMENT transformer will handle DiffTagNode export automatically
-  const markdown = $convertToMarkdownString(transformers);
+  // Check if there are any DiffTagNodes in the tree
+  const root = $getRoot();
+  let hasDiffTagNodes = false;
   
-  console.log("📤 Final markdown result:", JSON.stringify(markdown));
+  // Quick scan to see if we need custom traversal
+  root.getChildren().forEach(child => {
+    if ($isElementNode(child) && child.getType() === 'paragraph') {
+      child.getChildren().forEach((grandchild: any) => {
+        if (grandchild.getType() === 'diff-tag') {
+          hasDiffTagNodes = true;
+        }
+      });
+    }
+  });
   
-  return markdown;
+  if (hasDiffTagNodes) {
+    console.log("🔍 Found DiffTagNodes, using custom traversal");
+    return $convertToMarkdownWithCustomTraversal(transformers);
+  } else {
+    console.log("🔍 No DiffTagNodes found, using standard export");
+    // Use standard Lexical markdown conversion for better performance
+    const markdown = $convertToMarkdownString(transformers);
+    console.log("📤 Final markdown result:", JSON.stringify(markdown));
+    console.log("📊 Markdown length:", markdown.length);
+    return markdown;
+  }
 }
+
+/**
+ * Custom markdown export that manually traverses the node tree
+ * 
+ * • Recursively traverses all nodes in the editor tree
+ * • Calls DIFF_TAG_ELEMENT transformer on diff-tag nodes
+ * • Uses standard transformers for other node types via $convertToMarkdownString
+ * • Builds markdown string with proper CriticMarkup syntax
+ * • Used by: $convertToMarkdownWithCriticMarkup when DiffTagNodes are present
+ */
+function $convertToMarkdownWithCustomTraversal(transformers: any[]): string {
+  console.log("🔄 $convertToMarkdownWithCustomTraversal called");
+  
+  const root = $getRoot();
+  let result = '';
+  
+  // Find the DIFF_TAG_ELEMENT transformer
+  const diffTagTransformer = transformers.find(t => 
+    t.type === 'element' && 
+    t.dependencies && 
+    t.dependencies.includes('DiffTagNode')
+  );
+  
+  if (!diffTagTransformer) {
+    console.warn("⚠️ DIFF_TAG_ELEMENT transformer not found, falling back to standard export");
+    return $convertToMarkdownString(transformers);
+  }
+  
+  // Process each top-level child
+  root.getChildren().forEach(child => {
+    if ($isElementNode(child) && child.getType() === 'paragraph') {
+      let paragraphText = '';
+      
+      // Process each child of the paragraph
+      child.getChildren().forEach((grandchild: any) => {
+        if (grandchild.getType() === 'diff-tag') {
+          // This is a DiffTagNode - use the transformer to export it
+          console.log("🔍 Processing DiffTagNode:", grandchild.getKey());
+          const diffResult = diffTagTransformer.export(grandchild);
+          if (diffResult) {
+            paragraphText += diffResult;
+            console.log("✅ DiffTagNode exported:", JSON.stringify(diffResult));
+          }
+        } else {
+          // For non-diff-tag nodes, we need to preserve formatting
+          // Use Lexical's built-in functions to handle text formatting
+          if ($isTextNode(grandchild)) {
+            // Handle text formatting (bold, italic, etc.)
+            let text = grandchild.getTextContent();
+            
+            // Apply text formatting transformers
+            const textFormatTransformers = transformers.filter(t => t.type === 'text-format');
+            for (const transformer of textFormatTransformers) {
+              if (transformer.format && transformer.format.length === 1) {
+                const format = transformer.format[0];
+                if (grandchild.hasFormat(format)) {
+                  const tag = transformer.tag;
+                  text = `${tag}${text}${tag}`;
+                }
+              }
+            }
+            
+            paragraphText += text;
+          } else {
+            // For other node types, just get the text content
+            paragraphText += grandchild.getTextContent();
+          }
+        }
+      });
+      
+      result += paragraphText + '\n\n';
+    } else {
+      // For non-paragraph nodes, try to use the appropriate transformer
+      let nodeResult = '';
+      
+      // Try to find a transformer for this node type
+      const elementTransformers = transformers.filter(t => t.type === 'element' || t.type === 'multiline-element');
+      
+      for (const transformer of elementTransformers) {
+        if (transformer.export) {
+          // Try to match the node type with the transformer
+          if (transformer.dependencies && transformer.dependencies.includes(child.getType())) {
+            const transformerResult = transformer.export(child);
+            if (transformerResult) {
+              nodeResult = transformerResult;
+              break;
+            }
+          }
+        }
+      }
+      
+      // If no transformer matched, fallback to text content
+      if (!nodeResult) {
+        nodeResult = child.getTextContent();
+      }
+      
+      result += nodeResult + '\n\n';
+    }
+  });
+  
+  console.log("📤 Custom traversal result:", JSON.stringify(result));
+  console.log("📊 Custom traversal length:", result.length);
+  
+  return result;
+}
+
 
 // Theme configuration for the editor
 const theme = {
@@ -210,12 +343,17 @@ interface LexicalEditorProps {
  * • setContentFromMarkdown: Updates editor content using markdown string
  * • setContentFromText: Updates editor content using plain text string
  * • getContentAsMarkdown: Gets current content as markdown string
+ * • getContentAsText: Gets current content as plain text string
+ * • toggleMarkdownMode: Switches between markdown and plain text modes
  * • Used by: Editor test pages to update editor with diff HTML and markdown
  */
 export interface LexicalEditorRef {
   setContentFromMarkdown: (markdown: string) => void;
   setContentFromText: (text: string) => void;
   getContentAsMarkdown: () => string;
+  getContentAsText: () => string;
+  toggleMarkdownMode: () => void;
+  getMarkdownMode: () => boolean;
 }
 
 const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({ 
@@ -230,6 +368,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
+  const [internalMarkdownMode, setInternalMarkdownMode] = useState<boolean>(isMarkdownMode);
 
   const initialConfig = {
     namespace: 'MyEditor',
@@ -284,23 +423,79 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         return markdown;
       }
       return '';
+    },
+    getContentAsText: () => {
+      if (editor) {
+        let text = '';
+        editor.update(() => {
+          text = $getRoot().getTextContent();
+        });
+        return text;
+      }
+      return '';
+    },
+    toggleMarkdownMode: () => {
+      if (editor) {
+        if (internalMarkdownMode) {
+          // Switching from markdown to raw text mode
+          // Get the current markdown content and store it
+          let markdownContent = '';
+          editor.update(() => {
+            markdownContent = $convertToMarkdownWithCriticMarkup(MARKDOWN_TRANSFORMERS);
+          });
+          console.log('🔍 DEBUG: getContentAsMarkdown() returned:');
+          console.log('📝 Content length:', markdownContent.length);
+          console.log('📝 Content preview:', markdownContent.substring(0, 200) + (markdownContent.length > 200 ? '...' : ''));
+          console.log('📝 Full content:', JSON.stringify(markdownContent));
+          
+          // Update the editor to show the raw markdown text
+          editor.update(() => {
+            const root = $getRoot();
+            root.clear();
+            const emptyTransformers: any[] = [];
+            $convertFromMarkdownString(markdownContent, emptyTransformers);
+          });
+        } else {
+          // Switching from raw text to markdown mode
+          // Get the current text content from the editor (raw text, not markdown)
+          let currentEditorText = '';
+          editor.update(() => {
+            currentEditorText = $getRoot().getTextContent();
+          });
+          console.log('🔍 DEBUG: Switching to markdown mode with current editor text:');
+          console.log('📝 Content length:', currentEditorText.length);
+          console.log('📝 Content preview:', currentEditorText.substring(0, 200) + (currentEditorText.length > 200 ? '...' : ''));
+          console.log('📝 Full content:', JSON.stringify(currentEditorText));
+          console.log('🔍 DEBUG: This should contain raw markdown syntax like **bold**');
+          
+          // Convert the raw text back to markdown
+          editor.update(() => {
+            const preprocessedMarkdown = preprocessCriticMarkup(currentEditorText);
+            $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
+          });
+        }
+        setInternalMarkdownMode(!internalMarkdownMode);
+      }
+    },
+    getMarkdownMode: () => {
+      return internalMarkdownMode;
     }
-  }), [editor]);
+  }), [editor, internalMarkdownMode]);
 
   return (
     <div className={className}>
       <LexicalComposer initialConfig={initialConfig}>
         <EditorRefPlugin setEditor={setEditor} />
-        <InitialContentPlugin initialContent={initialContent} isMarkdownMode={isMarkdownMode} />
+        <InitialContentPlugin initialContent={initialContent} isMarkdownMode={internalMarkdownMode} />
         <ContentChangePlugin 
           onContentChange={onContentChange} 
           onEditorStateChange={setEditorStateJson}
-          isMarkdownMode={isMarkdownMode}
+          isMarkdownMode={internalMarkdownMode}
         />
-        {showToolbar && <ToolbarPlugin isMarkdownMode={isMarkdownMode} />}
-        <MarkdownShortcutsPlugin isEnabled={isMarkdownMode} />
-        {isMarkdownMode && <MarkdownShortcutPlugin />}
-        {isMarkdownMode ? (
+        {showToolbar && <ToolbarPlugin isMarkdownMode={internalMarkdownMode} />}
+        <MarkdownShortcutsPlugin isEnabled={internalMarkdownMode} />
+        {internalMarkdownMode && <MarkdownShortcutPlugin />}
+        {internalMarkdownMode ? (
           <RichTextPlugin
             contentEditable={
               <ContentEditable

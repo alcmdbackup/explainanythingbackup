@@ -55,20 +55,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     // Handle markdown mode toggle
     const handleMarkdownToggle = () => {
         if (editorRef.current) {
-            if (isMarkdownMode) {
-                // Switching from markdown to raw text mode
-                // Get the current markdown content and store it in currentContent
-                const markdownContent = editorRef.current.getContentAsMarkdown();
-                setCurrentContent(markdownContent);
-                // Update the editor to show the raw markdown text
-                editorRef.current.setContentFromText(markdownContent);
-            } else {
-                // Switching from raw text to markdown mode
-                // Update the editor with the current content (which contains raw markdown)
-                editorRef.current.setContentFromMarkdown(currentContent);
-            }
+            // Use the new toggle method from LexicalEditor
+            editorRef.current.toggleMarkdownMode();
+            // Update local state to reflect the change
+            setIsMarkdownMode(editorRef.current.getMarkdownMode());
         }
-        setIsMarkdownMode(!isMarkdownMode);
     };
 
     // Handle AI suggestions
