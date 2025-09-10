@@ -64,99 +64,63 @@ const MARKDOWN_TRANSFORMERS = [
 ];
 
 /**
- * Custom markdown export function that handles DiffTagNodes by replacing them with text nodes
+ * Replaces DiffTagNodes with their CriticMarkup text representation
  * 
- * SIMPLIFIED APPROACH:
- * Instead of complex tree traversal, we replace diff-tag nodes with equivalent text nodes
- * containing their CriticMarkup representation, then use standard Lexical transformers.
- * This approach is simpler, more maintainable, and leverages Lexical's built-in functionality.
- * 
- * • Replaces diff-tag nodes with text nodes containing CriticMarkup syntax
- * • Manually traverses the tree to build markdown with CriticMarkup
- * • Uses standard transformers for other node types
- * • More efficient and maintainable than custom traversal
- * • Used by: LexicalEditor to export content with diff annotations
+ * • Traverses the editor tree and replaces diff-tag nodes with text nodes containing CriticMarkup
+ * • Preserves all other node types and formatting
+ * • Used as a preprocessing step before using Lexical's built-in markdown export
+ * • Called by: replaceDiffTagNodesAndExportMarkdown function
  */
-export function $convertToMarkdownWithCriticMarkup(transformers: any[]): string {
-  console.log("🔄 $convertToMarkdownWithCriticMarkup called with transformers:", transformers.length);
-  console.log("🔍 Transformers:", transformers.map(t => t.type || 'unknown'));
+export function replaceDiffTagNodes(): void {
+  console.log("🔄 replaceDiffTagNodes called");
   
   const root = $getRoot();
-  let result = '';
   
-  // Process each top-level child
-  root.getChildren().forEach(child => {
-    if ($isElementNode(child) && child.getType() === 'paragraph') {
-      let paragraphText = '';
+  // Recursively process all nodes
+  function processNode(node: any): void {
+    if ($isDiffTagNode(node)) {
+      // This is a DiffTagNode - replace it with a text node containing CriticMarkup
+      console.log("🔍 Processing DiffTagNode:", node.getKey());
+      const criticMarkup = node.exportMarkdown();
+      console.log("✅ DiffTagNode converted to CriticMarkup:", JSON.stringify(criticMarkup));
       
-      // Process each child of the paragraph
-      child.getChildren().forEach((grandchild: any) => {
-        if (grandchild.getType() === 'diff-tag') {
-          // This is a DiffTagNode - get its CriticMarkup representation
-          console.log("🔍 Processing DiffTagNode:", grandchild.getKey());
-          const criticMarkup = grandchild.exportMarkdown();
-          paragraphText += criticMarkup;
-          console.log("✅ DiffTagNode converted to CriticMarkup:", JSON.stringify(criticMarkup));
-        } else {
-          // For non-diff-tag nodes, preserve formatting using standard transformers
-          if ($isTextNode(grandchild)) {
-            // Handle text formatting (bold, italic, etc.)
-            let text = grandchild.getTextContent();
-            
-            // Apply text formatting transformers
-            const textFormatTransformers = transformers.filter(t => t.type === 'text-format');
-            for (const transformer of textFormatTransformers) {
-              if (transformer.format && transformer.format.length === 1) {
-                const format = transformer.format[0];
-                if (grandchild.hasFormat(format)) {
-                  const tag = transformer.tag;
-                  text = `${tag}${text}${tag}`;
-                }
-              }
-            }
-            
-            paragraphText += text;
-          } else {
-            // For other node types, just get the text content
-            paragraphText += grandchild.getTextContent();
-          }
-        }
-      });
+      // Create a new text node with the CriticMarkup content
+      const textNode = $createTextNode(criticMarkup);
       
-      result += paragraphText + '\n\n';
-    } else {
-      // For non-paragraph nodes, try to use the appropriate transformer
-      let nodeResult = '';
-      
-      // Try to find a transformer for this node type
-      const elementTransformers = transformers.filter(t => t.type === 'element' || t.type === 'multiline-element');
-      
-      for (const transformer of elementTransformers) {
-        if (transformer.export) {
-          // Try to match the node type with the transformer
-          if (transformer.dependencies && transformer.dependencies.includes(child.getType())) {
-            const transformerResult = transformer.export(child);
-            if (transformerResult) {
-              nodeResult = transformerResult;
-              break;
-            }
-          }
-        }
-      }
-      
-      // If no transformer matched, fallback to text content
-      if (!nodeResult) {
-        nodeResult = child.getTextContent();
-      }
-      
-      result += nodeResult + '\n\n';
+      // Replace the DiffTagNode with the text node
+      node.replace(textNode);
+    } else if ($isElementNode(node)) {
+      // For element nodes, process their children
+      node.getChildren().forEach(processNode);
     }
-  });
+  }
   
-  console.log("📤 Markdown result:", JSON.stringify(result));
-  console.log("📊 Markdown length:", result.length);
+  // Process all top-level children
+  root.getChildren().forEach(processNode);
+}
+
+/**
+ * Exports editor content as markdown with CriticMarkup for diff annotations
+ * 
+ * • First replaces all DiffTagNodes with their CriticMarkup text representation
+ * • Then uses Lexical's built-in $convertToMarkdownString for full markdown export
+ * • Leverages Lexical's native markdown transformers for proper formatting
+ * • More reliable and maintainable than custom markdown generation
+ * • Used by: LexicalEditor for markdown export with diff annotations
+ */
+export function replaceDiffTagNodesAndExportMarkdown(): string {
+  console.log("🔄 replaceDiffTagNodesAndExportMarkdown called");
   
-  return result;
+  // First, replace all DiffTagNodes with their CriticMarkup text
+  replaceDiffTagNodes();
+  
+  // Then use Lexical's built-in markdown export
+  const markdown = $convertToMarkdownString(MARKDOWN_TRANSFORMERS);
+  
+  console.log("📤 Markdown result:", JSON.stringify(markdown));
+  console.log("📊 Markdown length:", markdown.length);
+  
+  return markdown;
 }
 
 
@@ -225,20 +189,20 @@ function ContentChangePlugin({
   const [editor] = useLexicalComposerContext();
 
   const handleChange = useCallback(() => {
-    if (onContentChange) {
+    /*if (onContentChange) {
       const editorState = editor.getEditorState();
       let content: string;
       
       if (isMarkdownMode) {
         // Get content as markdown when in markdown mode
-        content = editorState.read(() => $convertToMarkdownWithCriticMarkup(MARKDOWN_TRANSFORMERS));
+        content = editorState.read(() => replaceDiffTagNodesAndExportMarkdown());
       } else {
         // Get content as plain text when in plain text mode
         content = editorState.read(() => $getRoot().getTextContent());
       }
       
       onContentChange(content);
-    }
+    }*/
     
     if (onEditorStateChange) {
       const editorState = editor.getEditorState();
@@ -362,7 +326,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       if (editor) {
         let markdown = '';
         editor.update(() => {
-          markdown = $convertToMarkdownWithCriticMarkup(MARKDOWN_TRANSFORMERS);
+          markdown = replaceDiffTagNodesAndExportMarkdown();
         });
         return markdown;
       }
@@ -382,10 +346,10 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       if (editor) {
         if (internalMarkdownMode) {
           // Switching from markdown to raw text mode
-          // Get the current markdown content and store it
+          // Get the current markdown content using Lexical's export
           let markdownContent = '';
           editor.update(() => {
-            markdownContent = $convertToMarkdownWithCriticMarkup(MARKDOWN_TRANSFORMERS);
+            markdownContent = replaceDiffTagNodesAndExportMarkdown();
           });
           console.log('🔍 DEBUG: getContentAsMarkdown() returned:');
           console.log('📝 Content length:', markdownContent.length);

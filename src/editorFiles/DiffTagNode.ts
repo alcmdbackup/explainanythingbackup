@@ -1,5 +1,5 @@
 import type {EditorConfig, LexicalEditor, NodeKey, DOMConversionMap, DOMConversionOutput, DOMExportOutput} from "lexical";
-import {ElementNode, LexicalNode} from "lexical";
+import {ElementNode, LexicalNode, $isTextNode} from "lexical";
 
 type DiffTag = "ins" | "del";
 
@@ -27,15 +27,43 @@ export class DiffTagNode extends ElementNode {
 
   /** Map this node → CriticMarkup when exporting to markdown */
   exportMarkdown() {
-    const content = this.getTextContent();
+    // Instead of using getTextContent() which strips formatting,
+    // we need to traverse child text nodes and preserve their formatting
+    let formattedContent = '';
+    
+    this.getChildren().forEach((child: any) => {
+      if ($isTextNode(child)) {
+        let text = child.getTextContent();
+        
+        // Apply text formatting based on the text node's format flags
+        if (child.hasFormat('bold')) {
+          text = `**${text}**`;
+        }
+        if (child.hasFormat('italic')) {
+          text = `*${text}*`;
+        }
+        if (child.hasFormat('underline')) {
+          text = `<u>${text}</u>`;
+        }
+        if (child.hasFormat('strikethrough')) {
+          text = `~~${text}~~`;
+        }
+        
+        formattedContent += text;
+      } else {
+        // For non-text nodes, just get the text content
+        formattedContent += child.getTextContent();
+      }
+    });
+    
     const marker = this.__tag === "ins" ? "++" : "--";
-    const result = `{${marker}${content}${marker}}`;
+    const result = `{${marker}${formattedContent}${marker}}`;
     
     console.log("📤 DiffTagNode.exportMarkdown() called");
     console.log("🏷️ Tag type:", this.__tag);
-    console.log("📝 Content length:", content.length);
-    console.log("📝 Content preview:", JSON.stringify(content.substring(0, 100)));
-    console.log("📝 Full content:", JSON.stringify(content));
+    console.log("📝 Formatted content length:", formattedContent.length);
+    console.log("📝 Formatted content preview:", JSON.stringify(formattedContent.substring(0, 100)));
+    console.log("📝 Full formatted content:", JSON.stringify(formattedContent));
     console.log("🎯 Generated CriticMarkup:", JSON.stringify(result));
     console.log("🔑 Node key:", this.getKey());
     
