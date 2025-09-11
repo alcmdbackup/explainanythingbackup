@@ -1,7 +1,7 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { Root } from 'mdast';
-import { diffMdast, renderCriticMarkup } from './markdownASTdiff';
+import { renderCriticMarkup } from './markdownASTdiff';
 
 export interface TestCase {
   id: number;
@@ -13,7 +13,6 @@ export interface TestCase {
 
 export interface TestResult {
   testCase: TestCase;
-  diffOps: any[];
   criticMarkup: string;
   success: boolean;
   error?: string;
@@ -150,12 +149,7 @@ export function runSingleTest(testCase: TestCase): TestResult {
     // Parse markdown strings into AST
     const beforeAST = unified().use(remarkParse).parse(testCase.before) as Root;
     const afterAST = unified().use(remarkParse).parse(testCase.after) as Root;
-    
-    // Compute the diff using markdownASTdiff
-    const diffOps = diffMdast(beforeAST as any, afterAST as any, { 
-      textGranularity: 'word' 
-    });
-    
+   
     // Generate CriticMarkup output
     const criticMarkup = renderCriticMarkup(beforeAST as any, afterAST as any, {
       textGranularity: 'word'
@@ -163,14 +157,12 @@ export function runSingleTest(testCase: TestCase): TestResult {
     
     return {
       testCase,
-      diffOps,
       criticMarkup,
       success: true
     };
   } catch (error) {
     return {
       testCase,
-      diffOps: [],
       criticMarkup: '',
       success: false,
       error: error instanceof Error ? error.message : 'Unknown error'
@@ -211,8 +203,6 @@ export function formatTestResults(results: TestResult[]): string {
     
     output += `**Before:**\n\`\`\`\n${result.testCase.before}\n\`\`\`\n\n`;
     output += `**After:**\n\`\`\`\n${result.testCase.after}\n\`\`\`\n\n`;
-    
-    output += `**Diff Operations Count**: ${result.diffOps.length}\n\n`;
     
     // Render the CriticMarkup as markdown instead of showing raw JSON
     output += `**Rendered Diff with CriticMarkup:**\n\n`;

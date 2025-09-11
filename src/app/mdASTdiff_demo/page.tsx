@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { logger } from '@/lib/client_utilities';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { diffMdast, renderCriticMarkup } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
+import { renderCriticMarkup } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
 import { runAllTests, formatTestResults, TestResult } from '@/editorFiles/markdownASTdiff/testRunner';
 
 export default function MdASTdiffDemoPage() {
@@ -40,11 +40,6 @@ export default function MdASTdiffDemoPage() {
             const beforeAST = unified().use(remarkParse).parse(beforeText);
             const afterAST = unified().use(remarkParse).parse(afterText);
 
-            // Compute the diff using markdownASTdiff
-            const diffOps = diffMdast(beforeAST, afterAST, { 
-                textGranularity: 'word' 
-            });
-
             // Generate CriticMarkup output
             const criticMarkup = renderCriticMarkup(beforeAST, afterAST, {
                 textGranularity: 'word'
@@ -54,7 +49,7 @@ export default function MdASTdiffDemoPage() {
             logger.debug('Diff computed successfully', { 
                 beforeLength: beforeText.length, 
                 afterLength: afterText.length,
-                diffOpsCount: diffOps.length
+                diffOutputLength: criticMarkup.length
             });
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to compute diff';
@@ -288,7 +283,7 @@ export default function MdASTdiffDemoPage() {
                                         
                                         {result.success ? (
                                             <div className="text-sm text-gray-600">
-                                                <p><strong>Diff Operations:</strong> {result.diffOps.length}</p>
+                                                <p><strong>CriticMarkup Output:</strong></p>
                                                 <div className="mt-2 bg-gray-50 rounded p-2">
                                                     <pre className="whitespace-pre-wrap text-xs">
                                                         {result.criticMarkup}
