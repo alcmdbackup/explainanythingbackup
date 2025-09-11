@@ -55,10 +55,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     // Handle markdown mode toggle
     const handleMarkdownToggle = () => {
         if (editorRef.current) {
+            // Toggle the internal state first
+            const newMarkdownMode = !isMarkdownMode;
+            setIsMarkdownMode(newMarkdownMode);
             // Use the new toggle method from LexicalEditor
             editorRef.current.toggleMarkdownMode();
-            // Update local state to reflect the change
-            setIsMarkdownMode(editorRef.current.getMarkdownMode());
         }
     };
 

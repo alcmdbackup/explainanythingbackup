@@ -261,6 +261,11 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   const [editor, setEditor] = useState<any>(null);
   const [internalMarkdownMode, setInternalMarkdownMode] = useState<boolean>(isMarkdownMode);
 
+  // Sync internal state with prop changes
+  useEffect(() => {
+    setInternalMarkdownMode(isMarkdownMode);
+  }, [isMarkdownMode]);
+
   const initialConfig = {
     namespace: 'MyEditor',
     theme,
@@ -342,7 +347,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
             $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
           });
         }
-        setInternalMarkdownMode(!internalMarkdownMode);
+        // Note: Don't update internal state here - parent component handles that
       }
     },
     getMarkdownMode: () => {
