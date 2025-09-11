@@ -8,15 +8,16 @@ interface CriticMarkupRendererProps {
 }
 
 /**
- * Renders CriticMarkup syntax as visual insertions and deletions
+ * Renders CriticMarkup syntax as visual insertions, deletions, and updates
  * - Parses {--deleted text--} and renders as red strikethrough
  * - Parses {++inserted text++} and renders as green underlined
+ * - Parses {~~old~>new~~} and renders as orange (old) and purple (new) paired together
  * - Regular text is rendered normally
  * - Handles newlines properly by preserving them in the content
  */
 export function CriticMarkupRenderer({ content, className = '' }: CriticMarkupRendererProps) {
-  // Regex to match CriticMarkup patterns: {--content--} and {++content++}
-  const criticMarkupRegex = /\{([+-]{2})([\s\S]*?)\1\}/g;
+  // Regex to match CriticMarkup patterns: {--content--}, {++content++}, and {~~old~>new~~}
+  const criticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\}/g;
   
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -52,6 +53,30 @@ export function CriticMarkupRenderer({ content, className = '' }: CriticMarkupRe
           {innerContent}
         </span>
       );
+    } else if (type === '~~') {
+      // Update text - parse old~>new pattern
+      const updateParts = innerContent.split('~>');
+      if (updateParts.length === 2) {
+        const [oldText, newText] = updateParts;
+        parts.push(
+          <span
+            key={`update-${match.index}`}
+            className="inline-flex items-center gap-1"
+            title="Updated text"
+          >
+            <span className="bg-orange-100 text-orange-800 line-through px-1 rounded whitespace-pre-wrap">
+              {oldText}
+            </span>
+            <span className="text-gray-500">→</span>
+            <span className="bg-purple-100 text-purple-800 underline px-1 rounded whitespace-pre-wrap">
+              {newText}
+            </span>
+          </span>
+        );
+      } else {
+        // Fallback if pattern is malformed
+        parts.push(innerContent);
+      }
     }
 
     lastIndex = match.index + fullMatch.length;
@@ -77,7 +102,7 @@ export function debugCriticMarkupParsing(content: string): void {
   console.log('📝 Content length:', content.length);
   console.log('📝 Content preview:', content.substring(0, 200) + '...');
   
-  const criticMarkupRegex = /\{([+-]{2})([\s\S]*?)\1\}/g;
+  const criticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\}/g;
   let match;
   let matchCount = 0;
   
@@ -89,6 +114,17 @@ export function debugCriticMarkupParsing(content: string): void {
     console.log('  Inner content length:', match[2]?.length);
     console.log('  Inner content preview:', match[2]?.substring(0, 100) + '...');
     console.log('  Match index:', match.index);
+    
+    // Special handling for update patterns
+    if (match[1] === '~~') {
+      const updateParts = match[2]?.split('~>');
+      if (updateParts && updateParts.length === 2) {
+        console.log('  Update - Old text:', updateParts[0]);
+        console.log('  Update - New text:', updateParts[1]);
+      } else {
+        console.log('  ⚠️  Malformed update pattern');
+      }
+    }
     console.log('---');
   }
   

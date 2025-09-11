@@ -60,8 +60,10 @@ interface DiffOperation {
 }
 
 interface TextRun {
-  t: 'eq' | 'ins' | 'del';
+  t: 'eq' | 'ins' | 'del' | 'update';
   s: string;
+  // For update operations, s represents the before text, sAfter represents the after text
+  sAfter?: string;
 }
 
 // ADD: configurable thresholds for the multipass
@@ -453,12 +455,13 @@ function wordRuns(aStr: string, bStr: string, debug = false): TextRun[] {
 }
 
 // Append helper that merges adjacent same-type runs
-function appendRun(target: TextRun[], t: TextRun['t'], s: string) {
-  if (!s) return;
+function appendRun(target: TextRun[], t: TextRun['t'], s: string, sAfter?: string) {
+  if (!s && !sAfter) return;
   const last = target[target.length - 1];
-  if (last && last.t === t) last.s += s;
-  else target.push({ t, s });
+  if (last && last.t === t && t !== 'update') last.s += s;
+  else target.push({ t, s, sAfter });
 }
+
 
 // Build TextRuns for a paragraph with sentence alignment and thresholds.
 function buildParagraphMultiPassRuns(
@@ -542,8 +545,7 @@ function buildParagraphMultiPassRuns(
         if (mp.debug) {
           console.log(`      ✅ SENTENCE ATOMIC: ${(sDiff * 100).toFixed(1)}% > ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold`);
         }
-        appendRun(runs, 'del', sA);
-        appendRun(runs, 'ins', sB);
+        appendRun(runs, 'update', sA, sB);
       } else {
         if (mp.debug) {
           console.log(`      🔄 SENTENCE GRANULAR: ${(sDiff * 100).toFixed(1)}% <= ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold, doing word-level diff`);
@@ -703,8 +705,15 @@ function walkNode(
           const decision = buildParagraphMultiPassRuns(aText, bText, mp);
 
           if (decision.paragraphAtomic) {
-            out.push({ op: 'delete', path, before: a });
-            out.push({ op: 'insert', path, after: b });
+            out.push({
+              op: 'update',
+              path,
+              before: a,
+              after: b,
+              meta: {
+                kind: 'atomic-paragraph-replacement'
+              }
+            });
             return;
           } else if (decision.runs && decision.runs.length) {
             out.push({
@@ -806,6 +815,7 @@ function toCriticMarkup(runs: TextRun[]): string {
     if (r.t === 'eq')  out += r.s;
     if (r.t === 'del') out += `{--${r.s}--}`;
     if (r.t === 'ins') out += `{++${r.s}++}`;
+    if (r.t === 'update') out += `{~~${r.s}~>${r.sAfter || ''}~~}`;
   }
   return out;
 }

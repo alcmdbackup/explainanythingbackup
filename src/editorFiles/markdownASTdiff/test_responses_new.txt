@@ -1,0 +1,391 @@
+# Markdown AST Diff Test Results
+
+Generated on: 2025-09-05T14:45:00.000Z
+Total tests: 10
+Successful: 10
+Failed: 0
+
+## Test Case 1: Remove a word from the beginning of a paragraph
+
+✅ **SUCCESS**
+
+**Expected Diff**: Word-level deletion at start
+
+**Before:**
+```
+Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+```
+
+**After:**
+```
+Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+```
+
+**Diff Operations Count**: 1
+
+**Rendered Diff with CriticMarkup:**
+
+{--Albert --}Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
+
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 2: Add text in the middle of a sentence
+
+✅ **SUCCESS**
+
+**Expected Diff**: Word-level insertion
+
+**Before:**
+```
+The quick brown fox jumps over the lazy dog.
+```
+
+**After:**
+```
+The quick brown fox jumps over the very lazy dog.
+```
+
+**Diff Operations Count**: 1
+
+**Rendered Diff with CriticMarkup:**
+
+The quick brown fox jumps over the {++very ++}lazy dog.
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 3: Change heading depth from h1 to h2
+
+✅ **SUCCESS**
+
+**Expected Diff**: Atomic replacement of entire heading
+
+**Before:**
+```
+# Introduction to Machine Learning
+
+Machine learning is a subset of artificial intelligence.
+```
+
+**After:**
+```
+## Introduction to Machine Learning
+
+Machine learning is a subset of artificial intelligence.
+```
+
+**Diff Operations Count**: 2
+
+**Rendered Diff with CriticMarkup:**
+
+{--# Introduction to Machine Learning
+
+--}{++## Introduction to Machine Learning
+
+++}Machine learning is a subset of artificial intelligence.
+
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 4: Add new item to unordered list
+
+✅ **SUCCESS**
+
+**Expected Diff**: Insert new list item
+
+**Before:**
+```
+## Key Features
+- Feature 1
+- Feature 2
+- Feature 3
+```
+
+**After:**
+```
+## Key Features
+- Feature 1
+- Feature 2
+- Feature 3
+- Feature 4
+```
+
+**Diff Operations Count**: 1
+
+**Rendered Diff with CriticMarkup:**
+
+## Key Features
+- Feature 1
+- Feature 2
+- Feature 3
+{++- Feature 4++}
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 5: Replace entire code block with different language and content
+
+✅ **SUCCESS**
+
+**Expected Diff**: Atomic replacement of code block
+
+**Before:**
+```
+Here's a simple function:
+
+```javascript
+function greet(name) {
+    return "Hello, " + name;
+}
+```
+```
+
+**After:**
+```
+Here's a simple function:
+
+```python
+def greet(name):
+    return f"Hello, {name}"
+```
+```
+
+**Diff Operations Count**: 2
+
+**Rendered Diff with CriticMarkup:**
+
+Here's a simple function:
+
+{--```javascript
+function greet(name) {
+    return "Hello, " + name;
+}
+```--}{++```python
+def greet(name):
+    return f"Hello, {name}"
+```++}
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 6: Change URL in a link while keeping text
+
+✅ **SUCCESS**
+
+**Expected Diff**: Update link properties
+
+**Before:**
+```
+Visit [our website](https://old-site.com) for more information.
+```
+
+**After:**
+```
+Visit [our website](https://new-site.com) for more information.
+```
+
+**Diff Operations Count**: 2
+
+**Rendered Diff with CriticMarkup:**
+
+Visit [our website]({--https://old-site.com--}{++https://new-site.com++}) for more information.
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 7: Change text formatting from emphasis to strong
+
+✅ **SUCCESS**
+
+**Expected Diff**: Update formatting nodes
+
+**Before:**
+```
+This is *important* text that needs attention.
+```
+
+**After:**
+```
+This is **important** text that needs attention.
+```
+
+**Diff Operations Count**: 1
+
+**Rendered Diff with CriticMarkup:**
+
+This is {--*--}{++**++}important{--*--}{++**++} text that needs attention.
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 8: Split one paragraph into two paragraphs
+
+✅ **SUCCESS**
+
+**Expected Diff**: Delete original paragraph, insert two new paragraphs
+
+**Before:**
+```
+This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability. The first idea is about structure. The second idea is about readability.
+```
+
+**After:**
+```
+This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.
+
+The first idea is about structure. The second idea is about readability.
+```
+
+**Diff Operations Count**: 2
+
+**Rendered Diff with CriticMarkup:**
+
+{--This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability. The first idea is about structure. The second idea is about readability.--}{++This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.
+
+The first idea is about structure. The second idea is about readability.++}
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 9: Add new column to table
+
+✅ **SUCCESS**
+
+**Expected Diff**: Atomic replacement of entire table
+
+**Before:**
+```
+| Name | Age |
+|------|-----|
+| John | 25  |
+| Jane | 30  |
+```
+
+**After:**
+```
+| Name | Age | City    |
+|------|-----|---------|
+| John | 25  | New York|
+| Jane | 30  | Boston  |
+```
+
+**Diff Operations Count**: 2
+
+**Rendered Diff with CriticMarkup:**
+
+{--| Name | Age |
+|------|-----|
+| John | 25  |
+| Jane | 30  |--}{++| Name | Age | City    |
+|------|-----|---------|
+| John | 25  | New York|
+| Jane | 30  | Boston  |++}
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
+
+---
+
+## Test Case 10: Multiple types of changes in one document
+
+✅ **SUCCESS**
+
+**Expected Diff**: Multiple operations including text changes, formatting, and structure
+
+**Before:**
+```
+# Project Overview
+
+This project aims to solve complex problems using *machine learning*.
+
+## Features
+- Feature A
+- Feature B
+
+```python
+print("Hello World")
+```
+
+For more information, visit [our docs](https://docs.example.com).
+```
+
+**After:**
+```
+# Project Overview
+
+This project aims to solve **complex problems** using machine learning and artificial intelligence.
+
+## Features
+- Feature A
+- Feature B
+- Feature C
+
+```javascript
+console.log("Hello World");
+```
+
+For more information, visit [our documentation](https://docs.example.com).
+```
+
+**Diff Operations Count**: 4
+
+**Rendered Diff with CriticMarkup:**
+
+# Project Overview
+
+This project aims to solve {++**++}complex problems{++**++} using {--*--}machine learning{--*--}{++ and artificial intelligence++}.
+
+## Features
+- Feature A
+- Feature B
+{++- Feature C++}
+
+{--```python
+print("Hello World")
+```--}{++```javascript
+console.log("Hello World");
+```++}
+
+For more information, visit [our {--docs--}{++documentation++}](https://docs.example.com).
+
+> **Note**: The diff above uses CriticMarkup syntax where:
+> - `{--deleted text--}` shows removed content
+> - `{++inserted text++}` shows added content
+> - Regular text remains unchanged
