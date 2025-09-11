@@ -141,7 +141,7 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
 }
 
 /**
- * Runs a single test case through the diffMdast function
+ * Runs a single test case through the renderCriticMarkup function
  * Returns detailed results including diff operations and critic markup
  */
 export function runSingleTest(testCase: TestCase): TestResult {

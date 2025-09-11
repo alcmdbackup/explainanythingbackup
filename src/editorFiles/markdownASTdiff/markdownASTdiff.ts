@@ -14,7 +14,7 @@ import { diffWordsWithSpace, diffChars } from 'diff';
 //   }
 // };
 // 
-// const diffs = diffMdast(beforeNode, afterNode, options);
+// const diffs = renderCriticMarkup(beforeNode, afterNode, options);
 // 
 // This will log detailed similarity calculations showing:
 // - Paragraph-level similarity ratios and decisions
@@ -233,27 +233,6 @@ function plainText(n?: MdastNode): string {
     default:
       return (n.children || []).map(plainText).join('');
   }
-}
-
-type WrapperChange =
-  | { kind: 'wrap'; from: 'text'; to: string }
-  | { kind: 'unwrap'; from: string; to: 'text' }
-  | { kind: 'retag'; from: string; to: string };
-
-// Detect text<->wrapper and wrapper<->wrapper (retag) when the underlying text is identical
-function detectWrapperChange(a: MdastNode, b: MdastNode): WrapperChange | null {
-  const aText = plainText(a);
-  const bText = plainText(b);
-  if (aText !== bText) return null;
-
-  const aIsWrap = isWrapperType(a.type);
-  const bIsWrap = isWrapperType(b.type);
-
-  if (a.type === 'text' && bIsWrap) return { kind: 'wrap', from: 'text', to: b.type };
-  if (b.type === 'text' && aIsWrap) return { kind: 'unwrap', from: a.type, to: 'text' };
-  if (aIsWrap && bIsWrap && a.type !== b.type) return { kind: 'retag', from: a.type, to: b.type };
-
-  return null;
 }
 
 // NEW: detect pipe-table paragraphs (when remark-gfm isn't enabled)
@@ -832,13 +811,6 @@ function compareProps(a: MdastNode, b: MdastNode): PropsComparison {
     if (!isEqualScalar(av, bv)) changed = true;
   }
   return { changed, beforeProps, afterProps };
-}
-
-function defaultNodeEqual(a: MdastNode, b: MdastNode): boolean {
-  if (!a || !b) return false;
-  if (a.type !== b.type) return false;
-  const { changed } = compareProps(a, b);
-  return !changed && !!(a.children?.length) === !!(b.children?.length);
 }
 
 function isEqualScalar(a: any, b: any): boolean { return a === b || (a == null && b == null); }
