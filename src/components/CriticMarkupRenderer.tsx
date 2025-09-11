@@ -58,21 +58,46 @@ export function CriticMarkupRenderer({ content, className = '' }: CriticMarkupRe
       const updateParts = innerContent.split('~>');
       if (updateParts.length === 2) {
         const [oldText, newText] = updateParts;
-        parts.push(
-          <span
-            key={`update-${match.index}`}
-            className="inline-flex items-center gap-1"
-            title="Updated text"
-          >
-            <span className="bg-orange-100 text-orange-800 line-through px-1 rounded whitespace-pre-wrap">
-              {oldText}
+        
+        // Check if this is a paragraph-level update (contains newlines)
+        const isParagraphUpdate = oldText.includes('\n') || newText.includes('\n');
+        
+        if (isParagraphUpdate) {
+          // Vertical layout for paragraph updates
+          parts.push(
+            <div
+              key={`update-${match.index}`}
+              className="block my-2"
+              title="Updated paragraph"
+            >
+              <div className="mb-2">
+                <div className="bg-orange-100 text-orange-800 line-through px-2 py-1 rounded whitespace-pre-wrap border-l-4 border-orange-300">
+                  {oldText}
+                </div>
+              </div>
+              <div className="bg-purple-100 text-purple-800 underline px-2 py-1 rounded whitespace-pre-wrap border-l-4 border-purple-300">
+                {newText}
+              </div>
+            </div>
+          );
+        } else {
+          // Horizontal layout for inline updates
+          parts.push(
+            <span
+              key={`update-${match.index}`}
+              className="inline-flex items-center gap-1"
+              title="Updated text"
+            >
+              <span className="bg-orange-100 text-orange-800 line-through px-1 rounded whitespace-pre-wrap">
+                {oldText}
+              </span>
+              <span className="text-gray-500">→</span>
+              <span className="bg-purple-100 text-purple-800 underline px-1 rounded whitespace-pre-wrap">
+                {newText}
+              </span>
             </span>
-            <span className="text-gray-500">→</span>
-            <span className="bg-purple-100 text-purple-800 underline px-1 rounded whitespace-pre-wrap">
-              {newText}
-            </span>
-          </span>
-        );
+          );
+        }
       } else {
         // Fallback if pattern is malformed
         parts.push(innerContent);
@@ -119,8 +144,11 @@ export function debugCriticMarkupParsing(content: string): void {
     if (match[1] === '~~') {
       const updateParts = match[2]?.split('~>');
       if (updateParts && updateParts.length === 2) {
-        console.log('  Update - Old text:', updateParts[0]);
-        console.log('  Update - New text:', updateParts[1]);
+        const [oldText, newText] = updateParts;
+        const isParagraphUpdate = oldText.includes('\n') || newText.includes('\n');
+        console.log('  Update - Old text:', oldText);
+        console.log('  Update - New text:', newText);
+        console.log('  Update - Is paragraph update:', isParagraphUpdate);
       } else {
         console.log('  ⚠️  Malformed update pattern');
       }

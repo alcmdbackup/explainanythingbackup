@@ -633,7 +633,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
         const mp = { ...MP_DEFAULTS, ...(options.multipass || {}) };
         const decision = buildParagraphMultiPassRuns(aText, bText, mp);
         if (decision.paragraphAtomic) {
-          return wrapDel(stringify(a)) + wrapIns(stringify(b));
+          return wrapUpdate(stringify(a), stringify(b));
         }
         if (decision.runs && decision.runs.length) {
           return decorateWithContainerMarkup(a, toCriticMarkup(decision.runs), stringify);
@@ -730,6 +730,9 @@ function decorateWithContainerMarkup(node: MdastNode, inner: string, stringify: 
 // Helpers for Critic braces
 function wrapDel(s: string): string { return s ? `{--${s}--}` : ''; }
 function wrapIns(s: string): string { return s ? `{++${s}++}` : ''; }
+function wrapUpdate(before: string, after: string): string { 
+  return before && after ? `{~~${before}~>${after}~~}` : ''; 
+}
 
 // ========= Granular text diffing helpers =========
 
