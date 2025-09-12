@@ -110,9 +110,26 @@ export class DiffTagNode extends ElementNode {
    */
   createDOM(): HTMLElement {
     if (this.__tag === "update") {
-      // For update nodes, create a span with special styling
+      // For update nodes, create a span with vertically stacked before/after text content
       const element = document.createElement("span");
-      element.className = "inline-flex items-center gap-1 bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      element.className = "inline-block bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      
+      // Add the before and after text content
+      const beforeText = this.__beforeText || '';
+      const afterText = this.__afterText || '';
+      
+      // Create spans for before and after text with appropriate styling, stacked vertically
+      const beforeSpan = document.createElement("div");
+      beforeSpan.className = "bg-orange-100 text-orange-800 line-through px-1 rounded mb-1";
+      beforeSpan.textContent = beforeText;
+      
+      const afterSpan = document.createElement("div");
+      afterSpan.className = "bg-purple-100 text-purple-800 underline px-1 rounded";
+      afterSpan.textContent = afterText;
+      
+      element.appendChild(beforeSpan);
+      element.appendChild(afterSpan);
+      
       return element;
     }
     
@@ -145,9 +162,26 @@ export class DiffTagNode extends ElementNode {
    */
   exportDOM(): DOMExportOutput {
     if (this.__tag === "update") {
-      // For update nodes, create a span with special styling
+      // For update nodes, create a span with vertically stacked before/after text content
       const element = document.createElement("span");
-      element.className = "inline-flex items-center gap-1 bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      element.className = "inline-block bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      
+      // Add the before and after text content
+      const beforeText = this.__beforeText || '';
+      const afterText = this.__afterText || '';
+      
+      // Create spans for before and after text with appropriate styling, stacked vertically
+      const beforeSpan = document.createElement("div");
+      beforeSpan.className = "bg-orange-100 text-orange-800 line-through px-1 rounded mb-1";
+      beforeSpan.textContent = beforeText;
+      
+      const afterSpan = document.createElement("div");
+      afterSpan.className = "bg-purple-100 text-purple-800 underline px-1 rounded";
+      afterSpan.textContent = afterText;
+      
+      element.appendChild(beforeSpan);
+      element.appendChild(afterSpan);
+      
       return { element };
     }
     
