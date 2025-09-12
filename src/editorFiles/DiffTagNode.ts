@@ -124,7 +124,7 @@ export class DiffTagNode extends ElementNode {
       beforeSpan.textContent = beforeText;
       
       const afterSpan = document.createElement("div");
-      afterSpan.className = "bg-purple-100 text-purple-800 underline px-1 rounded";
+      afterSpan.className = "bg-purple-100 text-purple-800 px-1 rounded";
       afterSpan.textContent = afterText;
       
       element.appendChild(beforeSpan);
@@ -135,7 +135,7 @@ export class DiffTagNode extends ElementNode {
     
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap" 
+      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap no-underline" 
       : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through whitespace-pre-wrap";
     return element;
   }
@@ -176,7 +176,7 @@ export class DiffTagNode extends ElementNode {
       beforeSpan.textContent = beforeText;
       
       const afterSpan = document.createElement("div");
-      afterSpan.className = "bg-purple-100 text-purple-800 underline px-1 rounded";
+      afterSpan.className = "bg-purple-100 text-purple-800 px-1 rounded";
       afterSpan.textContent = afterText;
       
       element.appendChild(beforeSpan);
@@ -187,7 +187,7 @@ export class DiffTagNode extends ElementNode {
     
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap" 
+      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap no-underline" 
       : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through whitespace-pre-wrap";
     return { element };
   }

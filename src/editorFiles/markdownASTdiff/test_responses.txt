@@ -1,6 +1,6 @@
 # Markdown AST Diff Test Results
 
-Generated on: 2025-09-06T16:03:18.933Z
+Generated on: 2025-09-12T04:08:25.576Z
 Total tests: 10
 Successful: 10
 Failed: 0
@@ -20,8 +20,6 @@ Albert Einstein was a German-born theoretical physicist who developed the theory
 ```
 Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.
 ```
-
-**Diff Operations Count**: 1
 
 **Rendered Diff with CriticMarkup:**
 
@@ -52,11 +50,9 @@ The quick brown fox jumps over the lazy dog.
 The quick brown fox jumps over the very lazy dog.
 ```
 
-**Diff Operations Count**: 1
-
 **Rendered Diff with CriticMarkup:**
 
-The quick brown fox jumps over the {++very ++}lazy dog.
+{--The quick brown fox jumps over the lazy dog.--}{++The quick brown fox jumps over the very lazy dog.++}
 
 
 
@@ -86,8 +82,6 @@ Machine learning is a subset of artificial intelligence.
 
 Machine learning is a subset of artificial intelligence.
 ```
-
-**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
@@ -128,8 +122,6 @@ Machine learning is a subset of artificial intelligence.
 - Feature 3
 - Feature 4
 ```
-
-**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
@@ -180,8 +172,6 @@ def greet(name):
 ```
 ```
 
-**Diff Operations Count**: 2
-
 **Rendered Diff with CriticMarkup:**
 
 Here's a simple function:
@@ -222,8 +212,6 @@ Visit [our website](https://old-site.com) for more information.
 Visit [our website](https://new-site.com) for more information.
 ```
 
-**Diff Operations Count**: 2
-
 **Rendered Diff with CriticMarkup:**
 
 Visit {--[our website](https://old-site.com)--}{++[our website](https://new-site.com)++} for more information.
@@ -252,8 +240,6 @@ This is *important* text that needs attention.
 ```
 This is **important** text that needs attention.
 ```
-
-**Diff Operations Count**: 2
 
 **Rendered Diff with CriticMarkup:**
 
@@ -286,13 +272,13 @@ This is a long paragraph that contains multiple ideas. It should be split into s
 The first idea is about structure. The second idea is about readability.
 ```
 
-**Diff Operations Count**: 2
-
 **Rendered Diff with CriticMarkup:**
 
-This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.{-- The first idea is about structure. The second idea is about readability.--}
+{~~This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability. The first idea is about structure. The second idea is about readability.
 
-{++The first idea is about structure. The second idea is about readability.
+~>This is a long paragraph that contains multiple ideas. It should be split into separate paragraphs for better readability.
+
+~~}{++The first idea is about structure. The second idea is about readability.
 
 ++}
 
@@ -325,17 +311,19 @@ This is a long paragraph that contains multiple ideas. It should be split into s
 | Jane | 30  | Boston  |
 ```
 
-**Diff Operations Count**: 1
-
 **Rendered Diff with CriticMarkup:**
 
-| Name | Age |{++ City    |++}
-{--|------|-----|
---}{++|------|-----|---------|
-++}| John | 25  |{++ New York|++}
-| Jane | 30  |{++ Boston  |++}
+{~~| Name | Age |
+|------|-----|
+| John | 25  |
+| Jane | 30  |
 
+~>| Name | Age | City    |
+|------|-----|---------|
+| John | 25  | New York|
+| Jane | 30  | Boston  |
 
+~~}
 
 > **Note**: The diff above uses CriticMarkup syntax where:
 > - `{--deleted text--}` shows removed content
@@ -371,8 +359,6 @@ For more information, visit [our docs](https://docs.example.com).
 ```
 
 ```
-
-**Diff Operations Count**: 6
 
 **Rendered Diff with CriticMarkup:**
 

@@ -43,11 +43,11 @@ export function CriticMarkupRenderer({ content, className = '' }: CriticMarkupRe
         </span>
       );
     } else if (type === '++') {
-      // Inserted text - green with underline
+      // Inserted text - green without underline
       parts.push(
         <span
           key={`ins-${match.index}`}
-          className="bg-green-100 text-green-800 underline px-1 rounded whitespace-pre-wrap"
+          className="bg-green-100 text-green-800 px-1 rounded whitespace-pre-wrap"
           title="Inserted text"
         >
           {innerContent}
@@ -75,7 +75,7 @@ export function CriticMarkupRenderer({ content, className = '' }: CriticMarkupRe
                   {oldText}
                 </div>
               </div>
-              <div className="bg-purple-100 text-purple-800 underline px-2 py-1 rounded whitespace-pre-wrap border-l-4 border-purple-300">
+              <div className="bg-purple-100 text-purple-800 px-2 py-1 rounded whitespace-pre-wrap border-l-4 border-purple-300">
                 {newText}
               </div>
             </div>
@@ -92,7 +92,7 @@ export function CriticMarkupRenderer({ content, className = '' }: CriticMarkupRe
                 {oldText}
               </span>
               <span className="text-gray-500">→</span>
-              <span className="bg-purple-100 text-purple-800 underline px-1 rounded whitespace-pre-wrap">
+              <span className="bg-purple-100 text-purple-800 px-1 rounded whitespace-pre-wrap">
                 {newText}
               </span>
             </span>
