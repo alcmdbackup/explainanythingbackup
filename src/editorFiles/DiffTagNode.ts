@@ -1,23 +1,30 @@
 import type {EditorConfig, LexicalEditor, NodeKey, DOMConversionMap, DOMConversionOutput, DOMExportOutput} from "lexical";
 import {ElementNode, LexicalNode, $isTextNode} from "lexical";
 
-type DiffTag = "ins" | "del";
+type DiffTag = "ins" | "del" | "update";
 
 export class DiffTagNode extends ElementNode {
   __tag: DiffTag;
+  __beforeText?: string; // For update nodes: the original text
+  __afterText?: string;  // For update nodes: the replacement text
 
   static getType(): string {
     return "diff-tag";
   }
 
   static clone(node: DiffTagNode): DiffTagNode {
-    return new DiffTagNode(node.__tag, node.__key);
+    const cloned = new DiffTagNode(node.__tag, node.__key);
+    cloned.__beforeText = node.__beforeText;
+    cloned.__afterText = node.__afterText;
+    return cloned;
   }
 
-  constructor(tag: DiffTag, key?: NodeKey) {
+  constructor(tag: DiffTag, key?: NodeKey, beforeText?: string, afterText?: string) {
     super(key);
     this.__tag = tag;
-    console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key);
+    this.__beforeText = beforeText;
+    this.__afterText = afterText;
+    console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key, "beforeText:", beforeText, "afterText:", afterText);
   }
 
 
@@ -27,8 +34,23 @@ export class DiffTagNode extends ElementNode {
 
   /** Map this node → CriticMarkup when exporting to markdown */
   exportMarkdown() {
-    // Instead of using getTextContent() which strips formatting,
-    // we need to traverse child text nodes and preserve their formatting
+    if (this.__tag === "update") {
+      // For update nodes, use the stored before/after text
+      const beforeText = this.__beforeText || '';
+      const afterText = this.__afterText || '';
+      const result = `{~~${beforeText}~>${afterText}~~}`;
+      
+      console.log("📤 DiffTagNode.exportMarkdown() called for UPDATE");
+      console.log("🏷️ Tag type:", this.__tag);
+      console.log("📝 Before text:", JSON.stringify(beforeText));
+      console.log("📝 After text:", JSON.stringify(afterText));
+      console.log("🎯 Generated CriticMarkup:", JSON.stringify(result));
+      console.log("🔑 Node key:", this.getKey());
+      
+      return result;
+    }
+    
+    // For ins/del nodes, use the existing logic with child text formatting
     let formattedContent = '';
     
     this.getChildren().forEach((child: any) => {
@@ -72,21 +94,28 @@ export class DiffTagNode extends ElementNode {
 
   // JSON round-trip (editorState persistence)
   static importJSON(json: any): DiffTagNode {
-    return new DiffTagNode(json.tag as DiffTag);
+    return new DiffTagNode(json.tag as DiffTag, json.key, json.beforeText, json.afterText);
   }
   exportJSON() {
-    return {...super.exportJSON(), type: "diff-tag", version: 1, tag: this.__tag};
+    return {...super.exportJSON(), type: "diff-tag", version: 1, tag: this.__tag, beforeText: this.__beforeText, afterText: this.__afterText};
   }
 
   /**
    * Creates DOM element for rendering the DiffTagNode
-   * • Creates <ins> or <del> HTML elements based on the tag type
+   * • Creates <ins>, <del>, or <span> HTML elements based on the tag type
    * • Applies appropriate styling classes for visual distinction
    * • Preserves newlines with whitespace-pre-wrap for proper formatting
    * • Used by Lexical to render the node in the DOM
    * • Called by: Lexical's rendering system
    */
   createDOM(): HTMLElement {
+    if (this.__tag === "update") {
+      // For update nodes, create a span with special styling
+      const element = document.createElement("span");
+      element.className = "inline-flex items-center gap-1 bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      return element;
+    }
+    
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
       ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap" 
@@ -102,7 +131,9 @@ export class DiffTagNode extends ElementNode {
    * • Called by: Lexical's update system
    */
   updateDOM(prevNode: DiffTagNode): boolean {
-    return prevNode.__tag !== this.__tag;
+    return prevNode.__tag !== this.__tag || 
+           prevNode.__beforeText !== this.__beforeText || 
+           prevNode.__afterText !== this.__afterText;
   }
 
   /**
@@ -113,6 +144,13 @@ export class DiffTagNode extends ElementNode {
    * • Called by: Lexical's export system
    */
   exportDOM(): DOMExportOutput {
+    if (this.__tag === "update") {
+      // For update nodes, create a span with special styling
+      const element = document.createElement("span");
+      element.className = "inline-flex items-center gap-1 bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      return { element };
+    }
+    
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
       ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap" 
@@ -122,7 +160,7 @@ export class DiffTagNode extends ElementNode {
 
   /**
    * Converts DOM element back to DiffTagNode
-   * • Handles conversion from HTML <ins>/<del> elements
+   * • Handles conversion from HTML <ins>/<del>/<span> elements
    * • Used by Lexical for HTML import functionality
    * • Called by: Lexical's import system
    */
@@ -136,19 +174,32 @@ export class DiffTagNode extends ElementNode {
         conversion: convertDiffTagElement,
         priority: 1,
       }),
+      span: () => ({
+        conversion: convertDiffTagElement,
+        priority: 1,
+      }),
     };
   }
 }
 
 /**
  * Converts DOM element to DiffTagNode
- * • Determines tag type from element tagName
+ * • Determines tag type from element tagName or CSS classes
  * • Creates new DiffTagNode with appropriate tag
  * • Used by importDOM for HTML conversion
  * • Called by: Lexical's DOM import system
  */
 function convertDiffTagElement(domNode: HTMLElement): DOMConversionOutput {
-  const tag = domNode.tagName.toLowerCase() as DiffTag;
+  const tagName = domNode.tagName.toLowerCase();
+  
+  // Check if it's a span with update styling (orange background)
+  if (tagName === 'span' && domNode.className.includes('bg-orange-50')) {
+    const node = $createDiffTagNode('update');
+    return { node };
+  }
+  
+  // For ins/del elements, use the tagName directly
+  const tag = tagName as DiffTag;
   const node = $createDiffTagNode(tag);
   return { node };
 }
@@ -159,8 +210,8 @@ function convertDiffTagElement(domNode: HTMLElement): DOMConversionOutput {
  * • Used by other parts of the codebase to create diff nodes
  * • Called by: CRITIC_MARKUP transformer, import functions
  */
-export function $createDiffTagNode(tag: DiffTag): DiffTagNode {
-  return new DiffTagNode(tag);
+export function $createDiffTagNode(tag: DiffTag, beforeText?: string, afterText?: string): DiffTagNode {
+  return new DiffTagNode(tag, undefined, beforeText, afterText);
 }
 
 /**

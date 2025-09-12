@@ -182,15 +182,16 @@ import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
  * Custom transformer for CriticMarkup syntax
  * - Parses {--deleted text--} into DiffTagNode with "del" tag
  * - Parses {++inserted text++} into DiffTagNode with "ins" tag
+ * - Parses {~~old~>new~~} into DiffTagNode with "update" tag
  * - Uses proper text replacement mechanism for accurate node positioning
  * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodes
  */
 export const CRITIC_MARKUP: TextMatchTransformer = {
   type: "text-match",
   trigger: "{",
-  // Match {++...++} or {--...--}, non-greedy, multiline
-  regExp: /\{([+-]{2})([\s\S]+?)\1\}/,
-  importRegExp: /\{([+-]{2})([\s\S]+?)\1\}/,
+  // Match {++...++}, {--...--}, or {~~...~>...~~}, non-greedy, multiline
+  regExp: /\{([+-~]{2})([\s\S]+?)\1\}/,
+  importRegExp: /\{([+-~]{2})([\s\S]+?)\1\}/,
   replace: (textNode, match) => {
     console.log("🔍 CRITIC_MARKUP replace called");
     console.log("📝 TextNode content:", JSON.stringify(textNode.getTextContent()));
@@ -203,8 +204,8 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
     console.log("📄 Inner content preview:", JSON.stringify(match[2]?.substring(0, 100)));
     console.log("🔍 Match index in TextNode:", textNode.getTextContent().indexOf(match[0]));
     
-    // match[0] = full "{++...++}" or "{--...--}"
-    // match[1] = "++" or "--"
+    // match[0] = full "{++...++}", "{--...--}", or "{~~...~>...~~}"
+    // match[1] = "++", "--", or "~~"
     // match[2] = inner content
     const marks = match[1]!;
     let inner = match[2] ?? "";
@@ -214,6 +215,30 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
       inner = inner.replace(/\\n/g, '\n');
     }
 
+    if (marks === "~~") {
+      // Handle update syntax: {~~old~>new~~}
+      const updateParts = inner.split('~>');
+      if (updateParts.length === 2) {
+        const [beforeText, afterText] = updateParts;
+        console.log("🏷️ Creating DiffTagNode with tag: update");
+        console.log("📝 Before text:", JSON.stringify(beforeText));
+        console.log("📝 After text:", JSON.stringify(afterText));
+        
+        const diff = $createDiffTagNode("update", beforeText, afterText);
+        
+        // Simply replace the text node with our diff node
+        console.log("🔄 Replacing text node with update diff node");
+        textNode.replace(diff);
+        console.log("✅ Replace operation completed for update");
+        return;
+      } else {
+        console.log("⚠️ Malformed update syntax, falling back to regular text");
+        // Fallback: treat as regular text
+        return;
+      }
+    }
+
+    // Handle insert/delete syntax: {++...++} or {--...--}
     const tag = marks === "++" ? "ins" : "del";
     console.log("🏷️ Creating DiffTagNode with tag:", tag);
     
@@ -283,7 +308,7 @@ export function debugCriticMarkupMatching(text: string): void {
   console.log("📝 Text length:", text.length);
   console.log("📝 Text preview:", text.substring(0, 200) + "...");
   
-  const regex = /\{([+-]{2})([\s\S]+?)\1\}/g;
+  const regex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
   let match;
   let matchCount = 0;
   
@@ -295,6 +320,17 @@ export function debugCriticMarkupMatching(text: string): void {
     console.log("  Inner content length:", match[2]?.length);
     console.log("  Inner content preview:", match[2]?.substring(0, 100) + "...");
     console.log("  Match index:", match.index);
+    
+    // Special handling for update patterns
+    if (match[1] === "~~") {
+      const updateParts = match[2]?.split('~>');
+      if (updateParts && updateParts.length === 2) {
+        console.log("  Update - Before text:", updateParts[0]);
+        console.log("  Update - After text:", updateParts[1]);
+      } else {
+        console.log("  ⚠️  Malformed update pattern");
+      }
+    }
     console.log("---");
   }
   
@@ -310,8 +346,8 @@ export function debugCriticMarkupMatching(text: string): void {
  */
 export function preprocessCriticMarkup(markdown: string): string {
   // Regex to match multiline CriticMarkup patterns
-  // This matches {--...--} or {++...++} that may span multiple lines
-  const multilineCriticMarkupRegex = /\{([+-]{2})([\s\S]*?)\1\}/g;
+  // This matches {--...--}, {++...++}, or {~~...~>...~~} that may span multiple lines
+  const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\}/g;
   
   return markdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
     // Check if the content contains actual newlines (not just \n characters)
