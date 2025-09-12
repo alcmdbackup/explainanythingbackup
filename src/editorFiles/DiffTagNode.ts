@@ -50,7 +50,7 @@ export class DiffTagNode extends ElementNode {
       return result;
     }
     
-    // For ins/del nodes, use the existing logic with child text formatting
+    // For ins/del nodes, properly handle all markdown elements
     let formattedContent = '';
     
     this.getChildren().forEach((child: any) => {
@@ -73,8 +73,8 @@ export class DiffTagNode extends ElementNode {
         
         formattedContent += text;
       } else {
-        // For non-text nodes, just get the text content
-        formattedContent += child.getTextContent();
+        // For non-text nodes, recursively export their markdown content
+        formattedContent += this.exportNodeToMarkdown(child);
       }
     });
     
@@ -90,6 +90,77 @@ export class DiffTagNode extends ElementNode {
     console.log("🔑 Node key:", this.getKey());
     
     return result;
+  }
+
+  /**
+   * Recursively exports a node to markdown format
+   * • Handles different node types (headings, lists, paragraphs, etc.)
+   * • Preserves markdown formatting for all element types
+   * • Used by exportMarkdown to properly handle nested markdown elements
+   * • Called by: exportMarkdown method
+   */
+  private exportNodeToMarkdown(node: any): string {
+    const nodeType = node.getType();
+    
+    // Handle headings
+    if (nodeType === 'heading') {
+      const level = node.getTag();
+      const headingLevel = level === 'h1' ? 1 : level === 'h2' ? 2 : level === 'h3' ? 3 : 
+                          level === 'h4' ? 4 : level === 'h5' ? 5 : 6;
+      const text = node.getTextContent();
+      return '#'.repeat(headingLevel) + ' ' + text;
+    }
+    
+    // Handle paragraphs
+    if (nodeType === 'paragraph') {
+      return node.getTextContent();
+    }
+    
+    // Handle lists
+    if (nodeType === 'list') {
+      const listType = node.getListType();
+      let result = '';
+      node.getChildren().forEach((child: any, index: number) => {
+        if (child.getType() === 'listitem') {
+          const marker = listType === 'bullet' ? '- ' : `${index + 1}. `;
+          result += marker + child.getTextContent() + '\n';
+        }
+      });
+      return result;
+    }
+    
+    // Handle quotes
+    if (nodeType === 'quote') {
+      const text = node.getTextContent();
+      return text.split('\n').map((line: string) => line ? '> ' + line : '>').join('\n');
+    }
+    
+    // Handle code blocks
+    if (nodeType === 'code') {
+      const text = node.getTextContent();
+      return '```\n' + text + '\n```';
+    }
+    
+    // Handle inline code
+    if (nodeType === 'inline-code') {
+      const text = node.getTextContent();
+      return '`' + text + '`';
+    }
+    
+    // Handle links
+    if (nodeType === 'link') {
+      const text = node.getTextContent();
+      const url = node.getURL();
+      return `[${text}](${url})`;
+    }
+    
+    // Handle horizontal rules
+    if (nodeType === 'horizontalrule') {
+      return '---';
+    }
+    
+    // For any other node type, try to get text content
+    return node.getTextContent();
   }
 
   // JSON round-trip (editorState persistence)
