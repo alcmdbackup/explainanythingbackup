@@ -4,8 +4,7 @@ import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor
 import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
-import { createUnifiedDiff, renderAnnotatedMarkdown } from '../../editorFiles/diffUtils';
-import { diffMdast, renderCriticMarkup } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
+import { renderCriticMarkup } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { CriticMarkupRenderer } from '../../components/CriticMarkupRenderer';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
@@ -24,12 +23,9 @@ export default function EditorTestPage() {
     const [appliedEdits, setAppliedEdits] = useState<string>('');
     const [isApplyingEdits, setIsApplyingEdits] = useState<boolean>(false);
     const [applyError, setApplyError] = useState<string>('');
-    const [diffResult, setDiffResult] = useState<ReturnType<typeof createUnifiedDiff> | null>(null);
-    const [diffMarkdown, setDiffMarkdown] = useState<string>('');
     const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
     const [diffError, setDiffError] = useState<string>('');
     const [markdownASTDiffResult, setMarkdownASTDiffResult] = useState<string>('');
-    const [useMarkdownASTDiff, setUseMarkdownASTDiff] = useState<boolean>(true);
     const [isMarkdownMode, setIsMarkdownMode] = useState<boolean>(true);
     const editorRef = useRef<LexicalEditorRef>(null);
 
@@ -163,46 +159,26 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
         setIsApplyingDiff(true);
         setDiffError('');
-        setDiffResult(null);
-        setDiffMarkdown('');
         setMarkdownASTDiffResult('');
 
         try {
-            if (useMarkdownASTDiff) {
-                // Use markdown AST diff
-                const processor = unified().use(remarkParse);
-                const beforeAST = processor.parse(currentContent) as any;
-                const afterAST = processor.parse(appliedEdits) as any;
-                
-                const criticMarkup = renderCriticMarkup(beforeAST, afterAST);
-                setMarkdownASTDiffResult(criticMarkup);
-                
-                // Print the markdown with CriticMarkup to console
-                console.log('📝 Diff Applied - Markdown with CriticMarkup (AST Diff):');
-                console.log(criticMarkup);
-                
-                logger.debug('Markdown AST diff applied successfully', {
-                    beforeLength: currentContent.length,
-                    afterLength: appliedEdits.length,
-                    criticMarkupLength: criticMarkup.length
-                });
-            } else {
-                // Use original diff utilities
-                const result = createUnifiedDiff(currentContent, appliedEdits);
-                setDiffResult(result);
-                
-                // Generate markdown output using renderAnnotatedMarkdown
-                const markdownOutput = renderAnnotatedMarkdown(result.atoms);
-                setDiffMarkdown(markdownOutput);
-                
-                // Print the markdown with CriticMarkup to console
-                console.log('📝 Diff Applied - Markdown with CriticMarkup (Unified Diff):');
-                console.log(markdownOutput);
-                
-                logger.debug('Unified diff applied successfully', {
-                    totalAtoms: result.atoms.length
-                });
-            }
+            // Use markdown AST diff
+            const processor = unified().use(remarkParse);
+            const beforeAST = processor.parse(currentContent) as any;
+            const afterAST = processor.parse(appliedEdits) as any;
+            
+            const criticMarkup = renderCriticMarkup(beforeAST, afterAST);
+            setMarkdownASTDiffResult(criticMarkup);
+            
+            // Print the markdown with CriticMarkup to console
+            console.log('📝 Diff Applied - Markdown with CriticMarkup (AST Diff):');
+            console.log(criticMarkup);
+            
+            logger.debug('Markdown AST diff applied successfully', {
+                beforeLength: currentContent.length,
+                afterLength: appliedEdits.length,
+                criticMarkupLength: criticMarkup.length
+            });
         } catch (error) {
             setDiffError(error instanceof Error ? error.message : 'An unexpected error occurred while applying diff');
         } finally {
@@ -396,35 +372,15 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                             </h3>
                             <div className="text-purple-800 dark:text-purple-200 text-sm space-y-4">
                                 <p>
-                                    Apply a diff between the original content and the applied edits using either markdown AST diff or traditional line/word diff.
+                                    Apply a diff between the original content and the applied edits using markdown AST diff.
                                 </p>
                                 
-                                <div className="flex items-center space-x-4 mb-4">
-                                    <div className="flex items-center space-x-2">
-                                        <span className="text-sm text-purple-600 dark:text-purple-400">Traditional Diff</span>
-                                        <button
-                                            onClick={() => setUseMarkdownASTDiff(!useMarkdownASTDiff)}
-                                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 ${
-                                                useMarkdownASTDiff 
-                                                    ? 'bg-purple-600' 
-                                                    : 'bg-gray-200 dark:bg-gray-700'
-                                            }`}
-                                        >
-                                            <span
-                                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                                    useMarkdownASTDiff ? 'translate-x-6' : 'translate-x-1'
-                                                }`}
-                                            />
-                                        </button>
-                                        <span className="text-sm text-purple-600 dark:text-purple-400">Markdown AST Diff</span>
-                                    </div>
-                                </div>
                                 
                                 <div className="flex flex-wrap gap-2">
                                     <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
                                         Original content: {currentContent.length} characters | 
                                         Applied edits: {appliedEdits.length} characters |
-                                        Method: {useMarkdownASTDiff ? 'Markdown AST' : 'Traditional'} |
+                                        Method: Markdown AST |
                                         Button disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'}
                                     </div>
                                     <button
@@ -448,10 +404,9 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     </div>
                                 )}
 
-                                {(diffResult || markdownASTDiffResult) && (
+                                {markdownASTDiffResult && (
                                     <div className="mt-4 space-y-4">
-                                        {useMarkdownASTDiff && markdownASTDiffResult && (
-                                            <div>
+                                        <div>
                                                 <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
                                                     Markdown AST Diff Result (CriticMarkup):
                                                 </h4>
@@ -479,50 +434,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                                     </button>
                                                 </div>
                                             </div>
-                                        )}
 
-                                        {!useMarkdownASTDiff && diffResult && (
-                                            <>
-                                                <div className="bg-purple-100 dark:bg-purple-800/30 rounded-md p-3">
-                                                    <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
-                                                        Traditional Diff Summary:
-                                                    </h4>
-                                                    <div className="text-sm space-y-1">
-                                                        <p>Total atoms: {diffResult.atoms.length}</p>
-                                                    </div>
-                                                </div>
-
-                                                <div>
-                                                    <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
-                                                        Annotated Markdown Diff:
-                                                    </h4>
-                                                    <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
-                                                        <pre 
-                                                            className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap"
-                                                        >
-                                                            {diffMarkdown}
-                                                        </pre>
-                                                    </div>
-                                                    <div className="mt-4">
-                                                        <button
-                                                            onClick={() => {
-                                                                if (editorRef.current && diffMarkdown) {
-                                                                    editorRef.current.setContentFromMarkdown(diffMarkdown);
-                                                                }
-                                                            }}
-                                                            disabled={!diffMarkdown}
-                                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                                !diffMarkdown
-                                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                                                            }`}
-                                                        >
-                                                            Update Editor with Traditional Diff Markdown
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
                                     </div>
                                 )}
                             </div>
