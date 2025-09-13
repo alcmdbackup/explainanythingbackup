@@ -21,7 +21,7 @@ export class DiffTagNode extends ElementNode {
     console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key);
   }
 
-
+  
   isInline(): boolean {
     return true;
   }
@@ -192,9 +192,9 @@ export class DiffTagNode extends ElementNode {
    */
   createDOM(): HTMLElement {
     if (this.__tag === "update") {
-      // For update nodes, create a span container with purple background
+      // For update nodes, create a span container with specific class for CSS targeting
       const element = document.createElement("span");
-      element.className = "inline-block bg-purple-100 border border-purple-200 rounded px-1 whitespace-pre-wrap";
+      element.className = "update-diff-node inline-block rounded px-1 whitespace-pre-wrap";
       
       // Let Lexical handle rendering the children automatically
       return element;
@@ -232,9 +232,9 @@ export class DiffTagNode extends ElementNode {
    */
   exportDOM(): DOMExportOutput {
     if (this.__tag === "update") {
-      // For update nodes, create a span container with purple background
+      // For update nodes, create a span container with specific class for CSS targeting
       const element = document.createElement("span");
-      element.className = "inline-block bg-purple-100 border border-purple-200 rounded px-1 whitespace-pre-wrap";
+      element.className = "update-diff-node inline-block rounded px-1 whitespace-pre-wrap";
       
       // Let Lexical handle rendering the children automatically
       return { element };

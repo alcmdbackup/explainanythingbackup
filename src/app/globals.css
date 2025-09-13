@@ -166,3 +166,26 @@ body {
     background-color: rgb(31 41 55) !important;
   }
 }
+
+/* Update diff node styling - first child (before text) */
+.update-diff-node > *:first-child {
+  background-color: #fed7aa; /* orange-200 */
+}
+
+/* Update diff node styling - second child (after text) */
+.update-diff-node > *:nth-child(2) {
+  background-color: #bfdbfe; /* blue-200 */
+}
+
+/* Dark mode update diff node styling */
+@media (prefers-color-scheme: dark) {
+  .update-diff-node > *:first-child {
+    background-color: #9a3412; /* orange-800 */
+    color: #fed7aa; /* orange-200 */
+  }
+  
+  .update-diff-node > *:nth-child(2) {
+    background-color: #1e3a8a; /* blue-800 */
+    color: #bfdbfe; /* blue-200 */
+  }
+}
