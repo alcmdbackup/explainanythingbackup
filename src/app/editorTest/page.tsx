@@ -407,34 +407,45 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 {markdownASTDiffResult && (
                                     <div className="mt-4 space-y-4">
                                         <div>
-                                                <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
-                                                    Markdown AST Diff Result (CriticMarkup):
-                                                </h4>
-                                                <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
-                                                    <CriticMarkupRenderer 
-                                                        content={markdownASTDiffResult}
-                                                        className="text-purple-900 dark:text-purple-100"
-                                                    />
-                                                </div>
-                                                <div className="mt-4">
-                                                    <button
-                                                        onClick={() => {
-                                                            if (editorRef.current && markdownASTDiffResult) {
-                                                                editorRef.current.setContentFromMarkdown(markdownASTDiffResult);
-                                                            }
-                                                        }}
-                                                        disabled={!markdownASTDiffResult}
-                                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                            !markdownASTDiffResult
-                                                                ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                                : 'bg-blue-600 hover:bg-blue-700 text-white'
-                                                        }`}
-                                                    >
-                                                        Update Editor with AST Diff Markdown
-                                                    </button>
-                                                </div>
+                                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
+                                                Raw Markdown (CriticMarkup):
+                                            </h4>
+                                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
+                                                <pre className="text-sm text-purple-900 dark:text-purple-100 whitespace-pre-wrap font-mono">
+                                                    {markdownASTDiffResult}
+                                                </pre>
                                             </div>
-
+                                        </div>
+                                        
+                                        <div>
+                                            <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-2">
+                                                Rendered Diff (CriticMarkup):
+                                            </h4>
+                                            <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-purple-300 dark:border-purple-600">
+                                                <CriticMarkupRenderer 
+                                                    content={markdownASTDiffResult}
+                                                    className="text-purple-900 dark:text-purple-100"
+                                                />
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="mt-4">
+                                            <button
+                                                onClick={() => {
+                                                    if (editorRef.current && markdownASTDiffResult) {
+                                                        editorRef.current.setContentFromMarkdown(markdownASTDiffResult);
+                                                    }
+                                                }}
+                                                disabled={!markdownASTDiffResult}
+                                                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                    !markdownASTDiffResult
+                                                        ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                                }`}
+                                            >
+                                                Update Editor with AST Diff Markdown
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                             </div>
