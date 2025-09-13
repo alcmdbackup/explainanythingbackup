@@ -66,9 +66,23 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
         $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterContainer);
         console.log("✅ After container children count:", afterContainer.getChildrenSize());
         
-        // Append the containers to the diff node
-        diff.append(beforeContainer);
-        diff.append(afterContainer);
+        // Move children from containers to diff node
+        const beforeChildren = beforeContainer.getChildren();
+        const afterChildren = afterContainer.getChildren();
+        
+        // Append all before children to diff
+        beforeChildren.forEach(child => {
+          diff.append(child);
+        });
+        
+        // Append all after children to diff
+        afterChildren.forEach(child => {
+          diff.append(child);
+        });
+        
+        // Remove the now-empty containers
+        beforeContainer.remove();
+        afterContainer.remove();
         console.log("✅ Final diff node children count:", diff.getChildrenSize());
         console.log("📝 Final diff children:", diff.getChildren().map(child => ({
           type: child.getType(),
