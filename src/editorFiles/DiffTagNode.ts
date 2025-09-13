@@ -5,8 +5,6 @@ type DiffTag = "ins" | "del" | "update";
 
 export class DiffTagNode extends ElementNode {
   __tag: DiffTag;
-  __beforeText?: string; // For update nodes: the original text
-  __afterText?: string;  // For update nodes: the replacement text
 
   static getType(): string {
     return "diff-tag";
@@ -14,17 +12,13 @@ export class DiffTagNode extends ElementNode {
 
   static clone(node: DiffTagNode): DiffTagNode {
     const cloned = new DiffTagNode(node.__tag, node.__key);
-    cloned.__beforeText = node.__beforeText;
-    cloned.__afterText = node.__afterText;
     return cloned;
   }
 
-  constructor(tag: DiffTag, key?: NodeKey, beforeText?: string, afterText?: string) {
+  constructor(tag: DiffTag, key?: NodeKey) {
     super(key);
     this.__tag = tag;
-    this.__beforeText = beforeText;
-    this.__afterText = afterText;
-    console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key, "beforeText:", beforeText, "afterText:", afterText);
+    console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key);
   }
 
 
@@ -35,19 +29,36 @@ export class DiffTagNode extends ElementNode {
   /** Map this node → CriticMarkup when exporting to markdown */
   exportMarkdown() {
     if (this.__tag === "update") {
-      // For update nodes, use the stored before/after text
-      const beforeText = this.__beforeText || '';
-      const afterText = this.__afterText || '';
-      const result = `{~~${beforeText}~>${afterText}~~}`;
-      
+      // For update nodes, get before/after text from child nodes
+      const children = this.getChildren();
       console.log("📤 DiffTagNode.exportMarkdown() called for UPDATE");
-      console.log("🏷️ Tag type:", this.__tag);
-      console.log("📝 Before text:", JSON.stringify(beforeText));
-      console.log("📝 After text:", JSON.stringify(afterText));
-      console.log("🎯 Generated CriticMarkup:", JSON.stringify(result));
-      console.log("🔑 Node key:", this.getKey());
+      console.log("🔍 Children count:", children.length);
+      console.log("🔍 Children details:", children.map((child, index) => ({
+        index,
+        type: child.getType(),
+        textContent: child.getTextContent(),
+        childrenCount: 'getChildrenSize' in child ? (child as any).getChildrenSize() : 'N/A'
+      })));
       
-      return result;
+      if (children.length >= 2) {
+        // First child contains the "before" text
+        const beforeText = this.exportNodeToMarkdown(children[0]);
+        // Second child contains the "after" text  
+        const afterText = this.exportNodeToMarkdown(children[1]);
+        const result = `{~~${beforeText}~>${afterText}~~}`;
+        
+        console.log("🏷️ Tag type:", this.__tag);
+        console.log("📝 Before text:", JSON.stringify(beforeText));
+        console.log("📝 After text:", JSON.stringify(afterText));
+        console.log("🎯 Generated CriticMarkup:", JSON.stringify(result));
+        console.log("🔑 Node key:", this.getKey());
+        
+        return result;
+      } else {
+        console.log("⚠️ Update node has insufficient children, falling back to empty strings");
+        console.log("⚠️ Expected 2 children, got:", children.length);
+        return `{~~${''}~>${''}~~}`;
+      }
     }
     
     // For ins/del nodes, properly handle all markdown elements
@@ -165,10 +176,10 @@ export class DiffTagNode extends ElementNode {
 
   // JSON round-trip (editorState persistence)
   static importJSON(json: any): DiffTagNode {
-    return new DiffTagNode(json.tag as DiffTag, json.key, json.beforeText, json.afterText);
+    return new DiffTagNode(json.tag as DiffTag, json.key);
   }
   exportJSON() {
-    return {...super.exportJSON(), type: "diff-tag", version: 1, tag: this.__tag, beforeText: this.__beforeText, afterText: this.__afterText};
+    return {...super.exportJSON(), type: "diff-tag", version: 1, tag: this.__tag};
   }
 
   /**
@@ -181,26 +192,11 @@ export class DiffTagNode extends ElementNode {
    */
   createDOM(): HTMLElement {
     if (this.__tag === "update") {
-      // For update nodes, create a span with vertically stacked before/after text content
+      // For update nodes, create a span container with purple background
       const element = document.createElement("span");
-      element.className = "inline-block bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      element.className = "inline-block bg-purple-100 border border-purple-200 rounded px-1 whitespace-pre-wrap";
       
-      // Add the before and after text content
-      const beforeText = this.__beforeText || '';
-      const afterText = this.__afterText || '';
-      
-      // Create spans for before and after text with appropriate styling, stacked vertically
-      const beforeSpan = document.createElement("div");
-      beforeSpan.className = "bg-orange-100 text-orange-800 line-through px-1 rounded mb-1";
-      beforeSpan.textContent = beforeText;
-      
-      const afterSpan = document.createElement("div");
-      afterSpan.className = "bg-purple-100 text-purple-800 px-1 rounded";
-      afterSpan.textContent = afterText;
-      
-      element.appendChild(beforeSpan);
-      element.appendChild(afterSpan);
-      
+      // Let Lexical handle rendering the children automatically
       return element;
     }
     
@@ -223,10 +219,9 @@ export class DiffTagNode extends ElementNode {
    * • Called by: Lexical's update system
    */
   updateDOM(prevNode: DiffTagNode): boolean {
-    return prevNode.__tag !== this.__tag || 
-           prevNode.__beforeText !== this.__beforeText || 
-           prevNode.__afterText !== this.__afterText;
+    return prevNode.__tag !== this.__tag;
   }
+
 
   /**
    * Exports node to DOM for serialization
@@ -237,26 +232,11 @@ export class DiffTagNode extends ElementNode {
    */
   exportDOM(): DOMExportOutput {
     if (this.__tag === "update") {
-      // For update nodes, create a span with vertically stacked before/after text content
+      // For update nodes, create a span container with purple background
       const element = document.createElement("span");
-      element.className = "inline-block bg-orange-50 border border-orange-200 rounded px-1 whitespace-pre-wrap";
+      element.className = "inline-block bg-purple-100 border border-purple-200 rounded px-1 whitespace-pre-wrap";
       
-      // Add the before and after text content
-      const beforeText = this.__beforeText || '';
-      const afterText = this.__afterText || '';
-      
-      // Create spans for before and after text with appropriate styling, stacked vertically
-      const beforeSpan = document.createElement("div");
-      beforeSpan.className = "bg-orange-100 text-orange-800 line-through px-1 rounded mb-1";
-      beforeSpan.textContent = beforeText;
-      
-      const afterSpan = document.createElement("div");
-      afterSpan.className = "bg-purple-100 text-purple-800 px-1 rounded";
-      afterSpan.textContent = afterText;
-      
-      element.appendChild(beforeSpan);
-      element.appendChild(afterSpan);
-      
+      // Let Lexical handle rendering the children automatically
       return { element };
     }
     
@@ -323,8 +303,8 @@ function convertDiffTagElement(domNode: HTMLElement): DOMConversionOutput {
  * • Used by other parts of the codebase to create diff nodes
  * • Called by: CRITIC_MARKUP transformer, import functions
  */
-export function $createDiffTagNode(tag: DiffTag, beforeText?: string, afterText?: string): DiffTagNode {
-  return new DiffTagNode(tag, undefined, beforeText, afterText);
+export function $createDiffTagNode(tag: DiffTag): DiffTagNode {
+  return new DiffTagNode(tag, undefined);
 }
 
 /**

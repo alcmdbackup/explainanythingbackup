@@ -1,5 +1,7 @@
 // npm i diff
 import * as Diff from "diff";
+import { $convertFromMarkdownString } from "@lexical/markdown";
+import { MARKDOWN_TRANSFORMERS } from "./markdownTransformers";
 
 /** Each atom is emitted in reading order. No external offsets needed. */
 export type Atom =
@@ -173,7 +175,7 @@ export function renderAnnotatedMarkdown(
 }
 
 import type { TextMatchTransformer, ElementTransformer } from "@lexical/markdown";
-import { $createTextNode, TextNode, LexicalNode } from "lexical";
+import { $createTextNode, TextNode, LexicalNode, $createParagraphNode } from "lexical";
 import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
 
 
@@ -224,7 +226,31 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
         console.log("📝 Before text:", JSON.stringify(beforeText));
         console.log("📝 After text:", JSON.stringify(afterText));
         
-        const diff = $createDiffTagNode("update", beforeText, afterText);
+        const diff = $createDiffTagNode("update");
+        console.log("🔍 Created empty DiffTagNode, children count:", diff.getChildrenSize());
+        
+        // Create separate container nodes for before and after text
+        const beforeContainer = $createParagraphNode();
+        const afterContainer = $createParagraphNode();
+        
+        // Parse before and after text into their respective containers
+        console.log("🔄 Calling convertFromMarkdownString for beforeText...");
+        $convertFromMarkdownString(beforeText, MARKDOWN_TRANSFORMERS, beforeContainer);
+        console.log("✅ Before container children count:", beforeContainer.getChildrenSize());
+        
+        console.log("🔄 Calling convertFromMarkdownString for afterText...");
+        $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterContainer);
+        console.log("✅ After container children count:", afterContainer.getChildrenSize());
+        
+        // Append the containers to the diff node
+        diff.append(beforeContainer);
+        diff.append(afterContainer);
+        console.log("✅ Final diff node children count:", diff.getChildrenSize());
+        console.log("📝 Final diff children:", diff.getChildren().map(child => ({
+          type: child.getType(),
+          textContent: child.getTextContent(),
+          childrenCount: 'getChildrenSize' in child ? (child as any).getChildrenSize() : 'N/A'
+        })));
         
         // Simply replace the text node with our diff node
         console.log("🔄 Replacing text node with update diff node");
