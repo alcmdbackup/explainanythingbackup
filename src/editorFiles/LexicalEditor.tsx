@@ -128,6 +128,57 @@ export function replaceDiffTagNodesAndExportMarkdown(): string {
   return markdown;
 }
 
+/**
+ * Removes trailing <br> tags from text nodes that are children of heading and paragraph elements
+ * 
+ * • Traverses the editor tree recursively to find heading and paragraph nodes
+ * • Identifies text nodes within these elements and removes all trailing <br> tags
+ * • Handles multiple consecutive <br> tags at the end (e.g., <br><br><br>)
+ * • Uses regex pattern to match various <br> tag formats (self-closing, with attributes, etc.)
+ * • Preserves all other content and formatting
+ * • Used by: convertFromMarkdownString cleanup to remove unwanted trailing breaks
+ */
+export function removeTrailingBreaksFromTextNodes(): void {
+  console.log("🧹 removeTrailingBreaksFromTextNodes called");
+  
+  const root = $getRoot();
+  
+  // Recursively process all nodes
+  function processNode(node: any): void {
+    if ($isElementNode(node)) {
+      const nodeType = node.getType();
+      
+      // Check if this is a heading or paragraph node
+      if (nodeType === 'heading' || nodeType === 'paragraph') {
+        console.log(`🔍 Processing ${nodeType} node:`, node.getKey());
+        
+        // Get all text children of this node
+        const children = node.getChildren();
+        children.forEach((child: any) => {
+          if ($isTextNode(child)) {
+            const textContent = child.getTextContent();
+            // Remove all trailing <br> tags (various formats: <br>, <br/>, <br />, with whitespace)
+            // This handles multiple consecutive <br> tags at the end
+            const cleanedText = textContent.replace(/(<br\s*\/?>\s*)+$/g, '');
+            
+            if (textContent !== cleanedText) {
+              console.log(`🧹 Removed trailing <br> from text node:`, JSON.stringify(textContent), "->", JSON.stringify(cleanedText));
+              child.setTextContent(cleanedText);
+            }
+          }
+        });
+      }
+      
+      // Recursively process all children
+      node.getChildren().forEach(processNode);
+    }
+  }
+  
+  // Process all top-level children
+  root.getChildren().forEach(processNode);
+  console.log("✅ removeTrailingBreaksFromTextNodes completed");
+}
+
 // Theme configuration for the editor
 const theme = {
   paragraph: 'mb-1',
@@ -167,6 +218,8 @@ function InitialContentPlugin({
       if (isMarkdownMode) {
         editor.update(() => {
           $convertFromMarkdownString(initialContent, MARKDOWN_TRANSFORMERS);
+          // Clean up trailing <br> tags from heading and paragraph text nodes
+          removeTrailingBreaksFromTextNodes();
         });
       } else {
         editor.update(() => {
@@ -294,6 +347,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           // Preprocess markdown to normalize multiline CriticMarkup
           const preprocessedMarkdown = preprocessCriticMarkup(markdown);
           $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
+          // Clean up trailing <br> tags from heading and paragraph text nodes
+          removeTrailingBreaksFromTextNodes();
         });
       }
     },
@@ -345,6 +400,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           editor.update(() => {
             const preprocessedMarkdown = preprocessCriticMarkup(currentEditorText);
             $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
+            // Clean up trailing <br> tags from heading and paragraph text nodes
+            removeTrailingBreaksFromTextNodes();
           });
         }
         // Note: Don't update internal state here - parent component handles that

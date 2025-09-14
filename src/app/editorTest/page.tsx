@@ -42,6 +42,23 @@ Einstein's most famous equation, **E = mc²**, demonstrates the equivalence of m
 
 Einstein's contributions to physics earned him the Nobel Prize in Physics in 1921, and his work continues to influence scientific research and technological development to this day.`;
 
+    // Test content with trailing <br> tags to test our cleanup function
+    const testContentWithBrTags = `# Test Heading with trailing br<br>
+
+This is a paragraph with trailing br tags<br><br>
+
+## Another heading with br<br>
+
+Another paragraph with multiple br tags<br><br><br>
+
+### Third heading<br>
+
+Final paragraph with br<br>
+
+## Mixed br formats<br/><br />
+
+This tests different br formats<br><br/><br />`;
+
     // Set initial content when component mounts
     useEffect(() => {
         setCurrentContent(defaultContent);
@@ -267,12 +284,25 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 <p>
                                     Get AI-powered suggestions to improve your content. The AI will suggest edits with clear instructions.
                                 </p>
+                                <p className="text-xs text-orange-600 dark:text-orange-400">
+                                    <strong>Test Br Cleanup:</strong> Click this button to load test content with trailing &lt;br&gt; tags and verify they are automatically removed from headings and paragraphs.
+                                </p>
                                 
                                 <div className="flex flex-wrap gap-2">
                                     <div className="text-xs text-orange-600 dark:text-orange-400 mb-2">
                                         Content length: {currentContent.length} characters | 
                                         Button disabled: {isLoadingSuggestions ? 'Yes (loading)' : 'No'}
                                     </div>
+                                    <button
+                                        onClick={() => {
+                                            if (editorRef.current) {
+                                                editorRef.current.setContentFromMarkdown(testContentWithBrTags);
+                                            }
+                                        }}
+                                        className="px-4 py-2 rounded-md font-medium transition-colors bg-yellow-600 hover:bg-yellow-700 text-white"
+                                    >
+                                        Test Br Cleanup
+                                    </button>
                                     <button
                                         onClick={handleGetAISuggestions}
                                         disabled={isLoadingSuggestions}
