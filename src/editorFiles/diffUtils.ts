@@ -237,7 +237,7 @@ export function debugCriticMarkupMatching(text: string): void {
  */
 export function preprocessCriticMarkup(markdown: string): string {
   // First, fix malformed CriticMarkup patterns where content might be attached to closing markers
-  let fixedMarkdown = fixMalformedCriticMarkup(markdown);
+  let fixedMarkdown = markdown
   
   // Then normalize multiline CriticMarkup patterns
   const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\}/g;
@@ -251,23 +251,6 @@ export function preprocessCriticMarkup(markdown: string): string {
     }
     // If no newlines, return the original match unchanged
     return match;
-  });
-}
-
-/**
- * Fixes malformed CriticMarkup patterns where content is attached to closing markers
- * - Handles cases like "~~}## Heading" where the heading is attached to the closing marker
- * - Separates the content from the closing marker to create proper markdown structure
- * - Used by preprocessCriticMarkup to clean up malformed input
- */
-function fixMalformedCriticMarkup(markdown: string): string {
-  // Pattern to match closing CriticMarkup markers with content attached
-  // Matches patterns like "~~}## Heading", "++}text", "--}text"
-  const malformedPattern = /([~+\-]{2})\}([^\n]+)/g;
-  
-  return markdown.replace(malformedPattern, (match, marker, attachedContent) => {
-    // Separate the closing marker from the attached content
-    return `${marker}} ${attachedContent}`;
   });
 }
 
