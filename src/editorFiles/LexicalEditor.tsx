@@ -44,140 +44,12 @@ import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNode and CriticMarkup transformer
 import { DiffTagNode, $isDiffTagNode } from './DiffTagNode';
-import { CRITIC_MARKUP_IMPORT_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup } from './diffUtils';
+import { CRITIC_MARKUP_IMPORT_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
-// Define custom transformers array with only the ones we need
-const MARKDOWN_TRANSFORMERS = [
-  HEADING,
-  QUOTE,
-  CODE,
-  UNORDERED_LIST,
-  ORDERED_LIST,
-  INLINE_CODE,
-  BOLD_STAR,
-  ITALIC_STAR,
-  STRIKETHROUGH,
-  LINK,
-  CRITIC_MARKUP_IMPORT_TRANSFORMER,
-  DIFF_TAG_EXPORT_TRANSFORMER,
-];
 
-/**
- * Replaces DiffTagNodes with their CriticMarkup text representation
- * 
- * • Clears current selection to prevent "selection has been lost" errors
- * • Traverses the editor tree and replaces diff-tag nodes with text nodes containing CriticMarkup
- * • Preserves all other node types and formatting
- * • Used as a preprocessing step before using Lexical's built-in markdown export
- * • Called by: replaceDiffTagNodesAndExportMarkdown function
- */
-export function replaceDiffTagNodes(): void {
-  console.log("🔄 replaceDiffTagNodes called");
-  
-  // Clear the current selection to prevent "selection has been lost" errors
-  // when replacing nodes that might be selected
-  $setSelection(null);
-  
-  const root = $getRoot();
-  
-  // Recursively process all nodes
-  function processNode(node: any): void {
-    if ($isDiffTagNode(node)) {
-      // This is a DiffTagNode - replace it with a text node containing CriticMarkup
-      console.log("🔍 Processing DiffTagNode:", node.getKey());
-      const criticMarkup = node.exportMarkdown();
-      console.log("✅ DiffTagNode converted to CriticMarkup:", JSON.stringify(criticMarkup));
-      
-      // Create a new text node with the CriticMarkup content
-      const textNode = $createTextNode(criticMarkup);
-      
-      // Replace the DiffTagNode with the text node
-      node.replace(textNode);
-    } else if ($isElementNode(node)) {
-      // For element nodes, process their children
-      node.getChildren().forEach(processNode);
-    }
-  }
-  
-  // Process all top-level children
-  root.getChildren().forEach(processNode);
-}
 
-/**
- * Exports editor content as markdown with CriticMarkup for diff annotations
- * 
- * • First replaces all DiffTagNodes with their CriticMarkup text representation
- * • Then uses Lexical's built-in $convertToMarkdownString for full markdown export
- * • Leverages Lexical's native markdown transformers for proper formatting
- * • More reliable and maintainable than custom markdown generation
- * • Used by: LexicalEditor for markdown export with diff annotations
- */
-export function replaceDiffTagNodesAndExportMarkdown(): string {
-  console.log("🔄 replaceDiffTagNodesAndExportMarkdown called");
-  
-  // First, replace all DiffTagNodes with their CriticMarkup text
-  replaceDiffTagNodes();
-  
-  // Then use Lexical's built-in markdown export
-  const markdown = $convertToMarkdownString(MARKDOWN_TRANSFORMERS);
-  
-  console.log("📤 Markdown result:", JSON.stringify(markdown));
-  console.log("📊 Markdown length:", markdown.length);
-  
-  return markdown;
-}
 
-/**
-* REASON = markdown will add line breaks (as it should), but anytime Lexical finds a heading or paragraph is already implicitly adds line breaks
- * 
- * • Traverses the editor tree recursively to find heading and paragraph nodes
- * • Identifies text nodes within these elements and removes all trailing <br> tags
- * • Handles multiple consecutive <br> tags at the end (e.g., <br><br><br>)
- * • Uses regex pattern to match various <br> tag formats (self-closing, with attributes, etc.)
- * • Preserves all other content and formatting
- * • Used by: convertFromMarkdownString cleanup to remove unwanted trailing breaks
- */
-export function removeTrailingBreaksFromTextNodes(): void {
-  console.log("🧹 removeTrailingBreaksFromTextNodes called");
-  
-  const root = $getRoot();
-  
-  // Recursively process all nodes
-  function processNode(node: any): void {
-    if ($isElementNode(node)) {
-      const nodeType = node.getType();
-      
-      // Check if this is a heading or paragraph node
-      if (nodeType === 'heading' || nodeType === 'paragraph') {
-        console.log(`🔍 Processing ${nodeType} node:`, node.getKey());
-        
-        // Get all text children of this node
-        const children = node.getChildren();
-        children.forEach((child: any) => {
-          if ($isTextNode(child)) {
-            const textContent = child.getTextContent();
-            // Remove all trailing <br> tags (various formats: <br>, <br/>, <br />, with whitespace)
-            // This handles multiple consecutive <br> tags at the end
-            const cleanedText = textContent.replace(/(<br\s*\/?>\s*)+$/g, '');
-            
-            if (textContent !== cleanedText) {
-              console.log(`🧹 Removed trailing <br> from text node:`, JSON.stringify(textContent), "->", JSON.stringify(cleanedText));
-              child.setTextContent(cleanedText);
-            }
-          }
-        });
-      }
-      
-      // Recursively process all children
-      node.getChildren().forEach(processNode);
-    }
-  }
-  
-  // Process all top-level children
-  root.getChildren().forEach(processNode);
-  console.log("✅ removeTrailingBreaksFromTextNodes completed");
-}
 
 // Theme configuration for the editor
 const theme = {
@@ -347,7 +219,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           // Preprocess markdown to normalize multiline CriticMarkup
           const preprocessedMarkdown = preprocessCriticMarkup(markdown);
           $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
-          // Clean up trailing <br> tags from heading and paragraph text nodes
+          // Clean up trailing <br> tags from heading and paragraph text nodes as Lexical and Markdown stringify both add trailing BRs
           removeTrailingBreaksFromTextNodes();
         });
       }

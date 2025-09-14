@@ -1,7 +1,7 @@
-import { $convertFromMarkdownString } from "@lexical/markdown";
-import { MARKDOWN_TRANSFORMERS } from "./markdownTransformers";
+import { $convertFromMarkdownString, $convertToMarkdownString } from "@lexical/markdown";
+import { HEADING, QUOTE, CODE, UNORDERED_LIST, ORDERED_LIST, INLINE_CODE, BOLD_STAR, ITALIC_STAR, STRIKETHROUGH, LINK } from "@lexical/markdown";
 import type { TextMatchTransformer, ElementTransformer } from "@lexical/markdown";
-import { $createTextNode, TextNode, LexicalNode, $createParagraphNode } from "lexical";
+import { $createTextNode, TextNode, LexicalNode, $createParagraphNode, $getRoot, $setSelection, $isElementNode, $isTextNode } from "lexical";
 import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
 
 /**
@@ -188,45 +188,6 @@ export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
   }
 };
 
-/**
- * Debug function to test CRITIC_MARKUP regex matching
- * - Tests the regex pattern against a given text
- * - Logs all matches found
- * - Helps identify why certain text might not be matched
- */
-export function debugCriticMarkupMatching(text: string): void {
-  console.log("🔍 Debugging CRITIC_MARKUP matching for text:");
-  console.log("📝 Text length:", text.length);
-  console.log("📝 Text preview:", text.substring(0, 200) + "...");
-  
-  const regex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
-  let match;
-  let matchCount = 0;
-  
-  while ((match = regex.exec(text)) !== null) {
-    matchCount++;
-    console.log(`🎯 Match ${matchCount}:`);
-    console.log("  Full match:", match[0]);
-    console.log("  Marks:", match[1]);
-    console.log("  Inner content length:", match[2]?.length);
-    console.log("  Inner content preview:", match[2]?.substring(0, 100) + "...");
-    console.log("  Match index:", match.index);
-    
-    // Special handling for update patterns
-    if (match[1] === "~~") {
-      const updateParts = match[2]?.split('~>');
-      if (updateParts && updateParts.length === 2) {
-        console.log("  Update - Before text:", updateParts[0]);
-        console.log("  Update - After text:", updateParts[1]);
-      } else {
-        console.log("  ⚠️  Malformed update pattern");
-      }
-    }
-    console.log("---");
-  }
-  
-  console.log(`📊 Total matches found: ${matchCount}`);
-}
 
 /**
  * Preprocesses markdown to normalize multiline CriticMarkup
@@ -255,36 +216,137 @@ export function preprocessCriticMarkup(markdown: string): string {
 }
 
 /**
- * Debug function to analyze text node structure
- * - Helps understand how text is being split into TextNodes
- * - Shows the full text content and how it's fragmented
+ * Replaces DiffTagNodes with their CriticMarkup text representation
+ * 
+ * • Clears current selection to prevent "selection has been lost" errors
+ * • Traverses the editor tree and replaces diff-tag nodes with text nodes containing CriticMarkup
+ * • Preserves all other node types and formatting
+ * • Used as a preprocessing step before using Lexical's built-in markdown export
+ * • Called by: replaceDiffTagNodesAndExportMarkdown function
  */
-export function debugTextNodeStructure(editor: any): void {
-  console.log("🔍 Debugging TextNode structure:");
+export function replaceDiffTagNodes(): void {
+  console.log("🔄 replaceDiffTagNodes called");
   
-  // Get all text nodes in the editor
-  const textNodes: any[] = [];
-  editor.getEditorState().read(() => {
-    const root = editor.getEditorState()._nodeMap.get('root');
-    if (root) {
-      const traverse = (node: any) => {
-        if (node.getType() === 'text') {
-          textNodes.push({
-            key: node.getKey(),
-            content: node.getTextContent(),
-            length: node.getTextContent().length,
-            contentJson: JSON.stringify(node.getTextContent())
-          });
-        }
-        node.getChildren().forEach(traverse);
-      };
-      traverse(root);
+  // Clear the current selection to prevent "selection has been lost" errors
+  // when replacing nodes that might be selected
+  $setSelection(null);
+  
+  const root = $getRoot();
+  
+  // Recursively process all nodes
+  function processNode(node: any): void {
+    if ($isDiffTagNode(node)) {
+      // This is a DiffTagNode - replace it with a text node containing CriticMarkup
+      console.log("🔍 Processing DiffTagNode:", node.getKey());
+      const criticMarkup = node.exportMarkdown();
+      console.log("✅ DiffTagNode converted to CriticMarkup:", JSON.stringify(criticMarkup));
+      
+      // Create a new text node with the CriticMarkup content
+      const textNode = $createTextNode(criticMarkup);
+      
+      // Replace the DiffTagNode with the text node
+      node.replace(textNode);
+    } else if ($isElementNode(node)) {
+      // For element nodes, process their children
+      node.getChildren().forEach(processNode);
     }
-  });
+  }
   
-  console.log("📊 Found", textNodes.length, "TextNodes:");
-  textNodes.forEach((node, index) => {
-    console.log(`  ${index + 1}. Key: ${node.key}, Length: ${node.length}`);
-    console.log(`      Content: ${node.contentJson}`);
-  });
+  // Process all top-level children
+  root.getChildren().forEach(processNode);
 }
+
+/**
+ * Exports editor content as markdown with CriticMarkup for diff annotations
+ * 
+ * • First replaces all DiffTagNodes with their CriticMarkup text representation
+ * • Then uses Lexical's built-in $convertToMarkdownString for full markdown export
+ * • Leverages Lexical's native markdown transformers for proper formatting
+ * • More reliable and maintainable than custom markdown generation
+ * • Used by: LexicalEditor for markdown export with diff annotations
+ */
+export function replaceDiffTagNodesAndExportMarkdown(): string {
+  console.log("🔄 replaceDiffTagNodesAndExportMarkdown called");
+  
+  // First, replace all DiffTagNodes with their CriticMarkup text
+  replaceDiffTagNodes();
+  
+  // Then use Lexical's built-in markdown export
+  const markdown = $convertToMarkdownString(MARKDOWN_TRANSFORMERS);
+  
+  console.log("📤 Markdown result:", JSON.stringify(markdown));
+  console.log("📊 Markdown length:", markdown.length);
+  
+  return markdown;
+}
+
+/**
+ * Removes trailing <br> tags from text nodes in headings and paragraphs
+ * 
+ * • Traverses the editor tree to find heading and paragraph nodes
+ * • Removes trailing <br>, <br/>, and <br /> tags from their text children
+ * • Handles multiple consecutive <br> tags at the end of text content
+ * • Used to clean up markdown conversion artifacts
+ * • Called by: LexicalEditor when switching to markdown mode
+ */
+export function removeTrailingBreaksFromTextNodes(): void {
+  console.log("🧹 removeTrailingBreaksFromTextNodes called");
+  
+  const root = $getRoot();
+  
+  // Recursively process all nodes
+  function processNode(node: any): void {
+    if ($isElementNode(node)) {
+      const nodeType = node.getType();
+      
+      // Check if this is a heading or paragraph node
+      if (nodeType === 'heading' || nodeType === 'paragraph') {
+        console.log(`🔍 Processing ${nodeType} node:`, node.getKey());
+        
+        // Get all text children of this node
+        const children = node.getChildren();
+        children.forEach((child: any) => {
+          if ($isTextNode(child)) {
+            const textContent = child.getTextContent();
+            // Remove all trailing <br> tags (various formats: <br>, <br/>, <br />, with whitespace)
+            // This handles multiple consecutive <br> tags at the end
+            const cleanedText = textContent.replace(/(<br\s*\/?>\s*)+$/g, '');
+            
+            if (textContent !== cleanedText) {
+              console.log(`🧹 Removed trailing <br> from text node:`, JSON.stringify(textContent), "->", JSON.stringify(cleanedText));
+              child.setTextContent(cleanedText);
+            }
+          }
+        });
+      }
+      
+      // Recursively process all children
+      node.getChildren().forEach(processNode);
+    }
+  }
+  
+  // Process all top-level children
+  root.getChildren().forEach(processNode);
+  console.log("✅ removeTrailingBreaksFromTextNodes completed");
+}
+
+/**
+ * Complete markdown transformers array
+ * - Includes all standard Lexical markdown transformers
+ * - Includes custom CriticMarkup transformers for diff functionality
+ * - Used by Lexical for markdown import/export operations
+ */
+export const MARKDOWN_TRANSFORMERS = [
+  HEADING,
+  QUOTE,
+  CODE,
+  UNORDERED_LIST,
+  ORDERED_LIST,
+  INLINE_CODE,
+  BOLD_STAR,
+  ITALIC_STAR,
+  STRIKETHROUGH,
+  LINK,
+  CRITIC_MARKUP_IMPORT_TRANSFORMER,
+  DIFF_TAG_EXPORT_TRANSFORMER,
+];
