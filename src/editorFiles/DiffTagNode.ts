@@ -204,8 +204,8 @@ export class DiffTagNode extends ElementNode {
     // For ins/del nodes, create element with background styling
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap no-underline" 
-      : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through whitespace-pre-wrap";
+      ? "bg-green-100 text-green-800 no-underline whitespace-pre-wrap" 
+      : "bg-red-100 text-red-800 line-through whitespace-pre-wrap";
     
     // Child nodes will be automatically rendered by Lexical's rendering system
     // The background styling will wrap around all child content
@@ -244,8 +244,8 @@ export class DiffTagNode extends ElementNode {
     // For ins/del nodes, create element with background styling
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 border border-green-200 rounded px-1 whitespace-pre-wrap no-underline" 
-      : "bg-red-100 text-red-800 border border-red-200 rounded px-1 line-through whitespace-pre-wrap";
+      ? "bg-green-100 text-green-800 no-underline whitespace-pre-wrap" 
+      : "bg-red-100 text-red-800 line-through whitespace-pre-wrap";
     
     // Child nodes will be automatically rendered by Lexical's rendering system
     // The background styling will wrap around all child content
