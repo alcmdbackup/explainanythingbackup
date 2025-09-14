@@ -195,7 +195,7 @@ export class DiffTagNode extends ElementNode {
     if (this.__tag === "update") {
       // For update nodes, create a span container with specific class for CSS targeting
       const element = document.createElement("span");
-      element.className = "update-diff-node inline-block rounded px-1 whitespace-pre-wrap";
+      element.className = "update-diff-node whitespace-pre-wrap";
       
       // Let Lexical handle rendering the children automatically
       return element;
