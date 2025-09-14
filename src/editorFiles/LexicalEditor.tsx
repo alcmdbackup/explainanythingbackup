@@ -44,7 +44,7 @@ import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNode and CriticMarkup transformer
 import { DiffTagNode, $isDiffTagNode } from './DiffTagNode';
-import { CRITIC_MARKUP, DIFF_TAG_ELEMENT, preprocessCriticMarkup } from './diffUtils';
+import { CRITIC_MARKUP_TRANSFORMER, DIFF_TAG_ELEMENT, preprocessCriticMarkup } from './diffUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
 // Define custom transformers array with only the ones we need
@@ -59,7 +59,7 @@ const MARKDOWN_TRANSFORMERS = [
   ITALIC_STAR,
   STRIKETHROUGH,
   LINK,
-  CRITIC_MARKUP,
+  CRITIC_MARKUP_TRANSFORMER,
   DIFF_TAG_ELEMENT,
 ];
 

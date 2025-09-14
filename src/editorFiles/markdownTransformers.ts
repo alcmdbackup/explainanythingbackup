@@ -26,7 +26,7 @@ const BASE_TRANSFORMERS = [
  * - Uses proper text replacement mechanism for accurate node positioning
  * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodes
  */
-export const CRITIC_MARKUP: TextMatchTransformer = {
+export const CRITIC_MARKUP_TRANSFORMER: TextMatchTransformer = {
   type: "text-match",
   trigger: "{",
   // Match {++...++}, {--...--}, or {~~...~>...~~}, non-greedy, multiline
@@ -156,6 +156,6 @@ export const DIFF_TAG_ELEMENT: ElementTransformer = {
 // Define complete markdown transformers array (shared between files)
 export const MARKDOWN_TRANSFORMERS = [
   ...BASE_TRANSFORMERS,
-  CRITIC_MARKUP,
+  CRITIC_MARKUP_TRANSFORMER,
   DIFF_TAG_ELEMENT,
 ];

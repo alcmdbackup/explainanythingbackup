@@ -12,7 +12,7 @@ import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
  * - Uses proper text replacement mechanism for accurate node positioning
  * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodes
  */
-export const CRITIC_MARKUP: TextMatchTransformer = {
+export const CRITIC_MARKUP_TRANSFORMER: TextMatchTransformer = {
   type: "text-match",
   trigger: "{",
   // Match {++...++}, {--...--}, or {~~...~>...~~}, non-greedy, multiline
@@ -107,8 +107,38 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
     console.log("🏷️ Creating DiffTagNode with tag:", tag);
     
     const diff = $createDiffTagNode(tag);
-    $convertFromMarkdownString(inner, MARKDOWN_TRANSFORMERS, diff);
-    console.log("📝 Converted markdown content to diff node");
+    
+    // We want to avoid a unnecessary line break for every new diffTagNode containing only text
+    // Hence we are removing the unnecessary paragraph nodes below
+    // Create a temporary node to process the markdown
+    const tempNode = $createParagraphNode();
+    $convertFromMarkdownString(inner, MARKDOWN_TRANSFORMERS, tempNode);
+    
+    const tempChildren = tempNode.getChildren();
+    const hasOnlyParagraphs = tempChildren.every(child => child.getType() === 'paragraph');
+    
+    if (hasOnlyParagraphs) {
+      // If temp node only has paragraph nodes, take all children of those paragraphs and attach to diff
+      tempChildren.forEach(paragraph => {
+        if ('getChildren' in paragraph) {
+          const paragraphChildren = (paragraph as any).getChildren();
+          paragraphChildren.forEach((child: any) => {
+            diff.append(child);
+          });
+        }
+      });
+      console.log("📝 Flattened paragraph children to diff node");
+    } else {
+      // If temp node has anything other than paragraph nodes, move all children to diff
+      tempChildren.forEach((child: any) => {
+        diff.append(child);
+      });
+      console.log("📝 Moved all children from temp node to diff node");
+    }
+    
+    // Remove the now-empty temp node
+    tempNode.remove();
+    
     console.log("📊 DiffTagNode children count:", diff.getChildrenSize());
     console.log("📊 DiffTagNode text content length:", diff.getTextContent().length);
 

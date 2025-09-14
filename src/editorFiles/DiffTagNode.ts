@@ -5,6 +5,7 @@ type DiffTag = "ins" | "del" | "update";
 
 export class DiffTagNode extends ElementNode {
   __tag: DiffTag;
+  __beforeChildrenCount?: number;
 
   static getType(): string {
     return "diff-tag";
