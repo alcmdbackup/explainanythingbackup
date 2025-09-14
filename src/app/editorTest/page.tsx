@@ -4,7 +4,7 @@ import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor
 import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
-import { renderCriticMarkup } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
+import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { CriticMarkupRenderer } from '../../components/CriticMarkupRenderer';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
@@ -167,7 +167,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             const beforeAST = processor.parse(currentContent) as any;
             const afterAST = processor.parse(appliedEdits) as any;
             
-            const criticMarkup = renderCriticMarkup(beforeAST, afterAST);
+            const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
             setMarkdownASTDiffResult(criticMarkup);
             
             // Print the markdown with CriticMarkup to console

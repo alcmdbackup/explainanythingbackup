@@ -14,7 +14,7 @@ import { diffWordsWithSpace, diffChars } from 'diff';
 //   }
 // };
 // 
-// const diffs = renderCriticMarkup(beforeNode, afterNode, options);
+// const diffs = RenderCriticMarkupFromMDAstDiff(beforeNode, afterNode, options);
 // 
 // This will log detailed similarity calculations showing:
 // - Paragraph-level similarity ratios and decisions
@@ -543,7 +543,7 @@ function buildParagraphMultiPassRuns(
   return { paragraphAtomic: false, runs };
 }
 
-export function renderCriticMarkup(beforeRoot: MdastNode, afterRoot: MdastNode, options: DiffOptions = {}): string {
+export function RenderCriticMarkupFromMDAstDiff(beforeRoot: MdastNode, afterRoot: MdastNode, options: DiffOptions = {}): string {
   const stringify = options.stringify || fallbackStringify;
   return emitCriticForPair(beforeRoot, afterRoot, options, stringify);
 }

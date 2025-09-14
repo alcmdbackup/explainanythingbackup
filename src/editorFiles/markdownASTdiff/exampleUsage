@@ -1,18 +1,18 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 // import remarkStringify from 'remark-stringify';
-import { renderCriticMarkup } from './markdownASTdiff';
+import { RenderCriticMarkupFromMDAstDiff } from './markdownASTdiff';
 
 // Test case similar to the user's example
 const before = unified().use(remarkParse).parse(`Albert Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.`);
 
 const after = unified().use(remarkParse).parse(`Einstein was a German-born theoretical physicist who developed the theory of relativity, one of the two pillars of modern physics. Born on March 14, 1879, in Ulm, Germany, Einstein's revolutionary work fundamentally changed our understanding of space, time, and the universe itself.`);
 
-// Note: diffMdast function was removed - only renderCriticMarkup is available
+// Note: diffMdast function was removed - only RenderCriticMarkupFromMDAstDiff is available
 // console.log('=== Diff operations ===');
 // console.log('Diff operations are not available - only CriticMarkup output');
 
-const cm = renderCriticMarkup(before, after, {
+const cm = RenderCriticMarkupFromMDAstDiff(before, after, {
   textGranularity: 'word',
   // stringify: (node) => unified().use(remarkStringify).stringify(node)
 });

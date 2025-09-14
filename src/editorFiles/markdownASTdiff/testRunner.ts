@@ -1,7 +1,7 @@
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { Root } from 'mdast';
-import { renderCriticMarkup } from './markdownASTdiff';
+import { RenderCriticMarkupFromMDAstDiff } from './markdownASTdiff';
 
 export interface TestCase {
   id: number;
@@ -141,7 +141,7 @@ export function parseTestCases(testCasesContent: string): TestCase[] {
 }
 
 /**
- * Runs a single test case through the renderCriticMarkup function
+ * Runs a single test case through the RenderCriticMarkupFromMDAstDiff function
  * Returns detailed results including diff operations and critic markup
  */
 export function runSingleTest(testCase: TestCase): TestResult {
@@ -151,7 +151,7 @@ export function runSingleTest(testCase: TestCase): TestResult {
     const afterAST = unified().use(remarkParse).parse(testCase.after) as Root;
    
     // Generate CriticMarkup output
-    const criticMarkup = renderCriticMarkup(beforeAST as any, afterAST as any, {
+    const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST as any, afterAST as any, {
       textGranularity: 'word'
     });
     

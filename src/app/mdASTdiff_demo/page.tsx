@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { logger } from '@/lib/client_utilities';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { renderCriticMarkup } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
+import { RenderCriticMarkupFromMDAstDiff } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
 import { runAllTests, formatTestResults, TestResult } from '@/editorFiles/markdownASTdiff/testRunner';
 
 export default function MdASTdiffDemoPage() {
@@ -41,7 +41,7 @@ export default function MdASTdiffDemoPage() {
             const afterAST = unified().use(remarkParse).parse(afterText);
 
             // Generate CriticMarkup output
-            const criticMarkup = renderCriticMarkup(beforeAST, afterAST, {
+            const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST, {
                 textGranularity: 'word'
             });
 

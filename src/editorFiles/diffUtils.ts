@@ -107,11 +107,8 @@ export const CRITIC_MARKUP: TextMatchTransformer = {
     console.log("🏷️ Creating DiffTagNode with tag:", tag);
     
     const diff = $createDiffTagNode(tag);
-    const textNodeContent = $createTextNode(inner);
-    console.log("📝 Created TextNode with content length:", textNodeContent.getTextContent().length);
-    
-    diff.append(textNodeContent);
-    console.log("🔗 Appended TextNode to DiffTagNode");
+    $convertFromMarkdownString(inner, MARKDOWN_TRANSFORMERS, diff);
+    console.log("📝 Converted markdown content to diff node");
     console.log("📊 DiffTagNode children count:", diff.getChildrenSize());
     console.log("📊 DiffTagNode text content length:", diff.getTextContent().length);
 
@@ -218,8 +215,8 @@ export function preprocessCriticMarkup(markdown: string): string {
   return fixedMarkdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
     // Check if the content contains actual newlines (not just \n characters)
     if (content.includes('\n')) {
-      // Replace actual newlines with \n characters to preserve them in single-line format
-      const normalizedContent = content.replace(/\n/g, '\\n');
+      // Replace actual newlines with paragraph breaks to preserve them in single-line format
+      const normalizedContent = content.replace(/\n/g, '<br>');
       return `{${marks}${normalizedContent}${marks}}`;
     }
     // If no newlines, return the original match unchanged
