@@ -12,7 +12,7 @@ import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
  * - Uses proper text replacement mechanism for accurate node positioning
  * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodes
  */
-export const CRITIC_MARKUP_TRANSFORMER: TextMatchTransformer = {
+export const CRITIC_MARKUP_IMPORT_TRANSFORMER: TextMatchTransformer = {
   type: "text-match",
   trigger: "{",
   // Match {++...++}, {--...--}, or {~~...~>...~~}, non-greedy, multiline
@@ -162,11 +162,11 @@ export const CRITIC_MARKUP_TRANSFORMER: TextMatchTransformer = {
  * - Handles both "ins" and "del" tag types
  * - Used by Lexical markdown export to convert DiffTagNodes to text
  */
-export const DIFF_TAG_ELEMENT: ElementTransformer = {
+export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
   type: "element",
   dependencies: [DiffTagNode], // ✅ Specify DiffTagNode as dependency
   export: (node: LexicalNode) => {
-    console.log("📤 DIFF_TAG_ELEMENT export called");
+    console.log("📤 DIFF_TAG_EXPORT_TRANSFORMER export called");
     console.log("🔍 Node type:", node.getType());
     console.log("🔍 Node key:", node.getKey());
     console.log("🔍 Is DiffTagNode?", $isDiffTagNode(node));
@@ -174,7 +174,7 @@ export const DIFF_TAG_ELEMENT: ElementTransformer = {
     if ($isDiffTagNode(node)) {
       console.log("✅ Processing DiffTagNode for export");
       const result = node.exportMarkdown();
-      console.log("🎯 DIFF_TAG_ELEMENT export result:", JSON.stringify(result));
+      console.log("🎯 DIFF_TAG_EXPORT_TRANSFORMER export result:", JSON.stringify(result));
       return result;
     }
     

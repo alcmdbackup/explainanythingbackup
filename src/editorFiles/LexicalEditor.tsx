@@ -44,7 +44,7 @@ import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNode and CriticMarkup transformer
 import { DiffTagNode, $isDiffTagNode } from './DiffTagNode';
-import { CRITIC_MARKUP_TRANSFORMER, DIFF_TAG_ELEMENT, preprocessCriticMarkup } from './diffUtils';
+import { CRITIC_MARKUP_IMPORT_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup } from './diffUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
 // Define custom transformers array with only the ones we need
@@ -59,8 +59,8 @@ const MARKDOWN_TRANSFORMERS = [
   ITALIC_STAR,
   STRIKETHROUGH,
   LINK,
-  CRITIC_MARKUP_TRANSFORMER,
-  DIFF_TAG_ELEMENT,
+  CRITIC_MARKUP_IMPORT_TRANSFORMER,
+  DIFF_TAG_EXPORT_TRANSFORMER,
 ];
 
 /**
@@ -129,7 +129,7 @@ export function replaceDiffTagNodesAndExportMarkdown(): string {
 }
 
 /**
- * Removes trailing <br> tags from text nodes that are children of heading and paragraph elements
+* REASON = markdown will add line breaks (as it should), but anytime Lexical finds a heading or paragraph is already implicitly adds line breaks
  * 
  * • Traverses the editor tree recursively to find heading and paragraph nodes
  * • Identifies text nodes within these elements and removes all trailing <br> tags
