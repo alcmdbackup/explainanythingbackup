@@ -199,14 +199,31 @@ body {
   background-color: #bfdbfe; /* blue-200 */
 }
 
-/* Lexical headings within diff tags - inherit background colors */
+/* Update diff node styling - first child paragraph with red left border */
+.diff-tag-update > .mb-1:first-child {
+  border-left: 6px solid #dc2626 !important; /* red-600 */
+  padding-left: 12px !important;
+  color: #991b1b !important; /* red-800 */
+  background-color: transparent !important;
+}
+
+/* Update diff node styling - second child paragraph with green left border */
+.diff-tag-update > .mb-1:nth-child(2) {
+  border-left: 6px solid #16a34a !important; /* green-600 */
+  padding-left: 12px !important;
+  color: #166534 !important; /* green-800 */
+  background-color: transparent !important;
+}
+
+/* Lexical headings within diff tags - thick colored left borders */
 .diff-tag-insert .lexical-editor-h1,
 .diff-tag-insert .lexical-editor-h2,
 .diff-tag-insert .lexical-editor-h3,
 .diff-tag-insert .lexical-editor-h4,
 .diff-tag-insert .lexical-editor-h5,
 .diff-tag-insert .lexical-editor-h6 {
-  background-color: #dcfce7 !important; /* green-100 */
+  border-left: 6px solid #16a34a !important; /* green-600 */
+  padding-left: 12px !important;
   color: #166534 !important; /* green-800 */
 }
 
@@ -216,9 +233,30 @@ body {
 .diff-tag-delete .lexical-editor-h4,
 .diff-tag-delete .lexical-editor-h5,
 .diff-tag-delete .lexical-editor-h6 {
-  background-color: #fee2e2 !important; /* red-100 */
+  border-left: 6px solid #dc2626 !important; /* red-600 */
+  padding-left: 12px !important;
   color: #991b1b !important; /* red-800 */
 }
+
+/* Lexical paragraphs within diff tags - thick colored left borders and no background */
+.diff-tag-insert .mb-1 {
+  border-left: 6px solid #16a34a !important; /* green-600 */
+  padding-left: 12px !important;
+  color: #166534 !important; /* green-800 */
+  background-color: transparent !important;
+}
+
+.diff-tag-delete .mb-1 {
+  border-left: 6px solid #dc2626 !important; /* red-600 */
+  padding-left: 12px !important;
+  color: #991b1b !important; /* red-800 */
+  background-color: transparent !important;
+}
+
+.diff-tag-delete .mb-1 * {
+  text-decoration: line-through !important;
+}
+
 
 /* Dark mode diff tag styling */
 @media (prefers-color-scheme: dark) {
@@ -242,6 +280,22 @@ body {
     color: #bfdbfe; /* blue-200 */
   }
   
+  /* Dark mode update diff node styling - first child paragraph with red left border */
+  .diff-tag-update > .mb-1:first-child {
+    border-left: 6px solid #ef4444 !important; /* red-500 */
+    padding-left: 12px !important;
+    color: #fca5a5 !important; /* red-300 */
+    background-color: transparent !important;
+  }
+  
+  /* Dark mode update diff node styling - second child paragraph with green left border */
+  .diff-tag-update > .mb-1:nth-child(2) {
+    border-left: 6px solid #22c55e !important; /* green-500 */
+    padding-left: 12px !important;
+    color: #86efac !important; /* green-300 */
+    background-color: transparent !important;
+  }
+  
   /* Dark mode Lexical headings within diff tags */
   .diff-tag-insert .lexical-editor-h1,
   .diff-tag-insert .lexical-editor-h2,
@@ -249,7 +303,8 @@ body {
   .diff-tag-insert .lexical-editor-h4,
   .diff-tag-insert .lexical-editor-h5,
   .diff-tag-insert .lexical-editor-h6 {
-    background-color: #14532d !important; /* green-900 */
+    border-left: 6px solid #22c55e !important; /* green-500 */
+    padding-left: 12px !important;
     color: #86efac !important; /* green-300 */
   }
   
@@ -259,7 +314,27 @@ body {
   .diff-tag-delete .lexical-editor-h4,
   .diff-tag-delete .lexical-editor-h5,
   .diff-tag-delete .lexical-editor-h6 {
-    background-color: #7f1d1d !important; /* red-900 */
+    border-left: 6px solid #ef4444 !important; /* red-500 */
+    padding-left: 12px !important;
     color: #fca5a5 !important; /* red-300 */
+  }
+  
+  /* Dark mode Lexical paragraphs within diff tags */
+  .diff-tag-insert .mb-1 {
+    border-left: 6px solid #22c55e !important; /* green-500 */
+    padding-left: 12px !important;
+    color: #86efac !important; /* green-300 */
+    background-color: transparent !important;
+  }
+  
+  .diff-tag-delete .mb-1 {
+    border-left: 6px solid #ef4444 !important; /* red-500 */
+    padding-left: 12px !important;
+    color: #fca5a5 !important; /* red-300 */
+    background-color: transparent !important;
+  }
+  
+  .diff-tag-delete .mb-1 * {
+    text-decoration: line-through !important;
   }
 }
