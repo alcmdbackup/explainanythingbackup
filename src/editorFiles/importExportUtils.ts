@@ -190,10 +190,11 @@ export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
 
 
 /**
- * Preprocesses markdown to normalize multiline CriticMarkup
+ * Preprocesses markdown to normalize multiline CriticMarkup and fix heading formatting
  * - Converts multiline CriticMarkup to single-line format
  * - Preserves newlines within CriticMarkup content as \n
  * - Ensures existing single-line CriticMarkup remains unchanged
+ * - Fixes headings that are NOT wrapped in CriticMarkup by adding newlines before # characters
  * - Used before passing markdown to Lexical to prevent text node splitting issues
  */
 export function preprocessCriticMarkup(markdown: string): string {
@@ -203,7 +204,7 @@ export function preprocessCriticMarkup(markdown: string): string {
   // Then normalize multiline CriticMarkup patterns
   const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\}/g;
   
-  return fixedMarkdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
+  fixedMarkdown = fixedMarkdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
     // Check if the content contains actual newlines (not just \n characters)
     if (content.includes('\n')) {
       // Replace actual newlines with paragraph breaks to preserve them in single-line format
@@ -213,6 +214,30 @@ export function preprocessCriticMarkup(markdown: string): string {
     // If no newlines, return the original match unchanged
     return match;
   });
+
+  // Fix headings that are NOT wrapped within CriticMarkup and don't start on a newline
+  // Look for # characters that are not preceded by a newline and not within CriticMarkup
+  const headingFixRegex = /(?<!\n)(?<!\{)(?<![+-~]{2})#/g;
+  
+  fixedMarkdown = fixedMarkdown.replace(headingFixRegex, (match, offset) => {
+    // Check if this # is within any CriticMarkup block
+    const beforeMatch = fixedMarkdown.substring(0, offset);
+    const afterMatch = fixedMarkdown.substring(offset);
+    
+    // Count unclosed CriticMarkup blocks before this position
+    const openBlocks = (beforeMatch.match(/\{[+-~]{2}/g) || []).length;
+    const closeBlocks = (beforeMatch.match(/[+-~]{2}\}/g) || []).length;
+    const isWithinCriticMarkup = openBlocks > closeBlocks;
+    
+    // If not within CriticMarkup and not preceded by newline, add newline
+    if (!isWithinCriticMarkup && !beforeMatch.endsWith('\n')) {
+      return '\n#';
+    }
+    
+    return match;
+  });
+  
+  return fixedMarkdown;
 }
 
 /**
