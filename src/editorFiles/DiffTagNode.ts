@@ -195,7 +195,7 @@ export class DiffTagNode extends ElementNode {
     if (this.__tag === "update") {
       // For update nodes, create a span container with specific class for CSS targeting
       const element = document.createElement("span");
-      element.className = "update-diff-node whitespace-pre-wrap";
+      element.className = "diff-tag-update";
       
       // Let Lexical handle rendering the children automatically
       return element;
@@ -204,8 +204,8 @@ export class DiffTagNode extends ElementNode {
     // For ins/del nodes, create element with background styling
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 no-underline whitespace-pre-wrap" 
-      : "bg-red-100 text-red-800 line-through whitespace-pre-wrap";
+      ? "diff-tag-insert" 
+      : "diff-tag-delete";
     
     // Child nodes will be automatically rendered by Lexical's rendering system
     // The background styling will wrap around all child content
@@ -235,7 +235,7 @@ export class DiffTagNode extends ElementNode {
     if (this.__tag === "update") {
       // For update nodes, create a span container with specific class for CSS targeting
       const element = document.createElement("span");
-      element.className = "update-diff-node inline-block rounded px-1 whitespace-pre-wrap";
+      element.className = "diff-tag-update";
       
       // Let Lexical handle rendering the children automatically
       return { element };
@@ -244,8 +244,8 @@ export class DiffTagNode extends ElementNode {
     // For ins/del nodes, create element with background styling
     const element = document.createElement(this.__tag);
     element.className = this.__tag === "ins" 
-      ? "bg-green-100 text-green-800 no-underline whitespace-pre-wrap" 
-      : "bg-red-100 text-red-800 line-through whitespace-pre-wrap";
+      ? "diff-tag-insert" 
+      : "diff-tag-delete";
     
     // Child nodes will be automatically rendered by Lexical's rendering system
     // The background styling will wrap around all child content

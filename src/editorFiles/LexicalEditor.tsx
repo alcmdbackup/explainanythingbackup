@@ -54,6 +54,14 @@ import ToolbarPlugin from './ToolbarPlugin';
 // Theme configuration for the editor
 const theme = {
   paragraph: 'mb-1',
+  heading: {
+    h1: 'lexical-editor-h1',
+    h2: 'lexical-editor-h2',
+    h3: 'lexical-editor-h3',
+    h4: 'lexical-editor-h4',
+    h5: 'lexical-editor-h5',
+    h6: 'lexical-editor-h6',
+  },
   text: {
     bold: 'font-bold',
     italic: 'italic',
