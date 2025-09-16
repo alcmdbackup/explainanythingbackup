@@ -215,27 +215,52 @@ export function preprocessCriticMarkup(markdown: string): string {
     return match;
   });
 
-  // Fix headings that are NOT wrapped within CriticMarkup and don't start on a newline
-  // Look for # characters that are not preceded by a newline and not within CriticMarkup
-  const headingFixRegex = /(?<!\n)(?<!\{)(?<![+-~]{2})#/g;
+  // Fix headings: find all # runs, filter out those in CriticMarkup, fix remaining ones
+  const headingRunsRegex = /#+/g;
+  const criticMarkupRegex = /\{[+-~]{2}[\s\S]*?[+-~]{2}\}/g;
   
-  fixedMarkdown = fixedMarkdown.replace(headingFixRegex, (match, offset) => {
-    // Check if this # is within any CriticMarkup block
-    const beforeMatch = fixedMarkdown.substring(0, offset);
-    const afterMatch = fixedMarkdown.substring(offset);
+  // Find all CriticMarkup blocks and their positions
+  const criticMarkupBlocks: Array<{start: number, end: number}> = [];
+  let criticMatch;
+  while ((criticMatch = criticMarkupRegex.exec(fixedMarkdown)) !== null) {
+    criticMarkupBlocks.push({
+      start: criticMatch.index,
+      end: criticMatch.index + criticMatch[0].length
+    });
+  }
+  
+  // Check if a position is within any CriticMarkup block
+  const isWithinCriticMarkup = (position: number): boolean => {
+    return criticMarkupBlocks.some(block => position >= block.start && position < block.end);
+  };
+  
+  // Find all heading runs and process them
+  const headingMatches: Array<{match: string, start: number, end: number}> = [];
+  let headingMatch;
+  while ((headingMatch = headingRunsRegex.exec(fixedMarkdown)) !== null) {
+    headingMatches.push({
+      match: headingMatch[0],
+      start: headingMatch.index,
+      end: headingMatch.index + headingMatch[0].length
+    });
+  }
+  
+  // Process heading matches in reverse order to avoid offset issues
+  for (let i = headingMatches.length - 1; i >= 0; i--) {
+    const { match, start, end } = headingMatches[i];
     
-    // Count unclosed CriticMarkup blocks before this position
-    const openBlocks = (beforeMatch.match(/\{[+-~]{2}/g) || []).length;
-    const closeBlocks = (beforeMatch.match(/[+-~]{2}\}/g) || []).length;
-    const isWithinCriticMarkup = openBlocks > closeBlocks;
-    
-    // If not within CriticMarkup and not preceded by newline, add newline
-    if (!isWithinCriticMarkup && !beforeMatch.endsWith('\n')) {
-      return '\n#';
+    // Skip if within CriticMarkup
+    if (isWithinCriticMarkup(start)) {
+      continue;
     }
     
-    return match;
-  });
+    // Check if not starting on a newline
+    const charBefore = start > 0 ? fixedMarkdown[start - 1] : '';
+    if (charBefore !== '\n') {
+      // Add newline before the heading
+      fixedMarkdown = fixedMarkdown.substring(0, start) + '\n' + fixedMarkdown.substring(start);
+    }
+  }
   
   return fixedMarkdown;
 }
