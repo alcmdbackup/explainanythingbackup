@@ -596,16 +596,14 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     console.log('emitCriticForPair: a is undefined, b exists - returning wrapIns');
     return wrapIns(stringify(b));
   }
-  if (a && b && a.type !== b.type) {
-    console.log(`emitCriticForPair: different types (${a.type} vs ${b.type}) - returning wrapDel + wrapIns`);
-    return wrapDel(stringify(a)) + wrapIns(stringify(b));
-  }
-
   if (!a || !b) {
     console.log('emitCriticForPair: both nodes are undefined - returning empty string');
     return '';
   }
-
+  if (a && b && a.type !== b.type) {
+    console.log(`emitCriticForPair: different types (${a.type} vs ${b.type}) - returning wrapDel + wrapIns`);
+    return wrapDel(stringify(a)) + wrapIns(stringify(b));
+  }
   // 🔒 Real tables: never drill into children; replace whole thing on change
   if (a.type === 'table' && b.type === 'table') {
     console.log('emitCriticForPair: both are tables - checking atomicEqual');
@@ -634,8 +632,8 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
   if (a.type === b.type && (isAtomicNode(a) || structuralChange(a, b))) {
     console.log(`emitCriticForPair: atomic node or structural change detected (type: ${a.type})`);
     if (!atomicEqual(a, b, stringify)) {
-      console.log('emitCriticForPair: atomic/structural nodes are not equal - returning wrapDel + wrapIns');
-      return wrapDel(stringify(a)) + wrapIns(stringify(b));
+      console.log('emitCriticForPair: atomic/structural nodes are not equal - returning wrapUpdate');
+      return wrapUpdate(stringify(a), stringify(b));
     }
     console.log('emitCriticForPair: atomic/structural nodes are identical - returning stringify(a)');
     return stringify(a);
@@ -655,8 +653,10 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     return toCriticMarkup(runs);
   }
 
-  if (shouldApplyGranularTextDiff(a, b, options)) {
-    console.log('shouldApplyGranularTextDiff is true - proceeding with granular text diff');
+  //Decide if we should look at nodes in aggregate, including children...
+  //Or iterate recursively into children isntead
+  if (shouldApplyAggregatedTextDiff(a, b, options)) {
+    console.log('shouldApplyAggregatedTextDiff is true - proceeding with granular text diff');
     const aKids = a.children || [];
     const bKids = b.children || [];
     const aText = extractTextFromChildren(aKids);
@@ -679,6 +679,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     }
   }
 
+  //Backup code that generally shouldn't run
   const aKids = a.children || [];
   const bKids = b.children || [];
   if (!aKids.length && !bKids.length) {
@@ -769,42 +770,42 @@ function wrapUpdate(before: string, after: string): string {
 
 // ========= Granular text diffing helpers =========
 
-function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
-  console.log(`shouldApplyGranularTextDiff: checking nodes of type ${a.type} and ${b.type}`);
+function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
+  console.log(`shouldApplyAggregatedTextDiff: checking nodes of type ${a.type} and ${b.type}`);
   
   if (a.type !== b.type) {
-    console.log('shouldApplyGranularTextDiff: different types - returning false');
+    console.log('shouldApplyAggregatedTextDiff: different types - returning false');
     return false;
   }
   
   // NEW: avoid granularizing pipe-table paragraphs
   if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
-    console.log('shouldApplyGranularTextDiff: pipe-table paragraph detected - returning false');
+    console.log('shouldApplyAggregatedTextDiff: pipe-table paragraph detected - returning false');
     return false;
   }
   
   // Do not granularize tables or their parts
   if (a.type === 'table' || a.type === 'tableRow' || a.type === 'tableCell') {
-    console.log(`shouldApplyGranularTextDiff: table-related type (${a.type}) - returning false`);
+    console.log(`shouldApplyAggregatedTextDiff: table-related type (${a.type}) - returning false`);
     return false;
   }
 
   // Exclude atomic blocks/inline from granular path for the node itself
   if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) {
-    console.log(`shouldApplyGranularTextDiff: atomic type (${a.type}) - returning false`);
+    console.log(`shouldApplyAggregatedTextDiff: atomic type (${a.type}) - returning false`);
     return false;
   }
 
   // If either side contains atomic descendants (e.g., a link inside), don't flatten
   if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) {
-    console.log('shouldApplyGranularTextDiff: contains atomic descendants - returning false');
+    console.log('shouldApplyAggregatedTextDiff: contains atomic descendants - returning false');
     return false;
   }
 
   // NEW: if either side contains wrapper descendants (emphasis/strong/inlineCode/link),
   // avoid flattening so wrapper changes render as atomic del+ins pairs.
   if (containsWrapperDescendant(a) || containsWrapperDescendant(b)) {
-    console.log('shouldApplyGranularTextDiff: contains wrapper descendants - returning false');
+    console.log('shouldApplyAggregatedTextDiff: contains wrapper descendants - returning false');
     return false;
   }
 
@@ -815,16 +816,16 @@ function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffO
     'delete'
   ];
   if (!containerTypes.includes(a.type)) {
-    console.log(`shouldApplyGranularTextDiff: type ${a.type} not in container types - returning false`);
+    console.log(`shouldApplyAggregatedTextDiff: type ${a.type} not in container types - returning false`);
     return false;
   }
   
   const hasTextA = hasTextContent(a);
   const hasTextB = hasTextContent(b);
-  console.log(`shouldApplyGranularTextDiff: hasTextContent(a)=${hasTextA}, hasTextContent(b)=${hasTextB}`);
+  console.log(`shouldApplyAggregatedTextDiff: hasTextContent(a)=${hasTextA}, hasTextContent(b)=${hasTextB}`);
   
   const result = hasTextA && hasTextB;
-  console.log(`shouldApplyGranularTextDiff: final result=${result}`);
+  console.log(`shouldApplyAggregatedTextDiff: final result=${result}`);
   return result;
 }
 
