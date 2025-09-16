@@ -584,46 +584,79 @@ function toCriticMarkup(runs: TextRun[]): string {
 // ========= CriticMarkup rendering over the original =========
 
 function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, options: DiffOptions, stringify: (node: MdastNode) => string): string {
-  if (a && !b) return wrapDel(stringify(a));
-  if (!a && b) return wrapIns(stringify(b));
-  if (a && b && a.type !== b.type) return wrapDel(stringify(a)) + wrapIns(stringify(b));
+  // Debug: Print stringified versions of nodes a and b
+  console.log('emitCriticForPair - stringify(a):', a ? stringify(a) : 'undefined');
+  console.log('emitCriticForPair - stringify(b):', b ? stringify(b) : 'undefined');
+  
+  if (a && !b) {
+    console.log('emitCriticForPair: a exists, b is undefined - returning wrapDel');
+    return wrapDel(stringify(a));
+  }
+  if (!a && b) {
+    console.log('emitCriticForPair: a is undefined, b exists - returning wrapIns');
+    return wrapIns(stringify(b));
+  }
+  if (a && b && a.type !== b.type) {
+    console.log(`emitCriticForPair: different types (${a.type} vs ${b.type}) - returning wrapDel + wrapIns`);
+    return wrapDel(stringify(a)) + wrapIns(stringify(b));
+  }
 
-  if (!a || !b) return '';
+  if (!a || !b) {
+    console.log('emitCriticForPair: both nodes are undefined - returning empty string');
+    return '';
+  }
 
   // 🔒 Real tables: never drill into children; replace whole thing on change
   if (a.type === 'table' && b.type === 'table') {
+    console.log('emitCriticForPair: both are tables - checking atomicEqual');
     if (!atomicEqual(a, b, stringify)) {
+      console.log('emitCriticForPair: tables are not equal - returning wrapDel + wrapIns');
       return wrapDel(stringify(a)) + wrapIns(stringify(b));
     }
+    console.log('emitCriticForPair: tables are identical - returning stringify(a)');
     return stringify(a); // identical
   }
 
   // 🔒 Fallback: pipe-table paragraph handled atomically
   if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
+    console.log('emitCriticForPair: pipe-table paragraph detected - handling atomically');
     const aStr = stringify(a);
     const bStr = stringify(b);
-    if (aStr !== bStr) return wrapDel(aStr) + wrapIns(bStr);
+    if (aStr !== bStr) {
+      console.log('emitCriticForPair: pipe-table paragraphs differ - returning wrapDel + wrapIns');
+      return wrapDel(aStr) + wrapIns(bStr);
+    }
+    console.log('emitCriticForPair: pipe-table paragraphs are identical - returning aStr');
     return aStr;
   }
 
   // 🔒 Atomic policy in overlay: atomic nodes or structural change → whole replace
   if (a.type === b.type && (isAtomicNode(a) || structuralChange(a, b))) {
+    console.log(`emitCriticForPair: atomic node or structural change detected (type: ${a.type})`);
     if (!atomicEqual(a, b, stringify)) {
+      console.log('emitCriticForPair: atomic/structural nodes are not equal - returning wrapDel + wrapIns');
       return wrapDel(stringify(a)) + wrapIns(stringify(b));
     }
+    console.log('emitCriticForPair: atomic/structural nodes are identical - returning stringify(a)');
     return stringify(a);
   }
 
   if (a.type === 'text') {
+    console.log('emitCriticForPair: text node detected - applying granular text diff');
     const beforeVal = a.value ?? '';
     const afterVal  = b.value ?? '';
-    if (beforeVal === afterVal) return beforeVal;
+    if (beforeVal === afterVal) {
+      console.log('emitCriticForPair: text values are identical - returning beforeVal');
+      return beforeVal;
+    }
     const gran = options?.textGranularity === 'char' ? 'char' : 'word';
+    console.log(`emitCriticForPair: applying ${gran} granular text diff`);
     const runs = diffTextGranularWithLib(beforeVal, afterVal, gran);
     return toCriticMarkup(runs);
   }
 
   if (shouldApplyGranularTextDiff(a, b, options)) {
+    console.log('shouldApplyGranularTextDiff is true - proceeding with granular text diff');
     const aKids = a.children || [];
     const bKids = b.children || [];
     const aText = extractTextFromChildren(aKids);
@@ -737,21 +770,43 @@ function wrapUpdate(before: string, after: string): string {
 // ========= Granular text diffing helpers =========
 
 function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
-  if (a.type !== b.type) return false;
+  console.log(`shouldApplyGranularTextDiff: checking nodes of type ${a.type} and ${b.type}`);
+  
+  if (a.type !== b.type) {
+    console.log('shouldApplyGranularTextDiff: different types - returning false');
+    return false;
+  }
+  
   // NEW: avoid granularizing pipe-table paragraphs
-  if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) return false;
+  if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
+    console.log('shouldApplyGranularTextDiff: pipe-table paragraph detected - returning false');
+    return false;
+  }
+  
   // Do not granularize tables or their parts
-  if (a.type === 'table' || a.type === 'tableRow' || a.type === 'tableCell') return false;
+  if (a.type === 'table' || a.type === 'tableRow' || a.type === 'tableCell') {
+    console.log(`shouldApplyGranularTextDiff: table-related type (${a.type}) - returning false`);
+    return false;
+  }
 
   // Exclude atomic blocks/inline from granular path for the node itself
-  if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) return false;
+  if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) {
+    console.log(`shouldApplyGranularTextDiff: atomic type (${a.type}) - returning false`);
+    return false;
+  }
 
   // If either side contains atomic descendants (e.g., a link inside), don't flatten
-  if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) return false;
+  if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) {
+    console.log('shouldApplyGranularTextDiff: contains atomic descendants - returning false');
+    return false;
+  }
 
   // NEW: if either side contains wrapper descendants (emphasis/strong/inlineCode/link),
   // avoid flattening so wrapper changes render as atomic del+ins pairs.
-  if (containsWrapperDescendant(a) || containsWrapperDescendant(b)) return false;
+  if (containsWrapperDescendant(a) || containsWrapperDescendant(b)) {
+    console.log('shouldApplyGranularTextDiff: contains wrapper descendants - returning false');
+    return false;
+  }
 
   const containerTypes = [
     'paragraph',
@@ -759,8 +814,18 @@ function shouldApplyGranularTextDiff(a: MdastNode, b: MdastNode, _options: DiffO
     'blockquote', // keep granular only if no wrappers/atomics inside
     'delete'
   ];
-  if (!containerTypes.includes(a.type)) return false;
-  return hasTextContent(a) && hasTextContent(b);
+  if (!containerTypes.includes(a.type)) {
+    console.log(`shouldApplyGranularTextDiff: type ${a.type} not in container types - returning false`);
+    return false;
+  }
+  
+  const hasTextA = hasTextContent(a);
+  const hasTextB = hasTextContent(b);
+  console.log(`shouldApplyGranularTextDiff: hasTextContent(a)=${hasTextA}, hasTextContent(b)=${hasTextB}`);
+  
+  const result = hasTextA && hasTextB;
+  console.log(`shouldApplyGranularTextDiff: final result=${result}`);
+  return result;
 }
 
 function hasTextContent(node: MdastNode): boolean {
