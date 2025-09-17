@@ -1,7 +1,7 @@
 'use client';
 
-import { $getRoot, $isElementNode, $isTextNode, $createTextNode, $getSelection, $setSelection } from 'lexical';
-import { useState, useCallback, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import { $getRoot} from 'lexical';
+import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 
@@ -42,8 +42,8 @@ import { LinkNode } from '@lexical/link';
 import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
-// Import custom DiffTagNode and CriticMarkup transformer
-import { DiffTagNode, $isDiffTagNode } from './DiffTagNode';
+// Import custom DiffTagNodeInline and CriticMarkup transformer
+import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
 import { CRITIC_MARKUP_IMPORT_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
@@ -204,7 +204,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
     theme,
     onError,
     nodes: [
-      DiffTagNode,
+      DiffTagNodeBlock,
+      DiffTagNodeInline,
       HeadingNode,
       QuoteNode,
       ListNode,

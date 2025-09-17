@@ -3,7 +3,7 @@ import {ElementNode, LexicalNode, $isTextNode} from "lexical";
 
 type DiffTag = "ins" | "del" | "update";
 
-export class DiffTagNode extends ElementNode {
+export class DiffTagNodeInline extends ElementNode {
   __tag: DiffTag;
   __beforeChildrenCount?: number;
 
@@ -11,15 +11,15 @@ export class DiffTagNode extends ElementNode {
     return "diff-tag";
   }
 
-  static clone(node: DiffTagNode): DiffTagNode {
-    const cloned = new DiffTagNode(node.__tag, node.__key);
+  static clone(node: DiffTagNodeInline): DiffTagNodeInline {
+    const cloned = new DiffTagNodeInline(node.__tag, node.__key);
     return cloned;
   }
 
   constructor(tag: DiffTag, key?: NodeKey) {
     super(key);
     this.__tag = tag;
-    console.log("🏗️ DiffTagNode created with tag:", tag, "key:", key);
+    console.log("🏗️ DiffTagNodeInline created with tag:", tag, "key:", key);
   }
 
   
@@ -176,15 +176,15 @@ export class DiffTagNode extends ElementNode {
   }
 
   // JSON round-trip (editorState persistence)
-  static importJSON(json: any): DiffTagNode {
-    return new DiffTagNode(json.tag as DiffTag, json.key);
+  static importJSON(json: any): DiffTagNodeInline {
+    return new DiffTagNodeInline(json.tag as DiffTag, json.key);
   }
   exportJSON() {
     return {...super.exportJSON(), type: "diff-tag", version: 1, tag: this.__tag};
   }
 
   /**
-   * Creates DOM element for rendering the DiffTagNode
+   * Creates DOM element for rendering the DiffTagNodeInline
    * • Creates <ins>, <del>, or <span> HTML elements based on the tag type
    * • Applies appropriate styling classes for visual distinction
    * • Preserves newlines with whitespace-pre-wrap for proper formatting
@@ -219,7 +219,7 @@ export class DiffTagNode extends ElementNode {
    * • Used by Lexical to optimize DOM updates
    * • Called by: Lexical's update system
    */
-  updateDOM(prevNode: DiffTagNode): boolean {
+  updateDOM(prevNode: DiffTagNodeInline): boolean {
     return prevNode.__tag !== this.__tag;
   }
 
@@ -253,7 +253,7 @@ export class DiffTagNode extends ElementNode {
   }
 
   /**
-   * Converts DOM element back to DiffTagNode
+   * Converts DOM element back to DiffTagNodeInline
    * • Handles conversion from HTML <ins>/<del>/<span> elements
    * • Used by Lexical for HTML import functionality
    * • Called by: Lexical's import system
@@ -277,9 +277,9 @@ export class DiffTagNode extends ElementNode {
 }
 
 /**
- * Converts DOM element to DiffTagNode
+ * Converts DOM element to DiffTagNodeInline
  * • Determines tag type from element tagName or CSS classes
- * • Creates new DiffTagNode with appropriate tag
+ * • Creates new DiffTagNodeInline with appropriate tag
  * • Used by importDOM for HTML conversion
  * • Called by: Lexical's DOM import system
  */
@@ -288,32 +288,90 @@ function convertDiffTagElement(domNode: HTMLElement): DOMConversionOutput {
   
   // Check if it's a span with update styling (orange background)
   if (tagName === 'span' && domNode.className.includes('bg-orange-50')) {
-    const node = $createDiffTagNode('update');
+    const node = $createDiffTagNodeInline('update');
     return { node };
   }
   
   // For ins/del elements, use the tagName directly
   const tag = tagName as DiffTag;
-  const node = $createDiffTagNode(tag);
+  const node = $createDiffTagNodeInline(tag);
   return { node };
 }
 
 /**
- * Creates a new DiffTagNode instance
- * • Factory function for creating DiffTagNode instances
- * • Used by other parts of the codebase to create diff nodes
+ * Creates a new DiffTagNodeInline instance
+ * • Factory function for creating DiffTagNodeInline instances
+ * • Used by other parts of the codebase to create inline diff nodes
  * • Called by: CRITIC_MARKUP transformer, import functions
  */
-export function $createDiffTagNode(tag: DiffTag): DiffTagNode {
-  return new DiffTagNode(tag, undefined);
+export function $createDiffTagNodeInline(tag: DiffTag): DiffTagNodeInline {
+  return new DiffTagNodeInline(tag, undefined);
 }
 
 /**
- * Checks if a node is a DiffTagNode
- * • Type guard function for DiffTagNode instances
+ * Checks if a node is a DiffTagNodeInline
+ * • Type guard function for DiffTagNodeInline instances
  * • Used for type checking in other parts of the codebase
  * • Called by: Various utility functions
  */
-export function $isDiffTagNode(node: LexicalNode | null | undefined): node is DiffTagNode {
-  return node instanceof DiffTagNode;
+export function $isDiffTagNodeInline(node: LexicalNode | null | undefined): node is DiffTagNodeInline {
+  return node instanceof DiffTagNodeInline;
+}
+
+/**
+ * Block-level version of DiffTagNodeInline that always returns false for isInline()
+ * • Extends DiffTagNodeInline with block-level behavior
+ * • All functionality identical to DiffTagNodeInline except isInline() returns false
+ * • Used when diff tags need to be rendered as block elements instead of inline
+ * • Called by: Lexical's rendering system for block-level diff display
+ */
+export class DiffTagNodeBlock extends DiffTagNodeInline {
+  static getType(): string {
+    return "diff-tag-block";
+  }
+
+  static clone(node: DiffTagNodeBlock): DiffTagNodeBlock {
+    const cloned = new DiffTagNodeBlock(node.__tag, node.__key);
+    return cloned;
+  }
+
+  constructor(tag: DiffTag, key?: NodeKey) {
+    super(tag, key);
+    console.log("🏗️ DiffTagNodeBlock created with tag:", tag, "key:", key);
+  }
+
+  /**
+   * Override isInline to always return false for block-level behavior
+   * • Forces this node to be treated as a block element by Lexical
+   * • Used by Lexical's layout system to determine rendering behavior
+   * • Called by: Lexical's rendering and layout systems
+   */
+  isInline(): boolean {
+    return false;
+  }
+
+  // JSON round-trip (editorState persistence)
+  static importJSON(json: any): DiffTagNodeBlock {
+    return new DiffTagNodeBlock(json.tag as DiffTag, json.key);
+  }
+}
+
+/**
+ * Creates a new DiffTagNodeBlock instance
+ * • Factory function for creating DiffTagNodeBlock instances
+ * • Used by other parts of the codebase to create block-level diff nodes
+ * • Called by: CRITIC_MARKUP transformer, import functions
+ */
+export function $createDiffTagNodeBlock(tag: DiffTag): DiffTagNodeBlock {
+  return new DiffTagNodeBlock(tag, undefined);
+}
+
+/**
+ * Checks if a node is a DiffTagNodeBlock
+ * • Type guard function for DiffTagNodeBlock instances
+ * • Used for type checking in other parts of the codebase
+ * • Called by: Various utility functions
+ */
+export function $isDiffTagNodeBlock(node: LexicalNode | null | undefined): node is DiffTagNodeBlock {
+  return node instanceof DiffTagNodeBlock;
 }

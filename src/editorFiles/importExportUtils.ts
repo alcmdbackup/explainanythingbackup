@@ -2,15 +2,15 @@ import { $convertFromMarkdownString, $convertToMarkdownString } from "@lexical/m
 import { HEADING, QUOTE, CODE, UNORDERED_LIST, ORDERED_LIST, INLINE_CODE, BOLD_STAR, ITALIC_STAR, STRIKETHROUGH, LINK } from "@lexical/markdown";
 import type { TextMatchTransformer, ElementTransformer } from "@lexical/markdown";
 import { $createTextNode, TextNode, LexicalNode, $createParagraphNode, $getRoot, $setSelection, $isElementNode, $isTextNode } from "lexical";
-import { DiffTagNode, $createDiffTagNode, $isDiffTagNode } from "./DiffTagNode";
+import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline } from "./DiffTagNode";
 
 /**
  * Custom transformer for CriticMarkup syntax
- * - Parses {--deleted text--} into DiffTagNode with "del" tag
- * - Parses {++inserted text++} into DiffTagNode with "ins" tag
- * - Parses {~~old~>new~~} into DiffTagNode with "update" tag
+ * - Parses {--deleted text--} into DiffTagNodeInline with "del" tag
+ * - Parses {++inserted text++} into DiffTagNodeInline with "ins" tag
+ * - Parses {~~old~>new~~} into DiffTagNodeInline with "update" tag
  * - Uses proper text replacement mechanism for accurate node positioning
- * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodes
+ * - Used by Lexical markdown import to convert CriticMarkup to DiffTagNodeInline
  */
 export const CRITIC_MARKUP_IMPORT_TRANSFORMER: TextMatchTransformer = {
   type: "text-match",
@@ -46,12 +46,12 @@ export const CRITIC_MARKUP_IMPORT_TRANSFORMER: TextMatchTransformer = {
       const updateParts = inner.split('~>');
       if (updateParts.length === 2) {
         const [beforeText, afterText] = updateParts;
-        console.log("🏷️ Creating DiffTagNode with tag: update");
+        console.log("🏷️ Creating DiffTagNodeInline with tag: update");
         console.log("📝 Before text:", JSON.stringify(beforeText));
         console.log("📝 After text:", JSON.stringify(afterText));
         
-        const diff = $createDiffTagNode("update");
-        console.log("🔍 Created empty DiffTagNode, children count:", diff.getChildrenSize());
+        const diff = $createDiffTagNodeInline("update");
+        console.log("🔍 Created empty DiffTagNodeInline, children count:", diff.getChildrenSize());
         
         // Create separate container nodes for before and after text
         const beforeContainer = $createParagraphNode();
@@ -104,9 +104,9 @@ export const CRITIC_MARKUP_IMPORT_TRANSFORMER: TextMatchTransformer = {
 
     // Handle insert/delete syntax: {++...++} or {--...--}
     const tag = marks === "++" ? "ins" : "del";
-    console.log("🏷️ Creating DiffTagNode with tag:", tag);
+    console.log("🏷️ Creating DiffTagNodeInline with tag:", tag);
     
-    const diff = $createDiffTagNode(tag);
+    const diff = $createDiffTagNodeInline(tag);
     
     // We want to avoid a unnecessary line break for every new diffTagNode containing only text
     // Hence we are removing the unnecessary paragraph nodes below
@@ -139,8 +139,8 @@ export const CRITIC_MARKUP_IMPORT_TRANSFORMER: TextMatchTransformer = {
     // Remove the now-empty temp node
     tempNode.remove();
     
-    console.log("📊 DiffTagNode children count:", diff.getChildrenSize());
-    console.log("📊 DiffTagNode text content length:", diff.getTextContent().length);
+    console.log("📊 DiffTagNodeInline children count:", diff.getChildrenSize());
+    console.log("📊 DiffTagNodeInline text content length:", diff.getTextContent().length);
 
     // Simply replace the text node with our diff node
     // Lexical will handle the text replacement automatically
@@ -153,32 +153,32 @@ export const CRITIC_MARKUP_IMPORT_TRANSFORMER: TextMatchTransformer = {
     console.log("🚫 CRITIC_MARKUP export called (should not happen)");
     return null;
   },
-  dependencies: [DiffTagNode]
+  dependencies: [DiffTagNodeInline]
 };
 
 /**
- * Element transformer for DiffTagNode to handle markdown export
- * - Converts DiffTagNode instances to CriticMarkup syntax during export
+ * Element transformer for DiffTagNodeInline to handle markdown export
+ * - Converts DiffTagNodeInline instances to CriticMarkup syntax during export
  * - Handles both "ins" and "del" tag types
- * - Used by Lexical markdown export to convert DiffTagNodes to text
+ * - Used by Lexical markdown export to convert DiffTagNodeInline to text
  */
 export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
   type: "element",
-  dependencies: [DiffTagNode], // ✅ Specify DiffTagNode as dependency
+  dependencies: [DiffTagNodeInline], // ✅ Specify DiffTagNodeInline as dependency
   export: (node: LexicalNode) => {
     console.log("📤 DIFF_TAG_EXPORT_TRANSFORMER export called");
     console.log("🔍 Node type:", node.getType());
     console.log("🔍 Node key:", node.getKey());
-    console.log("🔍 Is DiffTagNode?", $isDiffTagNode(node));
+    console.log("🔍 Is DiffTagNodeInline?", $isDiffTagNodeInline(node));
     
-    if ($isDiffTagNode(node)) {
-      console.log("✅ Processing DiffTagNode for export");
+    if ($isDiffTagNodeInline(node)) {
+      console.log("✅ Processing DiffTagNodeInline for export");
       const result = node.exportMarkdown();
       console.log("🎯 DIFF_TAG_EXPORT_TRANSFORMER export result:", JSON.stringify(result));
       return result;
     }
     
-    console.log("❌ Not a DiffTagNode, returning null");
+    console.log("❌ Not a DiffTagNodeInline, returning null");
     return null;
   },
   regExp: /^$/, // This won't be used for import, only export
@@ -266,7 +266,7 @@ export function preprocessCriticMarkup(markdown: string): string {
 }
 
 /**
- * Replaces DiffTagNodes with their CriticMarkup text representation
+ * Replaces DiffTagNodeInline with their CriticMarkup text representation
  * 
  * • Clears current selection to prevent "selection has been lost" errors
  * • Traverses the editor tree and replaces diff-tag nodes with text nodes containing CriticMarkup
@@ -285,16 +285,16 @@ export function replaceDiffTagNodes(): void {
   
   // Recursively process all nodes
   function processNode(node: any): void {
-    if ($isDiffTagNode(node)) {
-      // This is a DiffTagNode - replace it with a text node containing CriticMarkup
-      console.log("🔍 Processing DiffTagNode:", node.getKey());
+    if ($isDiffTagNodeInline(node)) {
+      // This is a DiffTagNodeInline - replace it with a text node containing CriticMarkup
+      console.log("🔍 Processing DiffTagNodeInline:", node.getKey());
       const criticMarkup = node.exportMarkdown();
-      console.log("✅ DiffTagNode converted to CriticMarkup:", JSON.stringify(criticMarkup));
+      console.log("✅ DiffTagNodeInline converted to CriticMarkup:", JSON.stringify(criticMarkup));
       
       // Create a new text node with the CriticMarkup content
       const textNode = $createTextNode(criticMarkup);
       
-      // Replace the DiffTagNode with the text node
+      // Replace the DiffTagNodeInline with the text node
       node.replace(textNode);
     } else if ($isElementNode(node)) {
       // For element nodes, process their children
@@ -309,7 +309,7 @@ export function replaceDiffTagNodes(): void {
 /**
  * Exports editor content as markdown with CriticMarkup for diff annotations
  * 
- * • First replaces all DiffTagNodes with their CriticMarkup text representation
+ * • First replaces all DiffTagNodeInline with their CriticMarkup text representation
  * • Then uses Lexical's built-in $convertToMarkdownString for full markdown export
  * • Leverages Lexical's native markdown transformers for proper formatting
  * • More reliable and maintainable than custom markdown generation
@@ -318,7 +318,7 @@ export function replaceDiffTagNodes(): void {
 export function replaceDiffTagNodesAndExportMarkdown(): string {
   console.log("🔄 replaceDiffTagNodesAndExportMarkdown called");
   
-  // First, replace all DiffTagNodes with their CriticMarkup text
+  // First, replace all DiffTagNodeInline with their CriticMarkup text
   replaceDiffTagNodes();
   
   // Then use Lexical's built-in markdown export
