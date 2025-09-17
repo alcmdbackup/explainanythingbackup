@@ -26,6 +26,23 @@ export default function MdASTdiffDemoPage() {
 - Three
 - Four`;
 
+    // Test case for block-level CriticMarkup
+    const testBlockCriticMarkup = `# Regular Heading
+
+{++# New Heading++}
+
+{--# Old Heading--}
+
+{~~# Old Heading~># Updated Heading~~}
+
+## Another Regular Heading
+
+{++This should NOT match++}
+
+{--Neither should this--}
+
+{~~This~>That~~}`;
+
     const handleComputeDiff = async () => {
         if (!beforeText.trim() || !afterText.trim()) {
             setError('Please provide both "before" and "after" text');
@@ -172,6 +189,17 @@ export default function MdASTdiffDemoPage() {
                         className="px-6 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 transition-colors"
                     >
                         Load Example
+                    </button>
+                    
+                    <button
+                        onClick={() => {
+                            setBeforeText(testBlockCriticMarkup);
+                            setAfterText('');
+                            setDiffOutput('');
+                        }}
+                        className="px-6 py-2 bg-orange-600 text-white rounded-md hover:bg-orange-700 transition-colors"
+                    >
+                        Test Block CriticMarkup
                     </button>
                     
                     <button
