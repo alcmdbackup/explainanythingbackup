@@ -270,10 +270,51 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
           childrenCount: 'getChildrenSize' in child ? (child as any).getChildrenSize() : 'N/A'
         })));
         
-        // Replace the parent node with our diff node
-        console.log("🔄 Replacing parent node with update diff node");
-        parentNode.replace(diff);
-        console.log("✅ Replace operation completed for update");
+        // Find the TextNode that contains the matched text and replace only the matched portion
+        console.log("🔄 Finding TextNode with matched content to replace (update)");
+        const matchedText = match[0];
+        let textNodeToReplace: TextNode | null = null;
+        let startOffset = -1;
+        let endOffset = -1;
+        
+        // Search through children to find the TextNode containing the match
+        children.forEach(child => {
+          if ($isTextNode(child)) {
+            const textContent = child.getTextContent();
+            const matchIndex = textContent.indexOf(matchedText);
+            if (matchIndex !== -1) {
+              textNodeToReplace = child;
+              startOffset = matchIndex;
+              endOffset = matchIndex + matchedText.length;
+            }
+          }
+        });
+        
+        if (textNodeToReplace && startOffset !== -1 && endOffset !== -1) {
+          console.log("✅ Found TextNode to replace (update):", (textNodeToReplace as TextNode).getKey());
+          console.log(`📝 Splitting text at offsets ${startOffset}-${endOffset}`);
+          
+          try {
+            // Split the text node at the start and end offsets
+            const [, middleNode, rightNode] = (textNodeToReplace as TextNode).splitText(startOffset, endOffset);
+            
+            // Replace the middle node (the matched text) with our diff node
+            middleNode.replace(diff);
+            
+            // Merge adjacent text nodes if necessary
+            if (rightNode && rightNode.getTextContent() === '') {
+              rightNode.remove();
+            }
+            
+            console.log("✅ Replace operation completed for update with splitText");
+          } catch (error) {
+            console.log("⚠️ splitText failed, falling back to full node replacement (update):", error);
+            (textNodeToReplace as TextNode).replace(diff);
+          }
+        } else {
+          console.log("⚠️ Could not find TextNode with matched content, falling back to parent replacement (update)");
+          parentNode.replace(diff);
+        }
         return;
       } else {
         console.log("⚠️ Malformed update syntax, falling back to regular text");
@@ -320,10 +361,51 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
     console.log("📊 DiffTagNodeInline children count:", diff.getChildrenSize());
     console.log("📊 DiffTagNodeInline text content length:", diff.getTextContent().length);
 
-    // Replace the parent node with our diff node
-    console.log("🔄 Replacing parent node with diff node");
-    parentNode.replace(diff);
-    console.log("✅ Replace operation completed");
+    // Find the TextNode that contains the matched text and replace only the matched portion
+    console.log("🔄 Finding TextNode with matched content to replace");
+    const matchedText = match[0];
+    let textNodeToReplace: TextNode | null = null;
+    let startOffset = -1;
+    let endOffset = -1;
+    
+    // Search through children to find the TextNode containing the match
+    children.forEach(child => {
+      if ($isTextNode(child)) {
+        const textContent = child.getTextContent();
+        const matchIndex = textContent.indexOf(matchedText);
+        if (matchIndex !== -1) {
+          textNodeToReplace = child;
+          startOffset = matchIndex;
+          endOffset = matchIndex + matchedText.length;
+        }
+      }
+    });
+    
+    if (textNodeToReplace && startOffset !== -1 && endOffset !== -1) {
+      console.log("✅ Found TextNode to replace:", (textNodeToReplace as TextNode).getKey());
+      console.log(`📝 Splitting text at offsets ${startOffset}-${endOffset}`);
+      
+      try {
+        // Split the text node at the start and end offsets
+        const [, middleNode, rightNode] = (textNodeToReplace as TextNode).splitText(startOffset, endOffset);
+        
+        // Replace the middle node (the matched text) with our diff node
+        middleNode.replace(diff);
+        
+        // Merge adjacent text nodes if necessary
+        if (rightNode && rightNode.getTextContent() === '') {
+          rightNode.remove();
+        }
+        
+        console.log("✅ Replace operation completed with splitText");
+      } catch (error) {
+        console.log("⚠️ splitText failed, falling back to full node replacement:", error);
+        (textNodeToReplace as TextNode).replace(diff);
+      }
+    } else {
+      console.log("⚠️ Could not find TextNode with matched content, falling back to parent replacement");
+      parentNode.replace(diff);
+    }
   },
   export: (node: LexicalNode) => {
     console.log("📤 CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER export called");
@@ -541,7 +623,7 @@ export function removeTrailingBreaksFromTextNodes(): void {
  * - Used by Lexical for markdown import/export operations
  */
 export const MARKDOWN_TRANSFORMERS = [
-  //CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER,
+  CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER,
   HEADING,
   QUOTE,
   CODE,
@@ -552,6 +634,6 @@ export const MARKDOWN_TRANSFORMERS = [
   ITALIC_STAR,
   STRIKETHROUGH,
   LINK,
-  CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER,
+  //CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER,
   DIFF_TAG_EXPORT_TRANSFORMER,
 ];
