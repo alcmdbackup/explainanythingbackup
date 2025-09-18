@@ -51,11 +51,11 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     }
 
     // Split the text node at the match boundaries
-    const beforeText = textContent.substring(0, matchIndex);
-    const afterText = textContent.substring(matchIndex + match[0].length);
+    const beforeTextGeneral = textContent.substring(0, matchIndex);
+    const afterTextGeneral = textContent.substring(matchIndex + match[0].length);
     
-    console.log("📝 Before text:", JSON.stringify(beforeText));
-    console.log("📝 After text:", JSON.stringify(afterText));
+    console.log("📝 Before text general:", JSON.stringify(beforeTextGeneral));
+    console.log("📝 After text general:", JSON.stringify(afterTextGeneral));
 
     if (marks === "~~") {
       // Handle update syntax: {~~old~>new~~}
@@ -102,13 +102,13 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         console.log("✅ Final diff node children count:", diff.getChildrenSize());
         
         // Handle the text before the match
-        if (beforeText) {
+        if (beforeTextGeneral) {
           const beforeTextNode = $createTextNode(beforeText);
           textNode.insertBefore(beforeTextNode);
         }
         
         // Handle the text after the match BEFORE replacing
-        if (afterText) {
+        if (afterTextGeneral) {
           const afterTextNode = $createTextNode(afterText);
           textNode.insertAfter(afterTextNode);
         }
@@ -385,6 +385,35 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
 };
 
 /**
+ * Normalizes multiline CriticMarkup patterns by handling newlines in both marks and content
+ * 
+ * • Replaces newlines within CriticMarkup content with <br> tags
+ * • Removes any remaining newlines within the marks part of CriticMarkup (e.g., ~~\n becomes ~~)
+ * • Preserves single-line CriticMarkup unchanged
+ * • Prevents text node splitting issues in Lexical editor
+ * • Used by: preprocessCriticMarkup function
+ */
+function normalizeMultilineCriticMarkup(markdown: string): string {
+  const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\s*\}/g;
+  
+  return markdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
+    console.log('🔍 Normalize Multiline Critic Markup Debug:');
+    console.log('  match:', JSON.stringify(match));
+    console.log('  marks:', JSON.stringify(marks));
+    console.log('  content:', JSON.stringify(content));
+    
+    // First, replace newlines in content with <br> tags
+    const normalizedContent = content.replace(/\n/g, '<br>');
+    
+    // Then remove any remaining newlines from the entire match
+    const result = `{${marks}${normalizedContent}${marks}}`.replace(/\n/g, '');
+    
+    console.log('  result:', JSON.stringify(result));
+    return result;
+  });
+}
+
+/**
  * Preprocesses markdown to normalize multiline CriticMarkup and fix heading formatting
  * - Converts multiline CriticMarkup to single-line format
  * - Preserves newlines within CriticMarkup content as \n
@@ -393,32 +422,23 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
  * - Ensures CriticMarkup blocks containing headings are on their own lines
  * - Used before passing markdown to Lexical to prevent text node splitting issues
  */
-export function preprocessCriticMarkup(markdown: string): string {
-  // First, fix malformed CriticMarkup patterns where content might be attached to closing markers
-  let fixedMarkdown = markdown
-  
-  // Then normalize multiline CriticMarkup patterns
-  const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\}/g;
-  
-  fixedMarkdown = fixedMarkdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
-    // Check if the content contains actual newlines (not just \n characters)
-    if (content.includes('\n')) {
-      // Replace actual newlines with paragraph breaks to preserve them in single-line format
-      const normalizedContent = content.replace(/\n/g, '<br>');
-      return `{${marks}${normalizedContent}${marks}}`;
-    }
-    // If no newlines, return the original match unchanged
-    return match;
-  });
-
-  // Fix headings: find all # runs, filter out those in CriticMarkup, fix remaining ones
+/**
+ * Fixes heading formatting by adding newlines before headings that aren't on their own line
+ * and aren't within CriticMarkup blocks
+ * 
+ * • Finds all heading markers (#, ##, ###, etc.) in the markdown
+ * • Identifies CriticMarkup blocks to avoid modifying headings inside them
+ * • Adds newlines before headings that need proper formatting
+ * • Processes in reverse order to avoid offset issues when inserting newlines
+ */
+function fixHeadingFormatting(markdown: string): string {
   const headingRunsRegex = /#+/g;
   const criticMarkupRegex = /\{[+-~]{2}[\s\S]*?[+-~]{2}\}/g;
   
   // Find all CriticMarkup blocks and their positions
   const criticMarkupBlocks: Array<{start: number, end: number}> = [];
   let criticMatch;
-  while ((criticMatch = criticMarkupRegex.exec(fixedMarkdown)) !== null) {
+  while ((criticMatch = criticMarkupRegex.exec(markdown)) !== null) {
     criticMarkupBlocks.push({
       start: criticMatch.index,
       end: criticMatch.index + criticMatch[0].length
@@ -433,7 +453,7 @@ export function preprocessCriticMarkup(markdown: string): string {
   // Find all heading runs and process them
   const headingMatches: Array<{match: string, start: number, end: number}> = [];
   let headingMatch;
-  while ((headingMatch = headingRunsRegex.exec(fixedMarkdown)) !== null) {
+  while ((headingMatch = headingRunsRegex.exec(markdown)) !== null) {
     headingMatches.push({
       match: headingMatch[0],
       start: headingMatch.index,
@@ -442,6 +462,7 @@ export function preprocessCriticMarkup(markdown: string): string {
   }
   
   // Process heading matches in reverse order to avoid offset issues
+  let fixedMarkdown = markdown;
   for (let i = headingMatches.length - 1; i >= 0; i--) {
     const { match, start, end } = headingMatches[i];
     
@@ -458,13 +479,24 @@ export function preprocessCriticMarkup(markdown: string): string {
     }
   }
   
-  // NEW: Handle CriticMarkup blocks containing headings
+  return fixedMarkdown;
+}
+
+/**
+ * Ensures CriticMarkup blocks containing headings are properly formatted with line breaks
+ * 
+ * • Finds CriticMarkup blocks that contain heading markers (#, ##, ###, etc.)
+ * • Adds newlines before opening { and after closing } if needed
+ * • Ensures these blocks are on their own lines for proper parsing
+ * • Processes in reverse order to avoid offset issues when inserting newlines
+ */
+function fixCriticMarkupWithHeadings(markdown: string): string {
   // Find all CriticMarkup blocks that contain headings
   const criticMarkupWithHeadingsRegex = /\{([+-~]{2})([^}]*#{1,6}[^}]*)\1\}/g;
   let criticMarkupMatch;
   const criticMarkupWithHeadings: Array<{match: string, start: number, end: number}> = [];
   
-  while ((criticMarkupMatch = criticMarkupWithHeadingsRegex.exec(fixedMarkdown)) !== null) {
+  while ((criticMarkupMatch = criticMarkupWithHeadingsRegex.exec(markdown)) !== null) {
     criticMarkupWithHeadings.push({
       match: criticMarkupMatch[0],
       start: criticMarkupMatch.index,
@@ -473,6 +505,7 @@ export function preprocessCriticMarkup(markdown: string): string {
   }
   
   // Process CriticMarkup blocks with headings in reverse order
+  let fixedMarkdown = markdown;
   for (let i = criticMarkupWithHeadings.length - 1; i >= 0; i--) {
     const { match, start, end } = criticMarkupWithHeadings[i];
     
@@ -490,6 +523,22 @@ export function preprocessCriticMarkup(markdown: string): string {
       fixedMarkdown = fixedMarkdown.substring(0, end) + '\n' + fixedMarkdown.substring(end);
     }
   }
+  
+  return fixedMarkdown;
+}
+
+export function preprocessCriticMarkup(markdown: string): string {
+  // First, fix malformed CriticMarkup patterns where content might be attached to closing markers
+  let fixedMarkdown = markdown
+  
+  // Then normalize multiline CriticMarkup patterns to deal with newlines
+  fixedMarkdown = normalizeMultilineCriticMarkup(fixedMarkdown);
+
+  // Fix heading formatting
+  //fixedMarkdown = fixHeadingFormatting(fixedMarkdown);
+  
+  // Fix CriticMarkup blocks containing headings
+  //fixedMarkdown = fixCriticMarkupWithHeadings(fixedMarkdown);
   
   return fixedMarkdown;
 }
