@@ -5,6 +5,7 @@ import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
+import { preprocessCriticMarkup } from '../../editorFiles/importExportUtils';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { 
@@ -25,6 +26,9 @@ export default function EditorTestPage() {
     const [isApplyingDiff, setIsApplyingDiff] = useState<boolean>(false);
     const [diffError, setDiffError] = useState<string>('');
     const [markdownASTDiffResult, setMarkdownASTDiffResult] = useState<string>('');
+    const [isPreprocessing, setIsPreprocessing] = useState<boolean>(false);
+    const [preprocessingError, setPreprocessingError] = useState<string>('');
+    const [preprocessedMarkdown, setPreprocessedMarkdown] = useState<string>('');
     const [isMarkdownMode, setIsMarkdownMode] = useState<boolean>(true);
     const editorRef = useRef<LexicalEditorRef>(null);
 
@@ -183,6 +187,50 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             setDiffError(error instanceof Error ? error.message : 'An unexpected error occurred while applying diff');
         } finally {
             setIsApplyingDiff(false);
+        }
+    };
+
+    // Handle preprocessing CriticMarkup
+    const handlePreprocessing = () => {
+        if (!markdownASTDiffResult) {
+            setPreprocessingError('No markdown AST diff result available. Please apply diff first.');
+            return;
+        }
+
+        setIsPreprocessing(true);
+        setPreprocessingError('');
+        setPreprocessedMarkdown('');
+
+        try {
+            const preprocessed = preprocessCriticMarkup(markdownASTDiffResult);
+            setPreprocessedMarkdown(preprocessed);
+            
+            // Print the preprocessed markdown to console
+            console.log('📝 Preprocessed Markdown:');
+            console.log(preprocessed);
+            
+            logger.debug('CriticMarkup preprocessing completed successfully', {
+                originalLength: markdownASTDiffResult.length,
+                preprocessedLength: preprocessed.length
+            });
+        } catch (error) {
+            setPreprocessingError(error instanceof Error ? error.message : 'An unexpected error occurred while preprocessing');
+        } finally {
+            setIsPreprocessing(false);
+        }
+    };
+
+    // Handle updating editor with preprocessed markdown
+    const handleUpdateEditorWithMarkdown = () => {
+        if (!preprocessedMarkdown) {
+            return;
+        }
+
+        if (editorRef.current) {
+            editorRef.current.setContentFromMarkdown(preprocessedMarkdown);
+            logger.debug('Editor updated with preprocessed markdown', {
+                markdownLength: preprocessedMarkdown.length
+            });
         }
     };
 
@@ -381,7 +429,8 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         Original content: {currentContent.length} characters | 
                                         Applied edits: {appliedEdits.length} characters |
                                         Method: Markdown AST |
-                                        Button disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'}
+                                        Apply Diff disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'} |
+                                        Apply Preprocessing disabled: {!markdownASTDiffResult || isPreprocessing ? 'Yes' : 'No'}
                                     </div>
                                     <button
                                         onClick={handleApplyDiff}
@@ -393,6 +442,17 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         }`}
                                     >
                                         {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
+                                    </button>
+                                    <button
+                                        onClick={handlePreprocessing}
+                                        disabled={!markdownASTDiffResult || isPreprocessing}
+                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            !markdownASTDiffResult || isPreprocessing
+                                                ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                : 'bg-orange-600 hover:bg-orange-700 text-white'
+                                        }`}
+                                    >
+                                        {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
                                     </button>
                                 </div>
 
@@ -416,30 +476,55 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                                 </pre>
                                             </div>
                                         </div>
-                                        
-                                        
-                                        <div className="mt-4">
-                                            <button
-                                                onClick={() => {
-                                                    if (editorRef.current && markdownASTDiffResult) {
-                                                        editorRef.current.setContentFromMarkdown(markdownASTDiffResult);
-                                                    }
-                                                }}
-                                                disabled={!markdownASTDiffResult}
-                                                className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                    !markdownASTDiffResult
-                                                        ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                        : 'bg-blue-600 hover:bg-blue-700 text-white'
-                                                }`}
-                                            >
-                                                Update Editor with AST Diff Markdown
-                                            </button>
-                                        </div>
                                     </div>
                                 )}
                             </div>
                         </div>
                     </div>
+
+                    {/* Preprocessed Panel */}
+                    {preprocessedMarkdown && (
+                        <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                            <div className="p-6">
+                                <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3">
+                                    Preprocessed
+                                </h3>
+                                <div className="text-orange-800 dark:text-orange-200 text-sm space-y-4">
+                                    <p>
+                                        The CriticMarkup has been preprocessed to normalize multiline patterns and fix formatting issues.
+                                    </p>
+                                    
+                                    {preprocessingError && (
+                                        <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                            <p className="text-red-800 dark:text-red-200 text-sm">
+                                                Error: {preprocessingError}
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-orange-300 dark:border-orange-600">
+                                        <pre className="text-sm text-orange-900 dark:text-orange-100 whitespace-pre-wrap font-mono">
+                                            {preprocessedMarkdown}
+                                        </pre>
+                                    </div>
+
+                                    <div className="mt-4">
+                                        <button
+                                            onClick={handleUpdateEditorWithMarkdown}
+                                            disabled={!preprocessedMarkdown}
+                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                !preprocessedMarkdown
+                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                            }`}
+                                        >
+                                            Update Editor Window with Markdown
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Instructions Panel */}
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">

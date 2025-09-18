@@ -29,7 +29,6 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     console.log("🏷️ Marks:", match[1]);
     console.log("📄 Inner content length:", match[2]?.length);
     console.log("📄 Inner content preview:", JSON.stringify(match[2]?.substring(0, 100)));
-    console.log("🔍 Match index in TextNode:", textNode.getTextContent().indexOf(match[0]));
     
     // match[0] = full "{++...++}", "{--...--}", or "{~~...~>...~~}"
     // match[1] = "++", "--", or "~~"
@@ -41,6 +40,22 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     if (inner.includes('\\n')) {
       inner = inner.replace(/\\n/g, '\n');
     }
+
+    // Get the text content and find the match position
+    const textContent = textNode.getTextContent();
+    const matchIndex = textContent.indexOf(match[0]);
+    
+    if (matchIndex === -1) {
+      console.log("⚠️ Match not found in text content");
+      return;
+    }
+
+    // Split the text node at the match boundaries
+    const beforeText = textContent.substring(0, matchIndex);
+    const afterText = textContent.substring(matchIndex + match[0].length);
+    
+    console.log("📝 Before text:", JSON.stringify(beforeText));
+    console.log("📝 After text:", JSON.stringify(afterText));
 
     if (marks === "~~") {
       // Handle update syntax: {~~old~>new~~}
@@ -85,15 +100,22 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         beforeContainer.remove();
         afterContainer.remove();
         console.log("✅ Final diff node children count:", diff.getChildrenSize());
-        console.log("📝 Final diff children:", diff.getChildren().map(child => ({
-          type: child.getType(),
-          textContent: child.getTextContent(),
-          childrenCount: 'getChildrenSize' in child ? (child as any).getChildrenSize() : 'N/A'
-        })));
         
-        // Simply replace the text node with our diff node
-        console.log("🔄 Replacing text node with update diff node");
+        // Handle the text before the match
+        if (beforeText) {
+          const beforeTextNode = $createTextNode(beforeText);
+          textNode.insertBefore(beforeTextNode);
+        }
+        
+        // Handle the text after the match BEFORE replacing
+        if (afterText) {
+          const afterTextNode = $createTextNode(afterText);
+          textNode.insertAfter(afterTextNode);
+        }
+        
+        // Replace the matched text with the DiffTagNodeInline (do this last)
         textNode.replace(diff);
+        
         console.log("✅ Replace operation completed for update");
         return;
       } else {
@@ -109,8 +131,6 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     
     const diff = $createDiffTagNodeInline(tag);
     
-    // We want to avoid a unnecessary line break for every new diffTagNode containing only text
-    // Hence we are removing the unnecessary paragraph nodes below
     // Create a temporary node to process the markdown
     const tempNode = $createParagraphNode();
     $convertFromMarkdownString(inner, MARKDOWN_TRANSFORMERS, tempNode);
@@ -143,10 +163,21 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     console.log("📊 DiffTagNodeInline children count:", diff.getChildrenSize());
     console.log("📊 DiffTagNodeInline text content length:", diff.getTextContent().length);
 
-    // Simply replace the text node with our diff node
-    // Lexical will handle the text replacement automatically
-    console.log("🔄 Replacing text node with diff node");
+    // Handle the text before the match
+    if (beforeText) {
+      const beforeTextNode = $createTextNode(beforeText);
+      textNode.insertBefore(beforeTextNode);
+    }
+    
+    // Handle the text after the match BEFORE replacing
+    if (afterText) {
+      const afterTextNode = $createTextNode(afterText);
+      textNode.insertAfter(afterTextNode);
+    }
+    
+    // Replace the matched text with the DiffTagNodeInline (do this last)
     textNode.replace(diff);
+    
     console.log("✅ Replace operation completed");
   },
   // We only handle import; exporting is done by an Element transformer for DiffTagNode
@@ -200,212 +231,140 @@ export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
 export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
   type: "element",
   dependencies: [DiffTagNodeInline],
-  regExp: /\{([+-~]{2})(\s*#{1,6}\s+[^\n]+(?:\n[^\n]*)*?)\1\}/,
-  replace: (parentNode, children, match) => {
+  regExp: /\{([+-~]{2})(\s*#{1,6}\s+[^}]*?)\1\}/,
+  replace: (parentNode, children, match, isImport) => {
     console.log("🔍 CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER replace called");
     console.log("📝 ParentNode type:", parentNode.getType());
     console.log("📝 Children count:", children.length);
+    console.log("📝 IsImport:", isImport);
     console.log("🎯 Full match:", JSON.stringify(match[0]));
     console.log("🏷️ Marks:", match[1]);
     console.log("📄 Inner content length:", match[2]?.length);
     console.log("📄 Inner content preview:", JSON.stringify(match[2]?.substring(0, 100)));
     
-    // match[0] = full "{++...++}", "{--...--}", or "{~~...~>...~~}"
-    // match[1] = "++", "--", or "~~"
-    // match[2] = inner content
-    const marks = match[1]!;
-    let inner = match[2] ?? "";
+    // Only process if the ENTIRE paragraph content is just the CriticMarkup
+    // This prevents losing other content
+    if (children.length === 1 && $isTextNode(children[0])) {
+      const textContent = children[0].getTextContent().trim();
+      if (textContent === match[0]) {
+        console.log("✅ Safe to replace entire paragraph - content matches exactly");
+        
+        // match[0] = full "{++...++}", "{--...--}", or "{~~...~>...~~}"
+        // match[1] = "++", "--", or "~~"
+        // match[2] = inner content
+        const marks = match[1]!;
+        let inner = match[2] ?? "";
 
-    // Convert \n back to actual newlines if they were normalized during preprocessing
-    if (inner.includes('\\n')) {
-      inner = inner.replace(/\\n/g, '\n');
-    }
-
-    if (marks === "~~") {
-      // Handle update syntax: {~~old~>new~~}
-      const updateParts = inner.split('~>');
-      if (updateParts.length === 2) {
-        const [beforeText, afterText] = updateParts;
-        console.log("🏷️ Creating DiffTagNodeInline with tag: update");
-        console.log("📝 Before text:", JSON.stringify(beforeText));
-        console.log("📝 After text:", JSON.stringify(afterText));
-        
-        const diff = $createDiffTagNodeInline("update");
-        console.log("🔍 Created empty DiffTagNodeInline, children count:", diff.getChildrenSize());
-        
-        // Create separate container nodes for before and after text
-        const beforeContainer = $createParagraphNode();
-        const afterContainer = $createParagraphNode();
-        
-        // Parse before and after text into their respective containers
-        console.log("🔄 Calling convertFromMarkdownString for beforeText...");
-        $convertFromMarkdownString(beforeText, MARKDOWN_TRANSFORMERS, beforeContainer);
-        console.log("✅ Before container children count:", beforeContainer.getChildrenSize());
-        
-        console.log("🔄 Calling convertFromMarkdownString for afterText...");
-        $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterContainer);
-        console.log("✅ After container children count:", afterContainer.getChildrenSize());
-        
-        // Move children from containers to diff node
-        const beforeChildren = beforeContainer.getChildren();
-        const afterChildren = afterContainer.getChildren();
-        
-        // Append all before children to diff
-        beforeChildren.forEach(child => {
-          diff.append(child);
-        });
-        
-        // Append all after children to diff
-        afterChildren.forEach(child => {
-          diff.append(child);
-        });
-        
-        // Remove the now-empty containers
-        beforeContainer.remove();
-        afterContainer.remove();
-        console.log("✅ Final diff node children count:", diff.getChildrenSize());
-        console.log("📝 Final diff children:", diff.getChildren().map(child => ({
-          type: child.getType(),
-          textContent: child.getTextContent(),
-          childrenCount: 'getChildrenSize' in child ? (child as any).getChildrenSize() : 'N/A'
-        })));
-        
-        // Find the TextNode that contains the matched text and replace only the matched portion
-        console.log("🔄 Finding TextNode with matched content to replace (update)");
-        const matchedText = match[0];
-        let textNodeToReplace: TextNode | null = null;
-        let startOffset = -1;
-        let endOffset = -1;
-        
-        // Search through children to find the TextNode containing the match
-        children.forEach(child => {
-          if ($isTextNode(child)) {
-            const textContent = child.getTextContent();
-            const matchIndex = textContent.indexOf(matchedText);
-            if (matchIndex !== -1) {
-              textNodeToReplace = child;
-              startOffset = matchIndex;
-              endOffset = matchIndex + matchedText.length;
-            }
-          }
-        });
-        
-        if (textNodeToReplace && startOffset !== -1 && endOffset !== -1) {
-          console.log("✅ Found TextNode to replace (update):", (textNodeToReplace as TextNode).getKey());
-          console.log(`📝 Splitting text at offsets ${startOffset}-${endOffset}`);
-          
-          try {
-            // Split the text node at the start and end offsets
-            const [, middleNode, rightNode] = (textNodeToReplace as TextNode).splitText(startOffset, endOffset);
-            
-            // Replace the middle node (the matched text) with our diff node
-            middleNode.replace(diff);
-            
-            // Merge adjacent text nodes if necessary
-            if (rightNode && rightNode.getTextContent() === '') {
-              rightNode.remove();
-            }
-            
-            console.log("✅ Replace operation completed for update with splitText");
-          } catch (error) {
-            console.log("⚠️ splitText failed, falling back to full node replacement (update):", error);
-            (textNodeToReplace as TextNode).replace(diff);
-          }
-        } else {
-          console.log("⚠️ Could not find TextNode with matched content, falling back to parent replacement (update)");
-          parentNode.replace(diff);
+        // Convert \n back to actual newlines if they were normalized during preprocessing
+        if (inner.includes('\\n')) {
+          inner = inner.replace(/\\n/g, '\n');
         }
-        return;
-      } else {
-        console.log("⚠️ Malformed update syntax, falling back to regular text");
-        // Fallback: treat as regular text
-        return;
-      }
-    }
 
-    // Handle insert/delete syntax: {++...++} or {--...--}
-    const tag = marks === "++" ? "ins" : "del";
-    console.log("🏷️ Creating DiffTagNodeInline with tag:", tag);
-    
-    const diff = $createDiffTagNodeInline(tag);
-    
-    // Create a temporary node to process the markdown
-    const tempNode = $createParagraphNode();
-    $convertFromMarkdownString(inner, MARKDOWN_TRANSFORMERS, tempNode);
-    
-    const tempChildren = tempNode.getChildren();
-    const hasOnlyParagraphs = tempChildren.every(child => child.getType() === 'paragraph');
-    
-    if (hasOnlyParagraphs) {
-      // If temp node only has paragraph nodes, take all children of those paragraphs and attach to diff
-      tempChildren.forEach(paragraph => {
-        if ('getChildren' in paragraph) {
-          const paragraphChildren = (paragraph as any).getChildren();
-          paragraphChildren.forEach((child: any) => {
+        if (marks === "~~") {
+          // Handle update syntax: {~~old~>new~~}
+          const updateParts = inner.split('~>');
+          if (updateParts.length === 2) {
+            const [beforeText, afterText] = updateParts;
+            console.log("🏷️ Creating DiffTagNodeInline with tag: update");
+            console.log("📝 Before text:", JSON.stringify(beforeText));
+            console.log("📝 After text:", JSON.stringify(afterText));
+            
+            const diff = $createDiffTagNodeInline("update");
+            console.log("🔍 Created empty DiffTagNodeInline, children count:", diff.getChildrenSize());
+            
+            // Create separate container nodes for before and after text
+            const beforeContainer = $createParagraphNode();
+            const afterContainer = $createParagraphNode();
+            
+            // Parse before and after text into their respective containers
+            console.log("🔄 Calling convertFromMarkdownString for beforeText...");
+            $convertFromMarkdownString(beforeText, MARKDOWN_TRANSFORMERS, beforeContainer);
+            console.log("✅ Before container children count:", beforeContainer.getChildrenSize());
+            
+            console.log("🔄 Calling convertFromMarkdownString for afterText...");
+            $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterContainer);
+            console.log("✅ After container children count:", afterContainer.getChildrenSize());
+            
+            // Move children from containers to diff node
+            const beforeChildren = beforeContainer.getChildren();
+            const afterChildren = afterContainer.getChildren();
+            
+            // Append all before children to diff
+            beforeChildren.forEach(child => {
+              diff.append(child);
+            });
+            
+            // Append all after children to diff
+            afterChildren.forEach(child => {
+              diff.append(child);
+            });
+            
+            // Remove the now-empty containers
+            beforeContainer.remove();
+            afterContainer.remove();
+            console.log("✅ Final diff node children count:", diff.getChildrenSize());
+            
+            // Replace the entire paragraph with the diff node (block-level)
+            console.log("🔄 Replacing entire paragraph with update diff node");
+            parentNode.replace(diff);
+            console.log("✅ Replace operation completed for update");
+            return;
+          } else {
+            console.log("⚠️ Malformed update syntax, falling back to regular text");
+            return;
+          }
+        }
+
+        // Handle insert/delete syntax: {++...++} or {--...--}
+        const tag = marks === "++" ? "ins" : "del";
+        console.log("🏷️ Creating DiffTagNodeInline with tag:", tag);
+        
+        const diff = $createDiffTagNodeInline(tag);
+        
+        // Create a temporary node to process the markdown
+        const tempNode = $createParagraphNode();
+        $convertFromMarkdownString(inner, MARKDOWN_TRANSFORMERS, tempNode);
+        
+        const tempChildren = tempNode.getChildren();
+        const hasOnlyParagraphs = tempChildren.every(child => child.getType() === 'paragraph');
+        
+        if (hasOnlyParagraphs) {
+          // If temp node only has paragraph nodes, take all children of those paragraphs and attach to diff
+          tempChildren.forEach(paragraph => {
+            if ('getChildren' in paragraph) {
+              const paragraphChildren = (paragraph as any).getChildren();
+              paragraphChildren.forEach((child: any) => {
+                diff.append(child);
+              });
+            }
+          });
+          console.log("📝 Flattened paragraph children to diff node");
+        } else {
+          // If temp node has anything other than paragraph nodes, move all children to diff
+          tempChildren.forEach((child: any) => {
             diff.append(child);
           });
+          console.log("📝 Moved all children from temp node to diff node");
         }
-      });
-      console.log("📝 Flattened paragraph children to diff node");
-    } else {
-      // If temp node has anything other than paragraph nodes, move all children to diff
-      tempChildren.forEach((child: any) => {
-        diff.append(child);
-      });
-      console.log("📝 Moved all children from temp node to diff node");
-    }
-    
-    // Remove the now-empty temp node
-    tempNode.remove();
-    
-    console.log("📊 DiffTagNodeInline children count:", diff.getChildrenSize());
-    console.log("📊 DiffTagNodeInline text content length:", diff.getTextContent().length);
+        
+        // Remove the now-empty temp node
+        tempNode.remove();
+        
+        console.log("📊 DiffTagNodeInline children count:", diff.getChildrenSize());
+        console.log("📊 DiffTagNodeInline text content length:", diff.getTextContent().length);
 
-    // Find the TextNode that contains the matched text and replace only the matched portion
-    console.log("🔄 Finding TextNode with matched content to replace");
-    const matchedText = match[0];
-    let textNodeToReplace: TextNode | null = null;
-    let startOffset = -1;
-    let endOffset = -1;
-    
-    // Search through children to find the TextNode containing the match
-    children.forEach(child => {
-      if ($isTextNode(child)) {
-        const textContent = child.getTextContent();
-        const matchIndex = textContent.indexOf(matchedText);
-        if (matchIndex !== -1) {
-          textNodeToReplace = child;
-          startOffset = matchIndex;
-          endOffset = matchIndex + matchedText.length;
-        }
+        // Replace the entire paragraph with the diff node (block-level)
+        console.log("🔄 Replacing entire paragraph with diff node");
+        parentNode.replace(diff);
+        console.log("✅ Replace operation completed");
+        return;
       }
-    });
-    
-    if (textNodeToReplace && startOffset !== -1 && endOffset !== -1) {
-      console.log("✅ Found TextNode to replace:", (textNodeToReplace as TextNode).getKey());
-      console.log(`📝 Splitting text at offsets ${startOffset}-${endOffset}`);
-      
-      try {
-        // Split the text node at the start and end offsets
-        const [, middleNode, rightNode] = (textNodeToReplace as TextNode).splitText(startOffset, endOffset);
-        
-        // Replace the middle node (the matched text) with our diff node
-        middleNode.replace(diff);
-        
-        // Merge adjacent text nodes if necessary
-        if (rightNode && rightNode.getTextContent() === '') {
-          rightNode.remove();
-        }
-        
-        console.log("✅ Replace operation completed with splitText");
-      } catch (error) {
-        console.log("⚠️ splitText failed, falling back to full node replacement:", error);
-        (textNodeToReplace as TextNode).replace(diff);
-      }
-    } else {
-      console.log("⚠️ Could not find TextNode with matched content, falling back to parent replacement");
-      parentNode.replace(diff);
     }
+    
+    console.log("⚠️ Not safe to replace entire paragraph - content doesn't match exactly or has multiple children");
+    console.log("📝 Paragraph content:", children.length === 1 && $isTextNode(children[0]) ? JSON.stringify(children[0].getTextContent()) : 'Multiple children');
+    console.log("📝 Expected match:", JSON.stringify(match[0]));
+    // Don't process - let the inline transformer handle it
   },
   export: (node: LexicalNode) => {
     console.log("📤 CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER export called");
@@ -431,6 +390,7 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
  * - Preserves newlines within CriticMarkup content as \n
  * - Ensures existing single-line CriticMarkup remains unchanged
  * - Fixes headings that are NOT wrapped in CriticMarkup by adding newlines before # characters
+ * - Ensures CriticMarkup blocks containing headings are on their own lines
  * - Used before passing markdown to Lexical to prevent text node splitting issues
  */
 export function preprocessCriticMarkup(markdown: string): string {
@@ -495,6 +455,39 @@ export function preprocessCriticMarkup(markdown: string): string {
     if (charBefore !== '\n') {
       // Add newline before the heading
       fixedMarkdown = fixedMarkdown.substring(0, start) + '\n' + fixedMarkdown.substring(start);
+    }
+  }
+  
+  // NEW: Handle CriticMarkup blocks containing headings
+  // Find all CriticMarkup blocks that contain headings
+  const criticMarkupWithHeadingsRegex = /\{([+-~]{2})([^}]*#{1,6}[^}]*)\1\}/g;
+  let criticMarkupMatch;
+  const criticMarkupWithHeadings: Array<{match: string, start: number, end: number}> = [];
+  
+  while ((criticMarkupMatch = criticMarkupWithHeadingsRegex.exec(fixedMarkdown)) !== null) {
+    criticMarkupWithHeadings.push({
+      match: criticMarkupMatch[0],
+      start: criticMarkupMatch.index,
+      end: criticMarkupMatch.index + criticMarkupMatch[0].length
+    });
+  }
+  
+  // Process CriticMarkup blocks with headings in reverse order
+  for (let i = criticMarkupWithHeadings.length - 1; i >= 0; i--) {
+    const { match, start, end } = criticMarkupWithHeadings[i];
+    
+    // Check if the opening { is not on a newline
+    const charBefore = start > 0 ? fixedMarkdown[start - 1] : '';
+    if (charBefore !== '\n') {
+      // Add newline before the opening {
+      fixedMarkdown = fixedMarkdown.substring(0, start) + '\n' + fixedMarkdown.substring(start);
+    }
+    
+    // Check if the closing } is not followed by a newline
+    const charAfter = end < fixedMarkdown.length ? fixedMarkdown[end] : '';
+    if (charAfter !== '\n' && charAfter !== '') {
+      // Add newline after the closing }
+      fixedMarkdown = fixedMarkdown.substring(0, end) + '\n' + fixedMarkdown.substring(end);
     }
   }
   
@@ -623,7 +616,7 @@ export function removeTrailingBreaksFromTextNodes(): void {
  * - Used by Lexical for markdown import/export operations
  */
 export const MARKDOWN_TRANSFORMERS = [
-  CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER,
+  //CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER,
   HEADING,
   QUOTE,
   CODE,
@@ -634,6 +627,6 @@ export const MARKDOWN_TRANSFORMERS = [
   ITALIC_STAR,
   STRIKETHROUGH,
   LINK,
-  //CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER,
+  CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER,
   DIFF_TAG_EXPORT_TRANSFORMER,
 ];
