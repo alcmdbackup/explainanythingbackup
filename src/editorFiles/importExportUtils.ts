@@ -103,13 +103,13 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         
         // Handle the text before the match
         if (beforeTextGeneral) {
-          const beforeTextNode = $createTextNode(beforeText);
+          const beforeTextNode = $createTextNode(beforeTextGeneral);
           textNode.insertBefore(beforeTextNode);
         }
-        
+
         // Handle the text after the match BEFORE replacing
         if (afterTextGeneral) {
-          const afterTextNode = $createTextNode(afterText);
+          const afterTextNode = $createTextNode(afterTextGeneral);
           textNode.insertAfter(afterTextNode);
         }
         
@@ -164,14 +164,14 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     console.log("📊 DiffTagNodeInline text content length:", diff.getTextContent().length);
 
     // Handle the text before the match
-    if (beforeText) {
-      const beforeTextNode = $createTextNode(beforeText);
+    if (beforeTextGeneral) {
+      const beforeTextNode = $createTextNode(beforeTextGeneral);
       textNode.insertBefore(beforeTextNode);
     }
-    
+
     // Handle the text after the match BEFORE replacing
-    if (afterText) {
-      const afterTextNode = $createTextNode(afterText);
+    if (afterTextGeneral) {
+      const afterTextNode = $createTextNode(afterTextGeneral);
       textNode.insertAfter(afterTextNode);
     }
     
