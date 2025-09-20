@@ -432,54 +432,93 @@ function normalizeMultilineCriticMarkup(markdown: string): string {
  * • Processes in reverse order to avoid offset issues when inserting newlines
  */
 function fixHeadingFormatting(markdown: string): string {
-  const headingRunsRegex = /#+/g;
-  const criticMarkupRegex = /\{[+-~]{2}[\s\S]*?[+-~]{2}\}/g;
-  
-  // Find all CriticMarkup blocks and their positions
-  const criticMarkupBlocks: Array<{start: number, end: number}> = [];
-  let criticMatch;
-  while ((criticMatch = criticMarkupRegex.exec(markdown)) !== null) {
-    criticMarkupBlocks.push({
-      start: criticMatch.index,
-      end: criticMatch.index + criticMatch[0].length
+  console.log('🐛 fixHeadingFormatting called with markdown length:', markdown.length);
+
+  // Find all relevant positions and their types
+  interface Position {
+    index: number;
+    type: 'heading' | 'critic-start' | 'critic-end';
+    needsNewlineBefore?: boolean;
+    needsNewlineAfter?: boolean;
+  }
+
+  const positions: Position[] = [];
+
+  // Find all CriticMarkup blocks with headings
+  const criticMarkupWithHeadingsRegex = /\{([+-~]{2})([^}]*#{1,6}[^}]*)\1\}/g;
+  let criticHeadingMatch;
+  while ((criticHeadingMatch = criticMarkupWithHeadingsRegex.exec(markdown)) !== null) {
+    const start = criticHeadingMatch.index;
+    const end = criticHeadingMatch.index + criticHeadingMatch[0].length;
+
+    console.log('🐛 Found CriticMarkup with heading:', JSON.stringify(criticHeadingMatch[0].substring(0, 50)));
+
+    positions.push({
+      index: start,
+      type: 'critic-start',
+      needsNewlineBefore: true
+    });
+    positions.push({
+      index: end,
+      type: 'critic-end',
+      needsNewlineAfter: true
     });
   }
-  
-  // Check if a position is within any CriticMarkup block
-  const isWithinCriticMarkup = (position: number): boolean => {
-    return criticMarkupBlocks.some(block => position >= block.start && position < block.end);
-  };
-  
-  // Find all heading runs and process them
-  const headingMatches: Array<{match: string, start: number, end: number}> = [];
+
+  // Find all standalone headings (not in CriticMarkup)
+  const headingRegex = /^[ \t]*#{1,6}[ \t]/gm;
   let headingMatch;
-  while ((headingMatch = headingRunsRegex.exec(markdown)) !== null) {
-    headingMatches.push({
-      match: headingMatch[0],
-      start: headingMatch.index,
-      end: headingMatch.index + headingMatch[0].length
-    });
-  }
-  
-  // Process heading matches in reverse order to avoid offset issues
-  let fixedMarkdown = markdown;
-  for (let i = headingMatches.length - 1; i >= 0; i--) {
-    const { match, start, end } = headingMatches[i];
-    
-    // Skip if within CriticMarkup
-    if (isWithinCriticMarkup(start)) {
-      continue;
-    }
-    
-    // Check if not starting on a newline
-    const charBefore = start > 0 ? fixedMarkdown[start - 1] : '';
-    if (charBefore !== '\n') {
-      // Add newline before the heading
-      fixedMarkdown = fixedMarkdown.substring(0, start) + '\n' + fixedMarkdown.substring(start);
+  while ((headingMatch = headingRegex.exec(markdown)) !== null) {
+    const headingStart = headingMatch.index;
+
+    // Check if this heading is inside any CriticMarkup block
+    const isInsideCriticMarkup = positions.some(pos =>
+      pos.type === 'critic-start' && pos.index < headingStart &&
+      positions.some(endPos =>
+        endPos.type === 'critic-end' && endPos.index > headingStart &&
+        endPos.index > pos.index
+      )
+    );
+
+    if (!isInsideCriticMarkup) {
+      console.log('🐛 Found standalone heading at:', headingStart);
+      positions.push({
+        index: headingStart,
+        type: 'heading',
+        needsNewlineBefore: true
+      });
     }
   }
-  
-  return fixedMarkdown;
+
+  // Sort positions by index in descending order (process from end to start)
+  positions.sort((a, b) => b.index - a.index);
+
+  console.log('🐛 Found', positions.length, 'positions to process');
+
+  // Apply changes from end to start to avoid index shifting
+  let result = markdown;
+  for (const pos of positions) {
+    console.log(`🐛 Processing ${pos.type} at index ${pos.index}`);
+
+    if (pos.needsNewlineBefore) {
+      const charBefore = pos.index > 0 ? result[pos.index - 1] : '';
+      if (charBefore !== '\n' && charBefore !== '') {
+        console.log('🐛 Adding newline before');
+        result = result.substring(0, pos.index) + '\n' + result.substring(pos.index);
+      }
+    }
+
+    if (pos.needsNewlineAfter) {
+      const charAfter = pos.index < result.length ? result[pos.index] : '';
+      if (charAfter !== '\n' && charAfter !== '') {
+        console.log('🐛 Adding newline after');
+        result = result.substring(0, pos.index) + '\n' + result.substring(pos.index);
+      }
+    }
+  }
+
+  console.log('🐛 fixHeadingFormatting finished, result length:', result.length);
+  return result;
 }
 
 /**
@@ -535,7 +574,7 @@ export function preprocessCriticMarkup(markdown: string): string {
   fixedMarkdown = normalizeMultilineCriticMarkup(fixedMarkdown);
 
   // Fix heading formatting
-  //fixedMarkdown = fixHeadingFormatting(fixedMarkdown);
+  fixedMarkdown = fixHeadingFormatting(fixedMarkdown);
   
   // Fix CriticMarkup blocks containing headings
   //fixedMarkdown = fixCriticMarkupWithHeadings(fixedMarkdown);
