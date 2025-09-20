@@ -6,6 +6,145 @@ import { $createHeadingNode, $isHeadingNode, HeadingNode } from "@lexical/rich-t
 import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline } from "./DiffTagNode";
 
 /**
+ * Checks if a node contains heading nodes as children (recursively)
+ */
+function nodeContainsHeading(node: LexicalNode): boolean {
+  if ($isHeadingNode(node)) {
+    return true;
+  }
+
+  if ($isElementNode(node)) {
+    const children = node.getChildren();
+    return children.some(child => nodeContainsHeading(child));
+  }
+
+  return false;
+}
+
+/**
+ * Checks if a node should be promoted to top-level
+ * - Heading nodes that are not already top-level
+ * - DiffTagNodeInline nodes that contain heading children
+ */
+function shouldPromoteToTopLevel(node: LexicalNode): boolean {
+  // Check if it's a heading node
+  if ($isHeadingNode(node)) {
+    return true;
+  }
+
+  // Check if it's a DiffTagNodeInline containing headings
+  if ($isDiffTagNodeInline(node)) {
+    return nodeContainsHeading(node);
+  }
+
+  return false;
+}
+
+/**
+ * Promotes a node to top-level by splitting its parent and moving the node out
+ * Uses the approach: clone parent, split children, insert node at top-level
+ */
+function promoteNodeToTopLevel(nodeToPromote: LexicalNode): void {
+  console.log("🔝 promoteNodeToTopLevel called for node:", nodeToPromote.getKey());
+
+  const parent = nodeToPromote.getParent();
+  if (!parent || parent.getType() === 'root') {
+    console.log("📍 Node is already at top-level or has no parent");
+    return;
+  }
+
+  console.log("📍 Parent node type:", parent.getType(), "key:", parent.getKey());
+
+  // Get all children of the parent
+  const allChildren = parent.getChildren();
+  const nodeIndex = allChildren.indexOf(nodeToPromote);
+
+  if (nodeIndex === -1) {
+    console.log("⚠️ Node not found in parent's children");
+    return;
+  }
+
+  console.log("📍 Node index in parent:", nodeIndex, "total children:", allChildren.length);
+
+  // Split children into: before, the node itself, and after
+  const childrenBefore = allChildren.slice(0, nodeIndex);
+  const childrenAfter = allChildren.slice(nodeIndex + 1);
+
+  console.log("📍 Children before:", childrenBefore.length, "children after:", childrenAfter.length);
+
+  // Remove the node from its current parent
+  nodeToPromote.remove();
+
+  // If there are children after the node, create a new parent for them
+  if (childrenAfter.length > 0) {
+    const newParent = $createParagraphNode();
+    childrenAfter.forEach(child => {
+      child.remove();
+      newParent.append(child);
+    });
+
+    // Insert the new parent after the current parent
+    parent.insertAfter(newParent);
+    console.log("📍 Created new parent for children after, key:", newParent.getKey());
+  }
+
+  // Insert the promoted node after the current parent
+  parent.insertAfter(nodeToPromote);
+  console.log("📍 Inserted promoted node after parent");
+
+  // If the original parent now has no children, remove it
+  if (parent.getChildrenSize() === 0) {
+    console.log("📍 Removing empty parent");
+    parent.remove();
+  }
+
+  console.log("✅ Node promotion completed");
+}
+
+/**
+ * Post-processes the editor tree to promote nodes that should be top-level
+ * This handles cases where nodes were created inline but should be at top-level
+ * Should be called after markdown import is complete
+ */
+export function promoteNodesAfterImport(): void {
+  console.log("🔄 promoteNodesAfterImport called");
+
+  const root = $getRoot();
+  const nodesToPromote: LexicalNode[] = [];
+
+  // Recursively find all nodes that should be promoted
+  function findNodesToPromote(node: LexicalNode): void {
+    if ($isElementNode(node) && node.getType() !== 'root') {
+      // Check if this node should be promoted and is not already top-level
+      if (shouldPromoteToTopLevel(node) && node.getParent()?.getType() !== 'root') {
+        nodesToPromote.push(node);
+        console.log("📍 Found node to promote:", node.getType(), "key:", node.getKey());
+      }
+
+      // Continue searching in children
+      node.getChildren().forEach(findNodesToPromote);
+    }
+  }
+
+  // Find all nodes that need promotion
+  root.getChildren().forEach(findNodesToPromote);
+
+  console.log("📍 Total nodes to promote:", nodesToPromote.length);
+
+  // Promote nodes (process in reverse order to handle nested promotions correctly)
+  for (let i = nodesToPromote.length - 1; i >= 0; i--) {
+    const node = nodesToPromote[i];
+    // Check if the node is still in the tree and still needs promotion
+    if (node.getParent() && node.getParent()?.getType() !== 'root' && shouldPromoteToTopLevel(node)) {
+      console.log("🔝 Promoting node:", node.getType(), "key:", node.getKey());
+      promoteNodeToTopLevel(node);
+    }
+  }
+
+  console.log("✅ promoteNodesAfterImport completed");
+}
+
+/**
  * Custom transformer for CriticMarkup syntax
  * - Parses {--deleted text--} into DiffTagNodeInline with "del" tag
  * - Parses {++inserted text++} into DiffTagNodeInline with "ins" tag
@@ -115,7 +254,13 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         
         // Replace the matched text with the DiffTagNodeInline (do this last)
         textNode.replace(diff);
-        
+
+        // Check if the newly created diff node should be promoted to top-level
+        if (shouldPromoteToTopLevel(diff)) {
+          console.log("🔝 Promoting update diff node to top-level");
+          promoteNodeToTopLevel(diff);
+        }
+
         console.log("✅ Replace operation completed for update");
         return;
       } else {
@@ -177,7 +322,13 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     
     // Replace the matched text with the DiffTagNodeInline (do this last)
     textNode.replace(diff);
-    
+
+    // Check if the newly created diff node should be promoted to top-level
+    if (shouldPromoteToTopLevel(diff)) {
+      console.log("🔝 Promoting diff node to top-level");
+      promoteNodeToTopLevel(diff);
+    }
+
     console.log("✅ Replace operation completed");
   },
   // We only handle import; exporting is done by an Element transformer for DiffTagNode

@@ -44,7 +44,7 @@ import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
 import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
-import { CRITIC_MARKUP_IMPORT_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, MARKDOWN_TRANSFORMERS } from './importExportUtils';
+import { CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
 
