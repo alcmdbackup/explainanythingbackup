@@ -509,27 +509,26 @@ function buildParagraphMultiPassRuns(
 
     if (next) {
       const sA = SA[i], sB = SB[j];
+      const sDiff = diffRatioWords(sA, sB, false); // Don't show word-level details
+      const similarity = 1 - sDiff;
+
       if (mp.debug) {
-        console.log(`    🔍 COMPARING SENTENCE PAIR:`);
-        console.log(`      A: "${sA}"`);
-        console.log(`      B: "${sB}"`);
+        console.log(`    🔍 SENTENCE PAIR #${k + 1}:`);
+        console.log(`      📝 BEFORE: "${sA}"`);
+        console.log(`      📝 AFTER:  "${sB}"`);
+        console.log(`      📊 Similarity: ${(similarity * 100).toFixed(1)}% | Diff: ${(sDiff * 100).toFixed(1)}% | Threshold: ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}%`);
       }
-      
-      const sDiff = diffRatioWords(sA, sB, mp.debug);
-      if (mp.debug) {
-        console.log(`      📊 SENTENCE DECISION: diff=${sDiff.toFixed(3)}, threshold=${mp.sentenceAtomicDiffIfDiffAbove}`);
-      }
-      
+
       if (sDiff > mp.sentenceAtomicDiffIfDiffAbove) {
         if (mp.debug) {
-          console.log(`      ✅ SENTENCE ATOMIC: ${(sDiff * 100).toFixed(1)}% > ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold`);
+          console.log(`      ✅ DECISION: ATOMIC REPLACEMENT`);
         }
         appendRun(runs, 'update', sA, sB);
       } else {
         if (mp.debug) {
-          console.log(`      🔄 SENTENCE GRANULAR: ${(sDiff * 100).toFixed(1)}% <= ${(mp.sentenceAtomicDiffIfDiffAbove * 100).toFixed(1)}% threshold, doing word-level diff`);
+          console.log(`      🔄 DECISION: GRANULAR (word-level diff)`);
         }
-        const inner = wordRuns(sA, sB, mp.debug);
+        const inner = wordRuns(sA, sB, false); // Don't show word-level details
         for (const r of inner) appendRun(runs, r.t, r.s);
       }
       i++; j++; k++;
@@ -668,18 +667,18 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
         if (decision.paragraphAtomic) {
           return wrapUpdate(stringify(a), stringify(b));
         }
+        //If atomic at sentence level, then calculate diff here. If not, then go to next section.
         if (decision.runs && decision.runs.length) {
           return decorateWithContainerMarkup(a, toCriticMarkup(decision.runs), stringify);
         }
       }
       // Fallback to original granular behavior
-      const gran = options?.textGranularity === 'char' ? 'char' : 'word';
-      const runs = diffTextGranularWithLib(aText, bText, gran);
-      return decorateWithContainerMarkup(a, toCriticMarkup(runs), stringify);
+      //const gran = options?.textGranularity === 'char' ? 'char' : 'word';
+      //const runs = diffTextGranularWithLib(aText, bText, gran);
+      //return decorateWithContainerMarkup(a, toCriticMarkup(runs), stringify);
     }
   }
 
-  //Backup code that generally shouldn't run
   const aKids = a.children || [];
   const bKids = b.children || [];
   if (!aKids.length && !bKids.length) {
@@ -771,6 +770,7 @@ function wrapUpdate(before: string, after: string): string {
 // ========= Granular text diffing helpers =========
 
 function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
+  
   console.log(`shouldApplyAggregatedTextDiff: checking nodes of type ${a.type} and ${b.type}`);
   
   if (a.type !== b.type) {
@@ -793,7 +793,7 @@ function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: Dif
   // Exclude atomic blocks/inline from granular path for the node itself
   if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) {
     console.log(`shouldApplyAggregatedTextDiff: atomic type (${a.type}) - returning false`);
-    return false;
+    return true;
   }
 
   // If either side contains atomic descendants (e.g., a link inside), don't flatten
