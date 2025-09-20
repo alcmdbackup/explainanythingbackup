@@ -82,6 +82,13 @@ interface MultiPassOptions {
    */
   sentenceAtomicDiffIfDiffAbove?: number;
 
+  /**
+   * Maximum diff threshold (0..1) for pairing sentences between texts.
+   * Only sentences with diff below this threshold will be considered matches.
+   * Default: 0.70 (i.e., <70% different → can be paired).
+   */
+  sentencesPairedIfDiffBelow?: number;
+
   /** Locale hint for sentence segmentation (used if Intl.Segmenter is available). */
   sentenceLocale?: string;
 
@@ -253,7 +260,8 @@ function newGroupId(): string {
 
 const MP_DEFAULTS: Required<MultiPassOptions> = {
   paragraphAtomicDiffIfDiffAbove: 0.40,
-  sentenceAtomicDiffIfDiffAbove:  0.30,
+  sentenceAtomicDiffIfDiffAbove:  0.15,
+  sentencesPairedIfDiffBelow: 0.30,
   sentenceLocale:          'en',
   debug:                   true
 };
@@ -262,11 +270,16 @@ const MP_DEFAULTS: Required<MultiPassOptions> = {
 function alignSentencesBySimilarity(
   sentencesA: string[], 
   sentencesB: string[], 
-  threshold: number,
+  diffThreshold: number,
   debug = false
 ): LcsMatch[] {
   if (debug) {
     console.log(`    🔗 SIMILARITY-BASED SENTENCE ALIGNMENT:`);
+    console.log(`      Input A: ${sentencesA.length} sentences`);
+    console.log(`      Input B: ${sentencesB.length} sentences`);
+    console.log(`      Diff threshold: ${(diffThreshold * 100).toFixed(1)}% (sentences with <${(diffThreshold * 100).toFixed(1)}% diff can be paired)`);
+    console.log(`      Sentences A: [${sentencesA.map((s, idx) => `"${s.trim()}"`).join(', ')}]`);
+    console.log(`      Sentences B: [${sentencesB.map((s, idx) => `"${s.trim()}"`).join(', ')}]`);
   }
   
   const pairs: LcsMatch[] = [];
@@ -277,36 +290,68 @@ function alignSentencesBySimilarity(
     const sentenceA = sentencesA[i];
     let bestMatch = -1;
     let bestSimilarity = 0;
+    const similarities: number[] = [];
+    
+    if (debug) {
+      console.log(`    🔍 Processing A[${i}]: "${sentenceA.trim()}"`);
+    }
     
     for (let j = 0; j < sentencesB.length; j++) {
-      if (usedB.has(j)) continue; // Skip already matched sentences
+      if (usedB.has(j)) {
+        if (debug) {
+          console.log(`      ⏭️  Skipping B[${j}] (already matched): "${sentencesB[j].trim()}"`);
+        }
+        continue; // Skip already matched sentences
+      }
       
       const sentenceB = sentencesB[j];
-      const similarity = 1 - diffRatioWords(sentenceA, sentenceB, false); // Get similarity (not diff ratio)
+      const diffRatio = diffRatioWords(sentenceA, sentenceB, false);
+      const similarity = 1 - diffRatio; // Get similarity (not diff ratio)
+      similarities.push(similarity);
+      
+      if (debug) {
+        console.log(`      📊 B[${j}]: "${sentenceB.trim()}" | Diff: ${(diffRatio * 100).toFixed(1)}% | Similarity: ${(similarity * 100).toFixed(1)}%`);
+      }
       
       if (similarity > bestSimilarity) {
         bestSimilarity = similarity;
         bestMatch = j;
+        if (debug) {
+          console.log(`        ⭐ New best match! Similarity: ${(similarity * 100).toFixed(1)}%`);
+        }
       }
     }
     
-    // If we found a good match (similarity > threshold), pair them
-    if (bestMatch !== -1 && bestSimilarity > (1 - threshold)) {
+    if (debug) {
+      console.log(`      📈 All similarities for A[${i}]: [${similarities.map(s => (s * 100).toFixed(1)).join(', ')}]`);
+    }
+    
+    // If we found a good match (diff < diffThreshold), pair them
+    const diffRatio = 1 - bestSimilarity;
+    if (bestMatch !== -1 && diffRatio < diffThreshold) {
       pairs.push({ i, j: bestMatch });
       usedB.add(bestMatch);
       
       if (debug) {
-        console.log(`      ✅ PAIRED: A[${i}] ↔ B[${bestMatch}] (similarity: ${(bestSimilarity * 100).toFixed(1)}%)`);
-        console.log(`        A: "${sentenceA}"`);
-        console.log(`        B: "${sentencesB[bestMatch]}"`);
+        console.log(`      ✅ PAIRED: A[${i}] ↔ B[${bestMatch}] (similarity: ${(bestSimilarity * 100).toFixed(1)}%, diff: ${(diffRatio * 100).toFixed(1)}%)`);
+        console.log(`        A: "${sentenceA.trim()}"`);
+        console.log(`        B: "${sentencesB[bestMatch].trim()}"`);
       }
     } else if (debug) {
-      console.log(`      ❌ NO MATCH: A[${i}] (best similarity: ${(bestSimilarity * 100).toFixed(1)}%, threshold: ${((1 - threshold) * 100).toFixed(1)}%)`);
+      console.log(`      ❌ NO MATCH: A[${i}] (best diff: ${(diffRatio * 100).toFixed(1)}%, threshold: ${(diffThreshold * 100).toFixed(1)}%)`);
+      if (bestMatch !== -1) {
+        console.log(`        Best candidate was B[${bestMatch}]: "${sentencesB[bestMatch].trim()}"`);
+      } else {
+        console.log(`        No candidates found (all sentences already matched)`);
+      }
     }
   }
   
   if (debug) {
     console.log(`    📊 ALIGNMENT RESULT: ${pairs.length} sentence pairs found`);
+    console.log(`      Pairs: [${pairs.map(p => `A[${p.i}]↔B[${p.j}]`).join(', ')}]`);
+    console.log(`      Unmatched A: [${Array.from({length: sentencesA.length}, (_, i) => i).filter(i => !pairs.some(p => p.i === i)).join(', ')}]`);
+    console.log(`      Unmatched B: [${Array.from({length: sentencesB.length}, (_, i) => i).filter(i => !usedB.has(i)).join(', ')}]`);
   }
   
   return pairs;
@@ -475,7 +520,7 @@ function buildParagraphMultiPassRuns(
   // Pass 2: sentence alignment + per-sentence decision
   const SA = sentenceTokens(aText, mp.sentenceLocale);
   const SB = sentenceTokens(bText, mp.sentenceLocale);
-  const pairs = alignSentencesBySimilarity(SA, SB, mp.sentenceAtomicDiffIfDiffAbove, mp.debug); // similarity-based alignment
+  const pairs = alignSentencesBySimilarity(SA, SB, mp.sentencesPairedIfDiffBelow, mp.debug); // similarity-based alignment
   
   if (mp.debug) {
     console.log(`  📝 SENTENCE ANALYSIS:`);
