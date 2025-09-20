@@ -252,8 +252,8 @@ function newGroupId(): string {
 // ========== Multi-pass helpers (paragraph → sentence → word) ==========
 
 const MP_DEFAULTS: Required<MultiPassOptions> = {
-  paragraphAtomicDiffIfDiffAbove: 0.10,
-  sentenceAtomicDiffIfDiffAbove:  0.10,
+  paragraphAtomicDiffIfDiffAbove: 0.40,
+  sentenceAtomicDiffIfDiffAbove:  0.30,
   sentenceLocale:          'en',
   debug:                   true
 };
@@ -655,7 +655,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
   //Decide if we should look at nodes in aggregate, including children...
   //Or iterate recursively into children isntead
   if (shouldApplyAggregatedTextDiff(a, b, options)) {
-    console.log('shouldApplyAggregatedTextDiff is true - proceeding with granular text diff');
+    console.log('shouldApplyAggregatedTextDiff is true');
     const aKids = a.children || [];
     const bKids = b.children || [];
     const aText = extractTextFromChildren(aKids);
@@ -672,10 +672,6 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
           return decorateWithContainerMarkup(a, toCriticMarkup(decision.runs), stringify);
         }
       }
-      // Fallback to original granular behavior
-      //const gran = options?.textGranularity === 'char' ? 'char' : 'word';
-      //const runs = diffTextGranularWithLib(aText, bText, gran);
-      //return decorateWithContainerMarkup(a, toCriticMarkup(runs), stringify);
     }
   }
 
@@ -775,19 +771,19 @@ function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: Dif
   
   if (a.type !== b.type) {
     console.log('shouldApplyAggregatedTextDiff: different types - returning false');
-    return false;
+    return true;
   }
   
   // NEW: avoid granularizing pipe-table paragraphs
   if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
     console.log('shouldApplyAggregatedTextDiff: pipe-table paragraph detected - returning false');
-    return false;
+    return true;
   }
   
   // Do not granularize tables or their parts
   if (a.type === 'table' || a.type === 'tableRow' || a.type === 'tableCell') {
     console.log(`shouldApplyAggregatedTextDiff: table-related type (${a.type}) - returning false`);
-    return false;
+    return true;
   }
 
   // Exclude atomic blocks/inline from granular path for the node itself
@@ -799,14 +795,14 @@ function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: Dif
   // If either side contains atomic descendants (e.g., a link inside), don't flatten
   if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) {
     console.log('shouldApplyAggregatedTextDiff: contains atomic descendants - returning false');
-    return false;
+    return true;
   }
 
   // NEW: if either side contains wrapper descendants (emphasis/strong/inlineCode/link),
   // avoid flattening so wrapper changes render as atomic del+ins pairs.
   if (containsWrapperDescendant(a) || containsWrapperDescendant(b)) {
     console.log('shouldApplyAggregatedTextDiff: contains wrapper descendants - returning false');
-    return false;
+    return true;
   }
 
   const containerTypes = [
