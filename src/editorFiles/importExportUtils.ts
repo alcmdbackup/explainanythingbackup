@@ -22,9 +22,27 @@ function nodeContainsHeading(node: LexicalNode): boolean {
 }
 
 /**
+ * Checks if a node contains paragraph nodes as children (recursively)
+ */
+function nodeContainsParagraph(node: LexicalNode): boolean {
+  if ($isElementNode(node)) {
+    const children = node.getChildren();
+    return children.some(child => {
+      if (child.getType() === 'paragraph') {
+        return true;
+      }
+      return nodeContainsParagraph(child);
+    });
+  }
+
+  return false;
+}
+
+/**
  * Checks if a node should be promoted to top-level
  * - Heading nodes that are not already top-level
  * - DiffTagNodeInline nodes that contain heading children
+ * - DiffTagNodeInline nodes that contain paragraph children
  */
 function shouldPromoteToTopLevel(node: LexicalNode): boolean {
   // Check if it's a heading node
@@ -32,9 +50,9 @@ function shouldPromoteToTopLevel(node: LexicalNode): boolean {
     return true;
   }
 
-  // Check if it's a DiffTagNodeInline containing headings
+  // Check if it's a DiffTagNodeInline containing headings or paragraphs
   if ($isDiffTagNodeInline(node)) {
-    return nodeContainsHeading(node);
+    return nodeContainsHeading(node) || nodeContainsParagraph(node);
   }
 
   return false;
