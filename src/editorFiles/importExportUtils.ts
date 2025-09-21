@@ -564,19 +564,19 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
  */
 function normalizeMultilineCriticMarkup(markdown: string): string {
   const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\s*\}/g;
-  
+
   return markdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
     console.log('🔍 Normalize Multiline Critic Markup Debug:');
     console.log('  match:', JSON.stringify(match));
     console.log('  marks:', JSON.stringify(marks));
     console.log('  content:', JSON.stringify(content));
-    
+
     // First, replace newlines in content with <br> tags
     const normalizedContent = content.replace(/\n/g, '<br>');
-    
+
     // Then remove any remaining newlines from the entire match
     const result = `{${marks}${normalizedContent}${marks}}`.replace(/\n/g, '');
-    
+
     console.log('  result:', JSON.stringify(result));
     return result;
   });
@@ -613,49 +613,53 @@ function fixHeadingFormatting(markdown: string): string {
 
   const positions: Position[] = [];
 
-  // Find all CriticMarkup blocks with headings
-  const criticMarkupWithHeadingsRegex = /\{([+-~]{2})([^}]*#{1,6}[^}]*)\1\}/g;
-  let criticHeadingMatch;
-  while ((criticHeadingMatch = criticMarkupWithHeadingsRegex.exec(markdown)) !== null) {
-    const start = criticHeadingMatch.index;
-    const end = criticHeadingMatch.index + criticHeadingMatch[0].length;
+  // Step 1: Find ALL CriticMarkup blocks (to know which ranges to exclude)
+  const criticMarkupBlocks: Array<{start: number, end: number}> = [];
+  const criticMarkupRegex = /\{([+-~]{2})[\s\S]*?\1\}/g;
+  let criticMatch;
+  while ((criticMatch = criticMarkupRegex.exec(markdown)) !== null) {
+    const start = criticMatch.index;
+    const end = criticMatch.index + criticMatch[0].length;
+    criticMarkupBlocks.push({start, end});
 
-    console.log('🐛 Found CriticMarkup with heading:', JSON.stringify(criticHeadingMatch[0].substring(0, 50)));
-
-    positions.push({
-      index: start,
-      type: 'critic-start',
-      needsNewlineBefore: true
-    });
-    positions.push({
-      index: end,
-      type: 'critic-end',
-      needsNewlineAfter: true
-    });
+    // If this CriticMarkup block contains headings, it needs newlines before/after
+    if (criticMatch[0].includes('#')) {
+      console.log('🐛 Found CriticMarkup with heading:', JSON.stringify(criticMatch[0].substring(0, 50)));
+      positions.push({
+        index: start,
+        type: 'critic-start',
+        needsNewlineBefore: true
+      });
+      positions.push({
+        index: end,
+        type: 'critic-end',
+        needsNewlineAfter: true
+      });
+    }
   }
 
-  // Find all standalone headings (not in CriticMarkup)
-  const headingRegex = /^[ \t]*#{1,6}[ \t]/gm;
+  // Step 2: Find ALL headings anywhere in the markdown
+  const allHeadingsRegex = /#{1,6}[ \t]/g;
   let headingMatch;
-  while ((headingMatch = headingRegex.exec(markdown)) !== null) {
+  while ((headingMatch = allHeadingsRegex.exec(markdown)) !== null) {
     const headingStart = headingMatch.index;
 
-    // Check if this heading is inside any CriticMarkup block
-    const isInsideCriticMarkup = positions.some(pos =>
-      pos.type === 'critic-start' && pos.index < headingStart &&
-      positions.some(endPos =>
-        endPos.type === 'critic-end' && endPos.index > headingStart &&
-        endPos.index > pos.index
-      )
+    console.log('🐛 Found heading at:', headingStart, 'text:', JSON.stringify(headingMatch[0]));
+
+    // Step 3: Check if this heading is inside any CriticMarkup block
+    const isInsideCriticMarkup = criticMarkupBlocks.some(block =>
+      headingStart >= block.start && headingStart < block.end
     );
 
     if (!isInsideCriticMarkup) {
-      console.log('🐛 Found standalone heading at:', headingStart);
+      console.log('🐛 Heading is standalone (not in CriticMarkup), needs newline before');
       positions.push({
         index: headingStart,
         type: 'heading',
         needsNewlineBefore: true
       });
+    } else {
+      console.log('🐛 Heading is inside CriticMarkup, skipping');
     }
   }
 
@@ -738,16 +742,16 @@ function fixCriticMarkupWithHeadings(markdown: string): string {
 export function preprocessCriticMarkup(markdown: string): string {
   // First, fix malformed CriticMarkup patterns where content might be attached to closing markers
   let fixedMarkdown = markdown
-  
+
   // Then normalize multiline CriticMarkup patterns to deal with newlines
   fixedMarkdown = normalizeMultilineCriticMarkup(fixedMarkdown);
 
   // Fix heading formatting
   fixedMarkdown = fixHeadingFormatting(fixedMarkdown);
-  
+
   // Fix CriticMarkup blocks containing headings
   //fixedMarkdown = fixCriticMarkupWithHeadings(fixedMarkdown);
-  
+
   return fixedMarkdown;
 }
 
