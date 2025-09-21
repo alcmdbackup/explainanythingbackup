@@ -2,7 +2,7 @@
 
 import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor';
 import { useState, useEffect, useRef } from 'react';
-import { generateAISuggestionsAction, applyAISuggestionsAction } from '../../actions/actions';
+import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { preprocessCriticMarkup } from '../../editorFiles/importExportUtils';
@@ -30,6 +30,7 @@ export default function EditorTestPage() {
     const [preprocessingError, setPreprocessingError] = useState<string>('');
     const [preprocessedMarkdown, setPreprocessedMarkdown] = useState<string>('');
     const [isMarkdownMode, setIsMarkdownMode] = useState<boolean>(true);
+    const [testSetName, setTestSetName] = useState<string>('');
     const editorRef = useRef<LexicalEditorRef>(null);
 
     // Default content about Albert Einstein
@@ -46,9 +47,12 @@ Einstein's most famous equation, **E = mc²**, demonstrates the equivalence of m
 Einstein's contributions to physics earned him the Nobel Prize in Physics in 1921, and his work continues to influence scientific research and technological development to this day.`;
 
 
-    // Set initial content when component mounts
+    // Set initial content and test set name when component mounts
     useEffect(() => {
         setCurrentContent(defaultContent);
+        // Generate a unique test set name based on timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        setTestSetName(`test-${timestamp}`);
         console.log('Initial content set:', defaultContent.length, 'characters');
     }, []);
 
@@ -92,7 +96,24 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     // Merge the structured output into a readable format
                     const mergedOutput = mergeAISuggestionOutput(validationResult.data);
                     setAiSuggestions(mergedOutput);
-                    
+
+                    // Step 1: Save merged AI suggestion to database
+                    try {
+                        const saveResult = await saveTestingPipelineStepAction(
+                            testSetName,
+                            'merged_ai_suggestion',
+                            mergedOutput
+                        );
+
+                        if (saveResult.success && saveResult.data?.saved) {
+                            console.log('✅ Step 1: Merged AI suggestion saved to database');
+                        } else {
+                            console.log('ℹ️ Step 1: Merged AI suggestion already exists in database');
+                        }
+                    } catch (saveError) {
+                        console.error('❌ Failed to save merged AI suggestion:', saveError);
+                    }
+
                     logger.debug('AI suggestions received and validated', {
                         responseLength: result.data.length,
                         editsCount: validationResult.data.edits.length
@@ -136,6 +157,24 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
             if (result.success && result.data) {
                 setAppliedEdits(result.data);
+
+                // Step 2: Save edits applied to database
+                try {
+                    const saveResult = await saveTestingPipelineStepAction(
+                        testSetName,
+                        'edits_applied',
+                        result.data
+                    );
+
+                    if (saveResult.success && saveResult.data?.saved) {
+                        console.log('✅ Step 2: Edits applied saved to database');
+                    } else {
+                        console.log('ℹ️ Step 2: Edits applied already exists in database');
+                    }
+                } catch (saveError) {
+                    console.error('❌ Failed to save edits applied:', saveError);
+                }
+
                 logger.debug('AI suggestions applied successfully', {
                     responseLength: result.data.length
                 });
@@ -173,11 +212,28 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             
             const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
             setMarkdownASTDiffResult(criticMarkup);
-            
+
+            // Step 3: Save raw markdown to database
+            try {
+                const saveResult = await saveTestingPipelineStepAction(
+                    testSetName,
+                    'raw_markdown',
+                    criticMarkup
+                );
+
+                if (saveResult.success && saveResult.data?.saved) {
+                    console.log('✅ Step 3: Raw markdown saved to database');
+                } else {
+                    console.log('ℹ️ Step 3: Raw markdown already exists in database');
+                }
+            } catch (saveError) {
+                console.error('❌ Failed to save raw markdown:', saveError);
+            }
+
             // Print the markdown with CriticMarkup to console
             console.log('📝 Diff Applied - Markdown with CriticMarkup (AST Diff):');
             console.log(criticMarkup);
-            
+
             logger.debug('Markdown AST diff applied successfully', {
                 beforeLength: currentContent.length,
                 afterLength: appliedEdits.length,
@@ -204,11 +260,28 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         try {
             const preprocessed = preprocessCriticMarkup(markdownASTDiffResult);
             setPreprocessedMarkdown(preprocessed);
-            
+
+            // Step 4: Save preprocessed content to database
+            try {
+                const saveResult = await saveTestingPipelineStepAction(
+                    testSetName,
+                    'preprocessed',
+                    preprocessed
+                );
+
+                if (saveResult.success && saveResult.data?.saved) {
+                    console.log('✅ Step 4: Preprocessed content saved to database');
+                } else {
+                    console.log('ℹ️ Step 4: Preprocessed content already exists in database');
+                }
+            } catch (saveError) {
+                console.error('❌ Failed to save preprocessed content:', saveError);
+            }
+
             // Print the preprocessed markdown to console
             console.log('📝 Preprocessed Markdown:');
             console.log(preprocessed);
-            
+
             logger.debug('CriticMarkup preprocessing completed successfully', {
                 originalLength: markdownASTDiffResult.length,
                 preprocessedLength: preprocessed.length
@@ -244,6 +317,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     <p className="text-lg text-gray-600 dark:text-gray-300 mb-4">
                         Test the Lexical rich text editor with the story of Albert Einstein
                     </p>
+                    {testSetName && (
+                        <p className="text-sm text-blue-600 dark:text-blue-400 mb-4">
+                            Current test set: <code>{testSetName}</code>
+                        </p>
+                    )}
                     <div className="text-sm text-gray-500 dark:text-gray-400 max-w-2xl mx-auto">
                         <p>Try typing in the editor below. You can use keyboard shortcuts like:</p>
                         <ul className="mt-2 space-y-1">

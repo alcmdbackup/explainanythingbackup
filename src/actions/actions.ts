@@ -24,6 +24,7 @@ import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAl
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
+import { checkAndSaveTestingPipelineRecord } from '../lib/services/testingPipeline';
 
 
 const FILE_DEBUG = true;
@@ -883,7 +884,62 @@ export const applyAISuggestionsAction = withLogging(
         }
     },
     'applyAISuggestionsAction',
-    { 
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Saves content to testing pipeline if it doesn't already exist (server action)
+ *
+ * • Checks if exact match exists in TESTING_edits_pipeline table
+ * • Saves record only if no exact match found
+ * • Returns boolean indicating if save was performed
+ * • Calls: checkAndSaveTestingPipelineRecord from testingPipeline service
+ * • Used by: Editor test pages to track pipeline results at each step
+ */
+export const saveTestingPipelineStepAction = withLogging(
+    async function saveTestingPipelineStepAction(
+        setName: string,
+        step: string,
+        content: string
+    ): Promise<{
+        success: boolean;
+        data: { saved: boolean; recordId?: number } | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const result = await checkAndSaveTestingPipelineRecord(setName, step, content);
+
+            return {
+                success: true,
+                data: {
+                    saved: result.saved,
+                    recordId: result.record?.id
+                },
+                error: null
+            };
+        } catch (error) {
+            logger.error('Save Testing Pipeline Step Error', {
+                error: error instanceof Error ? error.message : String(error),
+                setName,
+                step,
+                contentLength: content.length
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'saveTestingPipelineStepAction', {
+                    setName,
+                    step,
+                    contentLength: content.length
+                })
+            };
+        }
+    },
+    'saveTestingPipelineStepAction',
+    {
         enabled: FILE_DEBUG
     }
 );
