@@ -24,7 +24,8 @@ import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAl
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
-import { checkAndSaveTestingPipelineRecord } from '../lib/services/testingPipeline';
+import { checkAndSaveTestingPipelineRecord, getTestingPipelineRecords } from '../lib/services/testingPipeline';
+import { supabase } from '../lib/supabase';
 
 
 const FILE_DEBUG = true;
@@ -939,6 +940,64 @@ export const saveTestingPipelineStepAction = withLogging(
         }
     },
     'saveTestingPipelineStepAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets testing pipeline records by step (server action)
+ *
+ * • Retrieves all records from testing_edits_pipeline table for a specific step
+ * • Orders by created_at to show most recent first
+ * • Returns set_name, content, and metadata for dropdown selection
+ * • Calls: getTestingPipelineRecords from testingPipeline service
+ * • Used by: Editor test pages to populate dropdowns for loading previous results
+ */
+export const getTestingPipelineRecordsByStepAction = withLogging(
+    async function getTestingPipelineRecordsByStepAction(
+        step: string
+    ): Promise<{
+        success: boolean;
+        data: Array<{ id: number; set_name: string; content: string; created_at: string }> | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            // Get all records for this step from the database
+            const { data, error } = await supabase
+                .from('testing_edits_pipeline')
+                .select('id, set_name, content, created_at')
+                .eq('step', step)
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                logger.error('Supabase error fetching testing pipeline records by step:', {
+                    error: error.message,
+                    errorCode: error.code,
+                    step
+                });
+                throw error;
+            }
+
+            return {
+                success: true,
+                data: data || [],
+                error: null
+            };
+        } catch (error) {
+            logger.error('Get Testing Pipeline Records By Step Error', {
+                error: error instanceof Error ? error.message : String(error),
+                step
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getTestingPipelineRecordsByStepAction', { step })
+            };
+        }
+    },
+    'getTestingPipelineRecordsByStepAction',
     {
         enabled: FILE_DEBUG
     }

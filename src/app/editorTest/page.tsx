@@ -2,7 +2,7 @@
 
 import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor';
 import { useState, useEffect, useRef } from 'react';
-import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction } from '../../actions/actions';
+import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { preprocessCriticMarkup } from '../../editorFiles/importExportUtils';
@@ -31,6 +31,13 @@ export default function EditorTestPage() {
     const [preprocessedMarkdown, setPreprocessedMarkdown] = useState<string>('');
     const [isMarkdownMode, setIsMarkdownMode] = useState<boolean>(true);
     const [testSetName, setTestSetName] = useState<string>('');
+
+    // Dropdown state for loading previous results
+    const [step1Options, setStep1Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
+    const [step2Options, setStep2Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
+    const [step3Options, setStep3Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
+    const [step4Options, setStep4Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
+
     const editorRef = useRef<LexicalEditorRef>(null);
 
     // Default content about Albert Einstein
@@ -55,6 +62,67 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         setTestSetName(`test-${timestamp}`);
         console.log('Initial content set:', defaultContent.length, 'characters');
     }, []);
+
+    // Load dropdown options for each step
+    const loadDropdownOptions = async () => {
+        try {
+            const [step1Result, step2Result, step3Result, step4Result] = await Promise.all([
+                getTestingPipelineRecordsByStepAction('1_ai_suggestion'),
+                getTestingPipelineRecordsByStepAction('2_edits_applied_to_markdown'),
+                getTestingPipelineRecordsByStepAction('3_diff_applied_to_markdown'),
+                getTestingPipelineRecordsByStepAction('4_preprocess_diff_before_import')
+            ]);
+
+            if (step1Result.success) setStep1Options(step1Result.data || []);
+            if (step2Result.success) setStep2Options(step2Result.data || []);
+            if (step3Result.success) setStep3Options(step3Result.data || []);
+            if (step4Result.success) setStep4Options(step4Result.data || []);
+        } catch (error) {
+            console.error('Failed to load dropdown options:', error);
+        }
+    };
+
+    // Load dropdown options when component mounts
+    useEffect(() => {
+        loadDropdownOptions();
+    }, []);
+
+    // Handle dropdown selection for each step
+    const handleStep1Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedId = parseInt(event.target.value);
+        const selectedOption = step1Options.find(option => option.id === selectedId);
+        if (selectedOption) {
+            setAiSuggestions(selectedOption.content);
+            console.log(`Loaded step 1 content from set: ${selectedOption.set_name}`);
+        }
+    };
+
+    const handleStep2Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedId = parseInt(event.target.value);
+        const selectedOption = step2Options.find(option => option.id === selectedId);
+        if (selectedOption) {
+            setAppliedEdits(selectedOption.content);
+            console.log(`Loaded step 2 content from set: ${selectedOption.set_name}`);
+        }
+    };
+
+    const handleStep3Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedId = parseInt(event.target.value);
+        const selectedOption = step3Options.find(option => option.id === selectedId);
+        if (selectedOption) {
+            setMarkdownASTDiffResult(selectedOption.content);
+            console.log(`Loaded step 3 content from set: ${selectedOption.set_name}`);
+        }
+    };
+
+    const handleStep4Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const selectedId = parseInt(event.target.value);
+        const selectedOption = step4Options.find(option => option.id === selectedId);
+        if (selectedOption) {
+            setPreprocessedMarkdown(selectedOption.content);
+            console.log(`Loaded step 4 content from set: ${selectedOption.set_name}`);
+        }
+    };
 
     // Handle markdown mode toggle
     const handleMarkdownToggle = () => {
@@ -394,22 +462,41 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     Get AI-powered suggestions to improve your content. The AI will suggest edits with clear instructions.
                                 </p>
                                 
-                                <div className="flex flex-wrap gap-2">
-                                    <div className="text-xs text-orange-600 dark:text-orange-400 mb-2">
-                                        Content length: {currentContent.length} characters | 
-                                        Button disabled: {isLoadingSuggestions ? 'Yes (loading)' : 'No'}
+                                <div className="flex flex-wrap gap-2 items-end">
+                                    <div className="flex-grow">
+                                        <div className="text-xs text-orange-600 dark:text-orange-400 mb-2">
+                                            Content length: {currentContent.length} characters |
+                                            Button disabled: {isLoadingSuggestions ? 'Yes (loading)' : 'No'}
+                                        </div>
+                                        <button
+                                            onClick={handleGetAISuggestions}
+                                            disabled={isLoadingSuggestions}
+                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                isLoadingSuggestions
+                                                    ? 'bg-orange-300 text-white cursor-not-allowed'
+                                                    : 'bg-orange-600 hover:bg-orange-700 text-white'
+                                            }`}
+                                        >
+                                            {isLoadingSuggestions ? 'Processing...' : 'Get AI Suggestions'}
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={handleGetAISuggestions}
-                                        disabled={isLoadingSuggestions}
-                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                            isLoadingSuggestions
-                                                ? 'bg-orange-300 text-white cursor-not-allowed'
-                                                : 'bg-orange-600 hover:bg-orange-700 text-white'
-                                        }`}
-                                    >
-                                        {isLoadingSuggestions ? 'Processing...' : 'Get AI Suggestions'}
-                                    </button>
+                                    <div className="flex flex-col">
+                                        <label className="text-xs text-orange-600 dark:text-orange-400 mb-1">
+                                            Load from database:
+                                        </label>
+                                        <select
+                                            onChange={handleStep1Selection}
+                                            className="px-3 py-2 text-sm border border-orange-300 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-orange-900 dark:text-orange-100"
+                                            defaultValue=""
+                                        >
+                                            <option value="">Select previous result...</option>
+                                            {step1Options.map((option) => (
+                                                <option key={option.id} value={option.id}>
+                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
 
                                 {suggestionError && (
@@ -460,18 +547,37 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     Apply the AI suggestions to your content to see the improved version.
                                 </p>
 
-                                <div className="flex flex-wrap gap-2">
-                                    <button
-                                        onClick={handleApplyAISuggestions}
-                                        disabled={!aiSuggestions || isApplyingEdits}
-                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                            !aiSuggestions || isApplyingEdits
-                                                ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                : 'bg-green-600 hover:bg-green-700 text-white'
-                                        }`}
-                                    >
-                                        {isApplyingEdits ? 'Applying...' : 'Apply AI Suggestions'}
-                                    </button>
+                                <div className="flex flex-wrap gap-2 items-end">
+                                    <div className="flex-grow">
+                                        <button
+                                            onClick={handleApplyAISuggestions}
+                                            disabled={!aiSuggestions || isApplyingEdits}
+                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                !aiSuggestions || isApplyingEdits
+                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                    : 'bg-green-600 hover:bg-green-700 text-white'
+                                            }`}
+                                        >
+                                            {isApplyingEdits ? 'Applying...' : 'Apply AI Suggestions'}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <label className="text-xs text-green-600 dark:text-green-400 mb-1">
+                                            Load from database:
+                                        </label>
+                                        <select
+                                            onChange={handleStep2Selection}
+                                            className="px-3 py-2 text-sm border border-green-300 dark:border-green-600 rounded-md bg-white dark:bg-gray-800 text-green-900 dark:text-green-100"
+                                            defaultValue=""
+                                        >
+                                            <option value="">Select previous result...</option>
+                                            {step2Options.map((option) => (
+                                                <option key={option.id} value={option.id}>
+                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
 
                                 {applyError && (
@@ -510,24 +616,43 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 </p>
                                 
                                 
-                                <div className="flex flex-wrap gap-2">
-                                    <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
-                                        Original content: {currentContent.length} characters |
-                                        Applied edits: {appliedEdits.length} characters |
-                                        Method: Markdown AST |
-                                        Apply Diff disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'}
+                                <div className="flex flex-wrap gap-2 items-end">
+                                    <div className="flex-grow">
+                                        <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
+                                            Original content: {currentContent.length} characters |
+                                            Applied edits: {appliedEdits.length} characters |
+                                            Method: Markdown AST |
+                                            Apply Diff disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'}
+                                        </div>
+                                        <button
+                                            onClick={handleApplyDiff}
+                                            disabled={!currentContent || !appliedEdits || isApplyingDiff}
+                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                !currentContent || !appliedEdits || isApplyingDiff
+                                                    ? 'bg-purple-300 text-white cursor-not-allowed'
+                                                    : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                            }`}
+                                        >
+                                            {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
+                                        </button>
                                     </div>
-                                    <button
-                                        onClick={handleApplyDiff}
-                                        disabled={!currentContent || !appliedEdits || isApplyingDiff}
-                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                            !currentContent || !appliedEdits || isApplyingDiff
-                                                ? 'bg-purple-300 text-white cursor-not-allowed'
-                                                : 'bg-purple-600 hover:bg-purple-700 text-white'
-                                        }`}
-                                    >
-                                        {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
-                                    </button>
+                                    <div className="flex flex-col">
+                                        <label className="text-xs text-purple-600 dark:text-purple-400 mb-1">
+                                            Load from database:
+                                        </label>
+                                        <select
+                                            onChange={handleStep3Selection}
+                                            className="px-3 py-2 text-sm border border-purple-300 dark:border-purple-600 rounded-md bg-white dark:bg-gray-800 text-purple-900 dark:text-purple-100"
+                                            defaultValue=""
+                                        >
+                                            <option value="">Select previous result...</option>
+                                            {step3Options.map((option) => (
+                                                <option key={option.id} value={option.id}>
+                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
 
                                 {diffError && (
@@ -567,18 +692,37 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     Apply preprocessing to normalize multiline patterns and fix formatting issues.
                                 </p>
 
-                                <div className="flex flex-wrap gap-2">
-                                    <button
-                                        onClick={handlePreprocessing}
-                                        disabled={!markdownASTDiffResult || isPreprocessing}
-                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                            !markdownASTDiffResult || isPreprocessing
-                                                ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                : 'bg-orange-600 hover:bg-orange-700 text-white'
-                                        }`}
-                                    >
-                                        {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
-                                    </button>
+                                <div className="flex flex-wrap gap-2 items-end">
+                                    <div className="flex-grow">
+                                        <button
+                                            onClick={handlePreprocessing}
+                                            disabled={!markdownASTDiffResult || isPreprocessing}
+                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                !markdownASTDiffResult || isPreprocessing
+                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                    : 'bg-orange-600 hover:bg-orange-700 text-white'
+                                            }`}
+                                        >
+                                            {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
+                                        </button>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <label className="text-xs text-orange-600 dark:text-orange-400 mb-1">
+                                            Load from database:
+                                        </label>
+                                        <select
+                                            onChange={handleStep4Selection}
+                                            className="px-3 py-2 text-sm border border-orange-300 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-orange-900 dark:text-orange-100"
+                                            defaultValue=""
+                                        >
+                                            <option value="">Select previous result...</option>
+                                            {step4Options.map((option) => (
+                                                <option key={option.id} value={option.id}>
+                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
                                 </div>
 
                                 {preprocessingError && (
