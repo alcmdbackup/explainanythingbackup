@@ -230,8 +230,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           const preprocessedMarkdown = preprocessCriticMarkup(markdown);
           $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
           // Clean up trailing <br> tags from heading and paragraph text nodes as Lexical and Markdown stringify both add trailing BRs
-          //removeTrailingBreaksFromTextNodes();
-          replaceBrTagsWithNewlines();
+          //removeTrailingBreaksFromTextNodes(); --> DEPRECATED
+          //replaceBrTagsWithNewlines(); --> RESTORE THIS
         });
       }
     },
