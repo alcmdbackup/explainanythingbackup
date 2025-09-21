@@ -867,6 +867,61 @@ export function removeTrailingBreaksFromTextNodes(): void {
 }
 
 /**
+ * Processes <br> tags in paragraph and heading text nodes with different strategies
+ * 
+ * • Traverses the editor tree to find paragraph and heading nodes
+ * • In paragraphs: replaces consecutive <br>, <br/>, and <br /> tags with a single \n character
+ * • In headings: simply deletes all <br>, <br/>, and <br /> tags to preserve single-line structure
+ * • Handles multiple consecutive <br> tags appropriately for each node type
+ * • Used to normalize line breaks in content while preserving markdown structure
+ * • Called by: LexicalEditor when setting content from markdown
+ */
+export function replaceBrTagsWithNewlines(): void {
+  console.log("🔄 replaceBrTagsWithNewlines called");
+  
+  const root = $getRoot();
+  
+  // Recursively process all nodes
+  function processNode(node: any): void {
+    if ($isElementNode(node)) {
+      const nodeType = node.getType();
+      
+      // Process both paragraph and heading nodes
+      if (nodeType === 'paragraph' || nodeType === 'heading') {
+        // Process text children of paragraph and heading nodes
+        const children = node.getChildren();
+        children.forEach((child: any) => {
+          if ($isTextNode(child)) {
+            const textContent = child.getTextContent();
+            let cleanedText: string;
+            
+            if (nodeType === 'paragraph') {
+              // Replace all consecutive <br> tags with a single \n in paragraphs
+              cleanedText = textContent.replace(/(<br\s*\/?>\s*)+/g, '\n');
+            } else {
+              // Simply delete all <br> tags in headings
+              cleanedText = textContent.replace(/<br\s*\/?>/g, '');
+            }
+            
+            if (textContent !== cleanedText) {
+              console.log(`🔄 Processed <br> tags in ${nodeType} text node:`, JSON.stringify(textContent), "->", JSON.stringify(cleanedText));
+              child.setTextContent(cleanedText);
+            }
+          }
+        });
+      }
+      
+      // Recursively process all children
+      node.getChildren().forEach(processNode);
+    }
+  }
+  
+  // Process all top-level children
+  root.getChildren().forEach(processNode);
+  console.log("✅ replaceBrTagsWithNewlines completed");
+}
+
+/**
  * Complete markdown transformers array
  * - Includes all standard Lexical markdown transformers
  * - Includes custom CriticMarkup transformers for diff functionality

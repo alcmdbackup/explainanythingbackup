@@ -44,7 +44,7 @@ import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
 import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
-import { CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, MARKDOWN_TRANSFORMERS } from './importExportUtils';
+import { CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 
 
@@ -229,7 +229,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           const preprocessedMarkdown = preprocessCriticMarkup(markdown);
           $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
           // Clean up trailing <br> tags from heading and paragraph text nodes as Lexical and Markdown stringify both add trailing BRs
-          removeTrailingBreaksFromTextNodes();
+          //removeTrailingBreaksFromTextNodes();
+          replaceBrTagsWithNewlines();
         });
       }
     },
