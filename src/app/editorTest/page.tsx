@@ -101,7 +101,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     try {
                         const saveResult = await saveTestingPipelineStepAction(
                             testSetName,
-                            'merged_ai_suggestion',
+                            '1_ai_suggestion',
                             mergedOutput
                         );
 
@@ -162,7 +162,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 try {
                     const saveResult = await saveTestingPipelineStepAction(
                         testSetName,
-                        'edits_applied',
+                        '2_edits_applied_to_markdown',
                         result.data
                     );
 
@@ -189,7 +189,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     };
 
     // Handle applying 2-pass diff
-    const handleApplyDiff = () => {
+    const handleApplyDiff = async () => {
         if (!currentContent) {
             setDiffError('No original content available.');
             return;
@@ -217,7 +217,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             try {
                 const saveResult = await saveTestingPipelineStepAction(
                     testSetName,
-                    'raw_markdown',
+                    '3_diff_applied_to_markdown',
                     criticMarkup
                 );
 
@@ -247,7 +247,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     };
 
     // Handle preprocessing CriticMarkup
-    const handlePreprocessing = () => {
+    const handlePreprocessing = async () => {
         if (!markdownASTDiffResult) {
             setPreprocessingError('No markdown AST diff result available. Please apply diff first.');
             return;
@@ -265,7 +265,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             try {
                 const saveResult = await saveTestingPipelineStepAction(
                     testSetName,
-                    'preprocessed',
+                    '4_preprocess_diff_before_import',
                     preprocessed
                 );
 
@@ -410,17 +410,6 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     >
                                         {isLoadingSuggestions ? 'Processing...' : 'Get AI Suggestions'}
                                     </button>
-                                    <button
-                                        onClick={handleApplyAISuggestions}
-                                        disabled={!aiSuggestions || isApplyingEdits}
-                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                            !aiSuggestions || isApplyingEdits
-                                                ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                : 'bg-green-600 hover:bg-green-700 text-white'
-                                        }`}
-                                    >
-                                        {isApplyingEdits ? 'Applying...' : 'Apply AI Suggestions'}
-                                    </button>
                                 </div>
 
                                 {suggestionError && (
@@ -447,7 +436,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 {aiSuggestions && (
                                     <div className="mt-4">
                                         <h4 className="font-semibold text-orange-900 dark:text-orange-100 mb-2">
-                                            Merged AI Suggestions:
+                                            Formatted AI Suggestions:
                                         </h4>
                                         <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-orange-300 dark:border-orange-600">
                                             <pre className="text-sm text-orange-900 dark:text-orange-100 whitespace-pre-wrap font-mono">
@@ -461,34 +450,53 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     </div>
 
                     {/* Edits Applied Panel */}
-                    {appliedEdits && (
-                        <div className="bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
-                            <div className="p-6">
-                                <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-3">
-                                    Edits Applied
-                                </h3>
-                                <div className="text-green-800 dark:text-green-200 text-sm space-y-4">
-                                    <p>
-                                        The AI suggestions have been applied to your content. Here's the improved version:
-                                    </p>
-                                    
-                                    {applyError && (
-                                        <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-                                            <p className="text-red-800 dark:text-red-200 text-sm">
-                                                Error: {applyError}
-                                            </p>
-                                        </div>
-                                    )}
+                    <div className="bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
+                        <div className="p-6">
+                            <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-3">
+                                Edits Applied
+                            </h3>
+                            <div className="text-green-800 dark:text-green-200 text-sm space-y-4">
+                                <p>
+                                    Apply the AI suggestions to your content to see the improved version.
+                                </p>
 
-                                    <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-green-300 dark:border-green-600">
-                                        <pre className="text-sm text-green-900 dark:text-green-100 whitespace-pre-wrap font-mono">
-                                            {appliedEdits}
-                                        </pre>
-                                    </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        onClick={handleApplyAISuggestions}
+                                        disabled={!aiSuggestions || isApplyingEdits}
+                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            !aiSuggestions || isApplyingEdits
+                                                ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                : 'bg-green-600 hover:bg-green-700 text-white'
+                                        }`}
+                                    >
+                                        {isApplyingEdits ? 'Applying...' : 'Apply AI Suggestions'}
+                                    </button>
                                 </div>
+
+                                {applyError && (
+                                    <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                        <p className="text-red-800 dark:text-red-200 text-sm">
+                                            Error: {applyError}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {appliedEdits && (
+                                    <div className="mt-4">
+                                        <h4 className="font-semibold text-green-900 dark:text-green-100 mb-2">
+                                            Result:
+                                        </h4>
+                                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-green-300 dark:border-green-600">
+                                            <pre className="text-sm text-green-900 dark:text-green-100 whitespace-pre-wrap font-mono">
+                                                {appliedEdits}
+                                            </pre>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    )}
+                    </div>
 
                     {/* Diff Applied Panel */}
                     <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
@@ -504,11 +512,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 
                                 <div className="flex flex-wrap gap-2">
                                     <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
-                                        Original content: {currentContent.length} characters | 
+                                        Original content: {currentContent.length} characters |
                                         Applied edits: {appliedEdits.length} characters |
                                         Method: Markdown AST |
-                                        Apply Diff disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'} |
-                                        Apply Preprocessing disabled: {!markdownASTDiffResult || isPreprocessing ? 'Yes' : 'No'}
+                                        Apply Diff disabled: {isApplyingDiff ? 'Yes (processing)' : 'No'}
                                     </div>
                                     <button
                                         onClick={handleApplyDiff}
@@ -520,17 +527,6 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         }`}
                                     >
                                         {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
-                                    </button>
-                                    <button
-                                        onClick={handlePreprocessing}
-                                        disabled={!markdownASTDiffResult || isPreprocessing}
-                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                            !markdownASTDiffResult || isPreprocessing
-                                                ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                : 'bg-orange-600 hover:bg-orange-700 text-white'
-                                        }`}
-                                    >
-                                        {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
                                     </button>
                                 </div>
 
@@ -561,48 +557,67 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     </div>
 
                     {/* Preprocessed Panel */}
-                    {preprocessedMarkdown && (
-                        <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
-                            <div className="p-6">
-                                <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3">
-                                    Preprocessed
-                                </h3>
-                                <div className="text-orange-800 dark:text-orange-200 text-sm space-y-4">
-                                    <p>
-                                        The CriticMarkup has been preprocessed to normalize multiline patterns and fix formatting issues.
-                                    </p>
-                                    
-                                    {preprocessingError && (
-                                        <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
-                                            <p className="text-red-800 dark:text-red-200 text-sm">
-                                                Error: {preprocessingError}
-                                            </p>
-                                        </div>
-                                    )}
+                    <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
+                        <div className="p-6">
+                            <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3">
+                                Preprocessed
+                            </h3>
+                            <div className="text-orange-800 dark:text-orange-200 text-sm space-y-4">
+                                <p>
+                                    Apply preprocessing to normalize multiline patterns and fix formatting issues.
+                                </p>
 
-                                    <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-orange-300 dark:border-orange-600">
-                                        <pre className="text-sm text-orange-900 dark:text-orange-100 whitespace-pre-wrap font-mono">
-                                            {preprocessedMarkdown}
-                                        </pre>
-                                    </div>
-
-                                    <div className="mt-4">
-                                        <button
-                                            onClick={handleUpdateEditorWithMarkdown}
-                                            disabled={!preprocessedMarkdown}
-                                            className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                !preprocessedMarkdown
-                                                    ? 'bg-gray-400 text-white cursor-not-allowed'
-                                                    : 'bg-blue-600 hover:bg-blue-700 text-white'
-                                            }`}
-                                        >
-                                            Update Editor Window with Markdown
-                                        </button>
-                                    </div>
+                                <div className="flex flex-wrap gap-2">
+                                    <button
+                                        onClick={handlePreprocessing}
+                                        disabled={!markdownASTDiffResult || isPreprocessing}
+                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            !markdownASTDiffResult || isPreprocessing
+                                                ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                : 'bg-orange-600 hover:bg-orange-700 text-white'
+                                        }`}
+                                    >
+                                        {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
+                                    </button>
                                 </div>
+
+                                {preprocessingError && (
+                                    <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                        <p className="text-red-800 dark:text-red-200 text-sm">
+                                            Error: {preprocessingError}
+                                        </p>
+                                    </div>
+                                )}
+
+                                {preprocessedMarkdown && (
+                                    <div className="mt-4">
+                                        <h4 className="font-semibold text-orange-900 dark:text-orange-100 mb-2">
+                                            Result:
+                                        </h4>
+                                        <div className="bg-white dark:bg-gray-800 rounded-md p-4 border border-orange-300 dark:border-orange-600">
+                                            <pre className="text-sm text-orange-900 dark:text-orange-100 whitespace-pre-wrap font-mono">
+                                                {preprocessedMarkdown}
+                                            </pre>
+                                        </div>
+
+                                        <div className="mt-4">
+                                            <button
+                                                onClick={handleUpdateEditorWithMarkdown}
+                                                disabled={!preprocessedMarkdown}
+                                                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                    !preprocessedMarkdown
+                                                        ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                                                }`}
+                                            >
+                                                Update Editor Window with Markdown
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
-                    )}
+                    </div>
 
                     {/* Instructions Panel */}
                     <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
