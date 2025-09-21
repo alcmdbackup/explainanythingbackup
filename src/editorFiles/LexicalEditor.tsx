@@ -46,6 +46,7 @@ import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
 import { CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
+import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 
 
 
@@ -339,6 +340,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <HistoryPlugin />
         <AutoFocusPlugin />
         <LinkPlugin />
+        <DiffTagHoverPlugin />
         {showTreeView && <TreeViewPlugin />}
       </LexicalComposer>
       
