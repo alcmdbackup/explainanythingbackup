@@ -2,8 +2,94 @@ import { $convertFromMarkdownString, $convertToMarkdownString } from "@lexical/m
 import { HEADING, QUOTE, CODE, UNORDERED_LIST, ORDERED_LIST, INLINE_CODE, BOLD_STAR, ITALIC_STAR, STRIKETHROUGH, LINK } from "@lexical/markdown";
 import type { TextMatchTransformer, ElementTransformer } from "@lexical/markdown";
 import { $createTextNode, TextNode, LexicalNode, $createParagraphNode, $getRoot, $setSelection, $isElementNode, $isTextNode } from "lexical";
+import { $dfs } from "@lexical/utils";
 import { $createHeadingNode, $isHeadingNode, HeadingNode } from "@lexical/rich-text";
-import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline } from "./DiffTagNode";
+import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline, DiffUpdateContainerInline, $createDiffUpdateContainerInline } from "./DiffTagNode";
+
+/**
+ * Logs all children of a node and their relationships using depth-first search
+ * - Prints node key, type, depth, parent key, children keys, and text content
+ * - Useful for debugging node structure and understanding relationships
+ * - Can be called on any Lexical node to inspect its tree structure
+ */
+function logNodeChildrenAndRelationships(parentNode: LexicalNode, label: string = "Node"): void {
+  console.log(`\n🔍 ${label} Structure Analysis:`);
+  console.log(`Root Node Key: ${parentNode.getKey()}, Type: ${parentNode.getType()}`);
+  
+  const nodes = $dfs(parentNode);
+  nodes.forEach(({ node, depth }) => {
+    const parent = node.getParent();
+    const parentKey = parent ? parent.getKey() : 'None';
+    const children = $isElementNode(node) ? node.getChildren() : [];
+    const childrenKeys = children.map((child: LexicalNode) => child.getKey()).join(', ') || 'None';
+    const indent = '  '.repeat(depth);
+    
+    console.log(`${indent}├─ Key: ${node.getKey()}, Type: ${node.getType()}, Depth: ${depth}`);
+    console.log(`${indent}   Parent: ${parentKey}, Children: [${childrenKeys}]`);
+    
+    // Print text content for all nodes that have text
+    if ($isTextNode(node)) {
+      const textContent = node.getTextContent();
+      const truncatedText = textContent.length > 50 ? textContent.substring(0, 50) + '...' : textContent;
+      console.log(`${indent}   Text: "${truncatedText}"`);
+    } else if ($isElementNode(node)) {
+      // For element nodes, try to get text content from all children
+      const allText = node.getTextContent();
+      if (allText.trim()) {
+        const truncatedText = allText.length > 100 ? allText.substring(0, 100) + '...' : allText;
+        console.log(`${indent}   Content: "${truncatedText}"`);
+      }
+    }
+  });
+  console.log(`\n`);
+}
+
+/**
+ * Processes markdown content and returns children ready to be appended to a diff node
+ * - Converts markdown string to Lexical nodes using temporary container
+ * - Handles paragraph flattening for better structure
+ * - Returns array of nodes that can be directly appended to diff node
+ * - Used by both insert/delete and update operations for consistent processing
+ */
+function processMarkdownToDiffNode(markdownContent: string, label: string = "MarkdownContent"): LexicalNode[] {
+  console.log(`🔄 Processing markdown content for ${label}...`);
+
+  // Create a temporary node to process the markdown
+  const tempNode = $createParagraphNode();
+  $convertFromMarkdownString(markdownContent, MARKDOWN_TRANSFORMERS, tempNode);
+
+  // Log the structure of the processed markdown
+  logNodeChildrenAndRelationships(tempNode, `TempNode_${label}`);
+
+  const tempChildren = tempNode.getChildren();
+  const hasOnlyParagraphs = tempChildren.every(child => child.getType() === 'paragraph');
+
+  const resultNodes: LexicalNode[] = [];
+
+  if (hasOnlyParagraphs) {
+    // If temp node only has paragraph nodes, take all children of those paragraphs
+    tempChildren.forEach(paragraph => {
+      if ($isElementNode(paragraph)) {
+        const paragraphChildren = paragraph.getChildren();
+        paragraphChildren.forEach(child => {
+          resultNodes.push(child);
+        });
+      }
+    });
+    console.log(`📝 Flattened paragraph children for ${label}, got ${resultNodes.length} nodes`);
+  } else {
+    // If temp node has anything other than paragraph nodes, move all children
+    tempChildren.forEach(child => {
+      resultNodes.push(child);
+    });
+    console.log(`📝 Moved all children for ${label}, got ${resultNodes.length} nodes`);
+  }
+
+  // Remove the now-empty temp node
+  tempNode.remove();
+
+  return resultNodes;
+}
 
 /**
  * Checks if a node contains heading nodes as children (recursively)
@@ -194,9 +280,9 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     let inner = match[2] ?? "";
 
     // Convert \n back to actual newlines if they were normalized during preprocessing
-    if (inner.includes('\\n')) {
+    /*if (inner.includes('\\n')) {
       inner = inner.replace(/\\n/g, '\n');
-    }
+    }*/
 
     // Get the text content and find the match position
     const textContent = textNode.getTextContent();
@@ -226,37 +312,40 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         const diff = $createDiffTagNodeInline("update");
         console.log("🔍 Created empty DiffTagNodeInline, children count:", diff.getChildrenSize());
         
-        // Create separate container nodes for before and after text
-        const beforeContainer = $createParagraphNode();
-        const afterContainer = $createParagraphNode();
-        
-        // Parse before and after text into their respective containers
-        console.log("🔄 Calling convertFromMarkdownString for beforeText...");
-        $convertFromMarkdownString(beforeText, MARKDOWN_TRANSFORMERS, beforeContainer);
-        console.log("✅ Before container children count:", beforeContainer.getChildrenSize());
-        
-        console.log("🔄 Calling convertFromMarkdownString for afterText...");
-        $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterContainer);
-        console.log("✅ After container children count:", afterContainer.getChildrenSize());
-        
-        // Move children from containers to diff node
-        const beforeChildren = beforeContainer.getChildren();
-        const afterChildren = afterContainer.getChildren();
-        
-        // Append all before children to diff
-        beforeChildren.forEach(child => {
-          diff.append(child);
+        // Create inline container nodes for before and after text
+        const beforeContainer = $createDiffUpdateContainerInline("before");
+        const afterContainer = $createDiffUpdateContainerInline("after");
+
+        // Process before and after text using the markdown processing function
+        console.log("🔄 Processing beforeText with processMarkdownToDiffNode...");
+        const beforeNodes = processMarkdownToDiffNode(beforeText, "BeforeText");
+        console.log("✅ Before nodes count:", beforeNodes.length);
+
+        console.log("🔄 Processing afterText with processMarkdownToDiffNode...");
+        const afterNodes = processMarkdownToDiffNode(afterText, "AfterText");
+        console.log("✅ After nodes count:", afterNodes.length);
+
+        // Append all before nodes to the before container
+        beforeNodes.forEach(node => {
+          beforeContainer.append(node);
         });
-        
-        // Append all after children to diff
-        afterChildren.forEach(child => {
-          diff.append(child);
+
+        // Append all after nodes to the after container
+        afterNodes.forEach(node => {
+          afterContainer.append(node);
         });
-        
-        // Remove the now-empty containers
-        beforeContainer.remove();
-        afterContainer.remove();
+
+        // Now append the two containers to the diff node
+        diff.append(beforeContainer);
+        diff.append(afterContainer);
+
+        // Log detailed structure of containers and diff node
+        logNodeChildrenAndRelationships(beforeContainer, "BeforeContainer");
+        logNodeChildrenAndRelationships(afterContainer, "AfterContainer");
         console.log("✅ Final diff node children count:", diff.getChildrenSize());
+        
+        // Log detailed structure of diff node after containers are removed
+        logNodeChildrenAndRelationships(diff, "DiffNode");
         
         // Handle the text before the match
         if (beforeTextGeneral) {
@@ -354,7 +443,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     console.log("🚫 CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER export called (should not happen)");
     return null;
   },
-  dependencies: [DiffTagNodeInline]
+  dependencies: [DiffTagNodeInline, DiffUpdateContainerInline]
 };
 
 /**
@@ -365,7 +454,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
  */
 export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
   type: "element",
-  dependencies: [DiffTagNodeInline], // ✅ Specify DiffTagNodeInline as dependency
+  dependencies: [DiffTagNodeInline, DiffUpdateContainerInline], // ✅ Specify DiffTagNodeInline and DiffUpdateContainerInline as dependencies
   export: (node: LexicalNode) => {
     console.log("📤 DIFF_TAG_EXPORT_TRANSFORMER export called");
     console.log("🔍 Node type:", node.getType());
@@ -399,7 +488,7 @@ export const DIFF_TAG_EXPORT_TRANSFORMER: ElementTransformer = {
  */
 export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
   type: "element",
-  dependencies: [DiffTagNodeInline],
+  dependencies: [DiffTagNodeInline, DiffUpdateContainerInline],
   regExp: /\{([+-~]{2})(\s*#{1,6}\s+[^}]*?)\1\}/,
   replace: (parentNode, children, match, isImport) => {
     console.log("🔍 CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER replace called");

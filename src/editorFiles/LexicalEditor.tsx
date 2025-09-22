@@ -43,7 +43,7 @@ import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
-import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
+import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
 import { CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
@@ -207,6 +207,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
     nodes: [
       DiffTagNodeBlock,
       DiffTagNodeInline,
+      DiffUpdateContainerInline,
       HeadingNode,
       QuoteNode,
       ListNode,

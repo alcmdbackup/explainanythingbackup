@@ -113,11 +113,20 @@ export class DiffTagNodeInline extends ElementNode {
    */
   private exportNodeToMarkdown(node: any): string {
     const nodeType = node.getType();
-    
+
+    // Handle DiffUpdateContainerInline nodes by recursively processing their children
+    if (nodeType === 'diff-update-container-inline') {
+      let result = '';
+      node.getChildren().forEach((child: any) => {
+        result += this.exportNodeToMarkdown(child);
+      });
+      return result;
+    }
+
     // Handle headings
     if (nodeType === 'heading') {
       const level = node.getTag();
-      const headingLevel = level === 'h1' ? 1 : level === 'h2' ? 2 : level === 'h3' ? 3 : 
+      const headingLevel = level === 'h1' ? 1 : level === 'h2' ? 2 : level === 'h3' ? 3 :
                           level === 'h4' ? 4 : level === 'h5' ? 5 : 6;
       const text = node.getTextContent();
       return '#'.repeat(headingLevel) + ' ' + text;
@@ -374,4 +383,134 @@ export function $createDiffTagNodeBlock(tag: DiffTag): DiffTagNodeBlock {
  */
 export function $isDiffTagNodeBlock(node: LexicalNode | null | undefined): node is DiffTagNodeBlock {
   return node instanceof DiffTagNodeBlock;
+}
+
+/**
+ * Inline container node for wrapping content within update diff nodes
+ * • Creates a lightweight inline wrapper without paragraph semantics
+ * • Used specifically for "before" and "after" sections in update diffs
+ * • Maintains inline flow while providing a container for CSS targeting
+ * • Called by: CRITIC_MARKUP transformer for update syntax processing
+ */
+export class DiffUpdateContainerInline extends ElementNode {
+  __containerType: "before" | "after";
+
+  static getType(): string {
+    return "diff-update-container-inline";
+  }
+
+  static clone(node: DiffUpdateContainerInline): DiffUpdateContainerInline {
+    const cloned = new DiffUpdateContainerInline(node.__containerType, node.__key);
+    return cloned;
+  }
+
+  constructor(containerType: "before" | "after", key?: NodeKey) {
+    super(key);
+    this.__containerType = containerType;
+    console.log("🏗️ DiffUpdateContainerInline created with type:", containerType, "key:", key);
+  }
+
+  isInline(): boolean {
+    return true;
+  }
+
+  canBeEmpty(): boolean {
+    return false;
+  }
+
+  canInsertTextBefore(): boolean {
+    return false;
+  }
+
+  canInsertTextAfter(): boolean {
+    return false;
+  }
+
+  // JSON round-trip (editorState persistence)
+  static importJSON(json: any): DiffUpdateContainerInline {
+    return new DiffUpdateContainerInline(json.containerType, json.key);
+  }
+
+  exportJSON() {
+    return {
+      ...super.exportJSON(),
+      type: "diff-update-container-inline",
+      version: 1,
+      containerType: this.__containerType
+    };
+  }
+
+  /**
+   * Creates DOM element for rendering the inline container
+   * • Creates <span> element with appropriate CSS class for styling
+   * • Does not add semantic meaning, just provides styling hooks
+   * • Used by Lexical to render the container in the DOM
+   */
+  createDOM(): HTMLElement {
+    const element = document.createElement("span");
+    element.className = `diff-update-container-${this.__containerType}`;
+    return element;
+  }
+
+  /**
+   * Updates DOM element when node properties change
+   */
+  updateDOM(prevNode: DiffUpdateContainerInline): boolean {
+    return prevNode.__containerType !== this.__containerType;
+  }
+
+  /**
+   * Exports node to DOM for serialization
+   */
+  exportDOM(): DOMExportOutput {
+    const element = document.createElement("span");
+    element.className = `diff-update-container-${this.__containerType}`;
+    return { element };
+  }
+
+  /**
+   * Converts DOM element back to DiffUpdateContainerInline
+   */
+  static importDOM(): DOMConversionMap | null {
+    return {
+      span: (node: HTMLElement) => {
+        const className = node.className;
+        if (className.includes('diff-update-container-before') ||
+            className.includes('diff-update-container-after')) {
+          return {
+            conversion: convertDiffUpdateContainerElement,
+            priority: 1,
+          };
+        }
+        return null;
+      },
+    };
+  }
+}
+
+/**
+ * Converts DOM element to DiffUpdateContainerInline
+ */
+function convertDiffUpdateContainerElement(domNode: HTMLElement): DOMConversionOutput {
+  const className = domNode.className;
+  const containerType = className.includes('diff-update-container-before') ? "before" : "after";
+  const node = $createDiffUpdateContainerInline(containerType);
+  return { node };
+}
+
+/**
+ * Creates a new DiffUpdateContainerInline instance
+ * • Factory function for creating DiffUpdateContainerInline instances
+ * • Used by CRITIC_MARKUP transformer to create inline containers
+ */
+export function $createDiffUpdateContainerInline(containerType: "before" | "after"): DiffUpdateContainerInline {
+  return new DiffUpdateContainerInline(containerType, undefined);
+}
+
+/**
+ * Checks if a node is a DiffUpdateContainerInline
+ * • Type guard function for DiffUpdateContainerInline instances
+ */
+export function $isDiffUpdateContainerInline(node: LexicalNode | null | undefined): node is DiffUpdateContainerInline {
+  return node instanceof DiffUpdateContainerInline;
 }

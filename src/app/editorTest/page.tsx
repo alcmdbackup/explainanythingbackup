@@ -44,6 +44,9 @@ export default function EditorTestPage() {
     const [selectedStep3Id, setSelectedStep3Id] = useState<number | null>(null);
     const [selectedStep4Id, setSelectedStep4Id] = useState<number | null>(null);
 
+    // Validation state for preprocessed step
+    const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
     const editorRef = useRef<LexicalEditorRef>(null);
 
     // Default content about Albert Einstein
@@ -140,12 +143,24 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         const selectedId = parseInt(event.target.value);
         if (isNaN(selectedId)) {
             setSelectedStep4Id(null);
+            setValidationErrors([]);
             return;
         }
         setSelectedStep4Id(selectedId);
         const selectedOption = step4Options.find(option => option.id === selectedId);
         if (selectedOption) {
             setPreprocessedMarkdown(selectedOption.content);
+
+            // Validate the loaded content
+            const errors = validatePreprocessedContent(selectedOption.content);
+            setValidationErrors(errors);
+
+            if (errors.length > 0) {
+                console.log('⚠️ Validation errors found in loaded content:', errors);
+            } else {
+                console.log('✅ Loaded content passed validation');
+            }
+
             console.log(`Loaded step 4 content from set: ${selectedOption.name}`);
         }
     };
@@ -190,6 +205,86 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             console.error('Failed to rename:', error);
             alert('Failed to rename the item.');
         }
+    };
+
+    // Validation function for preprocessed content
+    const validatePreprocessedContent = (content: string): string[] => {
+        const errors: string[] = [];
+        const lines = content.split('\n');
+
+        // First, identify all CriticMarkup blocks and their ranges
+        const criticMarkupRanges: Array<{start: number, end: number, type: string}> = [];
+        let currentBlock: {start: number, type: string, openTag: string} | null = null;
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+
+            // Check for opening CriticMarkup tags
+            const openTags = [
+                { pattern: /\{~~/, type: 'substitution', close: '~~}' },
+                { pattern: /\{\+\+/, type: 'addition', close: '++}' },
+                { pattern: /\{--/, type: 'deletion', close: '--}' },
+                { pattern: /\{>>/, type: 'comment', close: '<<}' }
+            ];
+
+            for (const tag of openTags) {
+                if (tag.pattern.test(line) && !currentBlock) {
+                    currentBlock = { start: i, type: tag.type, openTag: tag.close };
+                    break;
+                }
+            }
+
+            // Check for closing tags
+            if (currentBlock && line.includes(currentBlock.openTag)) {
+                criticMarkupRanges.push({
+                    start: currentBlock.start,
+                    end: i,
+                    type: currentBlock.type
+                });
+                currentBlock = null;
+            }
+        }
+
+        // Helper function to check if a line is inside any CriticMarkup block
+        const isLineInCriticMarkup = (lineIndex: number): boolean => {
+            return criticMarkupRanges.some(range =>
+                lineIndex >= range.start && lineIndex <= range.end
+            );
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const previousLine = i > 0 ? lines[i - 1] : '';
+
+            // Check A: All headings not enclosed in criticmarkup begin on a newline
+            const headingMatch = line.match(/^(#+)\s/);
+            if (headingMatch && !isLineInCriticMarkup(i)) {
+                // This is a regular heading not in CriticMarkup, check if it starts on a newline
+                if (i > 0 && previousLine.trim() !== '') {
+                    errors.push(`Line ${i + 1}: Heading "${line.trim()}" should start on a newline (previous line: "${previousLine.trim()}")`);
+                }
+            }
+
+            // Check B: Any criticmarkup containing headings starts on a newline
+            // Check if this line starts a CriticMarkup block that contains headings
+            const startsBlock = criticMarkupRanges.find(range => range.start === i);
+            if (startsBlock) {
+                // Check if this block contains any headings
+                let blockContainsHeading = false;
+                for (let j = startsBlock.start; j <= startsBlock.end; j++) {
+                    if (lines[j].includes('#')) {
+                        blockContainsHeading = true;
+                        break;
+                    }
+                }
+
+                if (blockContainsHeading && i > 0 && previousLine.trim() !== '') {
+                    errors.push(`Line ${i + 1}: CriticMarkup containing heading should start on a newline (previous line: "${previousLine.trim()}")`);
+                }
+            }
+        }
+
+        return errors;
     };
 
     // Handle markdown mode toggle
@@ -392,10 +487,15 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         setIsPreprocessing(true);
         setPreprocessingError('');
         setPreprocessedMarkdown('');
+        setValidationErrors([]);
 
         try {
             const preprocessed = preprocessCriticMarkup(markdownASTDiffResult);
             setPreprocessedMarkdown(preprocessed);
+
+            // Validate the preprocessed content
+            const errors = validatePreprocessedContent(preprocessed);
+            setValidationErrors(errors);
 
             // Step 4: Save preprocessed content to database
             try {
@@ -414,13 +514,21 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 console.error('❌ Failed to save preprocessed content:', saveError);
             }
 
+            // Print validation results
+            if (errors.length > 0) {
+                console.log('⚠️ Validation errors found:', errors);
+            } else {
+                console.log('✅ Validation passed: All headings are properly formatted');
+            }
+
             // Print the preprocessed markdown to console
             console.log('📝 Preprocessed Markdown:');
             console.log(preprocessed);
 
             logger.debug('CriticMarkup preprocessing completed successfully', {
                 originalLength: markdownASTDiffResult.length,
-                preprocessedLength: preprocessed.length
+                preprocessedLength: preprocessed.length,
+                validationErrors: errors.length
             });
         } catch (error) {
             setPreprocessingError(error instanceof Error ? error.message : 'An unexpected error occurred while preprocessing');
@@ -854,6 +962,32 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         <p className="text-red-800 dark:text-red-200 text-sm">
                                             Error: {preprocessingError}
                                         </p>
+                                    </div>
+                                )}
+
+                                {validationErrors.length > 0 && (
+                                    <div className="mt-4 p-4 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                        <div className="flex items-start">
+                                            <div className="flex-shrink-0">
+                                                <span className="text-red-600 dark:text-red-400 text-lg">⚠️</span>
+                                            </div>
+                                            <div className="ml-3">
+                                                <h4 className="text-sm font-medium text-red-800 dark:text-red-200 mb-2">
+                                                    Heading Validation Errors
+                                                </h4>
+                                                <div className="text-red-700 dark:text-red-300 text-sm">
+                                                    <p className="mb-2">The following heading formatting issues were found:</p>
+                                                    <ul className="list-disc list-inside space-y-1">
+                                                        {validationErrors.map((error, index) => (
+                                                            <li key={index}>{error}</li>
+                                                        ))}
+                                                    </ul>
+                                                    <p className="mt-3 text-xs text-red-600 dark:text-red-400">
+                                                        <strong>Requirements:</strong> All headings (not in CriticMarkup) and CriticMarkup containing headings must start on a new line.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 
