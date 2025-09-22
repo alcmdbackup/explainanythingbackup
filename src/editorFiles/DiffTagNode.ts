@@ -132,9 +132,13 @@ export class DiffTagNodeInline extends ElementNode {
       return '#'.repeat(headingLevel) + ' ' + text;
     }
     
-    // Handle paragraphs
+    // Handle paragraphs - recursively process children for complex content
     if (nodeType === 'paragraph') {
-      return node.getTextContent();
+      let result = '';
+      node.getChildren().forEach((child: any) => {
+        result += this.exportNodeToMarkdown(child);
+      });
+      return result || node.getTextContent(); // Fallback to text content if no children
     }
     
     // Handle lists

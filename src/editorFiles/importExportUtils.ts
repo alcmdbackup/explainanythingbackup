@@ -311,10 +311,6 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         
         const diff = $createDiffTagNodeInline("update");
         console.log("🔍 Created empty DiffTagNodeInline, children count:", diff.getChildrenSize());
-        
-        // Create inline container nodes for before and after text
-        const beforeContainer = $createDiffUpdateContainerInline("before");
-        const afterContainer = $createDiffUpdateContainerInline("after");
 
         // Process before and after text using the markdown processing function
         console.log("🔄 Processing beforeText with processMarkdownToDiffNode...");
@@ -324,6 +320,30 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         console.log("🔄 Processing afterText with processMarkdownToDiffNode...");
         const afterNodes = processMarkdownToDiffNode(afterText, "AfterText");
         console.log("✅ After nodes count:", afterNodes.length);
+
+        // Check if either before or after nodes contain headings
+        const beforeContainsHeadings = beforeNodes.some(node => nodeContainsHeading(node) || $isHeadingNode(node));
+        const afterContainsHeadings = afterNodes.some(node => nodeContainsHeading(node) || $isHeadingNode(node));
+        const containsHeadings = beforeContainsHeadings || afterContainsHeadings;
+
+        console.log("🔍 Before contains headings:", beforeContainsHeadings);
+        console.log("🔍 After contains headings:", afterContainsHeadings);
+        console.log("🔍 Using paragraph containers:", containsHeadings);
+
+        let beforeContainer: LexicalNode;
+        let afterContainer: LexicalNode;
+
+        if (containsHeadings) {
+          // Use paragraph containers when headings are present
+          beforeContainer = $createParagraphNode();
+          afterContainer = $createParagraphNode();
+          console.log("📦 Created paragraph containers for heading content");
+        } else {
+          // Use inline containers when no headings are present
+          beforeContainer = $createDiffUpdateContainerInline("before");
+          afterContainer = $createDiffUpdateContainerInline("after");
+          console.log("📦 Created inline containers for non-heading content");
+        }
 
         // Append all before nodes to the before container
         beforeNodes.forEach(node => {
@@ -980,7 +1000,7 @@ export function replaceBrTagsWithNewlines(): void {
       const nodeType = node.getType();
       
       // Process both paragraph and heading nodes
-      if (nodeType === 'paragraph' || nodeType === 'heading') {
+      if (nodeType === 'paragraph' || nodeType === 'heading' || nodeType === 'diff-update-container-inline') {
         // Process text children of paragraph and heading nodes
         const children = node.getChildren();
         children.forEach((child: any) => {
@@ -988,7 +1008,7 @@ export function replaceBrTagsWithNewlines(): void {
             const textContent = child.getTextContent();
             let cleanedText: string;
             
-            if (nodeType === 'paragraph') {
+            if (nodeType === 'paragraph' || nodeType === 'diff-update-container-inline') {
               // Replace all consecutive <br> tags with a single \n in paragraphs
               cleanedText = textContent.replace(/(<br\s*\/?>\s*)+/g, '\n');
             } else {
