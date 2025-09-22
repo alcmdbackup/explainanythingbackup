@@ -2,7 +2,7 @@
 
 import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor';
 import { useState, useEffect, useRef } from 'react';
-import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction } from '../../actions/actions';
+import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { preprocessCriticMarkup } from '../../editorFiles/importExportUtils';
@@ -33,10 +33,16 @@ export default function EditorTestPage() {
     const [testSetName, setTestSetName] = useState<string>('');
 
     // Dropdown state for loading previous results
-    const [step1Options, setStep1Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
-    const [step2Options, setStep2Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
-    const [step3Options, setStep3Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
-    const [step4Options, setStep4Options] = useState<Array<{ id: number; set_name: string; content: string; created_at: string }>>([]);
+    const [step1Options, setStep1Options] = useState<Array<{ id: number; name: string; content: string; created_at: string }>>([]);
+    const [step2Options, setStep2Options] = useState<Array<{ id: number; name: string; content: string; created_at: string }>>([]);
+    const [step3Options, setStep3Options] = useState<Array<{ id: number; name: string; content: string; created_at: string }>>([]);
+    const [step4Options, setStep4Options] = useState<Array<{ id: number; name: string; content: string; created_at: string }>>([]);
+
+    // Selected dropdown items for rename functionality
+    const [selectedStep1Id, setSelectedStep1Id] = useState<number | null>(null);
+    const [selectedStep2Id, setSelectedStep2Id] = useState<number | null>(null);
+    const [selectedStep3Id, setSelectedStep3Id] = useState<number | null>(null);
+    const [selectedStep4Id, setSelectedStep4Id] = useState<number | null>(null);
 
     const editorRef = useRef<LexicalEditorRef>(null);
 
@@ -90,37 +96,99 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
     // Handle dropdown selection for each step
     const handleStep1Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const selectedId = parseInt(event.target.value);
+        if (isNaN(selectedId)) {
+            setSelectedStep1Id(null);
+            return;
+        }
+        setSelectedStep1Id(selectedId);
         const selectedOption = step1Options.find(option => option.id === selectedId);
         if (selectedOption) {
             setAiSuggestions(selectedOption.content);
-            console.log(`Loaded step 1 content from set: ${selectedOption.set_name}`);
+            console.log(`Loaded step 1 content from set: ${selectedOption.name}`);
         }
     };
 
     const handleStep2Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const selectedId = parseInt(event.target.value);
+        if (isNaN(selectedId)) {
+            setSelectedStep2Id(null);
+            return;
+        }
+        setSelectedStep2Id(selectedId);
         const selectedOption = step2Options.find(option => option.id === selectedId);
         if (selectedOption) {
             setAppliedEdits(selectedOption.content);
-            console.log(`Loaded step 2 content from set: ${selectedOption.set_name}`);
+            console.log(`Loaded step 2 content from set: ${selectedOption.name}`);
         }
     };
 
     const handleStep3Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const selectedId = parseInt(event.target.value);
+        if (isNaN(selectedId)) {
+            setSelectedStep3Id(null);
+            return;
+        }
+        setSelectedStep3Id(selectedId);
         const selectedOption = step3Options.find(option => option.id === selectedId);
         if (selectedOption) {
             setMarkdownASTDiffResult(selectedOption.content);
-            console.log(`Loaded step 3 content from set: ${selectedOption.set_name}`);
+            console.log(`Loaded step 3 content from set: ${selectedOption.name}`);
         }
     };
 
     const handleStep4Selection = (event: React.ChangeEvent<HTMLSelectElement>) => {
         const selectedId = parseInt(event.target.value);
+        if (isNaN(selectedId)) {
+            setSelectedStep4Id(null);
+            return;
+        }
+        setSelectedStep4Id(selectedId);
         const selectedOption = step4Options.find(option => option.id === selectedId);
         if (selectedOption) {
             setPreprocessedMarkdown(selectedOption.content);
-            console.log(`Loaded step 4 content from set: ${selectedOption.set_name}`);
+            console.log(`Loaded step 4 content from set: ${selectedOption.name}`);
+        }
+    };
+
+    // Handle rename functionality for each step
+    const handleRenameStep = async (stepNumber: number, recordId: number | null) => {
+        if (!recordId) {
+            alert('Please select an item from the dropdown first.');
+            return;
+        }
+
+        const currentOption = (() => {
+            switch (stepNumber) {
+                case 1: return step1Options.find(option => option.id === recordId);
+                case 2: return step2Options.find(option => option.id === recordId);
+                case 3: return step3Options.find(option => option.id === recordId);
+                case 4: return step4Options.find(option => option.id === recordId);
+                default: return null;
+            }
+        })();
+
+        if (!currentOption) {
+            alert('Selected item not found.');
+            return;
+        }
+
+        const newName = prompt(`Rename "${currentOption.name}" to:`, currentOption.name);
+        if (!newName || newName === currentOption.name) {
+            return;
+        }
+
+        try {
+            const result = await updateTestingPipelineRecordSetNameAction(recordId, newName);
+            if (result.success) {
+                console.log(`✅ Renamed "${currentOption.name}" to "${newName}"`);
+                // Refresh the dropdown options to show the updated name
+                await loadDropdownOptions();
+            } else {
+                alert('Failed to rename: ' + (result.error?.message || 'Unknown error'));
+            }
+        } catch (error) {
+            console.error('Failed to rename:', error);
+            alert('Failed to rename the item.');
         }
     };
 
@@ -484,18 +552,32 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         <label className="text-xs text-orange-600 dark:text-orange-400 mb-1">
                                             Load from database:
                                         </label>
-                                        <select
-                                            onChange={handleStep1Selection}
-                                            className="px-3 py-2 text-sm border border-orange-300 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-orange-900 dark:text-orange-100"
-                                            defaultValue=""
-                                        >
-                                            <option value="">Select previous result...</option>
-                                            {step1Options.map((option) => (
-                                                <option key={option.id} value={option.id}>
-                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div className="flex gap-1">
+                                            <select
+                                                onChange={handleStep1Selection}
+                                                className="px-3 py-2 text-sm border border-orange-300 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-orange-900 dark:text-orange-100"
+                                                defaultValue=""
+                                            >
+                                                <option value="">Select previous result...</option>
+                                                {step1Options.map((option) => (
+                                                    <option key={option.id} value={option.id}>
+                                                        {option.name} ({new Date(option.created_at).toLocaleDateString()})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => handleRenameStep(1, selectedStep1Id)}
+                                                disabled={!selectedStep1Id}
+                                                className={`px-2 py-2 text-sm rounded-md transition-colors ${
+                                                    selectedStep1Id
+                                                        ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                }`}
+                                                title="Rename selected item"
+                                            >
+                                                ✏️
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -565,18 +647,32 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         <label className="text-xs text-green-600 dark:text-green-400 mb-1">
                                             Load from database:
                                         </label>
-                                        <select
-                                            onChange={handleStep2Selection}
-                                            className="px-3 py-2 text-sm border border-green-300 dark:border-green-600 rounded-md bg-white dark:bg-gray-800 text-green-900 dark:text-green-100"
-                                            defaultValue=""
-                                        >
-                                            <option value="">Select previous result...</option>
-                                            {step2Options.map((option) => (
-                                                <option key={option.id} value={option.id}>
-                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div className="flex gap-1">
+                                            <select
+                                                onChange={handleStep2Selection}
+                                                className="px-3 py-2 text-sm border border-green-300 dark:border-green-600 rounded-md bg-white dark:bg-gray-800 text-green-900 dark:text-green-100"
+                                                defaultValue=""
+                                            >
+                                                <option value="">Select previous result...</option>
+                                                {step2Options.map((option) => (
+                                                    <option key={option.id} value={option.id}>
+                                                        {option.name} ({new Date(option.created_at).toLocaleDateString()})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => handleRenameStep(2, selectedStep2Id)}
+                                                disabled={!selectedStep2Id}
+                                                className={`px-2 py-2 text-sm rounded-md transition-colors ${
+                                                    selectedStep2Id
+                                                        ? 'bg-green-600 hover:bg-green-700 text-white'
+                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                }`}
+                                                title="Rename selected item"
+                                            >
+                                                ✏️
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -640,18 +736,32 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         <label className="text-xs text-purple-600 dark:text-purple-400 mb-1">
                                             Load from database:
                                         </label>
-                                        <select
-                                            onChange={handleStep3Selection}
-                                            className="px-3 py-2 text-sm border border-purple-300 dark:border-purple-600 rounded-md bg-white dark:bg-gray-800 text-purple-900 dark:text-purple-100"
-                                            defaultValue=""
-                                        >
-                                            <option value="">Select previous result...</option>
-                                            {step3Options.map((option) => (
-                                                <option key={option.id} value={option.id}>
-                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div className="flex gap-1">
+                                            <select
+                                                onChange={handleStep3Selection}
+                                                className="px-3 py-2 text-sm border border-purple-300 dark:border-purple-600 rounded-md bg-white dark:bg-gray-800 text-purple-900 dark:text-purple-100"
+                                                defaultValue=""
+                                            >
+                                                <option value="">Select previous result...</option>
+                                                {step3Options.map((option) => (
+                                                    <option key={option.id} value={option.id}>
+                                                        {option.name} ({new Date(option.created_at).toLocaleDateString()})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => handleRenameStep(3, selectedStep3Id)}
+                                                disabled={!selectedStep3Id}
+                                                className={`px-2 py-2 text-sm rounded-md transition-colors ${
+                                                    selectedStep3Id
+                                                        ? 'bg-purple-600 hover:bg-purple-700 text-white'
+                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                }`}
+                                                title="Rename selected item"
+                                            >
+                                                ✏️
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -710,18 +820,32 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         <label className="text-xs text-orange-600 dark:text-orange-400 mb-1">
                                             Load from database:
                                         </label>
-                                        <select
-                                            onChange={handleStep4Selection}
-                                            className="px-3 py-2 text-sm border border-orange-300 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-orange-900 dark:text-orange-100"
-                                            defaultValue=""
-                                        >
-                                            <option value="">Select previous result...</option>
-                                            {step4Options.map((option) => (
-                                                <option key={option.id} value={option.id}>
-                                                    {option.set_name} ({new Date(option.created_at).toLocaleDateString()})
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div className="flex gap-1">
+                                            <select
+                                                onChange={handleStep4Selection}
+                                                className="px-3 py-2 text-sm border border-orange-300 dark:border-orange-600 rounded-md bg-white dark:bg-gray-800 text-orange-900 dark:text-orange-100"
+                                                defaultValue=""
+                                            >
+                                                <option value="">Select previous result...</option>
+                                                {step4Options.map((option) => (
+                                                    <option key={option.id} value={option.id}>
+                                                        {option.name} ({new Date(option.created_at).toLocaleDateString()})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            <button
+                                                onClick={() => handleRenameStep(4, selectedStep4Id)}
+                                                disabled={!selectedStep4Id}
+                                                className={`px-2 py-2 text-sm rounded-md transition-colors ${
+                                                    selectedStep4Id
+                                                        ? 'bg-orange-600 hover:bg-orange-700 text-white'
+                                                        : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                }`}
+                                                title="Rename selected item"
+                                            >
+                                                ✏️
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
 

@@ -3,7 +3,7 @@ import { logger } from '../client_utilities';
 
 export interface TestingPipelineRecord {
   id?: number;
-  set_name: string;
+  name: string;
   step: string;
   content: string;
   created_at?: string;
@@ -11,7 +11,7 @@ export interface TestingPipelineRecord {
 }
 
 export interface TestingPipelineInsert {
-  set_name: string;
+  name: string;
   step: string;
   content: string;
 }
@@ -19,7 +19,7 @@ export interface TestingPipelineInsert {
 /**
  * Checks if an exact match exists in the testing pipeline table
  *
- * • Searches for records with matching set_name, step, and content
+ * • Searches for records with matching name, step, and content
  * • Returns true if an exact match is found, false otherwise
  * • Used to avoid duplicate entries in the testing pipeline
  */
@@ -38,7 +38,7 @@ export async function checkTestingPipelineExists(
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .select('id')
-      .eq('set_name', setName)
+      .eq('name', setName)
       .eq('step', step)
       .eq('content', content)
       .limit(1);
@@ -80,7 +80,7 @@ export async function saveTestingPipelineRecord(
 ): Promise<TestingPipelineRecord> {
   try {
     logger.debug('Attempting to save testing pipeline record:', {
-      setName: record.set_name,
+      setName: record.name,
       step: record.step,
       contentLength: record.content.length
     });
@@ -88,7 +88,7 @@ export async function saveTestingPipelineRecord(
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .insert({
-        set_name: record.set_name,
+        name: record.name,
         step: record.step,
         content: record.content
       })
@@ -101,7 +101,7 @@ export async function saveTestingPipelineRecord(
         errorCode: error.code,
         errorDetails: error.details,
         errorHint: error.hint,
-        setName: record.set_name,
+        setName: record.name,
         step: record.step,
         contentLength: record.content.length
       });
@@ -110,7 +110,7 @@ export async function saveTestingPipelineRecord(
 
     logger.debug('Testing pipeline record saved successfully:', {
       id: data.id,
-      setName: data.set_name,
+      setName: data.name,
       step: data.step,
       contentLength: data.content.length
     });
@@ -119,7 +119,7 @@ export async function saveTestingPipelineRecord(
   } catch (error) {
     logger.error('Unexpected error in saveTestingPipelineRecord:', {
       error: error instanceof Error ? error.message : String(error),
-      setName: record.set_name,
+      setName: record.name,
       step: record.step,
       contentLength: record.content.length
     });
@@ -165,7 +165,7 @@ export async function checkAndSaveTestingPipelineRecord(
     console.log('🔧 SERVICE: Record does not exist, about to save new record');
     // Save new record
     const record = await saveTestingPipelineRecord({
-      set_name: setName,
+      name: setName,
       step: step,
       content: content
     });
@@ -173,7 +173,7 @@ export async function checkAndSaveTestingPipelineRecord(
 
     logger.debug('New testing pipeline record saved:', {
       id: record.id,
-      setName: record.set_name,
+      setName: record.name,
       step: record.step,
       contentLength: record.content.length
     });
@@ -193,9 +193,62 @@ export async function checkAndSaveTestingPipelineRecord(
 }
 
 /**
+ * Updates the name for a specific testing pipeline record
+ *
+ * • Updates a single record's name field by ID
+ * • Returns the updated record with new name
+ * • Used for renaming test sets from the UI
+ */
+export async function updateTestingPipelineRecordSetName(
+  recordId: number,
+  newSetName: string
+): Promise<TestingPipelineRecord> {
+  try {
+    logger.debug('Updating testing pipeline record set name:', {
+      recordId,
+      newSetName
+    });
+
+    const { data, error } = await supabase
+      .from('testing_edits_pipeline')
+      .update({ name: newSetName })
+      .eq('id', recordId)
+      .select()
+      .single();
+
+    if (error) {
+      logger.error('Supabase error updating testing pipeline record set name:', {
+        error: error.message,
+        errorCode: error.code,
+        errorDetails: error.details,
+        errorHint: error.hint,
+        recordId,
+        newSetName
+      });
+      throw error;
+    }
+
+    logger.debug('Testing pipeline record set name updated successfully:', {
+      id: data.id,
+      oldSetName: data.name,
+      newSetName: newSetName
+    });
+
+    return data;
+  } catch (error) {
+    logger.error('Unexpected error in updateTestingPipelineRecordSetName:', {
+      error: error instanceof Error ? error.message : String(error),
+      recordId,
+      newSetName
+    });
+    throw error;
+  }
+}
+
+/**
  * Gets all records for a specific test set, ordered by creation time
  *
- * • Retrieves all pipeline records for a given set_name
+ * • Retrieves all pipeline records for a given name
  * • Orders by created_at to show progression through pipeline steps
  * • Used for debugging and analyzing pipeline results
  */
@@ -206,7 +259,7 @@ export async function getTestingPipelineRecords(
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .select('*')
-      .eq('set_name', setName)
+      .eq('name', setName)
       .order('created_at', { ascending: true });
 
     if (error) {

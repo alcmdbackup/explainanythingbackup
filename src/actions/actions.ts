@@ -24,7 +24,7 @@ import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAl
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
-import { checkAndSaveTestingPipelineRecord, getTestingPipelineRecords } from '../lib/services/testingPipeline';
+import { checkAndSaveTestingPipelineRecord, getTestingPipelineRecords, updateTestingPipelineRecordSetName } from '../lib/services/testingPipeline';
 import { supabase } from '../lib/supabase';
 
 
@@ -959,14 +959,14 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
         step: string
     ): Promise<{
         success: boolean;
-        data: Array<{ id: number; set_name: string; content: string; created_at: string }> | null;
+        data: Array<{ id: number; name: string; content: string; created_at: string }> | null;
         error: ErrorResponse | null;
     }> {
         try {
             // Get all records for this step from the database
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
-                .select('id, set_name, content, created_at')
+                .select('id, name, content, created_at')
                 .eq('step', step)
                 .order('created_at', { ascending: false });
 
@@ -998,6 +998,54 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
         }
     },
     'getTestingPipelineRecordsByStepAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Updates the name for a testing pipeline record (server action)
+ *
+ * • Updates a single record's name field in testing_edits_pipeline table
+ * • Returns success status and updated record data
+ * • Calls: updateTestingPipelineRecordSetName from testingPipeline service
+ * • Used by: Editor test pages to rename test sets from dropdown UI
+ */
+export const updateTestingPipelineRecordSetNameAction = withLogging(
+    async function updateTestingPipelineRecordSetNameAction(
+        recordId: number,
+        newSetName: string
+    ): Promise<{
+        success: boolean;
+        data: { id: number; name: string; step: string; content: string; created_at: string; updated_at: string } | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const updatedRecord = await updateTestingPipelineRecordSetName(recordId, newSetName);
+
+            return {
+                success: true,
+                data: updatedRecord,
+                error: null
+            };
+        } catch (error) {
+            logger.error('Update Testing Pipeline Record Set Name Error', {
+                error: error instanceof Error ? error.message : String(error),
+                recordId,
+                newSetName
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'updateTestingPipelineRecordSetNameAction', {
+                    recordId,
+                    newSetName
+                })
+            };
+        }
+    },
+    'updateTestingPipelineRecordSetNameAction',
     {
         enabled: FILE_DEBUG
     }
