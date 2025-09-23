@@ -203,21 +203,6 @@ body {
   text-decoration: none !important;
 }
 
-/* Diff tag paragraphs */
-.diff-tag-insert .mb-1 {
-  border-left: 6px solid #16a34a !important; /* green-600 */
-  padding-left: 12px !important;
-  color: #166534 !important; /* green-800 */
-  background-color: transparent !important;
-}
-
-.diff-tag-delete .mb-1 {
-  border-left: 6px solid #dc2626 !important; /* red-600 */
-  padding-left: 12px !important;
-  color: #991b1b !important; /* red-800 */
-  background-color: transparent !important;
-}
-
 /* ==========================================================================
    DARK MODE STYLES
    ========================================================================== */
