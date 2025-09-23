@@ -121,14 +121,14 @@ body {
 
 /* Base diff tag styles */
 .diff-tag-insert {
-  background-color: #dcfce7; /* green-100 */
+  /*background-color: #dcfce7; /* green-100 */
   color: #166534; /* green-800 */
   text-decoration: none;
   white-space: pre-wrap;
 }
 
 .diff-tag-delete {
-  background-color: #fee2e2; /* red-100 */
+  /*background-color: #fee2e2; /* red-100 */
   color: #991b1b; /* red-800 */
   text-decoration: none;
   white-space: pre-wrap;
@@ -136,8 +136,8 @@ body {
 
 .diff-tag-update {
   display: inline-block;
-  border-radius: 0.25rem;
-  padding: 0.25rem;
+  /*border-radius: 0.25rem;*/
+  /*padding: 0.25rem;*/
   white-space: pre-wrap;
 }
 
@@ -150,15 +150,29 @@ body {
   background-color: #bfdbfe; /* blue-200 */
 }
 
-/* Update diff paragraphs with borders */
-.diff-tag-update > .mb-1:first-child {
+/* Update diff styling for direct children (headings and paragraphs) */
+/* First child gets red styling (before/old content) */
+.diff-tag-update > .mb-1:first-child,
+.diff-tag-update > h1:first-child,
+.diff-tag-update > h2:first-child,
+.diff-tag-update > h3:first-child,
+.diff-tag-update > h4:first-child,
+.diff-tag-update > h5:first-child,
+.diff-tag-update > h6:first-child {
   border-left: 6px solid #dc2626 !important; /* red-600 */
   padding-left: 12px !important;
   color: #991b1b !important; /* red-800 */
   background-color: transparent !important;
 }
 
-.diff-tag-update > .mb-1:nth-child(2) {
+/* Second child gets green styling (after/new content) */
+.diff-tag-update > .mb-1:nth-child(2),
+.diff-tag-update > h1:nth-child(2),
+.diff-tag-update > h2:nth-child(2),
+.diff-tag-update > h3:nth-child(2),
+.diff-tag-update > h4:nth-child(2),
+.diff-tag-update > h5:nth-child(2),
+.diff-tag-update > h6:nth-child(2) {
   border-left: 6px solid #16a34a !important; /* green-600 */
   padding-left: 12px !important;
   color: #166534 !important; /* green-800 */
@@ -258,15 +272,29 @@ body {
     color: #bfdbfe; /* blue-200 */
   }
 
-  /* Diff tag update paragraphs */
-  .diff-tag-update > .mb-1:first-child {
+  /* Diff tag update styling for direct children (headings and paragraphs) */
+  /* First child gets red styling (before/old content) */
+  .diff-tag-update > .mb-1:first-child,
+  .diff-tag-update > h1:first-child,
+  .diff-tag-update > h2:first-child,
+  .diff-tag-update > h3:first-child,
+  .diff-tag-update > h4:first-child,
+  .diff-tag-update > h5:first-child,
+  .diff-tag-update > h6:first-child {
     border-left: 6px solid #ef4444 !important; /* red-500 */
     padding-left: 12px !important;
     color: #fca5a5 !important; /* red-300 */
     background-color: transparent !important;
   }
 
-  .diff-tag-update > .mb-1:nth-child(2) {
+  /* Second child gets green styling (after/new content) */
+  .diff-tag-update > .mb-1:nth-child(2),
+  .diff-tag-update > h1:nth-child(2),
+  .diff-tag-update > h2:nth-child(2),
+  .diff-tag-update > h3:nth-child(2),
+  .diff-tag-update > h4:nth-child(2),
+  .diff-tag-update > h5:nth-child(2),
+  .diff-tag-update > h6:nth-child(2) {
     border-left: 6px solid #22c55e !important; /* green-500 */
     padding-left: 12px !important;
     color: #86efac !important; /* green-300 */

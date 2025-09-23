@@ -328,40 +328,44 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
 
         console.log("🔍 Before contains headings:", beforeContainsHeadings);
         console.log("🔍 After contains headings:", afterContainsHeadings);
-        console.log("🔍 Using paragraph containers:", containsHeadings);
-
-        let beforeContainer: LexicalNode;
-        let afterContainer: LexicalNode;
+        console.log("🔍 Contains headings - will append directly to diff:", containsHeadings);
 
         if (containsHeadings) {
-          // Use paragraph containers when headings are present
-          beforeContainer = $createParagraphNode();
-          afterContainer = $createParagraphNode();
-          console.log("📦 Created paragraph containers for heading content");
+          // When headings are present, append nodes directly to diff node (no containers)
+          console.log("📦 Appending nodes directly to diff node (no containers)");
+
+          // Append all before nodes directly to diff
+          beforeNodes.forEach(node => {
+            diff.append(node);
+          });
+
+          // Append all after nodes directly to diff
+          afterNodes.forEach(node => {
+            diff.append(node);
+          });
         } else {
           // Use inline containers when no headings are present
-          beforeContainer = $createDiffUpdateContainerInline("before");
-          afterContainer = $createDiffUpdateContainerInline("after");
+          const beforeContainer = $createDiffUpdateContainerInline("before");
+          const afterContainer = $createDiffUpdateContainerInline("after");
           console.log("📦 Created inline containers for non-heading content");
+
+          // Append all before nodes to the before container
+          beforeNodes.forEach(node => {
+            beforeContainer.append(node);
+          });
+
+          // Append all after nodes to the after container
+          afterNodes.forEach(node => {
+            afterContainer.append(node);
+          });
+
+          // Now append the two containers to the diff node
+          diff.append(beforeContainer);
+          diff.append(afterContainer);
         }
 
-        // Append all before nodes to the before container
-        beforeNodes.forEach(node => {
-          beforeContainer.append(node);
-        });
-
-        // Append all after nodes to the after container
-        afterNodes.forEach(node => {
-          afterContainer.append(node);
-        });
-
-        // Now append the two containers to the diff node
-        diff.append(beforeContainer);
-        diff.append(afterContainer);
-
-        // Log detailed structure of containers and diff node
-        logNodeChildrenAndRelationships(beforeContainer, "BeforeContainer");
-        logNodeChildrenAndRelationships(afterContainer, "AfterContainer");
+        // Log detailed structure of diff node only
+        console.log("📦 Final structure - containers skipped when headings present");
         console.log("✅ Final diff node children count:", diff.getChildrenSize());
         
         // Log detailed structure of diff node after containers are removed
@@ -550,36 +554,68 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
             const diff = $createDiffTagNodeInline("update");
             console.log("🔍 Created empty DiffTagNodeInline, children count:", diff.getChildrenSize());
             
-            // Create separate container nodes for before and after text
-            const beforeContainer = $createParagraphNode();
-            const afterContainer = $createParagraphNode();
-            
+            // Create temporary containers to parse markdown
+            const beforeTempNode = $createParagraphNode();
+            const afterTempNode = $createParagraphNode();
+
             // Parse before and after text into their respective containers
             console.log("🔄 Calling convertFromMarkdownString for beforeText...");
-            $convertFromMarkdownString(beforeText, MARKDOWN_TRANSFORMERS, beforeContainer);
-            console.log("✅ Before container children count:", beforeContainer.getChildrenSize());
-            
+            $convertFromMarkdownString(beforeText, MARKDOWN_TRANSFORMERS, beforeTempNode);
+            console.log("✅ Before temp node children count:", beforeTempNode.getChildrenSize());
+
             console.log("🔄 Calling convertFromMarkdownString for afterText...");
-            $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterContainer);
-            console.log("✅ After container children count:", afterContainer.getChildrenSize());
-            
-            // Move children from containers to diff node
-            const beforeChildren = beforeContainer.getChildren();
-            const afterChildren = afterContainer.getChildren();
-            
-            // Append all before children to diff
-            beforeChildren.forEach(child => {
-              diff.append(child);
-            });
-            
-            // Append all after children to diff
-            afterChildren.forEach(child => {
-              diff.append(child);
-            });
-            
-            // Remove the now-empty containers
-            beforeContainer.remove();
-            afterContainer.remove();
+            $convertFromMarkdownString(afterText, MARKDOWN_TRANSFORMERS, afterTempNode);
+            console.log("✅ After temp node children count:", afterTempNode.getChildrenSize());
+
+            // Handle before content - flatten paragraphs if needed
+            const beforeChildren = beforeTempNode.getChildren();
+            const beforeHasOnlyParagraphs = beforeChildren.every(child => child.getType() === 'paragraph');
+
+            if (beforeHasOnlyParagraphs) {
+              // If temp node only has paragraph nodes, take all children of those paragraphs and attach to diff
+              beforeChildren.forEach(paragraph => {
+                if ('getChildren' in paragraph) {
+                  const paragraphChildren = (paragraph as any).getChildren();
+                  paragraphChildren.forEach((child: any) => {
+                    diff.append(child);
+                  });
+                }
+              });
+              console.log("📝 Flattened before paragraph children to diff node");
+            } else {
+              // If temp node has anything other than paragraph nodes, move all children to diff
+              beforeChildren.forEach((child: any) => {
+                diff.append(child);
+              });
+              console.log("📝 Moved all before children from temp node to diff node");
+            }
+
+            // Handle after content - flatten paragraphs if needed
+            const afterChildren = afterTempNode.getChildren();
+            const afterHasOnlyParagraphs = afterChildren.every(child => child.getType() === 'paragraph');
+
+            if (afterHasOnlyParagraphs) {
+              // If temp node only has paragraph nodes, take all children of those paragraphs and attach to diff
+              afterChildren.forEach(paragraph => {
+                if ('getChildren' in paragraph) {
+                  const paragraphChildren = (paragraph as any).getChildren();
+                  paragraphChildren.forEach((child: any) => {
+                    diff.append(child);
+                  });
+                }
+              });
+              console.log("📝 Flattened after paragraph children to diff node");
+            } else {
+              // If temp node has anything other than paragraph nodes, move all children to diff
+              afterChildren.forEach((child: any) => {
+                diff.append(child);
+              });
+              console.log("📝 Moved all after children from temp node to diff node");
+            }
+
+            // Remove the now-empty temporary containers
+            beforeTempNode.remove();
+            afterTempNode.remove();
             console.log("✅ Final diff node children count:", diff.getChildrenSize());
             
             // Replace the entire paragraph with the diff node (block-level)
