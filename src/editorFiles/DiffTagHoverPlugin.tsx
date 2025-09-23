@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { DiffTagNodeInline, DiffTagNodeBlock, $isDiffTagNodeInline, $isDiffTagNodeBlock } from './DiffTagNode';
+import { DiffTagNodeInline, DiffTagNodeBlock, $isDiffTagNodeInline, $isDiffTagNodeBlock, $isDiffUpdateContainerInline } from './DiffTagNode';
 import DiffTagHoverControls from './DiffTagHoverControls';
 import { $getNodeByKey } from 'lexical';
 
@@ -171,7 +171,18 @@ export default function DiffTagHoverPlugin() {
           const children = node.getChildren();
           if (children.length >= 2) {
             const afterContent = children[1];
-            node.insertBefore(afterContent);
+
+            // If afterContent is a DiffUpdateContainerInline, extract its children
+            // and insert them directly before the diff tag node, then remove the container
+            if ($isDiffUpdateContainerInline(afterContent)) {
+              const containerChildren = afterContent.getChildren();
+              containerChildren.forEach(child => {
+                node.insertBefore(child);
+              });
+            } else {
+              // Fallback: insert the afterContent as-is
+              node.insertBefore(afterContent);
+            }
           }
           node.remove();
         }
@@ -206,7 +217,18 @@ export default function DiffTagHoverPlugin() {
           const children = node.getChildren();
           if (children.length >= 1) {
             const beforeContent = children[0];
-            node.insertBefore(beforeContent);
+
+            // If beforeContent is a DiffUpdateContainerInline, extract its children
+            // and insert them directly before the diff tag node, then remove the container
+            if ($isDiffUpdateContainerInline(beforeContent)) {
+              const containerChildren = beforeContent.getChildren();
+              containerChildren.forEach(child => {
+                node.insertBefore(child);
+              });
+            } else {
+              // Fallback: insert the beforeContent as-is
+              node.insertBefore(beforeContent);
+            }
           }
           node.remove();
         }
