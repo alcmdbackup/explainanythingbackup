@@ -214,21 +214,6 @@ body {
   background-color: transparent !important;
 }
 
-/* Inline container styling for update diff nodes */
-.diff-update-container-before {
-  background-color: #fed7aa; /* orange-200 */
-  padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
-  margin-right: 0.125rem;
-}
-
-.diff-update-container-after {
-  background-color: #bfdbfe; /* blue-200 */
-  padding: 0.125rem 0.25rem;
-  border-radius: 0.25rem;
-  margin-left: 0.125rem;
-}
-
 /* Lexical headings within diff tags - thick colored left borders */
 .diff-tag-insert .lexical-editor-h1,
 .diff-tag-insert .lexical-editor-h2,
@@ -305,23 +290,6 @@ body {
     padding-left: 12px !important;
     color: #86efac !important; /* green-300 */
     background-color: transparent !important;
-  }
-
-  /* Dark mode inline container styling for update diff nodes */
-  .diff-update-container-before {
-    background-color: #9a3412; /* orange-800 */
-    color: #fed7aa; /* orange-200 */
-    padding: 0.125rem 0.25rem;
-    border-radius: 0.25rem;
-    margin-right: 0.125rem;
-  }
-
-  .diff-update-container-after {
-    background-color: #1e3a8a; /* blue-800 */
-    color: #bfdbfe; /* blue-200 */
-    padding: 0.125rem 0.25rem;
-    border-radius: 0.25rem;
-    margin-left: 0.125rem;
   }
   
   /* Dark mode Lexical headings within diff tags */
