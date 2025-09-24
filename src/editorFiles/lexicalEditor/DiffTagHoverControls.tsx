@@ -170,7 +170,7 @@ const DiffTagHoverControls: React.FC<DiffTagHoverControlsProps> = ({
 
   // Handle mouse events for hover tolerance - only close when mouse truly leaves both areas
   useEffect(() => {
-    const handleMouseLeave = (event: MouseEvent) => {
+    const handleMouseLeave = () => {
       console.log('🚪 DiffTagHoverControls: Mouse leave detected');
       // Add delay before closing to allow user to move to controls
       timeoutRef.current = setTimeout(() => {

@@ -68,7 +68,7 @@ export default function DiffTagHoverPlugin() {
                 console.log('🖱️ DiffTagHoverPlugin: Node type check - inline:', $isDiffTagNodeInline(node), 'block:', $isDiffTagNodeBlock(node));
 
                 if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-                  const diffTag = (node as any).__tag;
+                  const diffTag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
                   console.log('📝 DiffTagHoverPlugin: Setting hover state for', diffTag);
                   console.log('📝 DiffTagHoverPlugin: Previous hover state:', hoverState);
 
@@ -116,7 +116,7 @@ export default function DiffTagHoverPlugin() {
                 console.log('🖱️ DiffTagHoverPlugin: Node type check - inline:', $isDiffTagNodeInline(node), 'block:', $isDiffTagNodeBlock(node));
 
                 if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-                  const diffTag = (node as any).__tag;
+                  const diffTag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
                   console.log('📝 DiffTagHoverPlugin: Setting hover state for', diffTag);
                   console.log('📝 DiffTagHoverPlugin: Previous hover state:', hoverState);
 
@@ -144,7 +144,7 @@ export default function DiffTagHoverPlugin() {
       removeMutationListener();
       removeBlockMutationListener();
     };
-  }, [editor]);
+  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleAccept = () => {
     if (!hoverState.nodeKey) return;
@@ -156,17 +156,17 @@ export default function DiffTagHoverPlugin() {
         // For 'del' nodes, remove the entire node and its content
         // For 'update' nodes, keep the second child (after content) and remove the first child (before content)
 
-        if ((node as any).__tag === 'ins') {
+        if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'ins') {
           // Accept insertion: keep content, remove diff tag
           const children = node.getChildren();
           children.forEach(child => {
             node.insertBefore(child);
           });
           node.remove();
-        } else if ((node as any).__tag === 'del') {
+        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'del') {
           // Accept deletion: remove the entire node
           node.remove();
-        } else if ((node as any).__tag === 'update') {
+        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'update') {
           // Accept update: keep the second child (after text), remove first child and diff tag
           const children = node.getChildren();
           if (children.length >= 2) {
@@ -202,17 +202,17 @@ export default function DiffTagHoverPlugin() {
         // For 'del' nodes, keep the content and remove the diff tag
         // For 'update' nodes, keep the first child (before content) and remove the second child (after content)
 
-        if ((node as any).__tag === 'ins') {
+        if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'ins') {
           // Reject insertion: remove the entire node
           node.remove();
-        } else if ((node as any).__tag === 'del') {
+        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'del') {
           // Reject deletion: keep content, remove diff tag
           const children = node.getChildren();
           children.forEach(child => {
             node.insertBefore(child);
           });
           node.remove();
-        } else if ((node as any).__tag === 'update') {
+        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'update') {
           // Reject update: keep the first child (before text), remove second child and diff tag
           const children = node.getChildren();
           if (children.length >= 1) {

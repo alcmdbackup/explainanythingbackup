@@ -1,11 +1,11 @@
 'use client';
 
-import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/LexicalEditor';
+import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/lexicalEditor/LexicalEditor';
 import { useState, useEffect, useRef } from 'react';
-import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../actions/actions';
+import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../editorFiles/actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
-import { preprocessCriticMarkup } from '../../editorFiles/importExportUtils';
+import { preprocessCriticMarkup } from '../../editorFiles/lexicalEditor/importExportUtils';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { 
