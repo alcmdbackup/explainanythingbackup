@@ -124,21 +124,21 @@ body {
   /*background-color: #dcfce7; /* green-100 */
   color: #166534; /* green-800 */
   text-decoration: none;
-  white-space: pre-wrap;
+  /*white-space: pre-wrap;*/
 }
 
 .diff-tag-delete {
   /*background-color: #fee2e2; /* red-100 */
   color: #991b1b; /* red-800 */
   text-decoration: none;
-  white-space: pre-wrap;
+  /*white-space: pre-wrap;*/
 }
 
 .diff-tag-update {
   display: inline-block;
   /*border-radius: 0.25rem;*/
   /*padding: 0.25rem;*/
-  white-space: pre-wrap;
+  /*white-space: pre-wrap;*/
 }
 
 /* Update diff children */
@@ -177,6 +177,15 @@ body {
   padding-left: 12px !important;
   color: #166534 !important; /* green-800 */
   background-color: transparent !important;
+}
+
+/* Diff tag spacing - ensure space after text children */
+.diff-tag-insert::after,
+.diff-tag-delete::after,
+.diff-tag-update::after {
+  content: ' ';
+  display: inline;
+  white-space: normal;
 }
 
 /* Diff tag headings */
