@@ -8,10 +8,10 @@ import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdi
 import { preprocessCriticMarkup } from '../../editorFiles/lexicalEditor/importExportUtils';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
-import { 
-    mergeAISuggestionOutput, 
+import {
+    mergeAISuggestionOutput,
     validateAISuggestionOutput,
-    type AISuggestionOutput 
+    getAndApplyAISuggestions
 } from '../../editorFiles/aiSuggestion';
 
 export default function EditorTestPage() {
@@ -46,6 +46,11 @@ export default function EditorTestPage() {
 
     // Validation state for preprocessed step
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+    // Pipeline function state
+    const [isPipelineRunning, setIsPipelineRunning] = useState<boolean>(false);
+    const [pipelineError, setPipelineError] = useState<string>('');
+    const [pipelineProgress, setPipelineProgress] = useState<{step: string; progress: number}>({step: '', progress: 0});
 
     const editorRef = useRef<LexicalEditorRef>(null);
 
@@ -558,6 +563,42 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         }
     };
 
+    // Handle running the complete AI pipeline
+    const handleRunPipeline = async () => {
+        if (!currentContent.trim()) {
+            setPipelineError('No content to process');
+            return;
+        }
+
+        setIsPipelineRunning(true);
+        setPipelineError('');
+        setPipelineProgress({step: 'Starting...', progress: 0});
+
+        try {
+            const result = await getAndApplyAISuggestions(
+                currentContent,
+                editorRef,
+                (step: string, progress: number) => {
+                    setPipelineProgress({step, progress});
+                }
+            );
+
+            if (result.success) {
+                console.log('✅ Pipeline completed successfully');
+                console.log('Final content:', result.content);
+            } else {
+                setPipelineError(result.error || 'Pipeline failed');
+                console.error('❌ Pipeline failed:', result.error);
+            }
+        } catch (error) {
+            setPipelineError(error instanceof Error ? error.message : 'Unexpected error occurred');
+            console.error('❌ Pipeline error:', error);
+        } finally {
+            setIsPipelineRunning(false);
+            setPipelineProgress({step: '', progress: 0});
+        }
+    };
+
     return (
         <div className="min-h-screen bg-white dark:bg-gray-900">
             <main className="container mx-auto px-4 py-8">
@@ -636,6 +677,51 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     setCurrentContent(content);
                                 }}
                             />
+                        </div>
+                    </div>
+
+                    {/* Complete AI Pipeline */}
+                    <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
+                        <div className="p-6">
+                            <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-3">
+                                Complete AI Pipeline (4.1)
+                            </h3>
+                            <div className="text-purple-800 dark:text-purple-200 text-sm space-y-4">
+                                <p>
+                                    Run the complete 4-step AI pipeline: Generate suggestions → Apply edits → Create diff → Apply to editor.
+                                </p>
+
+                                <div className="flex gap-2 items-center">
+                                    <button
+                                        onClick={handleRunPipeline}
+                                        disabled={isPipelineRunning || !currentContent.trim()}
+                                        className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                            isPipelineRunning || !currentContent.trim()
+                                                ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                : 'bg-purple-600 hover:bg-purple-700 text-white'
+                                        }`}
+                                    >
+                                        {isPipelineRunning ? 'Running Pipeline...' : 'Run Complete AI Pipeline'}
+                                    </button>
+
+                                    {isPipelineRunning && (
+                                        <div className="flex items-center space-x-2">
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+                                            <span className="text-sm text-purple-600 dark:text-purple-400">
+                                                {pipelineProgress.step} ({pipelineProgress.progress}%)
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {pipelineError && (
+                                    <div className="mt-4 p-3 bg-red-100 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
+                                        <p className="text-red-800 dark:text-red-200 text-sm">
+                                            Error: {pipelineError}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 

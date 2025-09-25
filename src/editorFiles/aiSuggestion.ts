@@ -166,6 +166,91 @@ Apply the AI suggestions to the original content and return the complete final t
 }
 
 /**
+ * Functional pipeline for running the complete AI suggestions workflow
+ *
+ * • Runs the 4-step AI suggestion pipeline sequentially
+ * • Each step must succeed for the next to proceed
+ * • Returns final preprocessed content ready for editor
+ * • Used by: getAndApplyAISuggestions for complete workflow
+ * • Calls: generateAISuggestionsAction, applyAISuggestionsAction, generateMarkdownASTDiff, preprocessCriticMarkup
+ */
+export async function runAISuggestionsPipeline(
+  currentContent: string,
+  userId: string,
+  onProgress?: (step: string, progress: number) => void
+): Promise<string> {
+  onProgress?.('Generating AI suggestions...', 25);
+
+  // Import the server actions and utilities
+  const { generateAISuggestionsAction, applyAISuggestionsAction } = await import('../actions/actions');
+  const { RenderCriticMarkupFromMDAstDiff } = await import('./markdownASTdiff/markdownASTdiff');
+  const { preprocessCriticMarkup } = await import('./lexicalEditor/importExportUtils');
+  const { unified } = await import('unified');
+  const { default: remarkParse } = await import('remark-parse');
+
+  const suggestionsResult = await generateAISuggestionsAction(currentContent, userId);
+  if (!suggestionsResult.success || !suggestionsResult.data) {
+    throw new Error(suggestionsResult.error?.message || 'Failed to generate AI suggestions');
+  }
+  const suggestions = suggestionsResult.data;
+
+  onProgress?.('Applying suggestions...', 50);
+  const editedContentResult = await applyAISuggestionsAction(suggestions, currentContent, userId);
+  if (!editedContentResult.success || !editedContentResult.data) {
+    throw new Error(editedContentResult.error?.message || 'Failed to apply AI suggestions');
+  }
+  const editedContent = editedContentResult.data;
+
+  onProgress?.('Generating diff...', 75);
+  // Generate AST diff and convert to CriticMarkup
+  const beforeAST = unified().use(remarkParse).parse(currentContent);
+  const afterAST = unified().use(remarkParse).parse(editedContent);
+  const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
+
+  onProgress?.('Preprocessing content...', 90);
+  const preprocessed = preprocessCriticMarkup(criticMarkup);
+
+  onProgress?.('Complete', 100);
+  return preprocessed;
+}
+
+/**
+ * Applies AI suggestions pipeline with simple error handling
+ *
+ * • Runs complete AI suggestion pipeline and updates editor on success
+ * • Original content remains untouched until entire pipeline succeeds
+ * • Returns success status with final content or error details
+ * • Used by: UI components to get AI suggestions with progress tracking
+ * • Calls: runAISuggestionsPipeline
+ */
+export async function getAndApplyAISuggestions(
+  currentContent: string,
+  editorRef: any, // LexicalEditorRef
+  onProgress?: (step: string, progress: number) => void
+): Promise<{ success: boolean; content?: string; error?: string }> {
+  try {
+    // Run the entire pipeline - original content stays untouched until success
+    const finalContent = await runAISuggestionsPipeline(currentContent, 'test-user', onProgress);
+
+    // Only update editor if all steps succeeded
+    if (editorRef.current) {
+      editorRef.current.setContentFromMarkdown(finalContent);
+    }
+
+    return { success: true, content: finalContent };
+
+  } catch (error) {
+    console.error('AI Pipeline failed:', error);
+
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'AI processing failed',
+      content: currentContent // Original content is unchanged
+    };
+  }
+}
+
+/**
  * Handles getting AI suggestions for text improvement
  * @param currentText - The current text content
  * @param improvementType - The type of improvement requested
