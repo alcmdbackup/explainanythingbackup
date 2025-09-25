@@ -1,7 +1,7 @@
 'use client';
 
 import { $getRoot} from 'lexical';
-import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useCallback, useEffect, forwardRef, useImperativeHandle, useRef } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 
@@ -136,6 +136,20 @@ function ContentChangePlugin({
   return <OnChangePlugin onChange={handleChange} />;
 }
 
+// Plugin for managing display/edit mode state
+function DisplayModePlugin({ isEditMode }: { isEditMode: boolean }) {
+  const [editor] = useLexicalComposerContext();
+
+  useEffect(() => {
+    editor.setEditable(isEditMode);
+    if (!isEditMode) {
+      editor.blur();
+    }
+  }, [editor, isEditMode]);
+
+  return null;
+}
+
 // Component to display editor state as JSON
 function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
   return (
@@ -162,6 +176,9 @@ interface LexicalEditorProps {
   isMarkdownMode?: boolean;
   showTreeView?: boolean;
   showToolbar?: boolean;
+  isEditMode?: boolean;
+  onEditModeToggle?: () => void;
+  hideEditingUI?: boolean;
 }
 
 /**
@@ -179,26 +196,37 @@ export interface LexicalEditorRef {
   getContentAsMarkdown: () => string;
   toggleMarkdownMode: () => void;
   getMarkdownMode: () => boolean;
+  setEditMode: (isEditMode: boolean) => void;
+  getEditMode: () => boolean;
+  focus: () => void;
 }
 
-const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({ 
-  placeholder = "Enter some text...", 
+const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
+  placeholder = "Enter some text...",
   className = "",
   initialContent = "",
   onContentChange,
   showEditorState = true,
   isMarkdownMode = false,
   showTreeView = true,
-  showToolbar = true
+  showToolbar = true,
+  isEditMode = true,
+  onEditModeToggle,
+  hideEditingUI = false
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
   const [internalMarkdownMode, setInternalMarkdownMode] = useState<boolean>(isMarkdownMode);
+  const [internalEditMode, setInternalEditMode] = useState<boolean>(isEditMode);
 
   // Sync internal state with prop changes
   useEffect(() => {
     setInternalMarkdownMode(isMarkdownMode);
   }, [isMarkdownMode]);
+
+  useEffect(() => {
+    setInternalEditMode(isEditMode);
+  }, [isEditMode]);
 
   const initialConfig = {
     namespace: 'MyEditor',
@@ -293,11 +321,43 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
     },
     getMarkdownMode: () => {
       return internalMarkdownMode;
+    },
+    setEditMode: (newEditMode: boolean) => {
+      setInternalEditMode(newEditMode);
+      if (editor) {
+        editor.setEditable(newEditMode);
+        if (newEditMode) {
+          editor.focus();
+        } else {
+          editor.blur();
+        }
+      }
+    },
+    getEditMode: () => {
+      return internalEditMode;
+    },
+    focus: () => {
+      if (editor) {
+        editor.focus();
+      }
     }
-  }), [editor, internalMarkdownMode]);
+  }), [editor, internalMarkdownMode, internalEditMode]);
 
   return (
     <div className={className}>
+      <style jsx>{`
+        .lexical-display-mode {
+          caret-color: transparent !important;
+        }
+        .lexical-display-mode .ContentEditable__root {
+          cursor: default !important;
+          outline: none !important;
+        }
+        .lexical-display-mode .ContentEditable__root:focus {
+          outline: none !important;
+          border: none !important;
+        }
+      `}</style>
       <LexicalComposer initialConfig={initialConfig}>
         <EditorRefPlugin setEditor={setEditor} />
         <InitialContentPlugin initialContent={initialContent} isMarkdownMode={internalMarkdownMode} />
@@ -306,14 +366,19 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           onEditorStateChange={setEditorStateJson}
           isMarkdownMode={internalMarkdownMode}
         />
-        {showToolbar && <ToolbarPlugin isMarkdownMode={internalMarkdownMode} />}
+        <DisplayModePlugin isEditMode={internalEditMode} />
+        {showToolbar && !hideEditingUI && internalEditMode && <ToolbarPlugin isMarkdownMode={internalMarkdownMode} />}
         <MarkdownShortcutsPlugin isEnabled={internalMarkdownMode} />
         {internalMarkdownMode && <MarkdownShortcutPlugin />}
         {internalMarkdownMode ? (
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white prose dark:prose-invert max-w-none"
+                className={`lexical-editor min-h-[200px] p-4 text-gray-900 dark:text-white prose dark:prose-invert max-w-none ${
+                  internalEditMode
+                    ? "border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700"
+                    : "border-none bg-transparent focus:outline-none lexical-display-mode"
+                }`}
               />
             }
             placeholder={
@@ -327,7 +392,11 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           <PlainTextPlugin
             contentEditable={
               <ContentEditable
-                className="lexical-editor min-h-[200px] p-4 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white font-mono text-sm"
+                className={`lexical-editor min-h-[200px] p-4 text-gray-900 dark:text-white font-mono text-sm ${
+                  internalEditMode
+                    ? "border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700"
+                    : "border-none bg-transparent focus:outline-none lexical-display-mode"
+                }`}
               />
             }
             placeholder={
@@ -408,5 +477,32 @@ function TreeViewPlugin() {
   );
 }
 
+
+
+// Edit mode toggle component
+export function EditModeToggle({ isEditMode, onToggle }: { isEditMode: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600"
+    >
+      {isEditMode ? (
+        <>
+          <svg className="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          Done Editing
+        </>
+      ) : (
+        <>
+          <svg className="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+          Edit
+        </>
+      )}
+    </button>
+  );
+}
 
 export default LexicalEditor;

@@ -1,6 +1,6 @@
 'use client';
 
-import LexicalEditor, { LexicalEditorRef } from '../../editorFiles/lexicalEditor/LexicalEditor';
+import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../../editorFiles/lexicalEditor/LexicalEditor';
 import { useState, useEffect, useRef } from 'react';
 import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../editorFiles/actions/actions';
 import { logger } from '../../lib/client_utilities';
@@ -48,6 +48,13 @@ export default function EditorTestPage() {
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
     const editorRef = useRef<LexicalEditorRef>(null);
+
+    // Edit mode state management
+    const [isEditMode, setIsEditMode] = useState<boolean>(true);
+
+    const toggleEditMode = () => {
+        setIsEditMode(!isEditMode);
+    };
 
     // Default content about Albert Einstein
     const defaultContent = `# Albert Einstein: The Revolutionary Physicist
@@ -613,12 +620,17 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     <span className="text-sm text-gray-600 dark:text-gray-400">Markdown</span>
                                 </div>
                             </div>
+                            <div className="flex justify-between items-center mb-2">
+                                <div className="flex-1"></div>
+                                <EditModeToggle isEditMode={isEditMode} onToggle={toggleEditMode} />
+                            </div>
                             <LexicalEditor
                                 ref={editorRef}
                                 placeholder="Start writing your story about Albert Einstein or any other topic..."
                                 className="w-full"
                                 initialContent={defaultContent}
                                 isMarkdownMode={isMarkdownMode}
+                                isEditMode={isEditMode}
                                 onContentChange={(content) => {
                                     console.log('Content changed:', content.length, 'characters');
                                     setCurrentContent(content);

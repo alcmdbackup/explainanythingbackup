@@ -41,7 +41,7 @@ const DiffTagHoverControls: React.FC<DiffTagHoverControlsProps> = ({
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [isVisible, setIsVisible] = useState(false);
   const controlsRef = useRef<HTMLDivElement>(null);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
   // Calculate position based on the last child of the target element
   useEffect(() => {
