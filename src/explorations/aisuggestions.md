@@ -179,7 +179,6 @@ function EditModeToggle({ isEditMode, onToggle }: EditModeToggleProps) {
 #### 3.2 Suggestions Panel Features
 - **Input Area**: Text input for user prompts/instructions
 - **Submit Button**: Trigger AI suggestion generation
-- **History**: Previous suggestions and applied edits
 - **Loading States**: Visual feedback during AI processing
 
 #### 3.3 Real-time Integration
@@ -187,36 +186,60 @@ function EditModeToggle({ isEditMode, onToggle }: EditModeToggleProps) {
 - **Accept/Reject**: Individual suggestion management
 - **Bulk Actions**: Apply all suggestions at once
 
-### Phase 4: Unified AI Pipeline with Robust Error Handling
+#### 3.4 Content Format Compatibility Plan
+Based on how `src/app/results/page.tsx` renders content with ReactMarkdown, the AI pipeline must handle:
 
-#### 4.1 Transaction-Based Pipeline Implementation
+**Link Preservation Strategy**:
+- Detect and preserve all existing markdown links: `[text](url)`
+- Maintain special internal links like `/standalone-title?t=...` exactly
+- Avoid breaking relative path references
+- Preserve anchor links and URL parameters
+- Test link functionality after AI processing
+
+**LaTeX/Math Expression Handling**:
+- Preserve inline math: `$equation$` notation for KaTeX rendering
+- Preserve display math: `$$equation$$` blocks
+- Maintain proper spacing around mathematical expressions
+- Never modify mathematical symbols unless correcting actual errors
+- Test math rendering with `remarkMath` and `rehypeKatex` plugins
+
+**Rich Content Structure Preservation**:
+- **Code**: Maintain inline `code` and code blocks with ```language syntax
+- **Lists**: Preserve bullet (-) and numbered (1.) list formatting and nesting
+- **Headers**: Keep heading hierarchy (# ## ### etc.) intact
+- **Blockquotes**: Preserve > prefix formatting
+- **Emphasis**: Maintain *italic* and **bold** markdown syntax
+- **Tables**: Preserve table structure if present
+
+**Implementation Strategy**:
+- Add content format validation to AI prompt generation
+- Include preservation rules in both suggestion and apply prompts
+- Create post-processing validation to check for broken formatting
+- Add automated tests for common formatting edge cases
+
+### Phase 4: Unified AI Pipeline with Simple Error Handling
+
+#### 4.1 Functional Pipeline Implementation
 ```typescript
-class AIContentTransaction {
-  private originalContent: string;
-  private steps: Array<{ name: string; result: any }> = [];
+async function runAISuggestionsPipeline(
+  currentContent: string,
+  userId: string,
+  onProgress?: (step: string, progress: number) => void
+): Promise<string> {
+  onProgress?.('Generating AI suggestions...', 25);
+  const suggestions = await generateAISuggestionsAction(currentContent, userId);
 
-  constructor(content: string) {
-    this.originalContent = content;
-  }
+  onProgress?.('Applying suggestions...', 50);
+  const editedContent = await applyAISuggestionsAction(suggestions, currentContent, userId);
 
-  async executeStep<T>(name: string, fn: () => Promise<T>): Promise<T> {
-    try {
-      const result = await fn();
-      this.steps.push({ name, result });
-      return result;
-    } catch (error) {
-      console.error(`AI Pipeline step "${name}" failed:`, error);
-      throw new Error(`Step ${name} failed: ${error.message}`);
-    }
-  }
+  onProgress?.('Generating diff...', 75);
+  const criticMarkup = generateMarkdownASTDiff(currentContent, editedContent);
 
-  rollback(): string {
-    return this.originalContent;
-  }
+  onProgress?.('Preprocessing content...', 90);
+  const preprocessed = preprocessCriticMarkup(criticMarkup);
 
-  getStepResult(stepName: string): any {
-    return this.steps.find(s => s.name === stepName)?.result;
-  }
+  onProgress?.('Complete', 100);
+  return preprocessed;
 }
 
 async function getAndApplyAISuggestions(
@@ -225,54 +248,24 @@ async function getAndApplyAISuggestions(
   editorRef: LexicalEditorRef,
   onProgress?: (step: string, progress: number) => void
 ): Promise<{ success: boolean; content?: string; error?: string }> {
-  const transaction = new AIContentTransaction(currentContent);
-
   try {
-    onProgress?.('Generating AI suggestions...', 25);
-    const suggestions = await transaction.executeStep(
-      'generate_suggestions',
-      () => generateAISuggestionsAction(currentContent, userid)
-    );
-
-    onProgress?.('Applying suggestions...', 50);
-    const editedContent = await transaction.executeStep(
-      'apply_suggestions',
-      () => applyAISuggestionsAction(suggestions, currentContent, userid)
-    );
-
-    onProgress?.('Generating diff...', 75);
-    const criticMarkup = await transaction.executeStep(
-      'generate_diff',
-      () => generateMarkdownASTDiff(currentContent, editedContent)
-    );
-
-    onProgress?.('Preprocessing content...', 90);
-    const preprocessed = await transaction.executeStep(
-      'preprocess',
-      () => Promise.resolve(preprocessCriticMarkup(criticMarkup))
-    );
+    // Run the entire pipeline - original content stays untouched until success
+    const finalContent = await runAISuggestionsPipeline(currentContent, 'test-user', onProgress);
 
     // Only update editor if all steps succeeded
-    onProgress?.('Updating editor...', 100);
     if (editorRef.current) {
-      editorRef.current.setContentFromMarkdown(preprocessed);
+      editorRef.current.setContentFromMarkdown(finalContent);
     }
 
-    return { success: true, content: preprocessed };
+    return { success: true, content: finalContent };
 
   } catch (error) {
-    console.error('AI Pipeline failed, rolling back:', error);
-
-    // Restore original content on any failure
-    const rollbackContent = transaction.rollback();
-    if (editorRef.current) {
-      editorRef.current.setContentFromMarkdown(rollbackContent);
-    }
+    console.error('AI Pipeline failed:', error);
 
     return {
       success: false,
-      error: error.message || 'AI processing failed',
-      content: rollbackContent
+      error: error instanceof Error ? error.message : 'AI processing failed',
+      content: currentContent // Original content is unchanged
     };
   }
 }
@@ -360,13 +353,13 @@ function AIProcessingOverlay({
 - [ ] Add panel show/hide functionality
 - [ ] Test panel state synchronization
 
-### Step 5a: Transaction Infrastructure
+### Step 5a: Pipeline Function Implementation
 **Timeline**: 1 day
 **Tasks**:
-- [ ] Create AIContentTransaction class
-- [ ] Implement step tracking and rollback functionality
-- [ ] Add transaction state management
-- [ ] Test rollback behavior with mock data
+- [ ] Create runAISuggestionsPipeline function
+- [ ] Implement getAndApplyAISuggestions with simple error handling
+- [ ] Add progress callback support
+- [ ] Test pipeline flow with mock data
 
 ### Step 5b: Pipeline Mocks & Testing Infrastructure
 **Timeline**: 1 day
@@ -384,13 +377,21 @@ function AIProcessingOverlay({
 - [ ] Implement basic suggestion application to editor
 - [ ] Test suggestion workflow with mocked data
 
-### Step 5c: Real AI Integration
+### Step 5c: Content Format Compatibility Implementation
+**Timeline**: 1 day
+**Tasks**:
+- [ ] Enhance AI prompts with content preservation guidelines
+- [ ] Add post-processing validation for links, math, and formatting
+- [ ] Create test cases for LaTeX expressions, links, and code blocks
+- [ ] Implement format validation in pipeline steps
+
+### Step 5d: Real AI Integration
 **Timeline**: 1-2 days
 **Tasks**:
-- [ ] Replace mocks with real AI service calls one by one
+- [ ] Replace mocks with real AI service calls in pipeline
 - [ ] Add proper error handling for AI service failures
 - [ ] Implement progress tracking with real AI latencies
-- [ ] Test end-to-end pipeline with actual AI services
+- [ ] Test end-to-end pipeline with actual AI services and format preservation
 
 ### Step 4d: Advanced Overlay Annotations
 **Timeline**: 2-3 days
@@ -518,15 +519,16 @@ class EditorStateManager {
 
 ## Conclusion
 
-**REVISED APPROACH**: This refined integration plan leverages Lexical's built-in read-only capabilities and a single editor instance to achieve seamless display-to-edit transitions without the complexity and risks of dual rendering systems.
+**REVISED APPROACH**: This refined integration plan leverages Lexical's built-in read-only capabilities, a single editor instance, and a simple functional AI pipeline to achieve seamless display-to-edit transitions without unnecessary complexity.
 
-**Key Benefits of Single Editor Approach**:
+**Key Benefits of This Approach**:
 - **Simplified Architecture**: One editor instance eliminates content synchronization issues
 - **Better Performance**: No dual rendering overhead or format conversion losses
-- **Reduced Risk**: Leverages Lexical's proven read-only mode capabilities
-- **Easier Maintenance**: Single code path for content handling
+- **Functional Pipeline**: Simple, testable functions instead of complex transaction management
+- **Natural Error Handling**: Original content remains untouched until pipeline succeeds
+- **Easier Maintenance**: Single code path for content handling and straightforward function composition
 - **Improved UX**: Instant mode switching with perfect content preservation
 
-**Implementation Priority**: Start with basic display/edit mode toggle, then progressively enhance with AI suggestions panel and unified pipeline. This approach provides immediate value while building toward the full vision.
+**Implementation Priority**: Start with basic display/edit mode toggle, then progressively enhance with AI suggestions panel and functional pipeline. This approach provides immediate value while building toward the full vision.
 
-**Next Steps**: Begin with Step 1 (DisplayModePlugin) to validate the single-editor approach before proceeding with AI integration features.
+**Next Steps**: Steps 1-2 are complete (DisplayModePlugin and EditModeToggle). Next: implement the simple functional AI pipeline.

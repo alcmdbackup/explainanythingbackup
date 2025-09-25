@@ -50,7 +50,7 @@ export function createAISuggestionPrompt(currentText: string): string {
   return `Make significant edits to the article below to improve its quality.
 
 <output_format>
-You must respond with a JSON object containing an "edits" array. 
+You must respond with a JSON object containing an "edits" array.
 The edits array will explain how to make described edits sequentially starting from beginning of content, while skipping unchanged "existing text"
 
 Each element in the array must be either:
