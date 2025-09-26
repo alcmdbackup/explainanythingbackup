@@ -187,35 +187,93 @@ function EditModeToggle({ isEditMode, onToggle }: EditModeToggleProps) {
 - **Bulk Actions**: Apply all suggestions at once
 
 #### 3.4 Content Format Compatibility Plan
-Based on how `src/app/results/page.tsx` renders content with ReactMarkdown, the AI pipeline must handle:
+Based on how `src/app/results/page.tsx` renders content with ReactMarkdown, the AI pipeline must handle below.
+
+Support loading explanation id onto EditorTest, pattern it after /results. Make sure that the following are working in terms of rendering.
+
+**Current Results Page Rendering Analysis**:
+- Uses ReactMarkdown with `remarkMath` and `rehypeKatex` plugins for LaTeX/math expressions
+- Custom link component handles all `<a>` tags with special behavior for `/standalone-title?t=` links
+- Rich component customization for headings, lists, code blocks, blockquotes
+- Preserves all markdown formatting including links, math expressions, and code blocks
+
+**Special Link Handling in Results Page**:
+Links like `/standalone-title?t=quantum%20physics` are rendered through ReactMarkdown's custom `a` component:
+- **Visual**: Blue text with underline, hover effects (`text-blue-600 dark:text-blue-400`)
+- **Behavior**: `handleStandaloneTitleClick` function intercepts clicks
+- **Processing**: Extracts title from `t` parameter, prevents default navigation
+- **Action**: Either redirects to `/results?t=...` or calls `handleUserAction` directly
+- **UX**: Appears as normal clickable link but triggers explanation generation
 
 **Link Preservation Strategy**:
 - Detect and preserve all existing markdown links: `[text](url)`
 - Maintain special internal links like `/standalone-title?t=...` exactly
-- Avoid breaking relative path references
-- Preserve anchor links and URL parameters
-- Test link functionality after AI processing
+- Ensure Lexical's markdown import/export handles standard markdown links `[text](url)`
+- Special internal links survive markdown → Lexical → markdown roundtrip
 
 **LaTeX/Math Expression Handling**:
-- Preserve inline math: `$equation$` notation for KaTeX rendering
-- Preserve display math: `$$equation$$` blocks
-- Maintain proper spacing around mathematical expressions
-- Never modify mathematical symbols unless correcting actual errors
 - Test math rendering with `remarkMath` and `rehypeKatex` plugins
+- Add MathPlugin to LexicalEditor component for math expression support
+- Validate LaTeX expressions survive the AI pipeline without syntax corruption
 
-**Rich Content Structure Preservation**:
-- **Code**: Maintain inline `code` and code blocks with ```language syntax
-- **Lists**: Preserve bullet (-) and numbered (1.) list formatting and nesting
-- **Headers**: Keep heading hierarchy (# ## ### etc.) intact
-- **Blockquotes**: Preserve > prefix formatting
-- **Emphasis**: Maintain *italic* and **bold** markdown syntax
-- **Tables**: Preserve table structure if present
+**EditorTest Integration Requirements**:
+```typescript
+// Add explanation_id URL parameter support to editorTest
+useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const explanationId = urlParams.get('explanation_id');
 
-**Implementation Strategy**:
-- Add content format validation to AI prompt generation
-- Include preservation rules in both suggestion and apply prompts
-- Create post-processing validation to check for broken formatting
-- Add automated tests for common formatting edge cases
+    if (explanationId) {
+        loadExplanationForTesting(parseInt(explanationId));
+    }
+}, []);
+
+const loadExplanationForTesting = async (explanationId: number) => {
+    try {
+        // Reuse the same action from results page
+        const explanation = await getExplanationByIdAction(explanationId);
+
+        if (explanation && editorRef.current) {
+            // Load content directly into Lexical editor
+            editorRef.current.setContentFromMarkdown(explanation.content);
+            setCurrentContent(explanation.content);
+            setTestSetName(`explanation-${explanationId}-test`);
+        }
+    } catch (error) {
+        console.error('Failed to load explanation:', error);
+    }
+};
+```
+
+**Content Roundtrip Validation**:
+```typescript
+const validateContentFormats = (content: string): string[] => {
+    const warnings: string[] = [];
+
+    // Check for LaTeX expressions
+    if (content.includes('$') || content.includes('\\(') || content.includes('\\[')) {
+        warnings.push('LaTeX expressions detected - ensure MathPlugin is enabled');
+    }
+
+    // Check for internal standalone title links
+    if (content.includes('/standalone-title?t=')) {
+        warnings.push('Internal standalone title links detected');
+    }
+
+    // Check for standard markdown links
+    const linkCount = (content.match(/\[.*?\]\(.*?\)/g) || []).length;
+    if (linkCount > 0) {
+        warnings.push(`${linkCount} markdown links detected`);
+    }
+
+    return warnings;
+};
+```
+
+**Testing Access Pattern**:
+- Access via: `/editorTest?explanation_id=123`
+- This mirrors the results page pattern and allows direct testing of specific explanations
+- Validates that links, LaTeX, code blocks maintain formatting through AI suggestion pipeline
 
 ### Phase 4: Unified AI Pipeline with Simple Error Handling
 
@@ -401,13 +459,186 @@ function AIProcessingOverlay({
 - [ ] Create interactive accept/reject overlay controls
 - [ ] Test complex overlay interactions and performance
 
-### Step 6: Polish and Testing
+### Step 6: Link Preservation Testing & Implementation
+**Timeline**: 3-4 days
+**Tasks**:
+- [ ] Implement custom StandaloneTitleLinkNode for Lexical editor
+- [ ] Create markdown transformer for `/standalone-title?t=` links
+- [ ] Test markdown → Lexical → markdown roundtrip fidelity
+- [ ] Validate links survive AI suggestion pipeline
+- [ ] Add link format validation to content processing
+- [ ] Test LaTeX expressions and code blocks preservation
+- [ ] Implement NodeEventPlugin for custom link click handling
+
+#### 6.1 Markdown ↔ Lexical Roundtrip Preservation
+```typescript
+// Custom LinkNode implementation
+export class StandaloneTitleLinkNode extends LinkNode {
+  static getType(): string {
+    return 'standalone-title-link';
+  }
+
+  createDOM(config: EditorConfig): HTMLAnchorElement {
+    const anchorElement = super.createDOM(config) as HTMLAnchorElement;
+    anchorElement.className = 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors';
+
+    anchorElement.onclick = (e: MouseEvent) => {
+      e.preventDefault();
+      this.handleStandaloneTitleClick(this.getURL());
+    };
+
+    return anchorElement;
+  }
+
+  private handleStandaloneTitleClick(href: string) {
+    if (href.startsWith('/standalone-title?t=')) {
+      const url = new URL(href, window.location.origin);
+      const standaloneTitle = url.searchParams.get('t') || '';
+      // Custom behavior for standalone title links
+      console.log('Standalone title clicked:', standaloneTitle);
+    }
+  }
+}
+```
+
+#### 6.2 AI Pipeline Link Preservation
+```typescript
+// Link preservation validation during AI pipeline
+const validateLinkPreservation = (originalContent: string, processedContent: string): {
+  success: boolean;
+  issues: string[];
+} => {
+  const issues: string[] = [];
+
+  // Extract links from both versions
+  const originalLinks = extractLinks(originalContent);
+  const processedLinks = extractLinks(processedContent);
+
+  // Check for missing links
+  const missingLinks = originalLinks.filter(link =>
+    !processedLinks.some(pLink => pLink.url === link.url)
+  );
+
+  if (missingLinks.length > 0) {
+    issues.push(`Missing links: ${missingLinks.map(l => l.url).join(', ')}`);
+  }
+
+  // Check for modified standalone title links
+  const standaloneLinks = originalLinks.filter(link =>
+    link.url.startsWith('/standalone-title?t=')
+  );
+
+  const processedStandaloneLinks = processedLinks.filter(link =>
+    link.url.startsWith('/standalone-title?t=')
+  );
+
+  if (standaloneLinks.length !== processedStandaloneLinks.length) {
+    issues.push('Standalone title links count mismatch');
+  }
+
+  return {
+    success: issues.length === 0,
+    issues
+  };
+};
+
+function extractLinks(content: string): Array<{text: string; url: string}> {
+  const linkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
+  const links: Array<{text: string; url: string}> = [];
+  let match;
+
+  while ((match = linkRegex.exec(content)) !== null) {
+    links.push({
+      text: match[1],
+      url: match[2]
+    });
+  }
+
+  return links;
+}
+```
+
+#### 6.3 Custom Markdown Transformer
+```typescript
+// Custom transformer for standalone title links in Lexical
+const STANDALONE_TITLE_LINK_TRANSFORMER = {
+  dependencies: [StandaloneTitleLinkNode],
+  export: (node: StandaloneTitleLinkNode) => {
+    return `[${node.getTextContent()}](${node.getURL()})`;
+  },
+  importRegExp: /\[([^\]]+)\]\(\/standalone-title\?t=([^)]+)\)/,
+  regExp: /\[([^\]]+)\]\(\/standalone-title\?t=([^)]+)\)$/,
+  replace: (textNode: TextNode, match: RegExpMatchArray) => {
+    const [, linkText, encodedTitle] = match;
+    const url = `/standalone-title?t=${encodedTitle}`;
+    const linkNode = new StandaloneTitleLinkNode(url);
+    const textChild = $createTextNode(linkText);
+    linkNode.append(textChild);
+    textNode.replace(linkNode);
+  },
+  trigger: ')',
+  type: 'text-match',
+};
+
+// Integration with MarkdownShortcutPlugin
+<MarkdownShortcutPlugin
+  transformers={[...TRANSFORMERS, STANDALONE_TITLE_LINK_TRANSFORMER]}
+/>
+```
+
+#### 6.4 Pipeline Integration with Link Validation
+```typescript
+// Enhanced AI pipeline with link preservation
+async function runAISuggestionsWithLinkPreservation(
+  currentContent: string,
+  userId: string,
+  onProgress?: (step: string, progress: number) => void
+): Promise<{success: boolean; content?: string; linkIssues?: string[]}> {
+
+  onProgress?.('Validating original links...', 10);
+  const originalValidation = validateContentFormats(currentContent);
+
+  onProgress?.('Generating AI suggestions...', 25);
+  const suggestions = await generateAISuggestionsAction(currentContent, userId);
+
+  onProgress?.('Applying suggestions...', 50);
+  const editedContent = await applyAISuggestionsAction(suggestions, currentContent, userId);
+
+  onProgress?.('Validating link preservation...', 60);
+  const linkValidation = validateLinkPreservation(currentContent, editedContent);
+
+  if (!linkValidation.success) {
+    console.warn('Link preservation issues found:', linkValidation.issues);
+  }
+
+  onProgress?.('Generating diff...', 75);
+  const criticMarkup = generateMarkdownASTDiff(currentContent, editedContent);
+
+  onProgress?.('Preprocessing content...', 90);
+  const preprocessed = preprocessCriticMarkup(criticMarkup);
+
+  onProgress?.('Final link validation...', 95);
+  const finalValidation = validateLinkPreservation(currentContent, preprocessed);
+
+  onProgress?.('Complete', 100);
+
+  return {
+    success: finalValidation.success,
+    content: preprocessed,
+    linkIssues: finalValidation.issues
+  };
+}
+```
+
+### Step 7: Polish and Testing
 **Timeline**: 2-3 days
 **Tasks**:
 - [ ] Comprehensive end-to-end testing
 - [ ] Performance optimization and profiling
 - [ ] Mobile responsiveness verification
 - [ ] Accessibility and error handling refinement
+- [ ] Link preservation regression testing
+- [ ] Cross-browser compatibility testing for custom link components
 
 ## Technical Considerations
 
