@@ -11,6 +11,7 @@ import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseT
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
+import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
 import { supabase_browser } from '@/lib/supabase';
 
 const FILE_DEBUG = true;
@@ -43,6 +44,7 @@ export default function ResultsPage() {
     const [modeOverride, setModeOverride] = useState<TagBarMode>(TagBarMode.Normal);
     const [isModified, setIsModified] = useState(false);
     const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
+    const [isEditMode, setIsEditMode] = useState(false);
 
 
     const isFirstRun = useRef(true);
@@ -618,6 +620,21 @@ export default function ResultsPage() {
     const formattedExplanation = content ? content : '';
 
     /**
+     * Handles edit mode toggle for Lexical editor
+     */
+    const handleEditModeToggle = () => {
+        setIsEditMode(!isEditMode);
+    };
+
+    /**
+     * Handles content changes from Lexical editor
+     */
+    const handleEditorContentChange = (newContent: string) => {
+        setContent(newContent);
+        setIsModified(true);
+    };
+
+    /**
      * Handles clicks on custom standalone title links
      * 
      * • Detects clicks on links with "standalone-title:" prefix in href
@@ -1149,59 +1166,14 @@ export default function ResultsPage() {
                                                 </div>
                                             </div>
                                         ) : isMarkdownMode ? (
-                                            <article className="prose prose-lg dark:prose-invert max-w-none prose-headings:my-6 prose-h1:text-3xl prose-h1:font-bold prose-h1:text-gray-900 dark:prose-h1:text-white prose-p:my-4 prose-ul:my-4 prose-li:my-2 prose-pre:my-4 prose-blockquote:my-4 prose-code:bg-gray-100 dark:prose-code:bg-gray-700 prose-code:px-1 prose-code:py-0.5 prose-code:rounded">
-                                                <ReactMarkdown
-                                                    remarkPlugins={[remarkMath]}
-                                                    rehypePlugins={[rehypeKatex]}
-                                                    components={{
-                                                        p: (props: React.PropsWithChildren<{}>) => (
-                                                            <div className="mt-1 mb-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>
-                                                        ),
-                                                        h1: (props: React.PropsWithChildren<{}>) => (
-                                                            <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight">{props.children}</h1>
-                                                        ),
-                                                        h2: (props: React.PropsWithChildren<{}>) => (
-                                                            <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight">
-                                                                {props.children}
-                                                            </h2>
-                                                        ),
-                                                        h3: (props: React.PropsWithChildren<{}>) => (
-                                                            <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight">
-                                                                {props.children}
-                                                            </h3>
-                                                        ),
-                                                        ul: (props: React.PropsWithChildren<{}>) => (
-                                                            <ul className="my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300">{props.children}</ul>
-                                                        ),
-                                                        ol: (props: React.PropsWithChildren<{}>) => (
-                                                            <ol className="my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300">{props.children}</ol>
-                                                        ),
-                                                        li: (props: React.PropsWithChildren<{}>) => (
-                                                            <li className="my-1 leading-relaxed">{props.children}</li>
-                                                        ),
-                                                        code: (props: React.PropsWithChildren<{}>) => (
-                                                            <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200">{props.children}</code>
-                                                        ),
-                                                        pre: (props: React.PropsWithChildren<{}>) => (
-                                                            <pre className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4">{props.children}</pre>
-                                                        ),
-                                                        blockquote: (props: React.PropsWithChildren<{}>) => (
-                                                            <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>
-                                                        ),
-                                                        a: (props: React.PropsWithChildren<{href?: string}>) => (
-                                                            <a 
-                                                                href={props.href}
-                                                                onClick={(e) => props.href && handleStandaloneTitleClick(props.href, e)}
-                                                                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
-                                                            >
-                                                                {props.children}
-                                                            </a>
-                                                        )
-                                                    }}
-                                                >
-                                                    {formattedExplanation}
-                                                </ReactMarkdown>
-                                            </article>
+                                            <ResultsLexicalEditor
+                                                content={formattedExplanation}
+                                                isEditMode={isEditMode}
+                                                onEditModeToggle={handleEditModeToggle}
+                                                onContentChange={handleEditorContentChange}
+                                                isStreaming={isStreaming}
+                                                className="w-full"
+                                            />
                                         ) : (
                                             <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
                                                 {formattedExplanation}
