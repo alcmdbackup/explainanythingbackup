@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useEffect, useState, forwardRef, useImperativeHandle } from 'react';
+import { useRef, useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
 import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../editorFiles/lexicalEditor/LexicalEditor';
 
 interface ResultsLexicalEditorProps {
@@ -29,6 +29,8 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
   const editorRef = useRef<LexicalEditorRef>(null);
   const [currentContent, setCurrentContent] = useState(content);
   const [internalEditMode, setInternalEditMode] = useState(isEditMode);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastStreamingUpdateRef = useRef<string>('');
 
   // Lock editor during streaming to prevent conflicts
   useEffect(() => {
@@ -39,13 +41,51 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
     }
   }, [isStreaming, internalEditMode]);
 
+  // Debounced update function for streaming content
+  const debouncedUpdateContent = useCallback((newContent: string) => {
+    // Clear any existing debounce timeout
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+
+    // Set a new debounce timeout
+    debounceTimeoutRef.current = setTimeout(() => {
+      if (editorRef.current && newContent !== lastStreamingUpdateRef.current) {
+        try {
+          editorRef.current.setContentFromMarkdown(newContent);
+          lastStreamingUpdateRef.current = newContent;
+          setCurrentContent(newContent);
+        } catch (error) {
+          console.error('Error updating editor content during streaming:', error);
+        }
+      }
+    }, isStreaming ? 100 : 0); // Use 100ms debounce for streaming, immediate for non-streaming
+  }, [isStreaming]);
+
   // Update editor content when content prop changes (streaming updates)
   useEffect(() => {
-    if (content !== currentContent && editorRef.current) {
-      editorRef.current.setContentFromMarkdown(content);
-      setCurrentContent(content);
+    if (content !== currentContent) {
+      if (isStreaming) {
+        // Use debounced updates during streaming for better performance
+        debouncedUpdateContent(content);
+      } else {
+        // Immediate update when not streaming
+        if (editorRef.current) {
+          editorRef.current.setContentFromMarkdown(content);
+          setCurrentContent(content);
+        }
+      }
     }
-  }, [content, currentContent]);
+  }, [content, currentContent, isStreaming, debouncedUpdateContent]);
+
+  // Cleanup debounce timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Sync edit mode with prop changes
   useEffect(() => {
