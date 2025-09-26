@@ -82,29 +82,42 @@ body {
   color: rgb(17 24 39) !important;
 }
 
+/* Paragraphs */
+.lexical-editor p {
+  margin-top: 0.25rem !important;
+  margin-bottom: 1rem !important;
+  color: rgb(55 65 81) !important;
+  line-height: 1.625 !important;
+}
+
 /* Block elements */
 .lexical-editor blockquote {
-  border-left: 4px solid rgb(209 213 219) !important;
+  border-left: 4px solid rgb(59 130 246) !important; /* blue-500 */
   padding-left: 1rem !important;
   font-style: italic !important;
-  margin-bottom: 0.5rem !important;
-  color: rgb(55 65 81) !important;
+  margin: 1rem 0 !important;
+  color: rgb(75 85 99) !important; /* gray-600 */
 }
 
 .lexical-editor ul {
   list-style-type: disc !important;
   list-style-position: inside !important;
-  margin-bottom: 0.5rem !important;
+  margin: 1rem 0 !important;
+  padding-left: 0 !important;
+  color: rgb(55 65 81) !important;
 }
 
 .lexical-editor ol {
   list-style-type: decimal !important;
   list-style-position: inside !important;
-  margin-bottom: 0.5rem !important;
+  margin: 1rem 0 !important;
+  padding-left: 0 !important;
+  color: rgb(55 65 81) !important;
 }
 
 .lexical-editor li {
-  margin-bottom: 0.25rem !important;
+  margin: 0.25rem 0 !important;
+  line-height: 1.625 !important;
 }
 
 .lexical-editor code {
@@ -113,6 +126,18 @@ body {
   border-radius: 0.25rem !important;
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace !important;
   font-size: 0.875rem !important;
+}
+
+/* Links - matching results page styling */
+.lexical-editor a {
+  color: rgb(37 99 235) !important; /* blue-600 */
+  text-decoration: underline !important;
+  cursor: pointer !important;
+  transition: colors 0.2s ease-in-out !important;
+}
+
+.lexical-editor a:hover {
+  color: rgb(29 78 216) !important; /* blue-800 */
 }
 
 /* ==========================================================================
@@ -233,14 +258,34 @@ body {
     color: rgb(255 255 255) !important;
   }
 
+  /* Paragraphs - dark mode */
+  .lexical-editor p {
+    color: rgb(209 213 219) !important; /* gray-300 */
+  }
+
+  /* Lists - dark mode */
+  .lexical-editor ul,
+  .lexical-editor ol {
+    color: rgb(209 213 219) !important; /* gray-300 */
+  }
+
   /* Lexical editor block elements */
   .lexical-editor blockquote {
-    border-left-color: rgb(75 85 99) !important;
-    color: rgb(209 213 219) !important;
+    border-left-color: rgb(59 130 246) !important; /* blue-500 */
+    color: rgb(156 163 175) !important; /* gray-400 */
   }
 
   .lexical-editor code {
     background-color: rgb(31 41 55) !important;
+  }
+
+  /* Links - dark mode */
+  .lexical-editor a {
+    color: rgb(96 165 250) !important; /* blue-400 */
+  }
+
+  .lexical-editor a:hover {
+    color: rgb(147 197 253) !important; /* blue-300 */
   }
 
   /* Diff tag base styles */
