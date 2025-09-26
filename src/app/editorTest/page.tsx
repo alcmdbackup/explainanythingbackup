@@ -1,8 +1,10 @@
 'use client';
 
 import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../../editorFiles/lexicalEditor/LexicalEditor';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../editorFiles/actions/actions';
+import { getExplanationByIdAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { preprocessCriticMarkup } from '../../editorFiles/lexicalEditor/importExportUtils';
@@ -15,6 +17,7 @@ import {
 } from '../../editorFiles/aiSuggestion';
 
 export default function EditorTestPage() {
+    const searchParams = useSearchParams();
     const [currentContent, setCurrentContent] = useState<string>('');
     const [aiSuggestions, setAiSuggestions] = useState<string>('');
     const [rawAIResponse, setRawAIResponse] = useState<string>('');
@@ -52,6 +55,10 @@ export default function EditorTestPage() {
     const [pipelineError, setPipelineError] = useState<string>('');
     const [pipelineProgress, setPipelineProgress] = useState<{step: string; progress: number}>({step: '', progress: 0});
 
+    // Explanation loading state
+    const [error, setError] = useState<string>('');
+    const [loadedExplanationTitle, setLoadedExplanationTitle] = useState<string>('');
+
     const editorRef = useRef<LexicalEditorRef>(null);
 
     // Edit mode state management
@@ -74,6 +81,60 @@ Einstein's most famous equation, **E = mc²**, demonstrates the equivalence of m
 
 Einstein's contributions to physics earned him the Nobel Prize in Physics in 1921, and his work continues to influence scientific research and technological development to this day.`;
 
+    // Database loading function for explanation_id
+    const loadExplanationForTesting = useCallback(async (explanationId: number) => {
+        try {
+            setError('');
+            // Reuse the same action from results page
+            const explanation = await getExplanationByIdAction(explanationId);
+
+            if (explanation && editorRef.current) {
+                // Load into Lexical editor (replaces hardcoded Einstein content)
+                editorRef.current.setContentFromMarkdown(explanation.content);
+                setCurrentContent(explanation.content);
+                setLoadedExplanationTitle(explanation.explanation_title);
+                setTestSetName(`explanation-${explanationId}-test`);
+
+                // Validate rendering parity
+                const warnings = validateRenderingParity(explanationId, explanation.content);
+
+                console.log(`✅ Loaded explanation ${explanationId}: "${explanation.explanation_title}"`);
+                console.log(`📊 Content stats: ${explanation.content.length} characters`);
+                if (warnings.length > 0) {
+                    console.log(`⚠️ Rendering validation warnings:`, warnings);
+                } else {
+                    console.log(`✅ All content formats validated successfully`);
+                }
+            } else {
+                setError(`Explanation ${explanationId} not found`);
+            }
+        } catch (error) {
+            console.error('Failed to load explanation:', error);
+            setError(`Failed to load explanation ${explanationId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    }, []); // No dependencies needed as the function doesn't rely on changing values
+
+    // Content format validation function
+    const validateRenderingParity = (explanationId: number, content: string) => {
+        const warnings: string[] = [];
+
+        // Check for LaTeX expressions that need MathPlugin
+        if (content.includes('$') || content.includes('\\\\(')) {
+            warnings.push('LaTeX expressions detected - ensure MathPlugin renders correctly');
+        }
+
+        // Check for complex markdown structures
+        if (content.includes('```')) {
+            warnings.push('Code blocks detected - verify syntax highlighting');
+        }
+
+        if (content.includes('|')) {
+            warnings.push('Tables detected - ensure proper rendering');
+        }
+
+        console.log(`Explanation ${explanationId} rendering validation:`, warnings);
+        return warnings;
+    };
 
     // Set initial content and test set name when component mounts
     useEffect(() => {
@@ -82,7 +143,22 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
         setTestSetName(`test-${timestamp}`);
         console.log('Initial content set:', defaultContent.length, 'characters');
-    }, []);
+    }, [defaultContent]);
+
+    // Handle URL parameters for explanation_id
+    useEffect(() => {
+        const explanationId = searchParams.get('explanation_id');
+
+        if (explanationId) {
+            const parsedId = parseInt(explanationId);
+            if (!isNaN(parsedId)) {
+                console.log(`Loading explanation from URL parameter: ${parsedId}`);
+                loadExplanationForTesting(parsedId);
+            } else {
+                setError(`Invalid explanation_id parameter: ${explanationId}`);
+            }
+        }
+    }, [searchParams, loadExplanationForTesting]);
 
     // Load dropdown options for each step
     const loadDropdownOptions = async () => {
@@ -450,8 +526,8 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         try {
             // Use markdown AST diff
             const processor = unified().use(remarkParse);
-            const beforeAST = processor.parse(currentContent) as any;
-            const afterAST = processor.parse(appliedEdits) as any;
+            const beforeAST = processor.parse(currentContent);
+            const afterAST = processor.parse(appliedEdits);
             
             const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
             setMarkdownASTDiffResult(criticMarkup);
@@ -633,6 +709,51 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                         )}
                     </div>
                 </div>
+
+                {/* Error Display */}
+                {error && (
+                    <div className="max-w-4xl mx-auto mb-6">
+                        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4">
+                            <div className="flex">
+                                <div className="flex-shrink-0">
+                                    <span className="text-red-400 text-xl">⚠️</span>
+                                </div>
+                                <div className="ml-3">
+                                    <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+                                        Error Loading Content
+                                    </h3>
+                                    <p className="mt-1 text-sm text-red-700 dark:text-red-300">
+                                        {error}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Loaded Explanation Info */}
+                {loadedExplanationTitle && (
+                    <div className="max-w-4xl mx-auto mb-6">
+                        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-4">
+                            <div className="flex">
+                                <div className="flex-shrink-0">
+                                    <span className="text-green-400 text-xl">✅</span>
+                                </div>
+                                <div className="ml-3">
+                                    <h3 className="text-sm font-medium text-green-800 dark:text-green-200">
+                                        Explanation Loaded
+                                    </h3>
+                                    <p className="mt-1 text-sm text-green-700 dark:text-green-300">
+                                        Successfully loaded: <strong>&quot;{loadedExplanationTitle}&quot;</strong>
+                                    </p>
+                                    <p className="mt-1 text-xs text-green-600 dark:text-green-400">
+                                        Access pattern: /editorTest?explanation_id=123
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="max-w-4xl mx-auto space-y-6">
                     {/* Main Editor */}
