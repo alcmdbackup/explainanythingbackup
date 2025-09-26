@@ -15,6 +15,10 @@ import { LexicalErrorBoundary } from '@lexical/react/LexicalErrorBoundary';
 import { TreeView } from '@lexical/react/LexicalTreeView';
 import { MarkdownShortcutPlugin } from '@lexical/react/LexicalMarkdownShortcutPlugin';
 import { LinkPlugin } from '@lexical/react/LexicalLinkPlugin';
+import { ListPlugin } from '@lexical/react/LexicalListPlugin';
+import { TablePlugin } from '@lexical/react/LexicalTablePlugin';
+import { AutoLinkPlugin } from '@lexical/react/LexicalAutoLinkPlugin';
+import { CheckListPlugin } from '@lexical/react/LexicalCheckListPlugin';
 
 // Import markdown functionality
 import { 
@@ -41,6 +45,9 @@ import { CodeNode, CodeHighlightNode } from '@lexical/code';
 import { LinkNode } from '@lexical/link';
 import { TableNode, TableCellNode, TableRowNode } from '@lexical/table';
 import { HorizontalRuleNode } from '@lexical/react/LexicalHorizontalRuleNode';
+import { AutoLinkNode } from '@lexical/link';
+import { OverflowNode } from '@lexical/overflow';
+import { MarkNode } from '@lexical/mark';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
 import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
@@ -243,10 +250,13 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       CodeNode,
       CodeHighlightNode,
       LinkNode,
+      AutoLinkNode,
       TableNode,
       TableCellNode,
       TableRowNode,
-      HorizontalRuleNode
+      HorizontalRuleNode,
+      OverflowNode,
+      MarkNode
     ],
   };
 
@@ -410,6 +420,10 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <HistoryPlugin />
         <AutoFocusPlugin />
         <LinkPlugin />
+        <AutoLinkPlugin matchers={[]} />
+        <ListPlugin />
+        <TablePlugin />
+        <CheckListPlugin />
         <DiffTagHoverPlugin />
         {showTreeView && <TreeViewPlugin />}
       </LexicalComposer>

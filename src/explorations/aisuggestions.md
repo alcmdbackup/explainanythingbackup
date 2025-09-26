@@ -187,38 +187,98 @@ function EditModeToggle({ isEditMode, onToggle }: EditModeToggleProps) {
 - **Bulk Actions**: Apply all suggestions at once
 
 #### 3.4 Content Format Compatibility Plan
-Based on how `src/app/results/page.tsx` renders content with ReactMarkdown, the AI pipeline must handle below.
+Support loading explanation_id onto EditorTest, pattern it after `/results`. Make sure that the following are working in terms of rendering.
 
-Support loading explanation id onto EditorTest, pattern it after /results. Make sure that the following are working in terms of rendering.
+## What `/src/app/results/` Does for Rendering
 
-**Current Results Page Rendering Analysis**:
-- Uses ReactMarkdown with `remarkMath` and `rehypeKatex` plugins for LaTeX/math expressions
-- Custom link component handles all `<a>` tags with special behavior for `/standalone-title?t=` links
-- Rich component customization for headings, lists, code blocks, blockquotes
-- Preserves all markdown formatting including links, math expressions, and code blocks
-
-**Special Link Handling in Results Page**:
-Links like `/standalone-title?t=quantum%20physics` are rendered through ReactMarkdown's custom `a` component:
-- **Visual**: Blue text with underline, hover effects (`text-blue-600 dark:text-blue-400`)
-- **Behavior**: `handleStandaloneTitleClick` function intercepts clicks
-- **Processing**: Extracts title from `t` parameter, prevents default navigation
-- **Action**: Either redirects to `/results?t=...` or calls `handleUserAction` directly
-- **UX**: Appears as normal clickable link but triggers explanation generation
-
-**Link Preservation Strategy**:
-- Detect and preserve all existing markdown links: `[text](url)`
-- Maintain special internal links like `/standalone-title?t=...` exactly
-- Ensure Lexical's markdown import/export handles standard markdown links `[text](url)`
-- Special internal links survive markdown → Lexical → markdown roundtrip
-
-**LaTeX/Math Expression Handling**:
-- Test math rendering with `remarkMath` and `rehypeKatex` plugins
-- Add MathPlugin to LexicalEditor component for math expression support
-- Validate LaTeX expressions survive the AI pipeline without syntax corruption
-
-**EditorTest Integration Requirements**:
+**Database Loading Process** (`src/app/results/page.tsx:217-319`):
 ```typescript
-// Add explanation_id URL parameter support to editorTest
+const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
+    const explanation = await getExplanationByIdAction(explanationId);
+
+    if (!explanation) {
+        setError('Explanation not found');
+        return;
+    }
+
+    setExplanationTitle(explanation.explanation_title);
+    setContent(explanation.content);  // Raw markdown content from DB
+    setSystemSavedId(explanation.id);
+    setExplanationId(explanation.id);
+
+    // Additional metadata loading (tags, vectors, etc.)
+};
+```
+
+**ReactMarkdown Rendering Pipeline** (`src/app/results/page.tsx:1153-1204`):
+- **Input**: Raw markdown string from `explanation.content` field in database
+- **Plugins**: `remarkMath` for LaTeX parsing, `rehypeKatex` for math rendering
+- **Output**: Styled HTML with custom component overrides
+
+**Custom Component Rendering**:
+```typescript
+<ReactMarkdown
+    remarkPlugins={[remarkMath]}
+    rehypeKatex={[rehypeKatex]}
+    components={{
+        // Custom paragraph styling
+        p: (props) => <div className="mt-1 mb-4 text-gray-700 dark:text-gray-300 leading-relaxed">{props.children}</div>,
+
+        // Custom heading hierarchy with specific styling
+        h1: (props) => <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0">{props.children}</h1>,
+        h2: (props) => <h2 className="text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6">{props.children}</h2>,
+        h3: (props) => <h3 className="text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5">{props.children}</h3>,
+
+        // Custom list styling with proper spacing
+        ul: (props) => <ul className="my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300">{props.children}</ul>,
+        ol: (props) => <ol className="my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300">{props.children}</ol>,
+        li: (props) => <li className="my-1 leading-relaxed">{props.children}</li>,
+
+        // Code block styling
+        code: (props) => <code className="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono">{props.children}</code>,
+        pre: (props) => <pre className="bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4">{props.children}</pre>,
+
+        // Blockquote styling
+        blockquote: (props) => <blockquote className="border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400">{props.children}</blockquote>,
+
+        // Link handling with click interception
+        a: (props) => (
+            <a
+                href={props.href}
+                onClick={(e) => props.href && handleStandaloneTitleClick(props.href, e)}
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors"
+            >
+                {props.children}
+            </a>
+        )
+    }}
+>
+    {formattedExplanation}
+</ReactMarkdown>
+```
+
+**Content Processing Flow**:
+1. **URL Parameter**: `/results?explanation_id=123`
+2. **Database Query**: `getExplanationByIdAction(explanationId)`
+3. **State Updates**: Title, content, metadata loaded into React state
+4. **ReactMarkdown Rendering**: Raw markdown → Styled HTML with custom components
+5. **Math Rendering**: LaTeX expressions processed by KaTeX
+6. **Link Interception**: Special links get custom click handlers
+
+## What `/src/app/editorTest/` Needs to Do
+
+**Missing Functionality in Current EditorTest**:
+- No explanation_id URL parameter handling
+- No database loading capability
+- Only uses hardcoded Einstein content
+- No LaTeX/math rendering support in Lexical
+- No equivalent of ReactMarkdown's custom component styling
+
+**Required EditorTest Modifications**:
+
+**1. URL Parameter Support**:
+```typescript
+// Add to editorTest page.tsx
 useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const explanationId = urlParams.get('explanation_id');
@@ -227,53 +287,101 @@ useEffect(() => {
         loadExplanationForTesting(parseInt(explanationId));
     }
 }, []);
+```
 
+**2. Database Loading Function**:
+```typescript
 const loadExplanationForTesting = async (explanationId: number) => {
     try {
         // Reuse the same action from results page
         const explanation = await getExplanationByIdAction(explanationId);
 
         if (explanation && editorRef.current) {
-            // Load content directly into Lexical editor
+            // Load into Lexical editor (replaces hardcoded Einstein content)
             editorRef.current.setContentFromMarkdown(explanation.content);
             setCurrentContent(explanation.content);
             setTestSetName(`explanation-${explanationId}-test`);
+
+            console.log(`Loaded explanation ${explanationId}: "${explanation.explanation_title}"`);
         }
     } catch (error) {
         console.error('Failed to load explanation:', error);
+        setError(`Failed to load explanation ${explanationId}`);
     }
 };
 ```
 
-**Content Roundtrip Validation**:
+**3. LexicalEditor Configuration for Content Compatibility**:
 ```typescript
-const validateContentFormats = (content: string): string[] => {
+// Add to LexicalEditor component configuration
+const initialConfig = {
+    namespace: 'lexical-editor',
+    nodes: [
+        // Standard nodes
+        HeadingNode,
+        ListNode,
+        ListItemNode,
+        QuoteNode,
+        CodeNode,
+        CodeHighlightNode,
+        TableNode,
+        TableCellNode,
+        TableRowNode,
+
+        // Math support
+        MathNode,  // For LaTeX expressions
+
+        // Link support
+        LinkNode,
+    ],
+    // Other config...
+};
+
+// Add required plugins
+<LexicalComposer initialConfig={initialConfig}>
+    <MathPlugin />  {/* For LaTeX rendering */}
+    <LinkPlugin />  {/* For link support */}
+    <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
+    {/* Other plugins... */}
+</LexicalComposer>
+```
+
+**4. Visual Parity Testing**:
+```typescript
+// Add content format validation
+const validateRenderingParity = (explanationId: number, content: string) => {
     const warnings: string[] = [];
 
-    // Check for LaTeX expressions
-    if (content.includes('$') || content.includes('\\(') || content.includes('\\[')) {
-        warnings.push('LaTeX expressions detected - ensure MathPlugin is enabled');
+    // Check for LaTeX expressions that need MathPlugin
+    if (content.includes('$') || content.includes('\\(')) {
+        warnings.push('LaTeX expressions detected - ensure MathPlugin renders correctly');
     }
 
-    // Check for internal standalone title links
-    if (content.includes('/standalone-title?t=')) {
-        warnings.push('Internal standalone title links detected');
+    // Check for complex markdown structures
+    if (content.includes('```')) {
+        warnings.push('Code blocks detected - verify syntax highlighting');
     }
 
-    // Check for standard markdown links
-    const linkCount = (content.match(/\[.*?\]\(.*?\)/g) || []).length;
-    if (linkCount > 0) {
-        warnings.push(`${linkCount} markdown links detected`);
+    if (content.includes('|')) {
+        warnings.push('Tables detected - ensure proper rendering');
     }
 
+    console.log(`Explanation ${explanationId} rendering validation:`, warnings);
     return warnings;
 };
 ```
 
-**Testing Access Pattern**:
-- Access via: `/editorTest?explanation_id=123`
-- This mirrors the results page pattern and allows direct testing of specific explanations
-- Validates that links, LaTeX, code blocks maintain formatting through AI suggestion pipeline
+**5. Access Pattern**:
+- **URL**: `/editorTest?explanation_id=123`
+- **Flow**: URL → Database → Lexical Editor → AI Pipeline Testing
+- **Goal**: Same visual output as `/results?explanation_id=123` but in editable Lexical format
+
+**Success Criteria**:
+- EditorTest displays identical content to Results page
+- LaTeX expressions render correctly in Lexical
+- All markdown formatting (headings, lists, code, quotes) displays properly
+- Content can be loaded from any explanation_id in the database
+- AI pipeline can process real explanation content (not just Einstein example)
 
 ### Phase 4: Unified AI Pipeline with Simple Error Handling
 
