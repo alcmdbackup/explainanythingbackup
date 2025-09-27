@@ -234,7 +234,7 @@ export async function getAndApplyAISuggestions(
 
     // Only update editor if all steps succeeded
     if (editorRef.current) {
-      editorRef.current.setContentFromMarkdown(finalContent);
+      editorRef.current.updateContent(finalContent);
     }
 
     return { success: true, content: finalContent };

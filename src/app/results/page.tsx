@@ -12,6 +12,7 @@ import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
+import AISuggestionsPanel from '@/editorFiles/lexicalEditor/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 
 const FILE_DEBUG = true;
@@ -49,6 +50,7 @@ export default function ResultsPage() {
 
     const isFirstRun = useRef(true);
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
+    const editorRef = useRef<any>(null); // For AI suggestions panel
 
     // Close dropdown when clicking outside and reset tags
     useEffect(() => {
@@ -856,14 +858,16 @@ export default function ResultsPage() {
             )}
 
             <main className="flex-1 overflow-hidden">
-                <div className="container mx-auto px-4 py-8 max-w-7xl h-full">
-                    {error && (
-                        <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
-                            {error}
-                        </div>
-                    )}
-                    
-                    <div className="w-full max-w-4xl mx-auto h-full">
+                <div className="flex h-full">
+                    {/* Main Content Area */}
+                    <div className="flex-1 px-4 py-8">
+                        {error && (
+                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
+                                {error}
+                            </div>
+                        )}
+
+                        <div className="w-full max-w-4xl mx-auto h-full">
                         {/* Matches View */}
                         {showMatches && (
                             <div 
@@ -1167,6 +1171,7 @@ export default function ResultsPage() {
                                             </div>
                                         ) : isMarkdownMode ? (
                                             <ResultsLexicalEditor
+                                                ref={editorRef}
                                                 content={formattedExplanation}
                                                 isEditMode={isEditMode}
                                                 onEditModeToggle={handleEditModeToggle}
@@ -1183,6 +1188,24 @@ export default function ResultsPage() {
                                 </div>
                             </div>
                         )}
+                        </div>
+                    </div>
+
+                    {/* Gap between main content and AI panel */}
+                    <div className="w-8"></div>
+
+                    {/* Detached AI Suggestions Panel */}
+                    <div className="w-96 py-8 pr-4">
+                        <AISuggestionsPanel
+                            isVisible={true}
+                            currentContent={content}
+                            editorRef={editorRef}
+                            onContentChange={(newContent) => {
+                                setContent(newContent);
+                                // Also call the existing handler if needed
+                                // handleEditorContentChange(newContent);
+                            }}
+                        />
                     </div>
                 </div>
             </main>
