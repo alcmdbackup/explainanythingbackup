@@ -180,6 +180,7 @@ function EditModeToggle({ isEditMode, onToggle }: EditModeToggleProps) {
 - **Input Area**: Text input for user prompts/instructions
 - **Submit Button**: Trigger AI suggestion generation
 - **Loading States**: Visual feedback during AI processing
+- Modify ResultsLexicalEditor if needed to make this work, DO NOT create a new adapter
 
 #### 3.3 Real-time Integration
 - **Live Preview**: Show suggestions as overlay annotations
