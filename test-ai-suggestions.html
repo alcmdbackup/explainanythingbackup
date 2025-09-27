@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test AI Suggestions Pipeline</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .button { padding: 10px 20px; background: #007cba; color: white; border: none; cursor: pointer; border-radius: 4px; }
+        .button:hover { background: #005a87; }
+        .logs { background: #f5f5f5; padding: 10px; border-radius: 4px; margin-top: 10px; height: 300px; overflow-y: auto; font-family: monospace; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 AI Suggestions Pipeline Test</h1>
+
+        <div class="test-section">
+            <h2>Test Instructions</h2>
+            <ol>
+                <li>Make sure your database table is created (run the SQL script)</li>
+                <li>Open browser console (F12)</li>
+                <li>Go to EditorTest page: <a href="http://localhost:3001/editorTest" target="_blank">http://localhost:3001/editorTest</a></li>
+                <li>Click "Run Complete AI Pipeline" button</li>
+                <li>Watch the console for detailed logs</li>
+                <li>Check your database for new records</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>Expected Console Output</h2>
+            <p>You should see logs like this:</p>
+            <pre>
+🎯 getAndApplyAISuggestions CALLED: { ... }
+🚀 PIPELINE START: runAISuggestionsPipeline called { ... }
+📦 PIPELINE: Imports loaded successfully
+🤖 PIPELINE STEP 1: Generating AI suggestions...
+🤖 PIPELINE STEP 1 RESULT: { success: true, hasData: true, ... }
+⚠️ PIPELINE: No session data provided, skipping step 1 save
+✏️ PIPELINE STEP 2: Applying suggestions...
+✏️ PIPELINE STEP 2 RESULT: { success: true, hasData: true, ... }
+🔄 PIPELINE STEP 3: Generating diff...
+🔄 PIPELINE STEP 3 RESULT: { ... }
+🔧 PIPELINE STEP 4: Preprocessing content...
+🔧 PIPELINE STEP 4 RESULT: { ... }
+✅ PIPELINE COMPLETE: All steps finished { ... }
+            </pre>
+        </div>
+
+        <div class="test-section">
+            <h2>Database Test</h2>
+            <p>To test with database saving, you need to:</p>
+            <ol>
+                <li>Run the pipeline from a results page (when AI suggestions panel is available)</li>
+                <li>Or modify the editorTest page to pass session data</li>
+                <li>Look for logs that show session data being passed</li>
+                <li>Check for database save results in console</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h2>Troubleshooting</h2>
+            <h3>If no pipeline logs appear:</h3>
+            <ul>
+                <li>Check if the pipeline button is actually being clicked</li>
+                <li>Look for JavaScript errors in console</li>
+                <li>Verify the pipeline function is being called</li>
+            </ul>
+
+            <h3>If "No session data provided" appears:</h3>
+            <ul>
+                <li>This is normal for editorTest page without session parameters</li>
+                <li>The pipeline will run but not save to database</li>
+                <li>To test database saving, use AI suggestions from results page</li>
+            </ul>
+
+            <h3>If database saves fail:</h3>
+            <ul>
+                <li>Check if the testing_edits_pipeline table exists</li>
+                <li>Verify all required columns are present</li>
+                <li>Look for Supabase errors in server logs</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h2>Quick Database Check</h2>
+            <p>Run this in your Supabase SQL Editor to verify the table:</p>
+            <pre>
+-- Check if table exists and has correct structure
+SELECT column_name, data_type, is_nullable
+FROM information_schema.columns
+WHERE table_name = 'testing_edits_pipeline'
+ORDER BY ordinal_position;
+
+-- Check for any existing data
+SELECT id, set_name, step, session_id, explanation_id, created_at
+FROM testing_edits_pipeline
+ORDER BY created_at DESC
+LIMIT 10;
+            </pre>
+        </div>
+    </div>
+</body>
+</html>

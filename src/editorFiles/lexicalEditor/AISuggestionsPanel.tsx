@@ -9,6 +9,10 @@ interface AISuggestionsPanelProps {
   currentContent: string;
   editorRef: React.RefObject<any>; // LexicalEditorRef
   onContentChange?: (content: string) => void;
+  sessionData?: {
+    explanation_id: number;
+    explanation_title: string;
+  };
 }
 
 interface ProgressState {
@@ -21,13 +25,14 @@ export default function AISuggestionsPanel({
   onClose,
   currentContent,
   editorRef,
-  onContentChange
+  onContentChange,
+  sessionData
 }: AISuggestionsPanelProps) {
   const [userPrompt, setUserPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [progressState, setProgressState] = useState<ProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<{ success: boolean; content?: string } | null>(null);
+  const [lastResult, setLastResult] = useState<{ success: boolean; content?: string; session_id?: string } | null>(null);
 
   const handleProgressUpdate = useCallback((step: string, progress: number) => {
     setProgressState({ step, progress });
@@ -45,13 +50,29 @@ export default function AISuggestionsPanel({
     setLastResult(null);
 
     try {
-      // TODO: In a future iteration, we could use the userPrompt to customize the AI suggestions
-      // For now, we'll use the standard improvement pipeline
+      // Prepare session data if we have it from the results page
+      const sessionRequestData = sessionData ? {
+        session_id: '', // Will be generated in getAndApplyAISuggestions
+        explanation_id: sessionData.explanation_id,
+        explanation_title: sessionData.explanation_title,
+        user_prompt: userPrompt.trim()
+      } : undefined;
+
+      console.log('🎭 AISuggestionsPanel: Calling getAndApplyAISuggestions', {
+        hasSessionData: !!sessionRequestData,
+        sessionRequestData,
+        userPrompt: userPrompt.trim(),
+        contentLength: currentContent.length
+      });
+
       const result = await getAndApplyAISuggestions(
         currentContent,
         editorRef,
-        handleProgressUpdate
+        handleProgressUpdate,
+        sessionRequestData
       );
+
+      console.log('🎭 AISuggestionsPanel: getAndApplyAISuggestions result:', result);
 
       setLastResult(result);
 
@@ -174,6 +195,21 @@ export default function AISuggestionsPanel({
             <p className="text-sm text-green-700 dark:text-green-300 mt-1">
               Your content has been updated with AI suggestions.
             </p>
+            {lastResult.session_id && sessionData && (
+              <div className="mt-3">
+                <a
+                  href={`/editorTest?explanation_id=${sessionData.explanation_id}&session_id=${lastResult.session_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors"
+                >
+                  <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2M7 13l3 3 7-7" />
+                  </svg>
+                  Debug in EditorTest
+                </a>
+              </div>
+            )}
           </div>
         )}
 

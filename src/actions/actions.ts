@@ -895,6 +895,7 @@ export const applyAISuggestionsAction = withLogging(
  *
  * • Checks if exact match exists in TESTING_edits_pipeline table
  * • Saves record only if no exact match found
+ * • Supports both legacy setName usage and new session metadata
  * • Returns boolean indicating if save was performed
  * • Calls: checkAndSaveTestingPipelineRecord from testingPipeline service
  * • Used by: Editor test pages to track pipeline results at each step
@@ -903,20 +904,29 @@ export const saveTestingPipelineStepAction = withLogging(
     async function saveTestingPipelineStepAction(
         setName: string,
         step: string,
-        content: string
+        content: string,
+        sessionData?: {
+            session_id: string;
+            explanation_id: number;
+            explanation_title: string;
+            user_prompt: string;
+            source_content: string;
+            session_metadata?: any;
+        }
     ): Promise<{
         success: boolean;
-        data: { saved: boolean; recordId?: number } | null;
+        data: { saved: boolean; recordId?: number; session_id?: string } | null;
         error: ErrorResponse | null;
     }> {
         try {
-            const result = await checkAndSaveTestingPipelineRecord(setName, step, content);
+            const result = await checkAndSaveTestingPipelineRecord(setName, step, content, sessionData);
 
             return {
                 success: true,
                 data: {
                     saved: result.saved,
-                    recordId: result.record?.id
+                    recordId: result.record?.id,
+                    session_id: sessionData?.session_id
                 },
                 error: null
             };
@@ -925,7 +935,9 @@ export const saveTestingPipelineStepAction = withLogging(
                 error: error instanceof Error ? error.message : String(error),
                 setName,
                 step,
-                contentLength: content.length
+                contentLength: content.length,
+                hasSessionData: !!sessionData,
+                sessionId: sessionData?.session_id
             });
 
             return {
@@ -934,7 +946,8 @@ export const saveTestingPipelineStepAction = withLogging(
                 error: handleError(error, 'saveTestingPipelineStepAction', {
                     setName,
                     step,
-                    contentLength: content.length
+                    contentLength: content.length,
+                    hasSessionData: !!sessionData
                 })
             };
         }
@@ -966,7 +979,7 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
             // Get all records for this step from the database
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
-                .select('id, name, content, created_at')
+                .select('id, set_name, content, created_at')
                 .eq('step', step)
                 .order('created_at', { ascending: false });
 
@@ -979,9 +992,17 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
                 throw error;
             }
 
+            // Map set_name to name for backwards compatibility
+            const mappedData = data?.map(record => ({
+                id: record.id,
+                name: record.set_name,
+                content: record.content,
+                created_at: record.created_at
+            })) || [];
+
             return {
                 success: true,
-                data: data || [],
+                data: mappedData,
                 error: null
             };
         } catch (error) {
@@ -1046,6 +1067,179 @@ export const updateTestingPipelineRecordSetNameAction = withLogging(
         }
     },
     'updateTestingPipelineRecordSetNameAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets all AI suggestion sessions for a specific explanation (server action)
+ *
+ * • Retrieves distinct session records from testing_edits_pipeline table
+ * • Filters by explanation_id when provided
+ * • Returns session metadata for dropdown selection
+ * • Used by: EditorTest page to populate AI suggestion session dropdown
+ */
+export const getAISuggestionSessionsAction = withLogging(
+    async function getAISuggestionSessionsAction(
+        explanationId?: number
+    ): Promise<{
+        success: boolean;
+        data: Array<{
+            session_id: string;
+            explanation_id: number;
+            explanation_title: string;
+            user_prompt: string;
+            created_at: string;
+        }> | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            let query = supabase
+                .from('testing_edits_pipeline')
+                .select('session_id, explanation_id, explanation_title, user_prompt, created_at')
+                .not('session_id', 'is', null);
+
+            if (explanationId) {
+                query = query.eq('explanation_id', explanationId);
+            }
+
+            const { data, error } = await query
+                .order('created_at', { ascending: false });
+
+            if (error) {
+                logger.error('Supabase error fetching AI suggestion sessions:', {
+                    error: error.message,
+                    errorCode: error.code,
+                    explanationId
+                });
+                throw error;
+            }
+
+            // Remove duplicates by session_id (keep most recent)
+            const uniqueSessions = data?.reduce((acc, session) => {
+                if (!acc.some(s => s.session_id === session.session_id)) {
+                    acc.push(session);
+                }
+                return acc;
+            }, [] as typeof data) || [];
+
+            return {
+                success: true,
+                data: uniqueSessions,
+                error: null
+            };
+        } catch (error) {
+            logger.error('Get AI Suggestion Sessions Error', {
+                error: error instanceof Error ? error.message : String(error),
+                explanationId
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAISuggestionSessionsAction', { explanationId })
+            };
+        }
+    },
+    'getAISuggestionSessionsAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Loads all pipeline steps for a specific AI suggestion session (server action)
+ *
+ * • Retrieves all records from testing_edits_pipeline table for a session_id
+ * • Returns all 4 pipeline steps with content and metadata
+ * • Used by: EditorTest page to load complete session pipeline
+ */
+export const loadAISuggestionSessionAction = withLogging(
+    async function loadAISuggestionSessionAction(
+        sessionId: string
+    ): Promise<{
+        success: boolean;
+        data: {
+            session_metadata: {
+                session_id: string;
+                explanation_id: number;
+                explanation_title: string;
+                user_prompt: string;
+                source_content: string;
+            };
+            steps: Array<{
+                step: string;
+                content: string;
+                session_metadata: any;
+                created_at: string;
+            }>;
+        } | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const { data, error } = await supabase
+                .from('testing_edits_pipeline')
+                .select('step, content, session_id, explanation_id, explanation_title, user_prompt, source_content, session_metadata, created_at')
+                .eq('session_id', sessionId)
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                logger.error('Supabase error loading AI suggestion session:', {
+                    error: error.message,
+                    errorCode: error.code,
+                    sessionId
+                });
+                throw error;
+            }
+
+            if (!data || data.length === 0) {
+                return {
+                    success: false,
+                    data: null,
+                    error: createError('Session not found', ERROR_CODES.NOT_FOUND)
+                };
+            }
+
+            // Extract session metadata from first record (all records have same session data)
+            const firstRecord = data[0];
+            const sessionMetadata = {
+                session_id: firstRecord.session_id!,
+                explanation_id: firstRecord.explanation_id!,
+                explanation_title: firstRecord.explanation_title!,
+                user_prompt: firstRecord.user_prompt!,
+                source_content: firstRecord.source_content!
+            };
+
+            const steps = data.map(record => ({
+                step: record.step,
+                content: record.content,
+                session_metadata: record.session_metadata,
+                created_at: record.created_at
+            }));
+
+            return {
+                success: true,
+                data: {
+                    session_metadata: sessionMetadata,
+                    steps: steps
+                },
+                error: null
+            };
+        } catch (error) {
+            logger.error('Load AI Suggestion Session Error', {
+                error: error instanceof Error ? error.message : String(error),
+                sessionId
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'loadAISuggestionSessionAction', { sessionId })
+            };
+        }
+    },
+    'loadAISuggestionSessionAction',
     {
         enabled: FILE_DEBUG
     }

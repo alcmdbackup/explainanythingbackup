@@ -159,20 +159,29 @@ This eliminates the complexity of maintaining backward compatibility in the data
 
 ## Technical Implementation Details
 
-### Database Schema Extensions
+### Database Schema
 ```sql
--- Modify existing pipeline table to include session metadata directly
-ALTER TABLE TESTING_edits_pipeline
-ADD COLUMN session_id UUID,
-ADD COLUMN explanation_id INTEGER,
-ADD COLUMN explanation_title TEXT,
-ADD COLUMN user_prompt TEXT,
-ADD COLUMN source_content TEXT,
-ADD COLUMN session_metadata JSONB;
+-- Current schema for testing_edits_pipeline table with session support
+CREATE TABLE testing_edits_pipeline (
+    id SERIAL PRIMARY KEY,
+    set_name VARCHAR(255) NOT NULL CHECK (set_name != ''),
+    step VARCHAR(255) NOT NULL CHECK (step != ''),
+    content TEXT NOT NULL CHECK (content != ''),
+    session_id UUID,
+    explanation_id INTEGER,
+    explanation_title TEXT,
+    user_prompt TEXT,
+    source_content TEXT,
+    session_metadata JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
--- Add indexes for efficient querying
-CREATE INDEX idx_testing_edits_pipeline_session_id ON TESTING_edits_pipeline(session_id);
-CREATE INDEX idx_testing_edits_pipeline_explanation_id ON TESTING_edits_pipeline(explanation_id);
+-- Indexes for efficient querying
+CREATE INDEX idx_testing_edits_pipeline_session_id ON testing_edits_pipeline(session_id);
+CREATE INDEX idx_testing_edits_pipeline_explanation_id ON testing_edits_pipeline(explanation_id);
+CREATE INDEX idx_testing_edits_set_name ON testing_edits_pipeline(set_name);
+CREATE INDEX idx_testing_edits_step ON testing_edits_pipeline(step);
 
 -- Note: Existing records with set_name will continue to work (backward compatibility)
 -- New records from results page will use session_id with embedded metadata

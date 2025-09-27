@@ -4,7 +4,7 @@ import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../../editorFil
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../editorFiles/actions/actions';
-import { getExplanationByIdAction } from '../../actions/actions';
+import { getExplanationByIdAction, getAISuggestionSessionsAction, loadAISuggestionSessionAction } from '../../actions/actions';
 import { logger } from '../../lib/client_utilities';
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
 import { preprocessCriticMarkup } from '../../editorFiles/lexicalEditor/importExportUtils';
@@ -58,6 +58,31 @@ export default function EditorTestPage() {
     // Explanation loading state
     const [error, setError] = useState<string>('');
     const [loadedExplanationTitle, setLoadedExplanationTitle] = useState<string>('');
+
+    // AI Suggestion Session state
+    const [sessionOptions, setSessionOptions] = useState<Array<{
+        session_id: string;
+        explanation_id: number;
+        explanation_title: string;
+        user_prompt: string;
+        created_at: string;
+    }>>([]);
+    const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
+    const [loadedSessionData, setLoadedSessionData] = useState<{
+        session_metadata: {
+            session_id: string;
+            explanation_id: number;
+            explanation_title: string;
+            user_prompt: string;
+            source_content: string;
+        };
+        steps: Array<{
+            step: string;
+            content: string;
+            session_metadata: any;
+            created_at: string;
+        }>;
+    } | null>(null);
 
     const editorRef = useRef<LexicalEditorRef>(null);
 
@@ -145,20 +170,99 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         console.log('Initial content set:', defaultContent.length, 'characters');
     }, [defaultContent]);
 
-    // Handle URL parameters for explanation_id
+    // Handle URL parameters for explanation_id and session_id
     useEffect(() => {
         const explanationId = searchParams.get('explanation_id');
+        const sessionId = searchParams.get('session_id');
 
         if (explanationId) {
             const parsedId = parseInt(explanationId);
             if (!isNaN(parsedId)) {
                 console.log(`Loading explanation from URL parameter: ${parsedId}`);
                 loadExplanationForTesting(parsedId);
+
+                // Load sessions for this explanation
+                loadSessionOptions(parsedId);
             } else {
                 setError(`Invalid explanation_id parameter: ${explanationId}`);
             }
         }
+
+        if (sessionId) {
+            console.log(`Loading session from URL parameter: ${sessionId}`);
+            loadSessionData(sessionId);
+        }
     }, [searchParams, loadExplanationForTesting]);
+
+    // Load AI suggestion sessions for dropdown
+    const loadSessionOptions = async (explanationId?: number) => {
+        try {
+            const result = await getAISuggestionSessionsAction(explanationId);
+            if (result.success && result.data) {
+                setSessionOptions(result.data);
+                console.log(`Loaded ${result.data.length} AI suggestion sessions`);
+            } else {
+                console.error('Failed to load session options:', result.error);
+            }
+        } catch (error) {
+            console.error('Failed to load session options:', error);
+        }
+    };
+
+    // Load specific session data and populate all pipeline steps
+    const loadSessionData = async (sessionId: string) => {
+        try {
+            const result = await loadAISuggestionSessionAction(sessionId);
+            if (result.success && result.data) {
+                setLoadedSessionData(result.data);
+                setSelectedSessionId(sessionId);
+
+                // Set the original content from session
+                if (result.data.session_metadata.source_content && editorRef.current) {
+                    editorRef.current.setContentFromMarkdown(result.data.session_metadata.source_content);
+                    setCurrentContent(result.data.session_metadata.source_content);
+                }
+
+                // Populate all step data from session
+                const steps = result.data.steps;
+
+                // Find each step and populate the corresponding state
+                const step1 = steps.find(s => s.step === 'step1_ai_suggestions');
+                const step2 = steps.find(s => s.step === 'step2_applied_edits');
+                const step3 = steps.find(s => s.step === 'step3_critic_markup');
+                const step4 = steps.find(s => s.step === 'step4_preprocessed');
+
+                if (step1) setAiSuggestions(step1.content);
+                if (step2) setAppliedEdits(step2.content);
+                if (step3) setMarkdownASTDiffResult(step3.content);
+                if (step4) setPreprocessedMarkdown(step4.content);
+
+                // Set test set name based on session
+                setTestSetName(`session-${sessionId.slice(0, 8)}`);
+                setLoadedExplanationTitle(result.data.session_metadata.explanation_title);
+
+                console.log(`✅ Loaded session ${sessionId}: "${result.data.session_metadata.user_prompt}"`);
+                console.log(`📊 Session contains ${steps.length} pipeline steps`);
+            } else {
+                console.error('Failed to load session data:', result.error);
+                setError(`Failed to load session ${sessionId}: ${result.error?.message}`);
+            }
+        } catch (error) {
+            console.error('Failed to load session data:', error);
+            setError(`Failed to load session ${sessionId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    };
+
+    // Handle session dropdown selection
+    const handleSessionSelection = (event: React.ChangeEvent<HTMLSelectElement>) => {
+        const sessionId = event.target.value;
+        if (!sessionId) {
+            setSelectedSessionId(null);
+            setLoadedSessionData(null);
+            return;
+        }
+        loadSessionData(sessionId);
+    };
 
     // Load dropdown options for each step
     const loadDropdownOptions = async () => {
@@ -751,6 +855,67 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     </p>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* AI Suggestion Session Info */}
+                {loadedSessionData && (
+                    <div className="max-w-4xl mx-auto mb-6">
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md p-4">
+                            <div className="flex">
+                                <div className="flex-shrink-0">
+                                    <span className="text-blue-400 text-xl">🔧</span>
+                                </div>
+                                <div className="ml-3">
+                                    <h3 className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                                        AI Suggestion Session Loaded
+                                    </h3>
+                                    <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
+                                        Session: <strong>"{loadedSessionData.session_metadata.user_prompt}"</strong>
+                                    </p>
+                                    <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
+                                        From: {loadedSessionData.session_metadata.explanation_title} |
+                                        Steps loaded: {loadedSessionData.steps.length} |
+                                        Session ID: {loadedSessionData.session_metadata.session_id.slice(0, 8)}...
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* AI Suggestion Session Dropdown */}
+                {sessionOptions.length > 0 && (
+                    <div className="max-w-4xl mx-auto mb-6">
+                        <div className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 rounded-md p-4">
+                            <h3 className="text-sm font-medium text-indigo-800 dark:text-indigo-200 mb-3">
+                                Load AI Suggestion Session
+                            </h3>
+                            <div className="flex gap-2">
+                                <select
+                                    value={selectedSessionId || ''}
+                                    onChange={handleSessionSelection}
+                                    className="flex-1 px-3 py-2 text-sm border border-indigo-300 dark:border-indigo-600 rounded-md bg-white dark:bg-gray-800 text-indigo-900 dark:text-indigo-100"
+                                >
+                                    <option value="">Select AI suggestion session...</option>
+                                    {sessionOptions.map((session) => (
+                                        <option key={session.session_id} value={session.session_id}>
+                                            "{session.user_prompt}" - {session.explanation_title} ({new Date(session.created_at).toLocaleDateString()})
+                                        </option>
+                                    ))}
+                                </select>
+                                <button
+                                    onClick={() => loadSessionOptions()}
+                                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-md transition-colors"
+                                    title="Refresh session list"
+                                >
+                                    🔄
+                                </button>
+                            </div>
+                            <p className="mt-2 text-xs text-indigo-600 dark:text-indigo-400">
+                                Load a complete AI suggestion session with all 4 pipeline steps. This will replace current content.
+                            </p>
                         </div>
                     </div>
                 )}
