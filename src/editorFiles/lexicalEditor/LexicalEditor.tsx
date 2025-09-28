@@ -50,8 +50,8 @@ import { OverflowNode } from '@lexical/overflow';
 import { MarkNode } from '@lexical/mark';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
-import { DiffTagNodeInline, $isDiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
-import { CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER, DIFF_TAG_EXPORT_TRANSFORMER, preprocessCriticMarkup, replaceDiffTagNodes, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
+import { DiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
+import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 

@@ -4,6 +4,25 @@ import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } from '@/lib/schemas/schemas';
 
 /**
+ * Encodes a URL parameter for use in standalone title links
+ *
+ * • Uses encodeURIComponent as base encoding
+ * • Additionally encodes parentheses which break markdown link parsing
+ * • Ensures all characters that could interfere with markdown syntax are properly encoded
+ * • Used specifically for /standalone-title?t= URL parameters
+ */
+function encodeStandaloneTitleParam(title: string): string {
+  // First apply standard URL encoding
+  let encoded = encodeURIComponent(title);
+
+  // Additionally encode parentheses which break markdown link parsing
+  // encodeURIComponent doesn't encode these by default but they break markdown
+  encoded = encoded.replace(/\(/g, '%28').replace(/\)/g, '%29');
+
+  return encoded;
+}
+
+/**
  * Service for creating standalone subsection titles with context from article titles
  * 
  * Example usage:
@@ -100,9 +119,9 @@ export async function createMappingsHeadingsToLinks(
       
       if (standaloneTitle) {
         // Create markdown link: ## [Original Title](/standalone-title?t=encoded+title)
-        const encodedTitle = encodeURIComponent(standaloneTitle);
+        const encodedTitle = encodeStandaloneTitleParam(standaloneTitle);
         const linkedHeading = `${hashes} [${text}](/standalone-title?t=${encodedTitle})`;
-        
+
         headingMappings[fullMatch] = linkedHeading;
         
         if (debug) {
@@ -302,9 +321,9 @@ export async function createMappingsKeytermsToLinks(
       
       if (standaloneTitle) {
         // Create markdown link: [term](/standalone-title?t=encoded+title)
-        const encodedTitle = encodeURIComponent(standaloneTitle);
+        const encodedTitle = encodeStandaloneTitleParam(standaloneTitle);
         const linkedTerm = `[${term}](/standalone-title?t=${encodedTitle})`;
-        
+
         keyTermMappings[fullMatch] = linkedTerm;
         
         if (debug) {
