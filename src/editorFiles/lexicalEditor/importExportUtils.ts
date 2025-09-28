@@ -5,6 +5,7 @@ import { $createTextNode, TextNode, LexicalNode, $createParagraphNode, $getRoot,
 import { $dfs } from "@lexical/utils";
 import { $createHeadingNode, $isHeadingNode, HeadingNode } from "@lexical/rich-text";
 import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline, DiffUpdateContainerInline, $createDiffUpdateContainerInline } from "./DiffTagNode";
+import { StandaloneTitleLinkNode, $createStandaloneTitleLinkNode, $isStandaloneTitleLinkNode } from "./StandaloneTitleLinkNode";
 
 /**
  * Logs all children of a node and their relationships using depth-first search
@@ -1071,9 +1072,42 @@ export function replaceBrTagsWithNewlines(): void {
 }
 
 /**
+ * Custom transformer for standalone title links in Lexical
+ * - Detects /standalone-title?t= links during markdown import
+ * - Creates StandaloneTitleLinkNode instances instead of regular LinkNode
+ * - Handles export back to markdown format with proper URL preservation
+ * - Used by Lexical to create clickable standalone title links
+ */
+export const STANDALONE_TITLE_LINK_TRANSFORMER: TextMatchTransformer = {
+  dependencies: [StandaloneTitleLinkNode],
+  export: (node: LexicalNode) => {
+    if ($isStandaloneTitleLinkNode(node)) {
+      const textContent = node.getTextContent();
+      const url = node.getURL();
+      return `[${textContent}](${url})`;
+    }
+    return null;
+  },
+  importRegExp: /\[([^\]]+)\]\(\/standalone-title\?t=([^)]+)\)/,
+  regExp: /\[([^\]]+)\]\(\/standalone-title\?t=([^)]+)\)$/,
+  replace: (textNode: TextNode, match: RegExpMatchArray) => {
+    const [fullMatch, linkText, encodedTitle] = match;
+    const url = `/standalone-title?t=${encodedTitle}`;
+
+    const linkNode = $createStandaloneTitleLinkNode(url);
+    const textChild = $createTextNode(linkText);
+    linkNode.append(textChild);
+    textNode.replace(linkNode);
+  },
+  trigger: ')',
+  type: 'text-match',
+};
+
+/**
  * Complete markdown transformers array
  * - Includes all standard Lexical markdown transformers
  * - Includes custom CriticMarkup transformers for diff functionality
+ * - Includes custom standalone title link transformer
  * - Used by Lexical for markdown import/export operations
  */
 export const MARKDOWN_TRANSFORMERS = [
@@ -1087,6 +1121,7 @@ export const MARKDOWN_TRANSFORMERS = [
   BOLD_STAR,
   ITALIC_STAR,
   STRIKETHROUGH,
+  STANDALONE_TITLE_LINK_TRANSFORMER, // Must come before LINK to match specific URLs first
   LINK,
   CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER,
   DIFF_TAG_EXPORT_TRANSFORMER,

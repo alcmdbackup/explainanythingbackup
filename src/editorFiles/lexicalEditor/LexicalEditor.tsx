@@ -51,6 +51,7 @@ import { MarkNode } from '@lexical/mark';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
 import { DiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
+import { StandaloneTitleLinkNode } from './StandaloneTitleLinkNode';
 import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
@@ -259,6 +260,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       CodeNode,
       CodeHighlightNode,
       LinkNode,
+      StandaloneTitleLinkNode,
       AutoLinkNode,
       TableNode,
       TableCellNode,
