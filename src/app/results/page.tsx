@@ -3,10 +3,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction } from '@/actions/actions';
-import ReactMarkdown from 'react-markdown';
-import 'katex/dist/katex.min.css';
-import remarkMath from 'remark-math';
-import rehypeKatex from 'rehype-katex';
 import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
@@ -636,39 +632,6 @@ export default function ResultsPage() {
         setIsModified(true);
     };
 
-    /**
-     * Handles clicks on custom standalone title links
-     * 
-     * • Detects clicks on links with "standalone-title:" prefix in href
-     * • Extracts the actual standalone title from the href
-     * • Either redirects to results page or calls handleUserAction based on FORCE_REGENERATION_ON_NAV setting
-     * • Prevents default link behavior for these special links
-     * 
-     * Used by: Custom link component in ReactMarkdown
-     * Calls: router.push, handleUserAction
-     */
-    const handleStandaloneTitleClick = async (href: string, event: React.MouseEvent) => {
-        // Check if this is a standalone title link
-        const isStandaloneLink = href.startsWith('/standalone-title?t=');
-        
-        if (isStandaloneLink) {
-            event.preventDefault();
-            
-            // Extract the standalone title from the URL parameter
-            const url = new URL(href, window.location.origin);
-            const standaloneTitle = url.searchParams.get('t') || '';
-            
-            if (!standaloneTitle.trim()) return;
-            
-            if (FORCE_REGENERATION_ON_NAV) {
-                // Redirect to results page with title parameter
-                router.push(`/results?t=${encodeURIComponent(standaloneTitle)}`);
-            } else {
-                            // Call handleUserAction directly
-            await handleUserAction(standaloneTitle, UserInputType.TitleFromLink, mode, userid, [], null, null);
-            }
-        }
-    };
 
     /**
      * Handles search form submission and navigates to results page
