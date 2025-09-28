@@ -12,7 +12,7 @@ import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
-import AISuggestionsPanel from '@/editorFiles/lexicalEditor/AISuggestionsPanel';
+import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 
 const FILE_DEBUG = true;

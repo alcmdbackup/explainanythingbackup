@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { getAndApplyAISuggestions } from '../aiSuggestion';
+import { getAndApplyAISuggestions } from '../editorFiles/aiSuggestion';
 
 interface AISuggestionsPanelProps {
   isVisible: boolean;
