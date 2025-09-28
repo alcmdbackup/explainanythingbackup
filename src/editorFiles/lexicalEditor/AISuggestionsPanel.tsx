@@ -51,8 +51,8 @@ export default function AISuggestionsPanel({
 
     try {
       // Prepare session data if we have it from the results page
+      // Don't include session_id - let getAndApplyAISuggestions generate it
       const sessionRequestData = sessionData ? {
-        session_id: '', // Will be generated in getAndApplyAISuggestions
         explanation_id: sessionData.explanation_id,
         explanation_title: sessionData.explanation_title,
         user_prompt: userPrompt.trim()
