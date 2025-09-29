@@ -491,15 +491,25 @@ function appendRun(target: TextRun[], t: TextRun['t'], s: string, sAfter?: strin
 function buildParagraphMultiPassRuns(
   aText: string,
   bText: string,
-  mp: Required<MultiPassOptions>
+  mp: Required<MultiPassOptions>,
+  reason?: string
 ): { paragraphAtomic: boolean; runs?: TextRun[] } {
   if (mp.debug) {
     console.log('📝 PARAGRAPH MULTI-PASS ANALYSIS:');
     console.log(`  Paragraph A: "${aText}"`);
     console.log(`  Paragraph B: "${bText}"`);
+    console.log(`  Reason: ${reason || 'none'}`);
     console.log(`  Thresholds: paragraph=${mp.paragraphAtomicDiffIfDiffAbove}, sentence=${mp.sentenceAtomicDiffIfDiffAbove}`);
   }
-  
+
+  // Force paragraph-level atomic diff if reason is "atomic descendant"
+  if (reason === "atomic descendant") {
+    if (mp.debug) {
+      console.log(`  ✅ FORCED PARAGRAPH ATOMIC: reason is "atomic descendant"`);
+    }
+    return { paragraphAtomic: true };
+  }
+
   // Pass 1: paragraph-level similarity
   const paraDiff = diffRatioWords(aText, bText, mp.debug);
   if (mp.debug) {
@@ -699,8 +709,9 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
 
   //Decide if we should look at nodes in aggregate, including children...
   //Or iterate recursively into children isntead
-  if (shouldApplyAggregatedTextDiff(a, b, options)) {
-    console.log('shouldApplyAggregatedTextDiff is true');
+  const aggregatedReason = shouldApplyAggregatedTextDiff(a, b, options);
+  if (aggregatedReason) {
+    console.log(`shouldApplyAggregatedTextDiff reason: ${aggregatedReason}`);
     const aKids = a.children || [];
     const bKids = b.children || [];
     const aText = extractTextFromChildren(aKids);
@@ -708,7 +719,7 @@ function emitCriticForPair(a: MdastNode | undefined, b: MdastNode | undefined, o
     if (aText !== bText) {
       if (a.type === 'paragraph' && b.type === 'paragraph') {
         const mp = { ...MP_DEFAULTS, ...(options.multipass || {}) };
-        const decision = buildParagraphMultiPassRuns(aText, bText, mp);
+        const decision = buildParagraphMultiPassRuns(aText, bText, mp, aggregatedReason);
         if (decision.paragraphAtomic) {
           return wrapUpdate(stringify(a), stringify(b));
         }
@@ -810,44 +821,44 @@ function wrapUpdate(before: string, after: string): string {
 
 // ========= Granular text diffing helpers =========
 
-function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): boolean {
-  
+function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: DiffOptions): string | null {
+
   console.log(`shouldApplyAggregatedTextDiff: checking nodes of type ${a.type} and ${b.type}`);
-  
+
   if (a.type !== b.type) {
-    console.log('shouldApplyAggregatedTextDiff: different types - returning false');
-    return true;
+    console.log('shouldApplyAggregatedTextDiff: different types - returning "different types"');
+    return "different types";
   }
-  
+
   // NEW: avoid granularizing pipe-table paragraphs
   if (isPipeTableParagraph(a) || isPipeTableParagraph(b)) {
-    console.log('shouldApplyAggregatedTextDiff: pipe-table paragraph detected - returning false');
-    return true;
+    console.log('shouldApplyAggregatedTextDiff: pipe-table paragraph detected - returning "pipe table paragraph"');
+    return "pipe table paragraph";
   }
-  
+
   // Do not granularize tables or their parts
   if (a.type === 'table' || a.type === 'tableRow' || a.type === 'tableCell') {
-    console.log(`shouldApplyAggregatedTextDiff: table-related type (${a.type}) - returning false`);
-    return true;
+    console.log(`shouldApplyAggregatedTextDiff: table-related type (${a.type}) - returning "table related"`);
+    return "table related";
   }
 
   // Exclude atomic blocks/inline from granular path for the node itself
   if (ATOMIC_BLOCKS.has(a.type) || ATOMIC_INLINE.has(a.type)) {
-    console.log(`shouldApplyAggregatedTextDiff: atomic type (${a.type}) - returning false`);
-    return true;
+    console.log(`shouldApplyAggregatedTextDiff: atomic type (${a.type}) - returning "atomic type"`);
+    return "atomic type";
   }
 
   // If either side contains atomic descendants (e.g., a link inside), don't flatten
   if (containsAtomicDescendant(a) || containsAtomicDescendant(b)) {
-    console.log('shouldApplyAggregatedTextDiff: contains atomic descendants - returning false');
-    return true;
+    console.log('shouldApplyAggregatedTextDiff: contains atomic descendants - returning "atomic descendant"');
+    return "atomic descendant";
   }
 
   // NEW: if either side contains wrapper descendants (emphasis/strong/inlineCode/link),
   // avoid flattening so wrapper changes render as atomic del+ins pairs.
   if (containsWrapperDescendant(a) || containsWrapperDescendant(b)) {
-    console.log('shouldApplyAggregatedTextDiff: contains wrapper descendants - returning false');
-    return true;
+    console.log('shouldApplyAggregatedTextDiff: contains wrapper descendants - returning "wrapper descendant"');
+    return "wrapper descendant";
   }
 
   const containerTypes = [
@@ -857,17 +868,17 @@ function shouldApplyAggregatedTextDiff(a: MdastNode, b: MdastNode, _options: Dif
     'delete'
   ];
   if (!containerTypes.includes(a.type)) {
-    console.log(`shouldApplyAggregatedTextDiff: type ${a.type} not in container types - returning false`);
-    return false;
+    console.log(`shouldApplyAggregatedTextDiff: type ${a.type} not in container types - returning null`);
+    return null;
   }
-  
+
   const hasTextA = hasTextContent(a);
   const hasTextB = hasTextContent(b);
   console.log(`shouldApplyAggregatedTextDiff: hasTextContent(a)=${hasTextA}, hasTextContent(b)=${hasTextB}`);
-  
+
   const result = hasTextA && hasTextB;
   console.log(`shouldApplyAggregatedTextDiff: final result=${result}`);
-  return result;
+  return result ? "has text content" : null;
 }
 
 function hasTextContent(node: MdastNode): boolean {
