@@ -424,11 +424,6 @@ export async function getAndApplyAISuggestions(
     console.log('🚀 Calling runAISuggestionsPipeline with sessionData:', sessionDataWithId);
     const result = await runAISuggestionsPipeline(currentContent, 'test-user', onProgress, sessionDataWithId);
 
-    // Only update editor if all steps succeeded
-    if (editorRef.current) {
-      editorRef.current.updateContent(result.content);
-    }
-
     return {
       success: true,
       content: result.content,

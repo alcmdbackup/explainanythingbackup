@@ -132,3 +132,76 @@ AI Pipeline → editorRef.updateContent() → setContentFromMarkdown() →
 ```
 
 This creates a unidirectional flow where the editor is the authoritative source, and state updates propagate upward rather than competing with direct editor manipulation.
+
+## Root Cause Analysis: Missing Parent Notification
+
+### The Missing Link in `updateContent`
+
+**Location**: `ResultsLexicalEditor.tsx:116-121`
+```typescript
+updateContent: (newContent: string) => {
+  if (editorRef.current) {
+    editorRef.current.setContentFromMarkdown(newContent);  // ✅ Updates editor
+    setCurrentContent(newContent);                         // ✅ Updates local state
+    // ❌ MISSING: onContentChange?.(newContent);          // Should notify parent
+  }
+}
+```
+
+**The Problem**: The `updateContent` method only updates the editor and local state, but **never notifies the parent component**. This forces the AI suggestions system to make a separate callback:
+
+```typescript
+// AI suggestions is forced to do TWO operations:
+editorRef.current.updateContent(result.content);  // Update editor (incomplete)
+onContentChange?.(result.content);                // Manually notify parent
+```
+
+### Triple State Management Problem
+
+The current system maintains **three separate content states**:
+
+1. **Parent State**: `content` in `page.tsx` - global application state
+2. **Editor Internal State**: `currentContent` in `ResultsLexicalEditor` - change detection bookkeeping
+3. **Lexical Editor State**: The actual editor content DOM/data structures
+
+### Why `currentContent` Exists
+
+The `currentContent` state exists solely for **infinite loop prevention**:
+
+```typescript
+// Without currentContent, this would create an infinite loop:
+useEffect(() => {
+  if (content !== currentContent) {  // Prevents re-triggering
+    // Update editor based on prop changes
+    editorRef.current.setContentFromMarkdown(content);
+    setCurrentContent(content);  // Track what we just set
+  }
+}, [content, currentContent, isStreaming, debouncedUpdateContent]);
+```
+
+**The cycle this prevents**:
+1. Prop `content` changes → useEffect fires
+2. useEffect updates editor → editor triggers `onContentChange`
+3. `onContentChange` updates parent `content` → useEffect fires again
+4. Infinite loop ❌
+
+### Solution: Eliminate Triple State
+
+By fixing `updateContent` to properly notify the parent, we can:
+
+1. **Remove the prop-driven useEffect entirely** - no more prop→editor updates
+2. **Remove `currentContent` state** - no more change detection needed
+3. **Keep only two states**: Parent state (for React) + Lexical state (for editor)
+
+**Fixed `updateContent` implementation**:
+```typescript
+updateContent: (newContent: string) => {
+  if (editorRef.current) {
+    editorRef.current.setContentFromMarkdown(newContent);  // Update editor
+    onContentChange?.(newContent);                         // Notify parent
+    // No setCurrentContent needed - no more change detection
+  }
+}
+```
+
+This eliminates the synchronization complexity and reduces the state management from three sources to two.
