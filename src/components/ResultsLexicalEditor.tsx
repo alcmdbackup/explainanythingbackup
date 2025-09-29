@@ -130,42 +130,19 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
   }), []);
 
   return (
-    <div className={className}>
-      {/* Edit Mode Toggle */}
-      <div className="mb-4 flex justify-end">
-        <EditModeToggle
-          isEditMode={internalEditMode && !isStreaming}
-          onToggle={handleEditModeToggle}
-        />
-      </div>
-
-      {/* Streaming Indicator */}
-      {isStreaming && (
-        <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-md">
-          <div className="flex items-center">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-            <span className="text-sm text-blue-800 dark:text-blue-200">
-              Content is being updated... Editor is locked during streaming.
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Lexical Editor */}
-      <LexicalEditor
-        ref={editorRef}
-        placeholder="Content will appear here..."
-        className="w-full"
-        initialContent={content}
-        isMarkdownMode={true}
-        isEditMode={internalEditMode && !isStreaming}
-        showEditorState={false}
-        showTreeView={false}
-        showToolbar={true}
-        hideEditingUI={isStreaming}
-        onContentChange={handleContentChange}
-      />
-    </div>
+    <LexicalEditor
+      ref={editorRef}
+      placeholder="Content will appear here..."
+      className={className}
+      initialContent={content}
+      isMarkdownMode={true}
+      isEditMode={internalEditMode && !isStreaming}
+      showEditorState={false}
+      showTreeView={false}
+      showToolbar={true}
+      hideEditingUI={isStreaming}
+      onContentChange={handleContentChange}
+    />
   );
 });
 

@@ -8,6 +8,7 @@ import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
+import { ResultsLexicalEditorRef } from '@/components/ResultsLexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 
@@ -46,7 +47,7 @@ export default function ResultsPage() {
 
     const isFirstRun = useRef(true);
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
-    const editorRef = useRef<any>(null); // For AI suggestions panel
+    const editorRef = useRef<ResultsLexicalEditorRef>(null); // For AI suggestions panel
 
     // Close dropdown when clicking outside and reset tags
     useEffect(() => {
@@ -1097,9 +1098,9 @@ export default function ResultsPage() {
                                 })()}
                                 
                                 {/* Scrollable Content Area */}
-                                <div 
-                                    className="flex-1 overflow-y-auto" 
-                                    style={{ 
+                                <div
+                                    className="flex-1 overflow-y-auto"
+                                    style={{
                                         height: 'calc(100vh - 300px)',
                                         scrollbarWidth: 'thin',
                                         scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent'
@@ -1123,7 +1124,7 @@ export default function ResultsPage() {
                                             background: rgba(156, 163, 175, 0.9);
                                         }
                                     `}</style>
-                                    <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                    <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
                                         {isStreaming && !content ? (
                                             <div className="flex items-center justify-center py-12">
                                                 <div className="flex space-x-1">
