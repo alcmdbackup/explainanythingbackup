@@ -29,8 +29,8 @@ const DiffTagHoverControls: React.FC<DiffTagHoverControlsProps> = ({
     const updatePosition = () => {
       const rect = targetElement.getBoundingClientRect();
 
-      // Position at the right boundary of the diff tag element
-      let top = rect.top;
+      // Position at the right boundary of the diff tag element, vertically centered
+      let top = rect.top + rect.height / 2; // Position at vertical center of target element
       let left = rect.right + 8; // 8px padding to the right of the element
 
       // Ensure buttons don't go off right edge of viewport
@@ -41,8 +41,9 @@ const DiffTagHoverControls: React.FC<DiffTagHoverControlsProps> = ({
       }
 
       // Ensure buttons don't go off bottom of viewport
-      const controlsHeight = 40; // Approximate height
-      const maxTop = window.innerHeight - controlsHeight - 10;
+      // Get actual height from rendered element, fallback to estimate
+      const actualControlsHeight = controlsRef.current ? controlsRef.current.getBoundingClientRect().height : 50;
+      const maxTop = window.innerHeight - actualControlsHeight - 10;
       if (top > maxTop) {
         top = maxTop;
       }
@@ -115,6 +116,7 @@ const DiffTagHoverControls: React.FC<DiffTagHoverControlsProps> = ({
       style={{
         top: `${position.top}px`,
         left: `${position.left}px`,
+        transform: 'translateY(-50%)', // Center vertically without needing to know height
       }}
       onMouseEnter={() => {
         if (timeoutRef.current) {
