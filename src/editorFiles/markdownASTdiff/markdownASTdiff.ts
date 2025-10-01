@@ -357,14 +357,45 @@ function alignSentencesBySimilarity(
   return pairs;
 }
 
+// Helper functions for URL protection during sentence tokenization
+function protectUrlsInText(text: string): { text: string; placeholders: Map<string, string> } {
+  const placeholders = new Map<string, string>();
+  let counter = 0;
+
+  // Regex to match markdown link URLs: [text](url) where url might contain ? characters
+  const linkRegex = /\[([^\]]*)\]\(([^)]+)\)/g;
+
+  const protectedText = text.replace(linkRegex, (match, linkText, url) => {
+    const placeholder = `__URL_PLACEHOLDER_${counter++}__`;
+    placeholders.set(placeholder, match);
+    return placeholder;
+  });
+
+  return { text: protectedText, placeholders };
+}
+
+function restoreUrlsInTokens(tokens: string[], placeholders: Map<string, string>): string[] {
+  return tokens.map(token => {
+    let restoredToken = token;
+    for (const [placeholder, original] of placeholders) {
+      restoredToken = restoredToken.replace(placeholder, original);
+    }
+    return restoredToken;
+  });
+}
+
 // Sentence tokenize, preserving trailing whitespace for lossless re-join.
 function sentenceTokens(text: string, locale = MP_DEFAULTS.sentenceLocale): string[] {
   if (!text) return [];
+
+  // Protect URLs in markdown links from sentence boundary detection
+  const { text: protectedText, placeholders } = protectUrlsInText(text);
+
   const S: any = (globalThis as any).Intl?.Segmenter;
   if (S) {
     try {
       const seg = new S(locale, { granularity: 'sentence' });
-      const segments = (seg as any).segment(text);
+      const segments = (seg as any).segment(protectedText);
       const toks: string[] = [];
       let lastIndex = 0;
       for (const part of segments as any) {
@@ -373,25 +404,25 @@ function sentenceTokens(text: string, locale = MP_DEFAULTS.sentenceLocale): stri
           lastIndex += part.segment.length;
         } else {
           const nextIndex = (part.index as number) ?? lastIndex;
-          if (nextIndex > lastIndex) toks.push(text.slice(lastIndex, nextIndex));
+          if (nextIndex > lastIndex) toks.push(protectedText.slice(lastIndex, nextIndex));
           lastIndex = nextIndex;
         }
       }
-      if (lastIndex < text.length) toks.push(text.slice(lastIndex));
-      if (toks.length) return toks;
+      if (lastIndex < protectedText.length) toks.push(protectedText.slice(lastIndex));
+      if (toks.length) return restoreUrlsInTokens(toks, placeholders);
     } catch { /* fall back */ }
   }
   // Regex fallback: capture to ., !, ? followed by spaces/closing, or multiple newlines, or end.
   const out: string[] = [];
   const rx = /[\s\S]*?(?:[.!?](?=[\s'")\]]|\s*$)|\n{2,}|$)/g;
   let m: RegExpExecArray | null;
-  while ((m = rx.exec(text))) {
+  while ((m = rx.exec(protectedText))) {
     const token = m[0];
     if (!token) break;
     out.push(token);
-    if (rx.lastIndex >= text.length) break;
+    if (rx.lastIndex >= protectedText.length) break;
   }
-  return mergeAbbrevSuffix(out);
+  return restoreUrlsInTokens(mergeAbbrevSuffix(out), placeholders);
 }
 
 function mergeAbbrevSuffix(tokens: string[]): string[] {
