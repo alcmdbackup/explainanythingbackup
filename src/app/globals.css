@@ -160,7 +160,7 @@ body {
 }
 
 .diff-tag-update {
-  display: inline-block;
+  display: inline;
   /*border-radius: 0.25rem;*/
   /*padding: 0.25rem;*/
   /*white-space: pre-wrap;*/
