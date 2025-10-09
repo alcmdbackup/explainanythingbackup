@@ -87,7 +87,48 @@ Computed in **topological order** (parents before children).
 
 ---
 
-## 6. **Simple Implementation Schema**
+## 6. **Reliability Factors & Guardrails**
+
+While our simplified model avoids many complex failure modes, several key risks require active mitigation:
+
+### **Critical Concerns**
+
+| Problem | Risk | Mitigation |
+|---------|------|------------|
+| **Rich-get-richer** | High-scoring parents dominate through inheritance | Cap `inheritance_rate` ≤ 0.5; consider score ceilings or diminishing returns |
+| **Fork-bombs** | Users create many trivial forks to game system | `similarity_factor` reduces inheritance for low-similarity forks; add rate limiting |
+| **Biased base scores** | Poor `own_score` metrics amplify through inheritance | Use Wilson LCB for engagement; multi-signal scoring (time + votes + views) |
+| **Stale ancestors** | Old high-scoring articles may not reflect current standards | Time decay on inherited scores; horizon limits (e.g., < 2 years) |
+
+### **Moderate Concerns**
+
+| Problem | Risk | Mitigation |
+|---------|------|------------|
+| **Paraphrase inflation** | Semantic rewrites maintain similarity while appearing novel | Hybrid similarity approach; semantic similarity thresholds |
+| **Boilerplate pollution** | Templates/headers skew similarity calculations | Focus on main content; template detection and masking |
+
+### **Model-Specific Guardrails**
+
+**Gaming through minimal edits**: Require minimum edit thresholds (e.g., >10% content change) before allowing inheritance
+
+**Content drift monitoring**: Track similarity degradation over long lineage chains; alert when similarity drops below thresholds
+
+**Parameter sensitivity**: A/B test different `inheritance_rate` values across content types and topic domains
+
+**Score auditing**: Periodically decompose scores to show inherited vs. own contribution for transparency
+
+### **Monitoring Dashboard**
+
+Track these metrics to detect gaming or system drift:
+- Distribution of similarity factors across all derived articles
+- Inheritance contribution as percentage of total score
+- Fork frequency per user/article
+- Score variance within topic lineages
+- Time-to-convergence for new article scores
+
+---
+
+## 7. **Simple Implementation Schema**
 
 ```sql
 -- Minimal schema addition
