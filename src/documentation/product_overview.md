@@ -1,16 +1,6 @@
 # Product Overview: Explain Anything
 
-## What It Is
-**Explain Anything** is an AI-powered educational platform that generates comprehensive, high-quality explanations on any topic using advanced language models. 
-
-## Core Value Proposition
-- **Universal Knowledge Access**: Get detailed explanations on any topic instantly
-- **Smart Content Reuse**: Leverages vector similarity matching to find and reuse existing high-quality explanations
-- **Personalized Learning**: Save explanations to personal libraries for future reference
-- **High-Quality Output**: Uses GPT-4 for generating accurate, well-structured content with math and markdown support
-
 ## Key Features
-
 ### 🔍 **Intelligent Search & Generation**
 - Enter any topic or question to receive a comprehensive explanation
 - Vector similarity matching finds related existing content before generating new explanations
