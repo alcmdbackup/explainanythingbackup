@@ -1,5 +1,9 @@
 # Scoring System Weighting V2: Similarity-Adjusted Feedback
 
+## Problem Statement
+
+We want to allow articles to inherit their scores from ancestors and other similar articles, to enable more rapid feedback and A/B testing. Having each article scored based on its own feedback will be too sparse.
+
 ## Instructions (for reference)
 1. Create a new measure called similarity-adjusted-feedback which is similarity(c, a) * (feedback received)
 2. We can weigh scoring across lineage based on similarity-adjusted feedback, including current article
@@ -62,7 +66,7 @@ base_score = 80*0.136 + 70*0.545 + 90*0.205 + 75*0.114 = 76.2
 Use total SAF as effective sample size for Wilson confidence intervals:
 
 ```
-estimated_quality = base_score  // From weighted average above
+estimated_quality = base_score / 100  // Convert 0-100 scale to 0-1 probability
 effective_positive = total_saf * estimated_quality
 effective_negative = total_saf * (1 - estimated_quality)
 
@@ -73,6 +77,8 @@ exploration_bonus = uncertainty_weight * (wilson_ucb - wilson_lcb)
 ```
 
 **Properties**: High total SAF → low exploration bonus; Low total SAF → high exploration bonus
+
+**Implementation Note**: This repurposes Wilson intervals for practical exploration bonuses rather than statistical soundness. Wilson interval width decreases with sample size, giving us the desired exploration vs exploitation trade-off regardless of statistical validity.
 
 ---
 

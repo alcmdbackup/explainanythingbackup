@@ -1040,6 +1040,13 @@ export default function ResultsPage() {
                                         >
                                             <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
                                         </button>
+                                        <button
+                                            onClick={handleEditModeToggle}
+                                            disabled={isStreaming}
+                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                        >
+                                            <span className="leading-none">{isEditMode ? 'Done Editing' : 'Edit'}</span>
+                                        </button>
                                     </div>
                                     
                                     {/* Mode dropdown - right side */}
