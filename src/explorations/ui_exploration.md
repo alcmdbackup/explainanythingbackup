@@ -1,6 +1,19 @@
 # UI Exploration: Content Editing Action Patterns
 
+## Design philosophy 
+- Simple, lighweight, intuitive
+- Accessible to everyday people
+
+## Overall thoughts
+- Side bar feels better overall - more vertical space for scrolling and reading
+- If go with top bar, then it should collapse
+   - However, quick editing may still be good
+   - Good in that no duplicate CTAs - clicking expands action menu
+- However, need a way to draw attention to it
+- Should top buttons and side bar be coupled?
+
 ## Option 1: Always-Visible Action Bar Approach
+Feedback - this could be good
 
 ```
 ┌─ Reggie White ──────────────────── View all matches (5) ┐
@@ -17,6 +30,8 @@
 ```
 
 ## Option 2: 3-Column Layout Design
+Feedback - Don't like the vertically stacked buttons
+
 
 ```
 ┌─ Actions ─┐  ┌─ Main Content ──────────┐  ┌─ AI Suggestions ─┐
@@ -38,6 +53,7 @@
 ```
 
 ## Option 3: Expanding Icon Bar (Elegant)
+Feedback - vertical action buttons still awkward feeling
 
 ```
 Initial state:    Hover/Click expanded:
@@ -65,6 +81,7 @@ Progressive disclosure:
 ```
 
 ## Option 4: Context-Aware Cards
+Feedback - not great
 
 ```
 ┌─ Edit Content ─────────────────┐

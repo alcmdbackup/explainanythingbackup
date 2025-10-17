@@ -23,3 +23,7 @@ Objective is to maximize this feedback loop to the maximum extent, to create con
 
 ### **Article scoring**
 - **Aggregated scoring of similar articles** - Within a given topic, it is critical that article be scored based on the content of similar articles. This will allow the bootstrapping of much better content overall. Think of DAG - like voting.
+
+## **Design philosophy**
+- Simple, lighweight, intuitive
+- Accessible to everyday people
