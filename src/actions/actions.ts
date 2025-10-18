@@ -95,6 +95,147 @@ export const saveExplanationAndTopic = withLogging(
 );
 
 /**
+ * Updates an existing explanation's content and/or status
+ *
+ * Key points:
+ * - Updates existing explanations without creating new records
+ * - Can update content, status, or both
+ * - Regenerates embeddings when content changes
+ * - Used for editing published/draft articles
+ */
+export const updateExplanationAndTopic = withLogging(
+    async function updateExplanationAndTopic(
+        explanationId: number,
+        updates: { content?: string; status?: ExplanationStatus; explanation_title?: string }
+    ) {
+        try {
+            // Import updateExplanation function
+            const { updateExplanation } = await import('@/lib/services/explanations');
+
+            // Validate that we have something to update
+            if (!updates.content && !updates.status && !updates.explanation_title) {
+                return {
+                    success: false,
+                    error: createInputError('No updates provided'),
+                    id: explanationId
+                };
+            }
+
+            // Update the explanation record
+            const updatedExplanation = await updateExplanation(explanationId, updates);
+
+            // If content was updated, regenerate embeddings
+            if (updates.content || updates.explanation_title) {
+                const combinedContent = CONTENT_FORMAT_TEMPLATE
+                    .replace('{title}', updates.explanation_title || updatedExplanation.explanation_title)
+                    .replace('{content}', updates.content || updatedExplanation.content);
+
+                await processContentToStoreEmbedding(
+                    combinedContent,
+                    explanationId,
+                    updatedExplanation.primary_topic_id
+                );
+            }
+
+            return {
+                success: true,
+                error: null,
+                id: explanationId
+            };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'updateExplanationAndTopic', { explanationId, updates }),
+                id: explanationId
+            };
+        }
+    },
+    'updateExplanationAndTopic',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Saves or publishes changes to an explanation based on its current status
+ *
+ * Key points:
+ * - For draft articles: updates the existing record to published status
+ * - For published articles: creates a new published version, leaving original unchanged
+ * - Returns the ID of the explanation (existing or new) that was published
+ * - Used by the in-UI editing feature
+ */
+export const saveOrPublishChanges = withLogging(
+    async function saveOrPublishChanges(
+        explanationId: number,
+        newContent: string,
+        newTitle: string,
+        originalStatus: ExplanationStatus,
+        targetStatus: ExplanationStatus = ExplanationStatus.Published
+    ) {
+        try {
+            if (originalStatus === ExplanationStatus.Draft) {
+                // For draft articles, update the existing record
+                // Always include status change, and include content/title if they're provided
+                const updates: { content?: string; status: ExplanationStatus; explanation_title?: string } = {
+                    status: targetStatus
+                };
+
+                if (newContent) {
+                    updates.content = newContent;
+                }
+                if (newTitle) {
+                    updates.explanation_title = newTitle;
+                }
+
+                const result = await updateExplanationAndTopic(explanationId, updates);
+
+                return {
+                    success: result.success,
+                    error: result.error,
+                    id: explanationId, // Return the same ID for drafts
+                    isNewExplanation: false
+                };
+            } else {
+                // For published articles, create a new published version
+                const explanationData: explanationBaseType = {
+                    explanation_title: newTitle,
+                    content: newContent
+                };
+                const result = await saveExplanationAndTopic('', explanationData);
+
+                // After creating, update status to target status if different from default
+                if (result.success && result.id && targetStatus !== ExplanationStatus.Draft) {
+                    await updateExplanationAndTopic(result.id, { status: targetStatus });
+                }
+
+                return {
+                    success: result.success,
+                    error: result.error,
+                    id: result.id, // Return the new ID for published articles
+                    isNewExplanation: true
+                };
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'saveOrPublishChanges', {
+                    explanationId,
+                    originalStatus,
+                    targetStatus
+                }),
+                id: null,
+                isNewExplanation: false
+            };
+        }
+    },
+    'saveOrPublishChanges',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
  * Key points:
  * - Saves user queries to database with userInputType tracking
  * - Validates query data against schema including userInputType

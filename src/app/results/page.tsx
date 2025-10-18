@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction } from '@/actions/actions';
+import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction, saveOrPublishChanges } from '@/actions/actions';
 import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
@@ -44,6 +44,11 @@ export default function ResultsPage() {
     const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [explanationStatus, setExplanationStatus] = useState<ExplanationStatus | null>(null);
+    const [originalContent, setOriginalContent] = useState('');
+    const [originalTitle, setOriginalTitle] = useState('');
+    const [originalStatus, setOriginalStatus] = useState<ExplanationStatus | null>(null);
+    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+    const [isSavingChanges, setIsSavingChanges] = useState(false);
 
 
     const isFirstRun = useRef(true);
@@ -231,6 +236,12 @@ export default function ResultsPage() {
             setSystemSavedId(explanation.id);
             setExplanationId(explanation.id);
             setExplanationStatus(explanation.status);
+
+            // Set original values for change tracking
+            setOriginalContent(explanation.content);
+            setOriginalTitle(explanation.explanation_title);
+            setOriginalStatus(explanation.status);
+            setHasUnsavedChanges(false);
             if (matches) {
                 setMatches(matches);
             }
@@ -622,6 +633,55 @@ export default function ResultsPage() {
         setIsSaving(false);
     };
 
+    /**
+     * Handles publishing changes based on the original article status
+     *
+     * For draft articles: Updates existing record to published status
+     * For published articles: Creates new published version, leaving original unchanged
+     */
+    const handleSaveOrPublishChanges = async () => {
+        if (!explanationId || (!hasUnsavedChanges && originalStatus !== ExplanationStatus.Draft) || isSavingChanges || !userid) return;
+
+        setIsSavingChanges(true);
+        setError(null);
+
+        try {
+            // Get current content from editor
+            const currentContent = editorRef.current?.getContent() || content;
+
+            // Always target Published status - consistent "Publish Changes" experience
+            const targetStatus = ExplanationStatus.Published;
+
+            const result = await saveOrPublishChanges(
+                explanationId,
+                currentContent,
+                explanationTitle,
+                originalStatus!,
+                targetStatus
+            );
+
+            if (result.success && result.id) {
+                if (result.isNewExplanation) {
+                    // For published articles: Navigate to the new published article
+                    router.push(`/results?explanation_id=${result.id}`);
+                } else {
+                    // For draft articles: Update current page state to reflect published status
+                    setOriginalContent(currentContent);
+                    setOriginalTitle(explanationTitle);
+                    setOriginalStatus(targetStatus);
+                    setExplanationStatus(targetStatus);
+                    setHasUnsavedChanges(false);
+                }
+            } else {
+                setError(result.error?.message || 'Failed to publish changes');
+            }
+        } catch (err: any) {
+            setError(err.message || 'Failed to publish changes');
+        }
+
+        setIsSavingChanges(false);
+    };
+
     const formattedExplanation = content ? content : '';
 
     /**
@@ -637,6 +697,17 @@ export default function ResultsPage() {
     const handleEditorContentChange = (newContent: string) => {
         setContent(newContent);
         setIsModified(true);
+
+        // Check if content differs from original to determine unsaved changes
+        const hasChanges = newContent !== originalContent || explanationTitle !== originalTitle;
+        setHasUnsavedChanges(hasChanges);
+
+        // For published articles, show draft indicator when there are unsaved changes
+        if (originalStatus === ExplanationStatus.Published && hasChanges) {
+            setExplanationStatus(ExplanationStatus.Draft);
+        } else if (!hasChanges) {
+            setExplanationStatus(originalStatus);
+        }
     };
 
 
@@ -844,10 +915,16 @@ export default function ResultsPage() {
                                 <div className="flex items-center">
                                     <div className="ml-3">
                                         <p className="text-sm font-medium">
-                                            📝 This is a draft article
+                                            {originalStatus === ExplanationStatus.Published && hasUnsavedChanges
+                                                ? '✏️ Editing published article'
+                                                : '📝 This is a draft article'
+                                            }
                                         </p>
                                         <p className="text-xs mt-1">
-                                            Draft articles are visible to others but not yet published
+                                            {originalStatus === ExplanationStatus.Published && hasUnsavedChanges
+                                                ? 'Changes will create a new published version when published'
+                                                : 'Click "Publish Changes" to publish this draft'
+                                            }
                                         </p>
                                     </div>
                                 </div>
@@ -1056,6 +1133,21 @@ export default function ResultsPage() {
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
                                         </button>
+                                        {/* Save/Publish Changes Button - shown when in edit mode with unsaved changes OR when viewing/editing a draft */}
+                                        {((isEditMode && hasUnsavedChanges) || originalStatus === ExplanationStatus.Draft) && (
+                                            <button
+                                                onClick={handleSaveOrPublishChanges}
+                                                disabled={isSavingChanges || (originalStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
+                                                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                            >
+                                                <span className="leading-none">
+                                                    {isSavingChanges
+                                                        ? 'Publishing...'
+                                                        : 'Publish Changes'
+                                                    }
+                                                </span>
+                                            </button>
+                                        )}
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
                                             disabled={isStreaming}

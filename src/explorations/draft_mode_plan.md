@@ -260,7 +260,7 @@ const DraftStatusBanner = () => (
 #### 8.2 Required Changes
 
 1. **State Management** - Add `hasUnsavedChanges` based on content comparison with baseline (published or draft)
-2. **Dynamic Button** - Show "Publish Changes" for published articles, "Save Changes" for drafts
+2. **Dynamic Button** - Show "Publish Changes" for published articles, "Publish Changes" for drafts
 3. **Draft Mode UI** - Use existing draft indicator based on article status and unsaved changes
 
 **Key Integration:**
