@@ -13,8 +13,8 @@ interface TagBarProps {
     explanationId?: number | null;
     modeOverride?: TagBarMode;
     setModeOverride?: (mode: TagBarMode) => void;
-    isModified?: boolean;
-    setIsModified?: (modified: boolean) => void;
+    isTagsModified?: boolean;
+    setIsTagsModified?: (modified: boolean) => void;
     tagBarApplyClickHandler?: (tagDescriptions: string[]) => void;
     isStreaming?: boolean;
 }
@@ -35,7 +35,7 @@ interface TagBarProps {
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns, getAllTagsAction for available tags
  */
-export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isModified: externalIsModified, setIsModified: externalSetIsModified, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
+export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isTagsModified: externalIsTagsModified, setIsTagsModified: externalSetIsTagsModified, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -51,8 +51,8 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     const availableTagsDropdownRef = useRef<HTMLDivElement>(null);
 
     // Use external state if provided, otherwise use local state
-    const effectiveIsModified = externalIsModified !== undefined ? externalIsModified : localIsModified;
-    const setEffectiveIsModified = externalSetIsModified || setLocalIsModified;
+    const effectiveIsTagsModified = externalIsTagsModified !== undefined ? externalIsTagsModified : localIsModified;
+    const setEffectiveIsTagsModified = externalSetIsTagsModified || setLocalIsModified;
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -85,8 +85,8 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     useEffect(() => {
         const hasModifications = hasModifiedTags();
         const shouldBeModified = hasModifications || (modeOverride !== undefined && modeOverride !== TagBarMode.Normal);
-        setEffectiveIsModified(shouldBeModified);
-    }, [tags, modeOverride, setEffectiveIsModified]);
+        setEffectiveIsTagsModified(shouldBeModified);
+    }, [tags, modeOverride, setEffectiveIsTagsModified]);
 
     /**
      * Detects if any tags are in a modified state
@@ -134,7 +134,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         setTags(resetTags);
         setShowModifiedMenu(false);
         if (setModeOverride) setModeOverride(TagBarMode.Normal);
-        setEffectiveIsModified(false);
+        setEffectiveIsTagsModified(false);
     };
 
     /**
@@ -276,7 +276,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
             setTags(updatedTags);
             setShowModifiedMenu(false);
             if (setModeOverride) setModeOverride(TagBarMode.Normal);
-            setEffectiveIsModified(false);
+            setEffectiveIsTagsModified(false);
             
             console.log(`Successfully applied tags: ${result.added} added, ${result.removed} removed`);
         } catch (error) {
@@ -584,11 +584,11 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         return null;
     }
 
-    const isModified = effectiveIsModified;
+    const isTagsModified = effectiveIsTagsModified;
 
     return (
         <div className={`relative ${className}`}>
-            {isModified ? (
+            {isTagsModified ? (
                 /* Modified tags container with dark gray background */
                 <div className="bg-gray-800 dark:bg-gray-900 border border-gray-700 dark:border-gray-600 rounded-lg p-4">
                     {/* Title based on modification state */}
