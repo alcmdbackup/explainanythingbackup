@@ -40,7 +40,7 @@ export default function ResultsPage() {
     const [originalTags, setOriginalTags] = useState<TagUIType[]>([]);
     const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
     const [modeOverride, setModeOverride] = useState<TagBarMode>(TagBarMode.Normal);
-    const [isModified, setIsModified] = useState(false);
+    const [isTagsModified, setIsTagsModified] = useState(false);
     const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [explanationStatus, setExplanationStatus] = useState<ExplanationStatus | null>(null);
@@ -696,7 +696,6 @@ export default function ResultsPage() {
      */
     const handleEditorContentChange = (newContent: string) => {
         setContent(newContent);
-        setIsModified(true);
 
         // Check if content differs from original to determine unsaved changes
         const hasChanges = newContent !== originalContent || explanationTitle !== originalTitle;
@@ -1040,7 +1039,7 @@ export default function ResultsPage() {
                                     </div>
                                 )}
                                 
-                                {!isModified && !isPageLoading && (
+                                {!isTagsModified && !isPageLoading && (
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -1195,7 +1194,7 @@ export default function ResultsPage() {
                                         explanationId={explanationId}
                                         modeOverride={modeOverride}
                                         setModeOverride={setModeOverride}
-                                        setIsModified={setIsModified}
+                                        setIsTagsModified={setIsTagsModified}
                                         onTagClick={(tag) => {
                                             // Handle tag clicks here - you can implement search, filtering, etc.
                                             console.log('Tag clicked:', tag);
