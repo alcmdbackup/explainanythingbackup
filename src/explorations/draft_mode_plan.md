@@ -10,7 +10,7 @@
 ### Article state transitions
 **Draft creation occurs in two scenarios:**
 1. **New generation:** All rewrite operations and initial article generation create articles in draft mode
-2. **Editing existing content:** Any edit to a saved article seds UI into a new draft version that gets saved to db on publish only
+2. **Editing existing content:** Any edit to a saved article sends UI into a new draft version that gets persisted to db on publish only
 
 **Publication:** Publishing mechanism will be handled in future iteration - focus on draft creation for now.
 
@@ -246,7 +246,7 @@ const DraftStatusBanner = () => (
 1. **Enter Edit Mode** - User clicks "Edit" on published article → UI switches to edit mode, no visual changes yet
 2. **Content Changes** - When user modifies content that differs from original → draft indicator appears if not already in draft mode
 3. **Local Changes** - All edits stored in browser memory via existing editor state management
-4. **Publish New Version** - if there are content changes from original, then have a "publish" cta which creates new article in published state
+4. **Publish New Version** - if explanation was originally in draft state, then publish should update the corresponding explanation in DB to published state. If explanation was originally already in db in published state, then save a new explanation. 
 5. **Navigation** - User redirected to new published article, original article unchanged
 
 **Implementation:**
