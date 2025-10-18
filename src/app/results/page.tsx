@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction } from '@/actions/actions';
-import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
@@ -43,6 +43,7 @@ export default function ResultsPage() {
     const [isModified, setIsModified] = useState(false);
     const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
+    const [explanationStatus, setExplanationStatus] = useState<ExplanationStatus | null>(null);
 
 
     const isFirstRun = useRef(true);
@@ -229,6 +230,7 @@ export default function ResultsPage() {
             setContent(explanation.content);
             setSystemSavedId(explanation.id);
             setExplanationId(explanation.id);
+            setExplanationStatus(explanation.status);
             if (matches) {
                 setMatches(matches);
             }
@@ -389,6 +391,7 @@ export default function ResultsPage() {
         setExplanationTitle('');
         setTags([]); // Reset tags when generating new explanation, but preserve temp tags for rewrite with tags
         setExplanationVector(null); // Reset vector when generating new explanation
+        setExplanationStatus(null); // Reset explanation status when generating new explanation
 
         // Add console debugging for tag rules
         if (additionalRules.length > 0) {
@@ -467,6 +470,7 @@ export default function ResultsPage() {
                             setIsPageLoading(false);
                             setIsStreaming(false);
                             setExplanationVector(null); // Reset vector on error
+                            setExplanationStatus(null); // Reset status on error
 
                             return;
                         }
@@ -521,6 +525,7 @@ export default function ResultsPage() {
             setError('No result received from server');
             setIsStreaming(false);
             setExplanationVector(null); // Reset vector on error
+            setExplanationStatus(null); // Reset status on error
             return;
         }
 
@@ -537,6 +542,7 @@ export default function ResultsPage() {
             setError(error.message);
             setIsStreaming(false);
             setExplanationVector(null); // Reset vector on error
+            setExplanationStatus(null); // Reset status on error
             // Loading state will be automatically managed by the content-watching useEffect
         } else {
             // Redirect to URL with explanation_id and userQueryId
@@ -701,6 +707,7 @@ export default function ResultsPage() {
             setExplanationId(null);
             setTags([]); // Reset tags when processing new parameters
             setExplanationVector(null); // Reset vector when processing new parameters
+            setExplanationStatus(null); // Reset explanation status when processing new parameters
 
             // Process mode first as an independent step
             const initialMode = initializeMode(router, searchParams);
@@ -828,6 +835,22 @@ export default function ResultsPage() {
                         {error && (
                             <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
                                 {error}
+                            </div>
+                        )}
+
+                        {/* Draft Status Banner */}
+                        {explanationStatus === ExplanationStatus.Draft && (
+                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-300 rounded-md shadow-sm">
+                                <div className="flex items-center">
+                                    <div className="ml-3">
+                                        <p className="text-sm font-medium">
+                                            📝 This is a draft article
+                                        </p>
+                                        <p className="text-xs mt-1">
+                                            Draft articles are visible to others but not yet published
+                                        </p>
+                                    </div>
+                                </div>
                             </div>
                         )}
 
