@@ -31,6 +31,7 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
   const [internalEditMode, setInternalEditMode] = useState(isEditMode);
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const lastStreamingUpdateRef = useRef<string>('');
+  const isInitialLoadRef = useRef<boolean>(true);
 
   // Lock editor during streaming to prevent conflicts
   useEffect(() => {
@@ -55,6 +56,13 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
           editorRef.current.setContentFromMarkdown(newContent);
           lastStreamingUpdateRef.current = newContent;
           setCurrentContent(newContent);
+
+          // After first content update, mark as no longer initial load
+          if (isInitialLoadRef.current) {
+            setTimeout(() => {
+              isInitialLoadRef.current = false;
+            }, 0);
+          }
         } catch (error) {
           console.error('Error updating editor content during streaming:', error);
         }
@@ -74,6 +82,14 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
           editorRef.current.setContentFromMarkdown(content);
           setCurrentContent(content);
         }
+      }
+
+      // After first content update, mark as no longer initial load
+      if (isInitialLoadRef.current) {
+        // Use setTimeout to ensure this runs after the content change callback
+        setTimeout(() => {
+          isInitialLoadRef.current = false;
+        }, 0);
       }
     }
   }, [content, currentContent, isStreaming, debouncedUpdateContent]);
@@ -108,7 +124,11 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
   // Handle content changes from editor
   const handleContentChange = (newContent: string) => {
     setCurrentContent(newContent);
-    onContentChange?.(newContent);
+
+    // Only call onContentChange if user is in edit mode and this is not initial load
+    if (isEditMode && !isInitialLoadRef.current) {
+      onContentChange?.(newContent);
+    }
   };
 
   // Expose methods to parent component

@@ -142,11 +142,20 @@ function ContentChangePlugin({
 }) {
   const [editor] = useLexicalComposerContext();
 
-  const handleChange = useCallback(() => {    
+  const handleChange = useCallback(() => {
     if (onEditorStateChange) {
       const editorState = editor.getEditorState();
       const editorStateJson = JSON.stringify(editorState.toJSON(), null, 2);
       onEditorStateChange(editorStateJson);
+    }
+
+    if (onContentChange) {
+      // Get current content as markdown and call the content change callback
+      let currentContent = '';
+      editor.update(() => {
+        currentContent = replaceDiffTagNodesAndExportMarkdown();
+      });
+      onContentChange(currentContent);
     }
   }, [editor, onContentChange, onEditorStateChange, isMarkdownMode]);
 
