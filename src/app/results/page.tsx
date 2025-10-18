@@ -695,18 +695,37 @@ export default function ResultsPage() {
      * Handles content changes from Lexical editor
      */
     const handleEditorContentChange = (newContent: string) => {
+        console.log('🔄 handleEditorContentChange called');
+        console.log('📝 newContent length:', newContent.length);
+        console.log('📝 newContent preview:', newContent.substring(0, 100) + '...');
+        console.log('📚 originalContent length:', originalContent.length);
+        console.log('📚 originalContent preview:', originalContent.substring(0, 100) + '...');
+        console.log('🏷️ explanationTitle:', explanationTitle);
+        console.log('🏷️ originalTitle:', originalTitle);
+        console.log('📊 originalStatus:', originalStatus);
+
         setContent(newContent);
 
-        // Check if content differs from original to determine unsaved changes
-        const hasChanges = newContent !== originalContent || explanationTitle !== originalTitle;
-        setHasUnsavedChanges(hasChanges);
+         const hasChanges = newContent !== originalContent || explanationTitle !== originalTitle;
+         console.log('🔍 Content changed:', newContent !== originalContent);
+         console.log('🔍 Title changed:', explanationTitle !== originalTitle);
+         console.log('✅ hasChanges:', hasChanges);
+
+         setHasUnsavedChanges(hasChanges);
 
         // For published articles, show draft indicator when there are unsaved changes
-        if (originalStatus === ExplanationStatus.Published && hasChanges) {
-            setExplanationStatus(ExplanationStatus.Draft);
-        } else if (!hasChanges) {
-            setExplanationStatus(originalStatus);
-        }
+         if (originalStatus === ExplanationStatus.Published && hasChanges) {
+             console.log('🟡 Setting status to DRAFT (published article with changes)');
+             setExplanationStatus(ExplanationStatus.Draft);
+         } else if (!hasChanges) {
+             console.log('🟢 Resetting status to original:', originalStatus);
+             setExplanationStatus(originalStatus);
+         } else {
+             console.log('⚪ No status change (not published or other reason)');
+         }
+
+         console.log('📋 Final state - hasUnsavedChanges:', hasChanges);
+         console.log('================================');
     };
 
 

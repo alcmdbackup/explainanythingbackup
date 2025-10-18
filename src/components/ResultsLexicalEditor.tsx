@@ -59,6 +59,7 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
 
           // After first content update, mark as no longer initial load
           if (isInitialLoadRef.current) {
+            // For streaming, use setTimeout to avoid interfering with content callbacks
             setTimeout(() => {
               isInitialLoadRef.current = false;
             }, 0);
@@ -72,6 +73,11 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
 
   // Update editor content when content prop changes (streaming updates)
   useEffect(() => {
+    console.log('🔄 useEffect triggered - content comparison');
+    console.log('🔍 content length:', content?.length || 'undefined');
+    console.log('🔍 currentContent length:', currentContent?.length || 'undefined');
+    console.log('🔍 content !== currentContent:', content !== currentContent);
+
     if (content !== currentContent) {
       if (isStreaming) {
         // Use debounced updates during streaming for better performance
@@ -86,10 +92,19 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
 
       // After first content update, mark as no longer initial load
       if (isInitialLoadRef.current) {
-        // Use setTimeout to ensure this runs after the content change callback
-        setTimeout(() => {
+        console.log('🏁 About to clear isInitialLoadRef, isStreaming:', isStreaming);
+        // For non-streaming updates, mark immediately to avoid filtering real user edits
+        if (!isStreaming) {
+          console.log('🏁 Setting isInitialLoadRef.current = false immediately (non-streaming)');
           isInitialLoadRef.current = false;
-        }, 0);
+        } else {
+          console.log('🏁 Setting isInitialLoadRef.current = false via setTimeout (streaming)');
+          // Use setTimeout for streaming to ensure this runs after the content change callback
+          setTimeout(() => {
+            console.log('🏁 setTimeout executed: setting isInitialLoadRef.current = false');
+            isInitialLoadRef.current = false;
+          }, 0);
+        }
       }
     }
   }, [content, currentContent, isStreaming, debouncedUpdateContent]);
@@ -123,11 +138,31 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
 
   // Handle content changes from editor
   const handleContentChange = (newContent: string) => {
-    setCurrentContent(newContent);
+    console.log('🔄 ResultsLexicalEditor.handleContentChange called');
+    console.log('📝 newContent type:', typeof newContent);
+    console.log('📝 newContent length:', newContent?.length || 'undefined');
+    console.log('🎛️ isEditMode:', isEditMode);
+    console.log('🏁 isInitialLoadRef.current:', isInitialLoadRef.current);
+    console.log('🔗 onContentChange exists:', !!onContentChange);
+
+    // Clear initial load flag on first user edit (when in edit mode)
+    if (isEditMode && isInitialLoadRef.current) {
+      console.log('🏁 Clearing isInitialLoadRef.current on user edit');
+      isInitialLoadRef.current = false;
+    }
+
+    const shouldCall = isEditMode && !isInitialLoadRef.current;
+    console.log('🤔 shouldCall parent:', shouldCall);
 
     // Only call onContentChange if user is in edit mode and this is not initial load
-    if (isEditMode && !isInitialLoadRef.current) {
+    if (shouldCall) {
+      console.log('✅ About to call parent onContentChange');
       onContentChange?.(newContent);
+      console.log('✅ Called parent onContentChange');
+    } else {
+      console.log('❌ NOT calling parent onContentChange because:');
+      if (!isEditMode) console.log('  - Not in edit mode (isEditMode = false)');
+      if (isInitialLoadRef.current) console.log('  - Still in initial load (isInitialLoadRef.current = true)');
     }
   };
 

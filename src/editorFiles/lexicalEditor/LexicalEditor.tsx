@@ -52,7 +52,7 @@ import { MarkNode } from '@lexical/mark';
 // Import custom DiffTagNodeInline and CriticMarkup transformer
 import { DiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
 import { StandaloneTitleLinkNode } from './StandaloneTitleLinkNode';
-import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS } from './importExportUtils';
+import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS, exportMarkdownReadOnly } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 
@@ -143,6 +143,8 @@ function ContentChangePlugin({
   const [editor] = useLexicalComposerContext();
 
   const handleChange = useCallback(() => {
+    console.log('🔄 LexicalEditor ContentChangePlugin.handleChange called');
+
     if (onEditorStateChange) {
       const editorState = editor.getEditorState();
       const editorStateJson = JSON.stringify(editorState.toJSON(), null, 2);
@@ -150,12 +152,16 @@ function ContentChangePlugin({
     }
 
     if (onContentChange) {
+      console.log('📝 LexicalEditor extracting content via exportMarkdownReadOnly');
       // Get current content as markdown and call the content change callback
       let currentContent = '';
-      editor.update(() => {
-        currentContent = replaceDiffTagNodesAndExportMarkdown();
+      editor.getEditorState().read(() => {
+        currentContent = exportMarkdownReadOnly();
       });
+      console.log('📝 LexicalEditor calling onContentChange with content length:', currentContent.length);
       onContentChange(currentContent);
+    } else {
+      console.log('❌ LexicalEditor: No onContentChange callback provided');
     }
   }, [editor, onContentChange, onEditorStateChange, isMarkdownMode]);
 

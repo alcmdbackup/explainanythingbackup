@@ -912,7 +912,7 @@ export function preprocessCriticMarkup(markdown: string): string {
  */
 export function replaceDiffTagNodes(): void {
   console.log("🔄 replaceDiffTagNodes called");
-  
+
   // Clear the current selection to prevent "selection has been lost" errors
   // when replacing nodes that might be selected
   $setSelection(null);
@@ -943,13 +943,33 @@ export function replaceDiffTagNodes(): void {
 }
 
 /**
+ * Read-only version: Exports markdown without modifying editor state
+ *
+ * • Uses Lexical's native markdown export without replacing diff nodes
+ * • Safe for use in read-only editor contexts
+ * • Diff nodes will be exported as-is in the markdown
+ * • Used by: ContentChangePlugin for safe content extraction
+ */
+export function exportMarkdownReadOnly(): string {
+  console.log("🔄 exportMarkdownReadOnly called");
+
+  // Use Lexical's built-in markdown export without modifying nodes
+  const markdown = $convertToMarkdownString(MARKDOWN_TRANSFORMERS);
+
+  console.log("📤 Read-only markdown result:", JSON.stringify(markdown));
+  console.log("📊 Read-only markdown length:", markdown.length);
+
+  return markdown;
+}
+
+/**
  * Exports editor content as markdown with CriticMarkup for diff annotations
- * 
+ *
  * • First replaces all DiffTagNodeInline with their CriticMarkup text representation
  * • Then uses Lexical's built-in $convertToMarkdownString for full markdown export
  * • Leverages Lexical's native markdown transformers for proper formatting
  * • More reliable and maintainable than custom markdown generation
- * • Used by: LexicalEditor for markdown export with diff annotations
+ * • Used by: LexicalEditor for markdown export with diff annotations (write mode only)
  */
 export function replaceDiffTagNodesAndExportMarkdown(): string {
   console.log("🔄 replaceDiffTagNodesAndExportMarkdown called");
