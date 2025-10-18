@@ -1188,14 +1188,13 @@ export default function ResultsPage() {
                                 
                                 {/* Tags Bar - shown during streaming with only add tag button */}
                                 <div className="mb-2">
-                                    <TagBar 
-                                        tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags} 
+                                    <TagBar
+                                        tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags}
                                         setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
-                                        className="mb-2" 
+                                        className="mb-2"
                                         explanationId={explanationId}
                                         modeOverride={modeOverride}
                                         setModeOverride={setModeOverride}
-                                        isModified={isModified}
                                         setIsModified={setIsModified}
                                         onTagClick={(tag) => {
                                             // Handle tag clicks here - you can implement search, filtering, etc.
