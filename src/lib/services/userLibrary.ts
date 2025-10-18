@@ -113,6 +113,7 @@ export async function getUserLibraryExplanations(userid: string) {
       timestamp: explanation.timestamp,
       saved_timestamp: created,
       secondary_topic_id: explanation.secondary_topic_id,
+      status: explanation.status,
     };
   });
 }

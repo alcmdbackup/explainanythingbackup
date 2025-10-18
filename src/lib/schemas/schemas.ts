@@ -37,6 +37,19 @@ export enum TagBarMode {
 }
 
 /**
+ * Enum for explanation status
+ * • Draft: Not yet published, can be edited and refined, cannot be saved to user library
+ * • Published: Finalized, available for broader consumption, can be saved to user library
+ *
+ * Used by: Explanation creation and state management throughout the application
+ * Calls: None (enum definition)
+ */
+export enum ExplanationStatus {
+  Draft = "draft",
+  Published = "published"
+}
+
+/**
  * Schema for validating allowed LLM models
  * • Restricts model parameter to approved OpenAI models only
  * • Ensures consistent model usage across the application
@@ -167,7 +180,8 @@ export const userQueryInsertSchema = z.object({
  */
 export const explanationInsertSchema = explanationBaseSchema.extend({
     primary_topic_id: z.number(),
-    secondary_topic_id: z.number().optional()
+    secondary_topic_id: z.number().optional(),
+    status: z.nativeEnum(ExplanationStatus).default(ExplanationStatus.Published)
 });
 
 /**

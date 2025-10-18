@@ -3,7 +3,7 @@
 import { callOpenAIModel } from '@/lib/services/llms';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, ExplanationStatus } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding, findMatchesInVectorDb, loadFromPineconeUsingExplanationId } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
 import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
@@ -54,7 +54,8 @@ export const saveExplanationAndTopic = withLogging(
             const explanationWithTopic: ExplanationInsertType = {
                 explanation_title: explanationData.explanation_title,
                 content: explanationData.content,
-                primary_topic_id: topic.id
+                primary_topic_id: topic.id,
+                status: ExplanationStatus.Draft
             };
 
             const validatedData = explanationInsertSchema.safeParse(explanationWithTopic);

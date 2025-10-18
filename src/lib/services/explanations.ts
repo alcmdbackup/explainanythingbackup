@@ -38,7 +38,7 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
   const { data, error } = await supabase
     .from('explanations')
     .insert(explanation)
-    .select('id, explanation_title, content, timestamp, primary_topic_id, secondary_topic_id')
+    .select('id, explanation_title, content, timestamp, primary_topic_id, secondary_topic_id, status')
     .single();
 
   if (error) {
