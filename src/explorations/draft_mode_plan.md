@@ -235,39 +235,44 @@ const DraftStatusBanner = () => (
 3. Test URL sharing for draft articles
 4. Validate backward compatibility
 
-### 8. In-UI Draft Editing for Published Articles
+### 8. In-UI Editing for Articles
 
-**Overview:** Leverage existing `ResultsLexicalEditor` to edit published articles. Changes remain in browser only until user explicitly publishes as new published article.
+**Overview:** Leverage existing `ResultsLexicalEditor` to edit articles. Behavior differs based on article status to protect published articles from modification.
+
+#### 8.1 Editing Published Articles
 
 **Edit Flow:**
+0. **Preparation** On load, keep track of explanation's original content, and if explanation originally starts in draft or published state 
 1. **Enter Edit Mode** - User clicks "Edit" on published article → UI switches to edit mode, no visual changes yet
-2. **Content Changes** - When user modifies content that differs from original → draft indicator appears
+2. **Content Changes** - When user modifies content that differs from original → draft indicator appears if not already in draft mode
 3. **Local Changes** - All edits stored in browser memory via existing editor state management
-4. **Publish New Version** - User clicks "Publish Changes" → creates NEW published article in database
+4. **Publish New Version** - if there are content changes from original, then have a "publish" cta which creates new article in published state
 5. **Navigation** - User redirected to new published article, original article unchanged
 
-**Required Changes:**
-1. **State Management** - Add `hasUnsavedChanges` and `isInLocalDraftMode` based on content comparison with original
-2. **Publish Button** - Add "Publish Changes" button that creates new published record from editor content
-3. **Draft Mode UI** - Use existing draft indicator (yellow banner) only when content differs from original
+**Implementation:**
+- Store original published content when entering edit mode
+- Compare current editor content with original published content on each `onContentChange`
+- Set `hasUnsavedChanges = (currentContent !== originalPublishedContent)`
+- Move to draft indicator (if not already) when `hasUnsavedChanges` is true
+- "Publish Changes" calls `saveExplanationAndTopic` with `status: ExplanationStatus.Published`
+- Navigate to new published article ID after successful publish
+
+#### 8.2 Required Changes
+
+1. **State Management** - Add `hasUnsavedChanges` based on content comparison with baseline (published or draft)
+2. **Dynamic Button** - Show "Publish Changes" for published articles, "Save Changes" for drafts
+3. **Draft Mode UI** - Use existing draft indicator based on article status and unsaved changes
 
 **Key Integration:**
 - `ResultsLexicalEditor` already handles edit mode, content changes, and markdown conversion
 - Existing `onContentChange` callback provides current content for comparison
-- Existing `getContent()` method provides current editor state for publishing
+- Existing `getContent()` method provides current editor state for saving/publishing
 - Use existing `DraftStatusBanner` component for consistent visual feedback
 - No new editor components needed - leverage existing sophisticated editor
 
-**Implementation:**
-- Store original article content when entering edit mode
-- Compare current editor content with original content on each `onContentChange`
-- Set `hasUnsavedChanges = (currentContent !== originalContent)`
-- Show draft indicator only when `hasUnsavedChanges` is true
-- "Publish Changes" calls existing `saveExplanationAndTopic` with `status: ExplanationStatus.Published`
-- Navigate to new published article ID after successful publish
-
 **Files Modified:**
-- `src/app/results/page.tsx` - Add local draft state and publish workflow
+- `src/app/results/page.tsx` - Add editing logic that handles both published and draft articles
+- `src/actions/actions.ts` - Add UPDATE operation for existing draft records
 - No changes to editor components - use existing functionality
 
 ### 9. Testing strategy
