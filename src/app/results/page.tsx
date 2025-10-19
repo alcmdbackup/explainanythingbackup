@@ -665,12 +665,8 @@ export default function ResultsPage() {
                     // For published articles: Navigate to the new published article
                     router.push(`/results?explanation_id=${result.id}`);
                 } else {
-                    // For draft articles: Update current page state to reflect published status
-                    setOriginalContent(currentContent);
-                    setOriginalTitle(explanationTitle);
-                    setOriginalStatus(targetStatus);
-                    setExplanationStatus(targetStatus);
-                    setHasUnsavedChanges(false);
+                    // For draft articles: Force page reload
+                    window.location.href = `/results?explanation_id=${result.id}`;
                 }
             } else {
                 setError(result.error?.message || 'Failed to publish changes');
