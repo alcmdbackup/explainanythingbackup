@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useRef } from 'react';
-import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
-import { ResultsLexicalEditorRef } from '@/components/ResultsLexicalEditor';
+import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 
 export default function ResultsTestPage() {
   const [isEditMode, setIsEditMode] = useState(false);
-  const editorRef = useRef<ResultsLexicalEditorRef>(null);
+  const editorRef = useRef<LexicalEditorRef>(null);
 
   // Test content with CriticMarkup that should generate diff tags
   const testContent = `# Test Content with Diff Tags
@@ -67,13 +66,17 @@ The buttons should appear to the right of each highlighted section when you hove
             </button>
           </div>
 
-          <ResultsLexicalEditor
+          <LexicalEditor
             ref={editorRef}
-            content={testContent}
+            initialContent={testContent}
             isEditMode={isEditMode}
             onEditModeToggle={handleEditModeToggle}
             onContentChange={handleContentChange}
-            isStreaming={false}
+            isMarkdownMode={true}
+            showEditorState={false}
+            showTreeView={false}
+            showToolbar={true}
+            hideEditingUI={false}
             className="w-full"
           />
         </div>
