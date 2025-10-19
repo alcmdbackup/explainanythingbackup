@@ -9,6 +9,7 @@ interface AISuggestionsPanelProps {
   currentContent: string;
   editorRef: React.RefObject<any>; // LexicalEditorRef
   onContentChange?: (content: string) => void;
+  onEnterEditMode?: () => void;
   sessionData?: {
     explanation_id: number;
     explanation_title: string;
@@ -26,6 +27,7 @@ export default function AISuggestionsPanel({
   currentContent,
   editorRef,
   onContentChange,
+  onEnterEditMode,
   sessionData
 }: AISuggestionsPanelProps) {
   const [userPrompt, setUserPrompt] = useState('');
@@ -77,6 +79,8 @@ export default function AISuggestionsPanel({
       setLastResult(result);
 
       if (result.success && result.content) {
+        // Enter edit mode before applying the AI suggestions
+        onEnterEditMode?.();
         onContentChange?.(result.content);
       } else {
         setError(result.error || 'Failed to generate suggestions');

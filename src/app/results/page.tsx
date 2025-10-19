@@ -1302,6 +1302,7 @@ export default function ResultsPage() {
                                 // Also call the existing handler if needed
                                 // handleEditorContentChange(newContent);
                             }}
+                            onEnterEditMode={() => setIsEditMode(true)}
                             sessionData={explanationId && explanationTitle ? {
                                 explanation_id: explanationId,
                                 explanation_title: explanationTitle
