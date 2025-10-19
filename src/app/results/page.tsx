@@ -704,8 +704,6 @@ export default function ResultsPage() {
         console.log('🏷️ originalTitle:', originalTitle);
         console.log('📊 originalStatus:', originalStatus);
 
-        setContent(newContent);
-
          const hasChanges = newContent !== originalContent || explanationTitle !== originalTitle;
          console.log('🔍 Content changed:', newContent !== originalContent);
          console.log('🔍 Title changed:', explanationTitle !== originalTitle);
