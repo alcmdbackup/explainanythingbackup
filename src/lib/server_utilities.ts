@@ -1,5 +1,6 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
+import { RequestIdContext } from './requestIdContext';
 
 /**
  * Logger utility for consistent logging across the application
@@ -27,9 +28,26 @@ function getRequiredEnvVar(name: string): string {
   return value;
 }
 
+// Helper function to add request ID to data
+const addRequestId = (data: LoggerData | null) => {
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();
+    return data ? { requestId, userId, ...data } : { requestId, userId };
+};
+
 function writeToFile(level: string, message: string, data: LoggerData | null) {
     const timestamp = new Date().toISOString();
-    const logEntry = `${timestamp} [${level}] ${message} ${data ? JSON.stringify(data) : ''}\n`;
+    const requestIdData = {
+        requestId: RequestIdContext.getRequestId(),
+        userId: RequestIdContext.getUserId()
+    };
+
+    const logEntry = JSON.stringify({
+        timestamp, level, message,
+        data: data || {},
+        requestId: requestIdData
+    }) + '\n';
+
     try {
         appendFileSync(logFile, logEntry);
     } catch (error) {
@@ -40,22 +58,22 @@ function writeToFile(level: string, message: string, data: LoggerData | null) {
 const logger = {
     debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
         if (!debug) return;
-        console.log(`[DEBUG] ${message}`, data || '');
+        console.log(`[DEBUG] ${message}`, addRequestId(data));
         writeToFile('DEBUG', message, data);
     },
 
     error: (message: string, data: LoggerData | null = null) => {
-        console.error(`[ERROR] ${message}`, data || '');
+        console.error(`[ERROR] ${message}`, addRequestId(data));
         writeToFile('ERROR', message, data);
     },
 
     info: (message: string, data: LoggerData | null = null) => {
-        console.log(`[INFO] ${message}`, data || '');
+        console.log(`[INFO] ${message}`, addRequestId(data));
         writeToFile('INFO', message, data);
     },
 
     warn: (message: string, data: LoggerData | null = null) => {
-        console.warn(`[WARN] ${message}`, data || '');
+        console.warn(`[WARN] ${message}`, addRequestId(data));
         writeToFile('WARN', message, data);
     }
 };

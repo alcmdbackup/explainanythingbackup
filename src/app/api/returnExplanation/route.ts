@@ -2,12 +2,23 @@ import { NextRequest } from 'next/server';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
 import { returnExplanationLogic, StreamingCallback } from '@/lib/services/returnExplanation';
 import { logger } from '@/lib/server_utilities';
+import { RequestIdContext } from '@/lib/requestIdContext';
+import { randomUUID } from 'crypto';
 
 const FILE_DEBUG = true;
 
 export async function POST(request: NextRequest) {
     try {
-        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector } = await request.json();
+        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, __requestId } = await request.json();
+
+        // Extract request ID data or create fallback
+        const requestIdData = __requestId || {
+            requestId: `api-${randomUUID()}`,
+            userId: userid || 'anonymous'
+        };
+
+        // Wrap the entire logic in RequestIdContext
+        return await RequestIdContext.run(requestIdData, async () => {
         
         // Add debug logging for all requests
         logger.debug('API route received request', {
@@ -158,6 +169,7 @@ export async function POST(request: NextRequest) {
                 'Connection': 'keep-alive',
             },
         });
+        }); // Close RequestIdContext.run()
 
     } catch (error) {
         console.error('Error in returnExplanation API:', error);

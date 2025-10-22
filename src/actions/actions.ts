@@ -1,6 +1,7 @@
 'use server';
 
 import { callOpenAIModel } from '@/lib/services/llms';
+import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, ExplanationStatus } from '@/lib/schemas/schemas';
@@ -307,9 +308,11 @@ export const saveUserQuery = withLogging(
  * • Calls: getExplanationById
  * • Used by: ResultsPage, other client components
  */
-export async function getExplanationByIdAction(id: number) {
+const _getExplanationByIdAction = async function(id: number) {
     return await getExplanationById(id);
-}
+};
+
+export const getExplanationByIdAction = serverReadRequestId(_getExplanationByIdAction);
 
 /**
  * Saves an explanation to the user's library (server action)
@@ -320,9 +323,11 @@ export async function getExplanationByIdAction(id: number) {
  * • Calls: saveExplanationToLibrary
  * • Used by: ResultsPage, other client components
  */
-export async function saveExplanationToLibraryAction(explanationid: number, userid: string) {
+const _saveExplanationToLibraryAction = async function(explanationid: number, userid: string) {
     return await saveExplanationToLibrary(explanationid, userid);
-}
+};
+
+export const saveExplanationToLibraryAction = serverReadRequestId(_saveExplanationToLibraryAction);
 
 /**
  * Checks if an explanation is saved by the user (server action)
@@ -333,9 +338,11 @@ export async function saveExplanationToLibraryAction(explanationid: number, user
  * • Calls: isExplanationSavedByUser
  * • Used by: ResultsPage, other client components
  */
-export async function isExplanationSavedByUserAction(explanationid: number, userid: string) {
+const _isExplanationSavedByUserAction = async function(explanationid: number, userid: string) {
     return await isExplanationSavedByUser(explanationid, userid);
-} 
+};
+
+export const isExplanationSavedByUserAction = serverReadRequestId(_isExplanationSavedByUserAction); 
 
 /**
  * Fetches recent explanations with pagination (server action)
@@ -346,9 +353,11 @@ export async function isExplanationSavedByUserAction(explanationid: number, user
  * • Calls: getRecentExplanations
  * • Used by: ExplanationsPage, other client components
  */
-export async function getRecentExplanationsAction(limit?: number, offset?: number, orderBy?: string, order?: 'asc' | 'desc') {
+const _getRecentExplanationsAction = async function(limit?: number, offset?: number, orderBy?: string, order?: 'asc' | 'desc') {
     return await getRecentExplanations(limit, offset, orderBy, order);
-} 
+};
+
+export const getRecentExplanationsAction = serverReadRequestId(_getRecentExplanationsAction); 
 
 /**
  * Fetches all explanations saved in a user's library (server action)
@@ -359,9 +368,11 @@ export async function getRecentExplanationsAction(limit?: number, offset?: numbe
  * • Calls: getUserLibraryExplanations
  * • Used by: UserLibraryPage, other client components
  */
-export async function getUserLibraryExplanationsAction(userid: string) {
+const _getUserLibraryExplanationsAction = async function(userid: string) {
     return await getUserLibraryExplanations(userid);
-}
+};
+
+export const getUserLibraryExplanationsAction = serverReadRequestId(_getUserLibraryExplanationsAction);
 
 /**
  * Fetches a user query by its ID (server action)
@@ -372,9 +383,11 @@ export async function getUserLibraryExplanationsAction(userid: string) {
  * • Calls: getUserQueryById
  * • Used by: ResultsPage, other client components
  */
-export async function getUserQueryByIdAction(id: number) {
+const _getUserQueryByIdAction = async function(id: number) {
     return await getUserQueryById(id);
-}
+};
+
+export const getUserQueryByIdAction = serverReadRequestId(_getUserQueryByIdAction);
 
 /**
  * Creates a user explanation event record (server action)
@@ -386,9 +399,11 @@ export async function getUserQueryByIdAction(id: number) {
  * • Calls: createUserExplanationEvent
  * • Used by: Analytics tracking, user interaction components
  */
-export async function createUserExplanationEventAction(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
+const _createUserExplanationEventAction = async function(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
     return await createUserExplanationEvent(eventData);
-}
+};
+
+export const createUserExplanationEventAction = serverReadRequestId(_createUserExplanationEventAction);
 
 /**
  * Creates tags in bulk, skipping duplicates (server action)
@@ -400,7 +415,7 @@ export async function createUserExplanationEventAction(eventData: UserExplanatio
  * • Calls: createTags
  * • Used by: Tag management components, admin interfaces
  */
-export const createTagsAction = withLogging(
+const _createTagsAction = withLogging(
     async function createTagsAction(tags: TagInsertType[]): Promise<{
         success: boolean;
         data: TagFullDbType[] | null;
@@ -408,7 +423,7 @@ export const createTagsAction = withLogging(
     }> {
         try {
             const createdTags = await createTags(tags);
-            
+
             return {
                 success: true,
                 data: createdTags,
@@ -423,10 +438,12 @@ export const createTagsAction = withLogging(
         }
     },
     'createTagsAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const createTagsAction = serverReadRequestId(_createTagsAction);
 
 /**
  * Fetches a tag record by ID (server action)
@@ -437,7 +454,7 @@ export const createTagsAction = withLogging(
  * • Calls: getTagsById
  * • Used by: Tag editing components, tag display interfaces
  */
-export const getTagByIdAction = withLogging(
+const _getTagByIdAction = withLogging(
     async function getTagByIdAction(id: number): Promise<{
         success: boolean;
         data: TagFullDbType | null;
@@ -446,7 +463,7 @@ export const getTagByIdAction = withLogging(
         try {
             const tags = await getTagsById([id]);
             const tag = tags.length > 0 ? tags[0] : null;
-            
+
             return {
                 success: true,
                 data: tag,
@@ -461,10 +478,12 @@ export const getTagByIdAction = withLogging(
         }
     },
     'getTagByIdAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const getTagByIdAction = serverReadRequestId(_getTagByIdAction);
 
 /**
  * Updates an existing tag record (server action)
@@ -476,7 +495,7 @@ export const getTagByIdAction = withLogging(
  * • Calls: updateTag
  * • Used by: Tag editing components, admin interfaces
  */
-export const updateTagAction = withLogging(
+const _updateTagAction = withLogging(
     async function updateTagAction(id: number, updates: Partial<TagInsertType>): Promise<{
         success: boolean;
         data: TagFullDbType | null;
@@ -484,7 +503,7 @@ export const updateTagAction = withLogging(
     }> {
         try {
             const updatedTag = await updateTag(id, updates);
-            
+
             return {
                 success: true,
                 data: updatedTag,
@@ -499,10 +518,12 @@ export const updateTagAction = withLogging(
         }
     },
     'updateTagAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const updateTagAction = serverReadRequestId(_updateTagAction);
 
 /**
  * Deletes a tag record (server action)
@@ -513,14 +534,14 @@ export const updateTagAction = withLogging(
  * • Calls: deleteTag
  * • Used by: Tag management components, admin interfaces
  */
-export const deleteTagAction = withLogging(
+const _deleteTagAction = withLogging(
     async function deleteTagAction(id: number): Promise<{
         success: boolean;
         error: ErrorResponse | null;
     }> {
         try {
             await deleteTag(id);
-            
+
             return {
                 success: true,
                 error: null
@@ -533,10 +554,12 @@ export const deleteTagAction = withLogging(
         }
     },
     'deleteTagAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const deleteTagAction = serverReadRequestId(_deleteTagAction);
 
 /**
  * Adds tags to an explanation (server action)
@@ -548,7 +571,7 @@ export const deleteTagAction = withLogging(
  * • Calls: addTagsToExplanation
  * • Used by: Tag management components, explanation editing interfaces
  */
-export const addTagsToExplanationAction = withLogging(
+const _addTagsToExplanationAction = withLogging(
     async function addTagsToExplanationAction(
         explanationId: number,
         tagIds: number[]
@@ -559,7 +582,7 @@ export const addTagsToExplanationAction = withLogging(
     }> {
         try {
             const relationships = await addTagsToExplanation(explanationId, tagIds);
-            
+
             return {
                 success: true,
                 data: relationships,
@@ -569,19 +592,21 @@ export const addTagsToExplanationAction = withLogging(
             return {
                 success: false,
                 data: null,
-                error: handleError(error, 'addTagsToExplanationAction', { 
-                    explanationId, 
-                    tagIds, 
-                    tagCount: tagIds.length 
+                error: handleError(error, 'addTagsToExplanationAction', {
+                    explanationId,
+                    tagIds,
+                    tagCount: tagIds.length
                 })
             };
         }
     },
     'addTagsToExplanationAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const addTagsToExplanationAction = serverReadRequestId(_addTagsToExplanationAction);
 
 /**
  * Removes specific tags from an explanation (server action)
@@ -592,7 +617,7 @@ export const addTagsToExplanationAction = withLogging(
  * • Calls: removeTagsFromExplanation
  * • Used by: Tag management components, explanation editing interfaces
  */
-export const removeTagsFromExplanationAction = withLogging(
+const _removeTagsFromExplanationAction = withLogging(
     async function removeTagsFromExplanationAction(
         explanationId: number,
         tagIds: number[]
@@ -602,7 +627,7 @@ export const removeTagsFromExplanationAction = withLogging(
     }> {
         try {
             await removeTagsFromExplanation(explanationId, tagIds);
-            
+
             return {
                 success: true,
                 error: null
@@ -610,19 +635,21 @@ export const removeTagsFromExplanationAction = withLogging(
         } catch (error) {
             return {
                 success: false,
-                error: handleError(error, 'removeTagsFromExplanationAction', { 
-                    explanationId, 
+                error: handleError(error, 'removeTagsFromExplanationAction', {
+                    explanationId,
                     tagIds,
-                    tagCount: tagIds.length 
+                    tagCount: tagIds.length
                 })
             };
         }
     },
     'removeTagsFromExplanationAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const removeTagsFromExplanationAction = serverReadRequestId(_removeTagsFromExplanationAction);
 
 /**
  * Gets all tags for a specific explanation (server action)
@@ -633,7 +660,7 @@ export const removeTagsFromExplanationAction = withLogging(
  * • Calls: getTagsForExplanation
  * • Used by: Explanation view components, tag display interfaces
  */
-export const getTagsForExplanationAction = withLogging(
+const _getTagsForExplanationAction = withLogging(
     async function getTagsForExplanationAction(explanationId: number): Promise<{
         success: boolean;
         data: TagUIType[] | null;
@@ -641,7 +668,7 @@ export const getTagsForExplanationAction = withLogging(
     }> {
         try {
             const tags = await getTagsForExplanation(explanationId);
-            
+
             return {
                 success: true,
                 data: tags,
@@ -656,10 +683,12 @@ export const getTagsForExplanationAction = withLogging(
         }
     },
     'getTagsForExplanationAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const getTagsForExplanationAction = serverReadRequestId(_getTagsForExplanationAction);
 
 /**
  * Gets all tags with the specified preset tag IDs (server action)
@@ -670,7 +699,7 @@ export const getTagsForExplanationAction = withLogging(
  * • Calls: getTagsByPresetId
  * • Used by: TagBar component for preset tag dropdowns
  */
-export const getTagsByPresetIdAction = withLogging(
+const _getTagsByPresetIdAction = withLogging(
     async function getTagsByPresetIdAction(presetTagIds: number[]): Promise<{
         success: boolean;
         data: TagFullDbType[] | null;
@@ -678,7 +707,7 @@ export const getTagsByPresetIdAction = withLogging(
     }> {
         try {
             const tags = await getTagsByPresetId(presetTagIds);
-            
+
             return {
                 success: true,
                 data: tags,
@@ -693,10 +722,12 @@ export const getTagsByPresetIdAction = withLogging(
         }
     },
     'getTagsByPresetIdAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const getTagsByPresetIdAction = serverReadRequestId(_getTagsByPresetIdAction);
 
 /**
  * Get all available tags
@@ -705,7 +736,7 @@ export const getTagsByPresetIdAction = withLogging(
  * • Used by tag selection interfaces and add tag functionality
  * • Calls getAllTags service function
  */
-export const getAllTagsAction = withLogging(
+const _getAllTagsAction = withLogging(
     async function getAllTagsAction(): Promise<{
         success: boolean;
         data: TagFullDbType[] | null;
@@ -727,10 +758,12 @@ export const getAllTagsAction = withLogging(
         }
     },
     'getAllTagsAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const getAllTagsAction = serverReadRequestId(_getAllTagsAction);
 
 /**
  * Gets temporary tags for "rewrite with tags" functionality (server action)
@@ -740,7 +773,7 @@ export const getAllTagsAction = withLogging(
  * • Used by "rewrite with tags" functionality to start with minimal preset tags
  * • Calls getTempTagsForRewriteWithTags service function
  */
-export const getTempTagsForRewriteWithTagsAction = withLogging(
+const _getTempTagsForRewriteWithTagsAction = withLogging(
     async function getTempTagsForRewriteWithTagsAction(): Promise<{
         success: boolean;
         data: TagUIType[] | null;
@@ -762,10 +795,12 @@ export const getTempTagsForRewriteWithTagsAction = withLogging(
         }
     },
     'getTempTagsForRewriteWithTagsAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const getTempTagsForRewriteWithTagsAction = serverReadRequestId(_getTempTagsForRewriteWithTagsAction);
 
 /**
  * === AGGREGATE METRICS ACTION FUNCTIONS ===
@@ -781,10 +816,12 @@ export const getTempTagsForRewriteWithTagsAction = withLogging(
  * • Calls: getMultipleExplanationMetrics
  * • Used by: UI components displaying explanation performance data
  */
-export async function getExplanationMetricsAction(explanationId: number): Promise<ExplanationMetricsType | null> {
+const _getExplanationMetricsAction = async function(explanationId: number): Promise<ExplanationMetricsType | null> {
     const results = await getMultipleExplanationMetrics([explanationId]);
     return results[0];
-}
+};
+
+export const getExplanationMetricsAction = serverReadRequestId(_getExplanationMetricsAction);
 
 /**
  * Gets aggregate metrics for multiple explanations (server action)
@@ -795,9 +832,11 @@ export async function getExplanationMetricsAction(explanationId: number): Promis
  * • Calls: getMultipleExplanationMetrics
  * • Used by: List views, dashboard components showing multiple explanation stats
  */
-export async function getMultipleExplanationMetricsAction(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
+const _getMultipleExplanationMetricsAction = async function(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
     return await getMultipleExplanationMetrics(explanationIds);
-}
+};
+
+export const getMultipleExplanationMetricsAction = serverReadRequestId(_getMultipleExplanationMetricsAction);
 
 /**
  * Refreshes aggregate metrics for specific explanations or all explanations (server action)
@@ -808,7 +847,7 @@ export async function getMultipleExplanationMetricsAction(explanationIds: number
  * • Calls: refreshExplanationMetrics
  * • Used by: Admin interfaces, manual refresh operations, batch maintenance
  */
-export const refreshExplanationMetricsAction = withLogging(
+const _refreshExplanationMetricsAction = withLogging(
     async function refreshExplanationMetricsAction(options: {
         explanationIds?: number | number[];
         refreshAll?: boolean;
@@ -822,7 +861,7 @@ export const refreshExplanationMetricsAction = withLogging(
     }> {
         try {
             const result = await refreshExplanationMetrics(options);
-            
+
             return {
                 success: true,
                 data: result,
@@ -837,10 +876,12 @@ export const refreshExplanationMetricsAction = withLogging(
         }
     },
     'refreshExplanationMetricsAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const refreshExplanationMetricsAction = serverReadRequestId(_refreshExplanationMetricsAction);
 
 /**
  * Loads a single vector from Pinecone based on explanation ID (server action)
@@ -851,7 +892,7 @@ export const refreshExplanationMetricsAction = withLogging(
  * • Calls: loadFromPineconeUsingExplanationId
  * • Used by: Results page for vector comparison and analysis
  */
-export const loadFromPineconeUsingExplanationIdAction = withLogging(
+const _loadFromPineconeUsingExplanationIdAction = withLogging(
     async function loadFromPineconeUsingExplanationIdAction(explanationId: number, namespace: string = 'default'): Promise<{
         success: boolean;
         data: any | null;
@@ -859,7 +900,7 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
     }> {
         try {
             const vector = await loadFromPineconeUsingExplanationId(explanationId, namespace);
-            
+
             logger.debug('Vector loading result:', {
                 explanationId,
                 namespace,
@@ -868,7 +909,7 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
                 valuesPreview: vector?.values ? vector.values.slice(0, 5) : null, // Preview of first 5 values
                 valuesLength: vector?.values?.length || 0
             }, FILE_DEBUG);
-            
+
             return {
                 success: true,
                 data: vector,
@@ -882,7 +923,7 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
                 errorType: typeof error,
                 errorKeys: error && typeof error === 'object' ? Object.keys(error) : []
             });
-            
+
             return {
                 success: false,
                 data: null,
@@ -891,10 +932,12 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
         }
     },
     'loadFromPineconeUsingExplanationIdAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const loadFromPineconeUsingExplanationIdAction = serverReadRequestId(_loadFromPineconeUsingExplanationIdAction);
 
 /**
  * Generates AI suggestions for text improvement (server action)
@@ -905,7 +948,7 @@ export const loadFromPineconeUsingExplanationIdAction = withLogging(
  * • Calls: createAISuggestionPrompt, callOpenAIModel
  * • Used by: Editor test pages for AI-powered text suggestions
  */
-export const generateAISuggestionsAction = withLogging(
+const _generateAISuggestionsAction = withLogging(
     async function generateAISuggestionsAction(
         currentText: string,
         userid: string
@@ -916,7 +959,7 @@ export const generateAISuggestionsAction = withLogging(
     }> {
         try {
             const prompt = createAISuggestionPrompt(currentText);
-            
+
             logger.debug('AI Suggestion Request', {
                 textLength: currentText.length,
                 promptLength: prompt.length,
@@ -949,7 +992,7 @@ export const generateAISuggestionsAction = withLogging(
             logger.error('AI Suggestion Error', {
                 error: error instanceof Error ? error.message : String(error)
             });
-            
+
             return {
                 success: false,
                 data: null,
@@ -958,10 +1001,12 @@ export const generateAISuggestionsAction = withLogging(
         }
     },
     'generateAISuggestionsAction',
-    { 
+    {
         enabled: FILE_DEBUG
     }
 );
+
+export const generateAISuggestionsAction = serverReadRequestId(_generateAISuggestionsAction);
 
 /**
  * Applies AI suggestions to the original content (server action)
@@ -972,7 +1017,7 @@ export const generateAISuggestionsAction = withLogging(
  * • Calls: createApplyEditsPrompt, callOpenAIModel
  * • Used by: Editor test pages to apply AI suggestions to content
  */
-export const applyAISuggestionsAction = withLogging(
+const _applyAISuggestionsAction = withLogging(
     async function applyAISuggestionsAction(
         aiSuggestions: string,
         originalContent: string,
@@ -984,7 +1029,7 @@ export const applyAISuggestionsAction = withLogging(
     }> {
         try {
             const prompt = createApplyEditsPrompt(aiSuggestions, originalContent);
-            
+
             logger.debug('Apply AI Suggestions Request', {
                 suggestionsLength: aiSuggestions.length,
                 originalContentLength: originalContent.length,
@@ -1015,13 +1060,13 @@ export const applyAISuggestionsAction = withLogging(
             logger.error('Apply AI Suggestions Error', {
                 error: error instanceof Error ? error.message : String(error)
             });
-            
+
             return {
                 success: false,
                 data: null,
-                error: handleError(error, 'applyAISuggestionsAction', { 
-                    suggestionsLength: aiSuggestions.length, 
-                    originalContentLength: originalContent.length 
+                error: handleError(error, 'applyAISuggestionsAction', {
+                    suggestionsLength: aiSuggestions.length,
+                    originalContentLength: originalContent.length
                 })
             };
         }
@@ -1031,6 +1076,8 @@ export const applyAISuggestionsAction = withLogging(
         enabled: FILE_DEBUG
     }
 );
+
+export const applyAISuggestionsAction = serverReadRequestId(_applyAISuggestionsAction);
 
 /**
  * Saves content to testing pipeline if it doesn't already exist (server action)
@@ -1042,7 +1089,7 @@ export const applyAISuggestionsAction = withLogging(
  * • Calls: checkAndSaveTestingPipelineRecord from testingPipeline service
  * • Used by: Editor test pages to track pipeline results at each step
  */
-export const saveTestingPipelineStepAction = withLogging(
+const _saveTestingPipelineStepAction = withLogging(
     async function saveTestingPipelineStepAction(
         setName: string,
         step: string,
@@ -1100,6 +1147,8 @@ export const saveTestingPipelineStepAction = withLogging(
     }
 );
 
+export const saveTestingPipelineStepAction = serverReadRequestId(_saveTestingPipelineStepAction);
+
 /**
  * Gets testing pipeline records by step (server action)
  *
@@ -1109,7 +1158,7 @@ export const saveTestingPipelineStepAction = withLogging(
  * • Calls: getTestingPipelineRecords from testingPipeline service
  * • Used by: Editor test pages to populate dropdowns for loading previous results
  */
-export const getTestingPipelineRecordsByStepAction = withLogging(
+const _getTestingPipelineRecordsByStepAction = withLogging(
     async function getTestingPipelineRecordsByStepAction(
         step: string
     ): Promise<{
@@ -1166,6 +1215,8 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
     }
 );
 
+export const getTestingPipelineRecordsByStepAction = serverReadRequestId(_getTestingPipelineRecordsByStepAction);
+
 /**
  * Updates the name for a testing pipeline record (server action)
  *
@@ -1174,7 +1225,7 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
  * • Calls: updateTestingPipelineRecordSetName from testingPipeline service
  * • Used by: Editor test pages to rename test sets from dropdown UI
  */
-export const updateTestingPipelineRecordSetNameAction = withLogging(
+const _updateTestingPipelineRecordSetNameAction = withLogging(
     async function updateTestingPipelineRecordSetNameAction(
         recordId: number,
         newSetName: string
@@ -1214,6 +1265,8 @@ export const updateTestingPipelineRecordSetNameAction = withLogging(
     }
 );
 
+export const updateTestingPipelineRecordSetNameAction = serverReadRequestId(_updateTestingPipelineRecordSetNameAction);
+
 /**
  * Gets all AI suggestion sessions for a specific explanation (server action)
  *
@@ -1222,7 +1275,7 @@ export const updateTestingPipelineRecordSetNameAction = withLogging(
  * • Returns session metadata for dropdown selection
  * • Used by: EditorTest page to populate AI suggestion session dropdown
  */
-export const getAISuggestionSessionsAction = withLogging(
+const _getAISuggestionSessionsAction = withLogging(
     async function getAISuggestionSessionsAction(
         explanationId?: number
     ): Promise<{
@@ -1290,6 +1343,8 @@ export const getAISuggestionSessionsAction = withLogging(
     }
 );
 
+export const getAISuggestionSessionsAction = serverReadRequestId(_getAISuggestionSessionsAction);
+
 /**
  * Loads all pipeline steps for a specific AI suggestion session (server action)
  *
@@ -1297,7 +1352,7 @@ export const getAISuggestionSessionsAction = withLogging(
  * • Returns all 4 pipeline steps with content and metadata
  * • Used by: EditorTest page to load complete session pipeline
  */
-export const loadAISuggestionSessionAction = withLogging(
+const _loadAISuggestionSessionAction = withLogging(
     async function loadAISuggestionSessionAction(
         sessionId: string
     ): Promise<{
@@ -1386,4 +1441,6 @@ export const loadAISuggestionSessionAction = withLogging(
         enabled: FILE_DEBUG
     }
 );
+
+export const loadAISuggestionSessionAction = serverReadRequestId(_loadAISuggestionSessionAction);
 

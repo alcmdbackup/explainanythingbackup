@@ -2,14 +2,25 @@
 
 import { callOpenAIModel } from '@/lib/services/llms';
 import { NextRequest } from 'next/server';
+import { RequestIdContext } from '@/lib/requestIdContext';
+import { randomUUID } from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
-    const { prompt, userid } = await request.json();
-    
+    const { prompt, userid, __requestId } = await request.json();
+
     if (!prompt || !userid) {
       return new Response('Missing prompt or userid', { status: 400 });
     }
+
+    // Extract request ID data or create fallback
+    const requestIdData = __requestId || {
+      requestId: `api-${randomUUID()}`,
+      userId: userid || 'anonymous'
+    };
+
+    // Wrap the entire logic in RequestIdContext
+    return await RequestIdContext.run(requestIdData, async () => {
 
     // Create a readable stream
     const encoder = new TextEncoder();
@@ -57,6 +68,7 @@ export async function POST(request: NextRequest) {
         'Connection': 'keep-alive',
       },
     });
+    }); // Close RequestIdContext.run()
   } catch (error) {
     return new Response('Internal Server Error', { status: 500 });
   }
