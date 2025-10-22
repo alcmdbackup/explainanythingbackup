@@ -5,6 +5,8 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction, saveOrPublishChanges } from '@/actions/actions';
 import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
+import { RequestIdContext } from '@/lib/requestIdContext';
+import { clientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
@@ -18,6 +20,7 @@ const FORCE_REGENERATION_ON_NAV = false;
 export default function ResultsPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
+    const { withRequestId } = clientPassRequestId('anonymous');
     const [prompt, setPrompt] = useState('');
     const [explanationTitle, setExplanationTitle] = useState('');
     const [content, setContent] = useState('');
@@ -200,7 +203,7 @@ export default function ResultsPage() {
         const idToCheck = targetExplanationId || explanationId;
         if (!idToCheck || !userid) return;
         try {
-            const saved = await isExplanationSavedByUserAction(idToCheck, userid);
+            const saved = await isExplanationSavedByUserAction(withRequestId({ explanationid: idToCheck, userid }));
             setUserSaved(saved);
         } catch (err) {
             setUserSaved(false);
@@ -224,7 +227,7 @@ export default function ResultsPage() {
     const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
         try {
             setError(null);
-            const explanation = await getExplanationByIdAction(explanationId);
+            const explanation = await getExplanationByIdAction(withRequestId({ id: explanationId }));
             
             if (!explanation) {
                 setError('Explanation not found');
@@ -259,7 +262,7 @@ export default function ResultsPage() {
             setTempTagsForRewriteWithTags([]);
 
             // Fetch tags for the explanation
-            const tagsResult = await getTagsForExplanationAction(explanation.id);
+            const tagsResult = await getTagsForExplanationAction(withRequestId({ explanationId: explanation.id }));
             if (tagsResult.success && tagsResult.data) {
                 setTags(tagsResult.data);
                 setOriginalTags(tagsResult.data); // Save original tags
@@ -274,7 +277,7 @@ export default function ResultsPage() {
                 explanationId: explanation.id,
                 explanationTitle: explanation.explanation_title 
             }, true);
-            const vectorResult = await loadFromPineconeUsingExplanationIdAction(explanation.id);
+            const vectorResult = await loadFromPineconeUsingExplanationIdAction(withRequestId({ explanationId: explanation.id }));
             if (vectorResult.success) {
                 if (vectorResult.data) {
                     // Ensure the vector data has the expected structure
@@ -346,7 +349,7 @@ export default function ResultsPage() {
     const loadUserQuery = async (userQueryId: number) => {
         try {
             setError(null);
-            const userQuery = await getUserQueryByIdAction(userQueryId);
+            const userQuery = await getUserQueryByIdAction(withRequestId({ id: userQueryId }));
             
             if (!userQuery) {
                 setError('User query not found');
@@ -443,7 +446,7 @@ export default function ResultsPage() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(withRequestId(requestBody))
         });
 
         if (!response.ok) {
@@ -625,7 +628,7 @@ export default function ResultsPage() {
         setError(null);
         try {
             logger.debug('Starting from handleSave', {}, true);
-            await saveExplanationToLibraryAction(explanationId, userid);
+            await saveExplanationToLibraryAction(withRequestId({ explanationid: explanationId, userid }));
             setUserSaved(true);
         } catch (err: any) {
             setError(err.message || 'Failed to save explanation to library.');
@@ -653,7 +656,7 @@ export default function ResultsPage() {
             const targetStatus = ExplanationStatus.Published;
 
             const result = await saveOrPublishChanges(
-                explanationId,
+                withRequestId(explanationId),
                 currentContent,
                 explanationTitle,
                 originalStatus!,
@@ -778,6 +781,10 @@ export default function ResultsPage() {
         }*/
 
         const processParams = async () => {
+            // Initialize request ID for page load
+            const pageLoadRequestId = `page-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: 'anonymous' });
+
             setIsPageLoading(true);
             setIsStreaming(false); // Reset streaming state when processing new parameters
             

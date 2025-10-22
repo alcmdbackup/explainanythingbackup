@@ -308,8 +308,8 @@ export const saveUserQuery = withLogging(
  * • Calls: getExplanationById
  * • Used by: ResultsPage, other client components
  */
-const _getExplanationByIdAction = async function(id: number) {
-    return await getExplanationById(id);
+const _getExplanationByIdAction = async function(params: { id: number }) {
+    return await getExplanationById(params.id);
 };
 
 export const getExplanationByIdAction = serverReadRequestId(_getExplanationByIdAction);
@@ -323,8 +323,8 @@ export const getExplanationByIdAction = serverReadRequestId(_getExplanationByIdA
  * • Calls: saveExplanationToLibrary
  * • Used by: ResultsPage, other client components
  */
-const _saveExplanationToLibraryAction = async function(explanationid: number, userid: string) {
-    return await saveExplanationToLibrary(explanationid, userid);
+const _saveExplanationToLibraryAction = async function(params: { explanationid: number; userid: string }) {
+    return await saveExplanationToLibrary(params.explanationid, params.userid);
 };
 
 export const saveExplanationToLibraryAction = serverReadRequestId(_saveExplanationToLibraryAction);
@@ -338,8 +338,8 @@ export const saveExplanationToLibraryAction = serverReadRequestId(_saveExplanati
  * • Calls: isExplanationSavedByUser
  * • Used by: ResultsPage, other client components
  */
-const _isExplanationSavedByUserAction = async function(explanationid: number, userid: string) {
-    return await isExplanationSavedByUser(explanationid, userid);
+const _isExplanationSavedByUserAction = async function(params: { explanationid: number; userid: string }) {
+    return await isExplanationSavedByUser(params.explanationid, params.userid);
 };
 
 export const isExplanationSavedByUserAction = serverReadRequestId(_isExplanationSavedByUserAction); 
@@ -383,8 +383,8 @@ export const getUserLibraryExplanationsAction = serverReadRequestId(_getUserLibr
  * • Calls: getUserQueryById
  * • Used by: ResultsPage, other client components
  */
-const _getUserQueryByIdAction = async function(id: number) {
-    return await getUserQueryById(id);
+const _getUserQueryByIdAction = async function(params: { id: number }) {
+    return await getUserQueryById(params.id);
 };
 
 export const getUserQueryByIdAction = serverReadRequestId(_getUserQueryByIdAction);
@@ -661,13 +661,13 @@ export const removeTagsFromExplanationAction = serverReadRequestId(_removeTagsFr
  * • Used by: Explanation view components, tag display interfaces
  */
 const _getTagsForExplanationAction = withLogging(
-    async function getTagsForExplanationAction(explanationId: number): Promise<{
+    async function getTagsForExplanationAction(params: { explanationId: number }): Promise<{
         success: boolean;
         data: TagUIType[] | null;
         error: ErrorResponse | null;
     }> {
         try {
-            const tags = await getTagsForExplanation(explanationId);
+            const tags = await getTagsForExplanation(params.explanationId);
 
             return {
                 success: true,
@@ -893,17 +893,17 @@ export const refreshExplanationMetricsAction = serverReadRequestId(_refreshExpla
  * • Used by: Results page for vector comparison and analysis
  */
 const _loadFromPineconeUsingExplanationIdAction = withLogging(
-    async function loadFromPineconeUsingExplanationIdAction(explanationId: number, namespace: string = 'default'): Promise<{
+    async function loadFromPineconeUsingExplanationIdAction(params: { explanationId: number; namespace?: string }): Promise<{
         success: boolean;
         data: any | null;
         error: ErrorResponse | null;
     }> {
         try {
-            const vector = await loadFromPineconeUsingExplanationId(explanationId, namespace);
+            const vector = await loadFromPineconeUsingExplanationId(params.explanationId, params.namespace || 'default');
 
             logger.debug('Vector loading result:', {
-                explanationId,
-                namespace,
+                explanationId: params.explanationId,
+                namespace: params.namespace || 'default',
                 found: !!vector,
                 vectorType: vector ? typeof vector : 'null',
                 valuesPreview: vector?.values ? vector.values.slice(0, 5) : null, // Preview of first 5 values

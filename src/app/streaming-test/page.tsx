@@ -2,8 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { supabase_browser } from '@/lib/supabase';
+import { clientPassRequestId } from '@/hooks/clientPassRequestId';
 
 export default function StreamingTestPage() {
+    const { withRequestId } = clientPassRequestId('anonymous');
     const [prompt, setPrompt] = useState('');
     const [streamedText, setStreamedText] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);
@@ -60,10 +62,10 @@ export default function StreamingTestPage() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({
+                body: JSON.stringify(withRequestId({
                     prompt: prompt.trim(),
                     userid: userid
-                }),
+                })),
             });
 
             if (!response.ok) {

@@ -11,8 +11,8 @@ export function clientPassRequestId(userId = 'anonymous') {
   const withRequestId = useCallback((data = {}) => {
     const requestId = generateRequestId(); // New ID for each action!
 
-    // Set client requestId context
-    RequestIdContext.run({ requestId, userId }, () => {});
+    // Set client requestId context persistently
+    RequestIdContext.setClient({ requestId, userId });
 
     return {
       ...data,

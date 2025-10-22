@@ -23,6 +23,12 @@ export class RequestIdContext {
     }
   }
 
+  static setClient(data: { requestId: string; userId: string }): void {
+    if (typeof window !== 'undefined') {
+      clientRequestId = data;
+    }
+  }
+
   static get() {
     return typeof window === 'undefined'
       ? storage?.getStore()
