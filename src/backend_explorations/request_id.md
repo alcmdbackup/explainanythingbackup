@@ -1,21 +1,21 @@
-# Correlation ID Implementation
+# Request ID Implementation
 
 ## Files to Change
 
 ### New Files
-- `src/lib/correlationContext.ts` - Provides AsyncLocalStorage context for storing/retrieving correlation data across async calls
-- `src/lib/serverReadCorrelation.ts` - Wraps server actions to extract correlation data from client and set up server context
-- `src/hooks/clientPassCorrelation.ts` - React hook that injects correlation data into server action calls
+- `src/lib/requestIdContext.ts` - Provides AsyncLocalStorage context for storing/retrieving request ID data across async calls
+- `src/lib/serverReadRequestId.ts` - Wraps server actions to extract request ID data from client and set up server context
+- `src/hooks/clientPassRequestId.ts` - React hook that injects request ID data into server action calls
 
 ### Existing Files
-- `src/lib/server_utilities.ts` - Update writeToFile() to automatically read correlation from AsyncLocalStorage
-- `src/lib/client_utilities.ts` - Update logger calls to include correlation data from context
-- `src/actions/actions.ts` - Wrap server action exports with serverReadCorrelation to enable tracking
-- Client components - Use clientPassCorrelation hook to send correlation data to server actions
+- `src/lib/server_utilities.ts` - Update writeToFile() to automatically read request ID from AsyncLocalStorage
+- `src/lib/client_utilities.ts` - Update logger calls to include request ID data from context
+- `src/actions/actions.ts` - Wrap server action exports with serverReadRequestId to enable tracking
+- Client components - Use clientPassRequestId hook to send request ID data to server actions
 
-## How correlationContext.ts Works
+## How requestIdContext.ts Works
 
-This file creates a **universal correlation system** that works on both client and server using different storage mechanisms.
+This file creates a **universal request ID system** that works on both client and server using different storage mechanisms.
 
 ### The Storage Strategy
 ```typescript
@@ -38,19 +38,19 @@ static run<T>(data: { requestId: string; userId: string }, callback: () => T): T
     return storage.run(data, callback);
   } else {
     // Client: use module variable
-    const prev = clientCorrelation;
-    clientCorrelation = data;
+    const prev = clientRequestId;
+    clientRequestId = data;
     try {
       return callback();
     } finally {
-      clientCorrelation = prev; // Always restore previous value
+      clientRequestId = prev; // Always restore previous value
     }
   }
 }
 ```
 
 **What `run()` does:**
-- **Server:** Creates AsyncLocalStorage "bubble" with correlation data
+- **Server:** Creates AsyncLocalStorage "bubble" with request ID data
 - **Client:** Temporarily sets module variable, then restores it
 
 ### The Magic Getters
@@ -67,14 +67,14 @@ static getRequestId(): string {
 ```
 
 **What happens:**
-- Your logger calls `CorrelationContext.getRequestId()`
+- Your logger calls `RequestIdContext.getRequestId()`
 - It automatically detects client vs server
-- Returns the correlation data from the right storage
+- Returns the requestId data from the right storage
 
 ### The Flow
-1. **Client:** `withCorrelation()` calls `CorrelationContext.run()`
-2. **Server:** `serverReadCorrelation()` calls `CorrelationContext.run()`
-3. **Anywhere:** `logger.info()` calls `CorrelationContext.getRequestId()`
+1. **Client:** `withCorrelation()` calls `RequestIdContext.run()`
+2. **Server:** `serverReadCorrelation()` calls `RequestIdContext.run()`
+3. **Anywhere:** `logger.info()` calls `RequestIdContext.getRequestId()`
 4. **Magic:** It automatically returns the right ID from the right storage
 
 **Key Insight:** Same interface, different storage mechanisms, automatic detection. Your code just calls `getRequestId()` and it works everywhere.
@@ -82,7 +82,7 @@ static getRequestId(): string {
 ## The Magic
 AsyncLocalStorage (server) + module tracking (client) automatically carries request IDs through your code without changing function signatures.
 
-## 1. Create Correlation Context (`src/lib/correlationContext.ts`)
+## 1. Create Request ID Context (`src/lib/requestIdContext.ts`)
 ```typescript
 import { AsyncLocalStorage } from 'async_hooks';
 
@@ -90,21 +90,21 @@ import { AsyncLocalStorage } from 'async_hooks';
 const storage = new AsyncLocalStorage<{ requestId: string; userId: string }>();
 
 // Client-side tracking
-let clientCorrelation = { requestId: 'unknown', userId: 'anonymous' };
+let clientRequestId = { requestId: 'unknown', userId: 'anonymous' };
 
-export class CorrelationContext {
+export class RequestIdContext {
   static run<T>(data: { requestId: string; userId: string }, callback: () => T): T {
     if (typeof window === 'undefined') {
       // Server: use AsyncLocalStorage
       return storage.run(data, callback);
     } else {
       // Client: use module variable
-      const prev = clientCorrelation;
-      clientCorrelation = data;
+      const prev = clientRequestId;
+      clientRequestId = data;
       try {
         return callback();
       } finally {
-        clientCorrelation = prev;
+        clientRequestId = prev;
       }
     }
   }
@@ -112,7 +112,7 @@ export class CorrelationContext {
   static get() {
     return typeof window === 'undefined'
       ? storage.getStore()
-      : clientCorrelation;
+      : clientRequestId;
   }
 
   static getRequestId(): string {
@@ -127,20 +127,27 @@ export class CorrelationContext {
 
 ## 2. Update Server Logger (`src/lib/server_utilities.ts`)
 ```typescript
-import { CorrelationContext } from './correlationContext';
+import { RequestIdContext } from './requestIdContext';
 
-// Just update writeToFile function:
+// Helper function to add request ID to data
+const addRequestId = (data: LoggerData | null) => {
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();
+    return data ? { requestId, userId, ...data } : { requestId, userId };
+};
+
+// Update writeToFile function:
 function writeToFile(level: string, message: string, data: LoggerData | null) {
     const timestamp = new Date().toISOString();
-    const correlation = {
-        requestId: CorrelationContext.getRequestId(),
-        userId: CorrelationContext.getUserId()
+    const requestIdData = {
+        requestId: RequestIdContext.getRequestId(),
+        userId: RequestIdContext.getUserId()
     };
 
     const logEntry = JSON.stringify({
         timestamp, level, message,
         data: data || {},
-        correlation
+        requestId: requestIdData
     }) + '\n';
 
     try {
@@ -150,66 +157,90 @@ function writeToFile(level: string, message: string, data: LoggerData | null) {
     }
 }
 
-// Your existing logger stays exactly the same!
-```
-
-## 3. Update Client Logger (`src/lib/client_utilities.ts`)
-```typescript
-import { CorrelationContext } from './correlationContext';
-
+// Update logger to include request ID in console output:
 const logger = {
     debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
         if (!debug) return;
-        const correlation = { requestId: CorrelationContext.getRequestId() };
-        console.log(`[DEBUG] ${message}`, { ...data, correlation });
+        console.log(`[DEBUG] ${message}`, addRequestId(data));
+        writeToFile('DEBUG', message, data);
     },
 
     error: (message: string, data: LoggerData | null = null) => {
-        const correlation = { requestId: CorrelationContext.getRequestId() };
-        console.error(`[ERROR] ${message}`, { ...data, correlation });
+        console.error(`[ERROR] ${message}`, addRequestId(data));
+        writeToFile('ERROR', message, data);
     },
 
     info: (message: string, data: LoggerData | null = null) => {
-        const correlation = { requestId: CorrelationContext.getRequestId() };
-        console.log(`[INFO] ${message}`, { ...data, correlation });
+        console.log(`[INFO] ${message}`, addRequestId(data));
+        writeToFile('INFO', message, data);
     },
 
     warn: (message: string, data: LoggerData | null = null) => {
-        const correlation = { requestId: CorrelationContext.getRequestId() };
-        console.warn(`[WARN] ${message}`, { ...data, correlation });
+        console.warn(`[WARN] ${message}`, addRequestId(data));
+        writeToFile('WARN', message, data);
     }
 };
 ```
 
-## 4. Server Action Wrapper (`src/lib/serverReadCorrelation.ts`)
+## 3. Update Client Logger (`src/lib/client_utilities.ts`)
 ```typescript
-import { CorrelationContext } from './correlationContext';
+import { RequestIdContext } from './requestIdContext';
+
+// Helper function to add request ID to data
+const addRequestId = (data: LoggerData | null) => {
+    const requestId = RequestIdContext.getRequestId();
+    return data ? { requestId, ...data } : { requestId };
+};
+
+const logger = {
+    debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
+        if (!debug) return;
+        console.log(`[DEBUG] ${message}`, addRequestId(data));
+    },
+
+    error: (message: string, data: LoggerData | null = null) => {
+        console.error(`[ERROR] ${message}`, addRequestId(data));
+    },
+
+    info: (message: string, data: LoggerData | null = null) => {
+        console.log(`[INFO] ${message}`, addRequestId(data));
+    },
+
+    warn: (message: string, data: LoggerData | null = null) => {
+        console.warn(`[WARN] ${message}`, addRequestId(data));
+    }
+};
+```
+
+## 4. Server Action Wrapper (`src/lib/serverReadRequestId.ts`)
+```typescript
+import { RequestIdContext } from './requestIdContext';
 import { randomUUID } from 'crypto';
 
-export function serverReadCorrelation<T extends (...args: any[]) => any>(fn: T): T {
+export function serverReadRequestId<T extends (...args: any[]) => any>(fn: T): T {
   return (async (...args) => {
-    const correlationData = args[0]?.__correlation || {
+    const requestIdData = args[0]?.__requestId || {
       requestId: randomUUID(),
       userId: 'anonymous'
     };
 
-    if (args[0]?.__correlation) {
-      delete args[0].__correlation;
+    if (args[0]?.__requestId) {
+      delete args[0].__requestId;
     }
 
-    return CorrelationContext.run(correlationData, () => fn(...args));
+    return RequestIdContext.run(requestIdData, () => fn(...args));
   }) as T;
 }
 ```
 
 ## 5. Update Your Server Actions (`src/actions/actions.ts`)
 ```typescript
-import { serverReadCorrelation } from '@/lib/serverReadCorrelation';
+import { serverReadRequestId } from '@/lib/serverReadRequestId';
 
 // Your existing functions stay exactly the same
 const _saveExplanationAndTopic = withLogging(
     async function saveExplanationAndTopic(userQuery: string, explanationData: any) {
-        // ZERO CHANGES - logger.info() now auto-includes correlation
+        // ZERO CHANGES - logger.info() now auto-includes requestId
         logger.info("Saving explanation and topic");
         // ... rest of your code unchanged
     },
@@ -218,49 +249,49 @@ const _saveExplanationAndTopic = withLogging(
 );
 
 // Only change: wrap the export
-export const saveExplanationAndTopic = serverReadCorrelation(_saveExplanationAndTopic);
+export const saveExplanationAndTopic = serverReadRequestId(_saveExplanationAndTopic);
 ```
 
-## 6. Client Correlation Hook (`src/hooks/clientPassCorrelation.ts`)
+## 6. Client Request ID Hook (`src/hooks/clientPassRequestId.ts`)
 ```typescript
 'use client';
-import { CorrelationContext } from '@/lib/correlationContext';
+import { RequestIdContext } from '@/lib/requestIdContext';
 import { useCallback } from 'react';
 
-export function clientPassCorrelation(userId = 'anonymous') {
+export function clientPassRequestId(userId = 'anonymous') {
   const generateRequestId = useCallback(() =>
     `client-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
     []
   );
 
-  const withCorrelation = useCallback((data = {}) => {
+  const withRequestId = useCallback((data = {}) => {
     const requestId = generateRequestId(); // New ID for each action!
 
-    // Set client correlation context
-    CorrelationContext.run({ requestId, userId }, () => {});
+    // Set client requestId context
+    RequestIdContext.run({ requestId, userId }, () => {});
 
     return {
       ...data,
-      __correlation: { requestId, userId }
+      __requestId: { requestId, userId }
     };
   }, [userId, generateRequestId]);
 
-  return { withCorrelation };
+  return { withRequestId };
 }
 ```
 
 ## 7. Client Component Usage
 ```typescript
 'use client';
-import { clientPassCorrelation } from '@/hooks/clientPassCorrelation';
+import { clientPassRequestId } from '@/hooks/clientPassRequestId';
 import { saveExplanationAndTopic } from '@/actions/actions';
 
 export default function MyComponent() {
-  const { withCorrelation } = clientPassCorrelation('user123');
+  const { withRequestId } = clientPassRequestId('user123');
 
   const handleSave = async () => {
     // Each call gets a new request ID for separate tracing
-    await saveExplanationAndTopic(withCorrelation({
+    await saveExplanationAndTopic(withRequestId({
       userQuery: "test",
       explanationData: { title: "Test" }
     })); // → requestId: "client-1729425600000-abc123"
@@ -268,7 +299,7 @@ export default function MyComponent() {
 
   const handleEdit = async () => {
     // Different action = different request ID
-    await editExplanation(withCorrelation({
+    await editExplanation(withRequestId({
       explanationId: 123,
       newContent: "Updated content"
     })); // → requestId: "client-1729425605000-def456"
@@ -277,7 +308,7 @@ export default function MyComponent() {
 ```
 
 ## Result
-Your logs automatically become correlated:
+Your logs automatically become request ID tracked:
 
 **Server logs:**
 ```json
@@ -285,13 +316,13 @@ Your logs automatically become correlated:
   "timestamp": "2024-10-20T10:30:00Z",
   "level": "INFO",
   "message": "Saving explanation and topic",
-  "correlation": { "requestId": "client-abc-123", "userId": "user123" }
+  "requestId": { "requestId": "client-abc-123", "userId": "user123" }
 }
 ```
 
 **Client logs:**
 ```
-[INFO] User clicked save { correlation: { requestId: "client-abc-123" } }
+[INFO] User clicked save { requestId: { requestId: "client-abc-123" } }
 ```
 
 **Search logs:**
@@ -301,7 +332,7 @@ grep '"requestId":"client-abc-123"' server.log
 
 ## Button Click Locations to Wrap
 
-These are the exact locations in `src/app/results/page.tsx` where client actions need `withCorrelation()` wrapping:
+These are the exact locations in `src/app/results/page.tsx` where client actions need `withRequestId()` wrapping:
 
 - **Save Button** (line 1142): `onClick={handleSave}` → `saveExplanationToLibraryAction()`
 - **Publish Changes Button** (line 1150): `onClick={handleSaveOrPublishChanges}` → `saveOrPublishChanges()`
