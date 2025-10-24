@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
@@ -42,7 +42,7 @@ export const generateAISuggestionsAction = withLogging(
                 prompt,
                 'editor_ai_suggestions',
                 userid,
-                'gpt-4o-mini',
+                default_model,
                 false,
                 null,
                 aiSuggestionSchema,
@@ -110,7 +110,7 @@ export const applyAISuggestionsAction = withLogging(
                 prompt,
                 'editor_apply_suggestions',
                 userid,
-                'gpt-4o-mini',
+                default_model,
                 false,
                 null
             );
@@ -302,6 +302,250 @@ export const updateTestingPipelineRecordSetNameAction = withLogging(
         }
     },
     'updateTestingPipelineRecordSetNameAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Server action wrapper for AI suggestions pipeline (server action)
+ *
+ * • Wraps getAndApplyAISuggestions to make it callable from client components
+ * • Runs the complete 4-step AI suggestions pipeline
+ * • Handles progress tracking and session data management
+ * • Returns final processed content ready for editor
+ * • Used by: AISuggestionsPanel and other client components
+ * • Calls: getAndApplyAISuggestions from aiSuggestion.ts
+ */
+export const runAISuggestionsPipelineAction = withLogging(
+    async function runAISuggestionsPipelineAction(
+        currentContent: string,
+        userPrompt: string,
+        sessionData?: {
+            explanation_id: number;
+            explanation_title: string;
+        }
+    ): Promise<{
+        success: boolean;
+        content?: string;
+        error?: string;
+        session_id?: string;
+    }> {
+        try {
+            // Import the function here to avoid client-side import issues
+            const { getAndApplyAISuggestions } = await import('../aiSuggestion');
+
+            // Prepare session data with user prompt
+            const sessionRequestData = sessionData ? {
+                explanation_id: sessionData.explanation_id,
+                explanation_title: sessionData.explanation_title,
+                user_prompt: userPrompt.trim()
+            } : undefined;
+
+            logger.debug('🎭 runAISuggestionsPipelineAction: Starting pipeline', {
+                hasSessionData: !!sessionRequestData,
+                contentLength: currentContent.length,
+                userPrompt: userPrompt.trim()
+            }, FILE_DEBUG);
+
+            // Run the pipeline (progress callback not supported in server actions)
+            const result = await getAndApplyAISuggestions(
+                currentContent,
+                null, // editorRef not needed for server action
+                undefined, // onProgress callback not supported
+                sessionRequestData
+            );
+
+            logger.debug('🎭 runAISuggestionsPipelineAction: Pipeline result', {
+                success: result.success,
+                hasContent: !!result.content,
+                session_id: result.session_id
+            }, FILE_DEBUG);
+
+            return result;
+        } catch (error) {
+            logger.error('runAISuggestionsPipelineAction Error', {
+                error: error instanceof Error ? error.message : String(error),
+                contentLength: currentContent.length,
+                userPrompt: userPrompt?.substring(0, 100)
+            });
+
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'AI suggestions pipeline failed',
+                content: currentContent // Return original content on failure
+            };
+        }
+    },
+    'runAISuggestionsPipelineAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Server action wrapper for merging AI suggestion output (server action)
+ *
+ * • Wraps mergeAISuggestionOutput to make it callable from client components
+ * • Combines alternating content and markers into readable format
+ * • Used by: Client components that need to merge AI suggestion arrays
+ * • Calls: mergeAISuggestionOutput from aiSuggestion.ts
+ */
+export const mergeAISuggestionOutputAction = withLogging(
+    async function mergeAISuggestionOutputAction(
+        edits: string[]
+    ): Promise<{
+        success: boolean;
+        data: string | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            // Import the function here to avoid client-side import issues
+            const { mergeAISuggestionOutput } = await import('../aiSuggestion');
+
+            const output = { edits };
+            const result = mergeAISuggestionOutput(output);
+
+            return {
+                success: true,
+                data: result,
+                error: null
+            };
+        } catch (error) {
+            logger.error('mergeAISuggestionOutputAction Error', {
+                error: error instanceof Error ? error.message : String(error),
+                editsCount: edits?.length || 0
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'mergeAISuggestionOutputAction', { editsCount: edits?.length || 0 })
+            };
+        }
+    },
+    'mergeAISuggestionOutputAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Server action wrapper for validating AI suggestion output (server action)
+ *
+ * • Wraps validateAISuggestionOutput to make it callable from client components
+ * • Validates AI suggestion output against schema
+ * • Returns typed result or validation errors
+ * • Used by: Client components that need to validate AI suggestion format
+ * • Calls: validateAISuggestionOutput from aiSuggestion.ts
+ */
+export const validateAISuggestionOutputAction = withLogging(
+    async function validateAISuggestionOutputAction(
+        rawOutput: string
+    ): Promise<{
+        success: boolean;
+        data: { success: boolean; data?: any; error?: any } | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            // Import the function here to avoid client-side import issues
+            const { validateAISuggestionOutput } = await import('../aiSuggestion');
+
+            const result = validateAISuggestionOutput(rawOutput);
+
+            return {
+                success: true,
+                data: result,
+                error: null
+            };
+        } catch (error) {
+            logger.error('validateAISuggestionOutputAction Error', {
+                error: error instanceof Error ? error.message : String(error),
+                rawOutputLength: rawOutput?.length || 0
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'validateAISuggestionOutputAction', { rawOutputLength: rawOutput?.length || 0 })
+            };
+        }
+    },
+    'validateAISuggestionOutputAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Server action wrapper for the complete AI suggestions pipeline (server action)
+ *
+ * • Wraps getAndApplyAISuggestions to make it callable from client components
+ * • Runs the complete 4-step AI suggestions pipeline with progress tracking
+ * • Handles session data management and editor ref
+ * • Used by: Client components that need the full AI suggestions pipeline
+ * • Calls: getAndApplyAISuggestions from aiSuggestion.ts
+ */
+export const getAndApplyAISuggestionsAction = withLogging(
+    async function getAndApplyAISuggestionsAction(
+        currentContent: string,
+        progressCallback: boolean = false,
+        sessionData?: {
+            session_id?: string;
+            explanation_id: number;
+            explanation_title: string;
+            user_prompt: string;
+        }
+    ): Promise<{
+        success: boolean;
+        content?: string;
+        error?: string;
+        session_id?: string;
+    }> {
+        try {
+            // Import the function here to avoid client-side import issues
+            const { getAndApplyAISuggestions } = await import('../aiSuggestion');
+
+            logger.debug('🎭 getAndApplyAISuggestionsAction: Starting pipeline', {
+                hasSessionData: !!sessionData,
+                contentLength: currentContent.length,
+                progressCallback
+            }, FILE_DEBUG);
+
+            // Progress callback function for server action (simplified)
+            const onProgress = progressCallback ? (step: string, progress: number) => {
+                logger.debug(`Pipeline progress: ${step} (${progress}%)`, {}, FILE_DEBUG);
+            } : undefined;
+
+            // Run the pipeline
+            const result = await getAndApplyAISuggestions(
+                currentContent,
+                null, // editorRef not needed for server action
+                onProgress,
+                sessionData
+            );
+
+            logger.debug('🎭 getAndApplyAISuggestionsAction: Pipeline result', {
+                success: result.success,
+                hasContent: !!result.content,
+                session_id: result.session_id
+            }, FILE_DEBUG);
+
+            return result;
+        } catch (error) {
+            logger.error('getAndApplyAISuggestionsAction Error', {
+                error: error instanceof Error ? error.message : String(error),
+                contentLength: currentContent.length
+            });
+
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'AI suggestions pipeline failed',
+                content: currentContent // Return original content on failure
+            };
+        }
+    },
+    'getAndApplyAISuggestionsAction',
     {
         enabled: FILE_DEBUG
     }

@@ -10,6 +10,9 @@ import { createLLMSpan } from '../../../instrumentation';
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
 
+// Default model configuration
+export const default_model: AllowedLLMModelType = 'gpt-5-mini';
+
 /**
  * Saves LLM call tracking data to Supabase database
  * • Validates input data against llmCallTrackingSchema before saving

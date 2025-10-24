@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { default_model } from '@/lib/services/llms';
 
 /**
  * Schema for AI suggestion structured output
@@ -466,7 +467,7 @@ export async function getAISuggestions(
             prompt,
             'editor_ai_suggestions',
             'test-user',
-            'gpt-4o-mini',
+            default_model,
             false,
             null
         );

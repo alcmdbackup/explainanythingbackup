@@ -1,6 +1,6 @@
 'use server'
 
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { tagEvaluationSchema } from '@/lib/schemas/schemas';
 import { createTagEvaluationPrompt } from '@/lib/prompts';
@@ -50,7 +50,7 @@ export async function evaluateTags(
       evaluationPrompt, 
       'evaluateTags', 
       userid, 
-      "gpt-4o-mini",
+      default_model,
       false,      
       null,                  // streaming parameter
       tagEvaluationSchema, 

@@ -1,4 +1,4 @@
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } from '@/lib/schemas/schemas';
@@ -98,7 +98,7 @@ export async function createMappingsHeadingsToLinks(
       prompt, 
       'enhanceContentWithHeadingLinks', 
       userid, 
-      "gpt-4o-mini", 
+      default_model, 
       false,
       null,
       multipleStandaloneTitlesSchema,
@@ -300,7 +300,7 @@ export async function createMappingsKeytermsToLinks(
       prompt,
       'enhanceContentWithKeyTermLinks',
       userid,
-      "gpt-4o-mini",
+      default_model,
       false,
       null,
       multipleStandaloneTitlesSchema,
@@ -434,7 +434,7 @@ export async function enhanceContentWithInlineLinks(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callOpenAIModel(prompt, 'enhanceContentWithInlineLinks', userid, "gpt-4o-mini", false, null, null, null, debug);
+    const enhancedContent = await callOpenAIModel(prompt, 'enhanceContentWithInlineLinks', userid, default_model, false, null, null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {

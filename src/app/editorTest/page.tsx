@@ -11,10 +11,10 @@ import { preprocessCriticMarkup } from '../../editorFiles/lexicalEditor/importEx
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import {
-    mergeAISuggestionOutput,
-    validateAISuggestionOutput,
-    getAndApplyAISuggestions
-} from '../../editorFiles/aiSuggestion';
+    mergeAISuggestionOutputAction,
+    validateAISuggestionOutputAction,
+    getAndApplyAISuggestionsAction
+} from '../../editorFiles/actions/actions';
 
 export default function EditorTestPage() {
     const searchParams = useSearchParams();
@@ -513,12 +513,14 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 setRawAIResponse(result.data);
 
                 // Validate the response against the schema
-                const validationResult = validateAISuggestionOutput(result.data);
-                
-                if (validationResult.success) {
+                const validationActionResult = await validateAISuggestionOutputAction(result.data);
+
+                if (validationActionResult.success && validationActionResult.data?.success) {
                     // Merge the structured output into a readable format
-                    const mergedOutput = mergeAISuggestionOutput(validationResult.data);
-                    setAiSuggestions(mergedOutput);
+                    const mergeActionResult = await mergeAISuggestionOutputAction(validationActionResult.data.data.edits);
+                    if (mergeActionResult.success && mergeActionResult.data) {
+                        setAiSuggestions(mergeActionResult.data);
+                    }
 
                     // Step 1: Save merged AI suggestion to database
                     try {
@@ -755,12 +757,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         setPipelineProgress({step: 'Starting...', progress: 0});
 
         try {
-            const result = await getAndApplyAISuggestions(
+            const result = await getAndApplyAISuggestionsAction(
                 currentContent,
-                editorRef,
-                (step: string, progress: number) => {
-                    setPipelineProgress({step, progress});
-                }
+                true, // progressCallback boolean (server actions can't use callbacks)
+                undefined // sessionData not provided here
             );
 
             if (result.success) {

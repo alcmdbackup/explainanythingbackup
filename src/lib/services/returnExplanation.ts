@@ -1,4 +1,4 @@
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
@@ -36,7 +36,7 @@ export const generateTitleFromUserQuery = withLogging(
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callOpenAIModel(titlePrompt, "generateTitleFromUserQuery", userid, "gpt-4o-mini", false, null, titleQuerySchema, 'titleQuery');
+            const titleResult = await callOpenAIModel(titlePrompt, "generateTitleFromUserQuery", userid, default_model, false, null, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -219,7 +219,7 @@ export const generateNewExplanation = withLogging(
                 formattedPrompt, 
                 "generateNewExplanation", 
                 userid, 
-                "gpt-4o-mini", 
+                default_model, 
                 shouldStream, 
                 shouldStream ? onStreamingText : null, 
                 null, 

@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
@@ -971,7 +971,7 @@ const _generateAISuggestionsAction = withLogging(
                 prompt,
                 'editor_ai_suggestions',
                 userid,
-                'gpt-4o-mini',
+                default_model,
                 false,
                 null,
                 aiSuggestionSchema,
@@ -1041,7 +1041,7 @@ const _applyAISuggestionsAction = withLogging(
                 prompt,
                 'editor_apply_suggestions',
                 userid,
-                'gpt-4o-mini',
+                default_model,
                 false,
                 null
             );

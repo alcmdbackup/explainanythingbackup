@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { NextRequest } from 'next/server';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
             prompt,
             "stream-chat-api",
             userid,
-            "gpt-4o-mini",
+            default_model,
             true,
             (text: string) => {
               // Send incremental updates

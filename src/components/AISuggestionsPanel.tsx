@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { getAndApplyAISuggestions } from '../editorFiles/aiSuggestion';
+import { runAISuggestionsPipelineAction } from '../editorFiles/actions/actions';
 
 interface AISuggestionsPanelProps {
   isVisible: boolean;
@@ -60,21 +60,23 @@ export default function AISuggestionsPanel({
         user_prompt: userPrompt.trim()
       } : undefined;
 
-      console.log('🎭 AISuggestionsPanel: Calling getAndApplyAISuggestions', {
+      console.log('🎭 AISuggestionsPanel: Calling runAISuggestionsPipelineAction', {
         hasSessionData: !!sessionRequestData,
         sessionRequestData,
         userPrompt: userPrompt.trim(),
         contentLength: currentContent.length
       });
 
-      const result = await getAndApplyAISuggestions(
+      // Note: Progress updates not supported with server actions, so we'll simulate progress
+      handleProgressUpdate('Processing AI suggestions...', 50);
+
+      const result = await runAISuggestionsPipelineAction(
         currentContent,
-        editorRef,
-        handleProgressUpdate,
+        userPrompt.trim(),
         sessionRequestData
       );
 
-      console.log('🎭 AISuggestionsPanel: getAndApplyAISuggestions result:', result);
+      console.log('🎭 AISuggestionsPanel: runAISuggestionsPipelineAction result:', result);
 
       setLastResult(result);
 
