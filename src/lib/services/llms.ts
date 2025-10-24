@@ -11,7 +11,8 @@ type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
 
 // Default model configuration
-export const default_model: AllowedLLMModelType = 'gpt-5-mini';
+export const default_model: AllowedLLMModelType = 'gpt-4.1-mini';
+export const lighter_model: AllowedLLMModelType = 'gpt-4.1-nano';
 
 /**
  * Saves LLM call tracking data to Supabase database
@@ -77,7 +78,7 @@ function getOpenAIClient(): OpenAI {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
             maxRetries: 3,
-            timeout: 30000
+            timeout: 60000  // Increased to 60 seconds for GPT-5 models
         });
     }
     

@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callOpenAIModel, default_model, lighter_model } from '@/lib/services/llms';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/functionLogger';
 import { logger } from '@/lib/client_utilities';
@@ -110,7 +110,7 @@ export const applyAISuggestionsAction = withLogging(
                 prompt,
                 'editor_apply_suggestions',
                 userid,
-                default_model,
+                lighter_model,
                 false,
                 null
             );
