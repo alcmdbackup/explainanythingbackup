@@ -8,6 +8,64 @@ import {
 } from '@/lib/schemas/schemas';
 
 /**
+ * Shared filtering utility to exclude framework internals and system functions
+ */
+export function shouldSkipAutoLogging(fn: Function, name: string, context: 'module' | 'runtime' = 'runtime'): boolean {
+  if (!fn || typeof fn !== 'function') return true;
+
+  const fnString = fn.toString();
+  const stackTrace = new Error().stack || '';
+
+  // Framework and system patterns to exclude
+  const frameworkPatterns = [
+    // React/Next.js core
+    'react/', 'react\\', 'react-dom/', 'react-dom\\',
+    './cjs/react', './dist/', 'react-jsx-runtime',
+    'react-dom-server', 'renderToReadableStream',
+
+    // Next.js internals
+    'next/dist/', 'next\\dist\\', '@next/', 'compiled/next-server',
+    '.next-internal/', 'app-page.runtime', 'app-route.runtime',
+    'turbopack', '[turbopack]', 'chunks/', 'runtime.js', 'runtime.dev.js',
+
+    // Build tools
+    'webpack/', 'node_modules/',
+
+    // Node.js internals
+    'internal/modules', 'internal/process', 'vm.js', 'loader.js',
+
+    // Problematic functions
+    'runInCleanSnapshot', 'runInThisContext', 'compileFunction',
+    'Module._compile', 'Module._load', 'require', 'createRequire'
+  ];
+
+  // Check stack trace and function string for framework code
+  if (frameworkPatterns.some(pattern =>
+    stackTrace.includes(pattern) ||
+    fnString.includes(pattern) ||
+    name.includes(pattern)
+  )) {
+    return true;
+  }
+
+  // Skip very short functions (likely system internals)
+  if (fnString.length < 20) return true;
+
+  // Skip native functions
+  if (fnString.includes('[native code]')) return true;
+
+  // For module context, only allow your own application code
+  if (context === 'module') {
+    return !(name.startsWith('./src/') ||
+             name.startsWith('../src/') ||
+             name.startsWith('@/')) ||
+           name.includes('node_modules');
+  }
+
+  return false;
+}
+
+/**
  * Sanitizes data by removing sensitive fields and truncating long values
  */
 function sanitizeData(data: any, config: LogConfig): any {
@@ -305,7 +363,7 @@ export function initializeAutoLogging() {
     // Phase 1: Module interception (70% coverage)
     setupModuleInterception();
 
-    // Phase 2: Runtime wrapping (20% coverage)
+    // Phase 2: Runtime wrapping (20% coverage) - with framework filtering
     setupRuntimeWrapping();
 
     // Phase 3: Universal interception (10% coverage) - use with caution

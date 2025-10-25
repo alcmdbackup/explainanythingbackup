@@ -1,5 +1,5 @@
 // src/lib/logging/runtimeWrapper.ts
-import { withLogging } from './automaticServerLoggingBase';
+import { withLogging, shouldSkipAutoLogging } from './automaticServerLoggingBase';
 
 export function setupRuntimeWrapping() {
   // Store already wrapped functions and track active wrapping to prevent recursion
@@ -7,7 +7,7 @@ export function setupRuntimeWrapping() {
   let isWrapping = false;
 
   function wrapCallback(fn: Function, name: string): Function {
-    if (wrappedFunctions.has(fn) || isWrapping) return fn;
+    if (wrappedFunctions.has(fn) || isWrapping || shouldSkipAutoLogging(fn, name, 'runtime')) return fn;
 
     // Prevent recursive wrapping during sanitization
     isWrapping = true;
@@ -35,10 +35,12 @@ export function setupRuntimeWrapping() {
   const originalThen = Promise.prototype.then;
   Promise.prototype.then = function(onFulfilled, onRejected) {
     if (typeof onFulfilled === 'function' && !isWrapping) {
-      onFulfilled = wrapCallback(onFulfilled, 'promise.then');
+      const fnName = onFulfilled.name || 'anonymous';
+      onFulfilled = wrapCallback(onFulfilled, `promise.then(${fnName})`);
     }
     if (typeof onRejected === 'function' && !isWrapping) {
-      onRejected = wrapCallback(onRejected, 'promise.catch');
+      const fnName = onRejected.name || 'anonymous';
+      onRejected = wrapCallback(onRejected, `promise.catch(${fnName})`);
     }
     return originalThen.call(this, onFulfilled, onRejected);
   };

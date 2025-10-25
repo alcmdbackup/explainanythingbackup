@@ -1,5 +1,5 @@
 // src/lib/logging/moduleInterceptor.ts
-import { withLogging } from './automaticServerLoggingBase';
+import { withLogging, shouldSkipAutoLogging } from './automaticServerLoggingBase';
 
 export function setupAdvancedModuleInterception() {
   const Module = require('module');
@@ -7,7 +7,7 @@ export function setupAdvancedModuleInterception() {
   const wrappedFunctions = new WeakSet();
 
   function wrapModuleFunction(fn: Function, name: string): Function {
-    if (wrappedFunctions.has(fn)) return fn;
+    if (wrappedFunctions.has(fn) || shouldSkipAutoLogging(fn, name, 'module')) return fn;
 
     const wrapped = withLogging(fn as any, name, {
       enabled: true,
@@ -34,11 +34,8 @@ export function setupAdvancedModuleInterception() {
   };
 
   function shouldInterceptModule(request: string): boolean {
-    // Enhanced pattern matching for your codebase
-    return request.startsWith('./') ||
-           request.startsWith('../') ||
-           request.startsWith('@/') ||
-           request.includes('src/');
+    // Use shared filtering - treat request as function name for module context
+    return !shouldSkipAutoLogging(() => {}, request, 'module');
   }
 
   function wrapAllModuleExports(exports: any, moduleName: string) {
