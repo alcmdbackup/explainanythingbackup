@@ -134,10 +134,10 @@ export function withLogging<T extends (...args: any[]) => any>(
     const sanitizedArgs = finalConfig.logInputs ? sanitizeData(args, finalConfig) : undefined;
 
     // Log function entry
-    logger.debug(`Function ${functionName} called`, {
+    logger.info(`Function ${functionName} called`, {
       inputs: sanitizedArgs,
       timestamp: new Date().toISOString()
-    }, true);
+    });
 
     try {
       // Execute the function
@@ -150,11 +150,11 @@ export function withLogging<T extends (...args: any[]) => any>(
             const duration = Date.now() - startTime;
             const sanitizedResult = finalConfig.logOutputs ? sanitizeData(resolvedResult, finalConfig) : undefined;
             
-            logger.debug(`Function ${functionName} completed successfully`, {
+            logger.info(`Function ${functionName} completed successfully`, {
               outputs: sanitizedResult,
               duration: `${duration}ms`,
               timestamp: new Date().toISOString()
-            }, true);
+            });
             
             return resolvedResult;
           })
@@ -176,11 +176,11 @@ export function withLogging<T extends (...args: any[]) => any>(
         const duration = Date.now() - startTime;
         const sanitizedResult = finalConfig.logOutputs ? sanitizeData(result, finalConfig) : undefined;
         
-        logger.debug(`Function ${functionName} completed successfully`, {
+        logger.info(`Function ${functionName} completed successfully`, {
           outputs: sanitizedResult,
           duration: `${duration}ms`,
           timestamp: new Date().toISOString()
-        }, true);
+        });
         
         return result;
       }
