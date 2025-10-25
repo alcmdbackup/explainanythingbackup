@@ -12,6 +12,10 @@ import {
  */
 function sanitizeData(data: any, config: LogConfig): any {
   if (!data || typeof data !== 'object') {
+    // Handle BigInt serialization
+    if (typeof data === 'bigint') {
+      return data.toString();
+    }
     return data;
   }
 
@@ -22,8 +26,14 @@ function sanitizeData(data: any, config: LogConfig): any {
   }
 
   for (const [key, value] of Object.entries(sanitized)) {
+    // Handle BigInt values
+    if (typeof value === 'bigint') {
+      sanitized[key] = value.toString();
+      continue;
+    }
+
     // Remove sensitive fields
-    if (config.sensitiveFields?.some(field => 
+    if (config.sensitiveFields?.some(field =>
       key.toLowerCase().includes(field.toLowerCase())
     )) {
       sanitized[key] = '[REDACTED]';

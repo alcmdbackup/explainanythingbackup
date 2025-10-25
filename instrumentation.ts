@@ -8,10 +8,23 @@ const appTracer = trace.getTracer('explainanything-application');
 
 export async function register() {
   console.log('🔧 Next.js instrumentation hook registered')
-  
+
   if (process.env.NODE_ENV === 'development') {
     console.log('🔍 OpenTelemetry custom instrumentation enabled')
     console.log('📡 Traces going to:', process.env.OTEL_EXPORTER_OTLP_ENDPOINT)
+
+    // Initialize automatic server logging system (Node.js runtime only)
+    if (process.env.NEXT_RUNTIME !== 'edge') {
+      try {
+        const { initializeAutoLogging } = await import('@/lib/logging/automaticServerLoggingBase');
+        initializeAutoLogging();
+        console.log('🔧 Automatic logging system initialized');
+      } catch (error) {
+        console.warn('⚠️ Failed to initialize automatic logging:', error);
+      }
+    } else {
+      console.log('⚠️ Automatic logging skipped (Edge Runtime detected)');
+    }
   }
 
   // Instrument global fetch for additional API call tracking
