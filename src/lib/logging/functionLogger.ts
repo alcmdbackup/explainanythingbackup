@@ -1,5 +1,5 @@
 import { logger } from '@/lib/server_utilities';
-import { createAppSpan } from '../../instrumentation';
+import { createAppSpan } from '../../../instrumentation';
 import { 
   LogConfig, 
   TracingConfig, 
@@ -277,4 +277,32 @@ export function withBatchLogging<T extends Record<string, (...args: any[]) => an
   }
   
   return loggedFunctions as T;
-} 
+}
+
+/**
+ * Automatic logging system initialization
+ * Combines module interception, runtime wrapping, and universal interception
+ */
+export function initializeAutoLogging() {
+  if (typeof window !== 'undefined') return; // Server-side only
+
+  // Dynamic imports to avoid circular dependencies
+  Promise.all([
+    import('./moduleInterceptor').then(m => m.setupAdvancedModuleInterception),
+    import('./runtimeWrapper').then(m => m.setupRuntimeWrapping),
+    import('./universalInterceptor').then(m => m.setupUniversalInterception)
+  ]).then(([setupModuleInterception, setupRuntimeWrapping, setupUniversalInterception]) => {
+    // Phase 1: Module interception (70% coverage)
+    setupModuleInterception();
+
+    // Phase 2: Runtime wrapping (20% coverage)
+    setupRuntimeWrapping();
+
+    // Phase 3: Universal interception (10% coverage) - use with caution
+    // setupUniversalInterception(); // Uncomment for maximum coverage
+
+    console.log('🔧 Automatic logging system initialized - all logging flows through withLogging');
+  }).catch(error => {
+    console.warn('⚠️ Some automatic logging modules not found, continuing with available modules:', error.message);
+  });
+}

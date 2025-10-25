@@ -11,7 +11,7 @@ import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schema
 import { createTopic } from '@/lib/services/topics';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
-import { withLogging, withLoggingAndTracing } from '@/lib/functionLogger';
+import { withLogging, withLoggingAndTracing } from '@/lib/logging/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
@@ -917,8 +917,8 @@ const _loadFromPineconeUsingExplanationIdAction = withLogging(
             };
         } catch (error) {
             logger.error('Error in loadFromPineconeUsingExplanationIdAction:', {
-                explanationId,
-                namespace,
+                explanationId: params.explanationId,
+                namespace: params.namespace || 'default',
                 error: error instanceof Error ? error.message : String(error),
                 errorType: typeof error,
                 errorKeys: error && typeof error === 'object' ? Object.keys(error) : []
@@ -927,7 +927,10 @@ const _loadFromPineconeUsingExplanationIdAction = withLogging(
             return {
                 success: false,
                 data: null,
-                error: handleError(error, 'loadFromPineconeUsingExplanationIdAction', { explanationId, namespace })
+                error: handleError(error, 'loadFromPineconeUsingExplanationIdAction', {
+                    explanationId: params.explanationId,
+                    namespace: params.namespace || 'default'
+                })
             };
         }
     },

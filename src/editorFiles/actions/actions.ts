@@ -2,7 +2,7 @@
 
 import { callOpenAIModel, default_model, lighter_model } from '@/lib/services/llms';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
-import { withLogging } from '@/lib/functionLogger';
+import { withLogging } from '@/lib/logging/functionLogger';
 import { logger } from '@/lib/client_utilities';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName } from '../../lib/services/testingPipeline';
