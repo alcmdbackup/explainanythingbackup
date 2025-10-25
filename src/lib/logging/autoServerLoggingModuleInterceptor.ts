@@ -1,7 +1,7 @@
 // src/lib/logging/moduleInterceptor.ts
 import { withLogging, shouldSkipAutoLogging } from './automaticServerLoggingBase';
 
-export function setupAdvancedModuleInterception() {
+export function setupServerModuleInterception() {
   const Module = require('module');
   const originalLoad = Module._load;
   const wrappedFunctions = new WeakSet();

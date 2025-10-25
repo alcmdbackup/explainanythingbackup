@@ -356,9 +356,9 @@ export function initializeAutoLogging() {
 
   // Dynamic imports to avoid circular dependencies
   Promise.all([
-    import('./moduleInterceptor').then(m => m.setupAdvancedModuleInterception),
-    import('./runtimeWrapper').then(m => m.setupRuntimeWrapping),
-    import('./universalInterceptor').then(m => m.setupUniversalInterception)
+    import('./autoServerLoggingModuleInterceptor').then(m => m.setupServerModuleInterception),
+    import('./autoServerLoggingRuntimeWrapper').then(m => m.setupServerRuntimeWrapping),
+    import('./autoServerLoggingUniversalInterceptor').then(m => m.setupServerUniversalInterception)
   ]).then(([setupModuleInterception, setupRuntimeWrapping, setupUniversalInterception]) => {
     // Phase 1: Module interception (70% coverage)
     setupModuleInterception();

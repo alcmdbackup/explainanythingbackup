@@ -1,7 +1,7 @@
 // src/lib/logging/runtimeWrapper.ts
 import { withLogging, shouldSkipAutoLogging } from './automaticServerLoggingBase';
 
-export function setupRuntimeWrapping() {
+export function setupServerRuntimeWrapping() {
   // Store already wrapped functions and track active wrapping to prevent recursion
   const wrappedFunctions = new WeakSet();
   let isWrapping = false;
