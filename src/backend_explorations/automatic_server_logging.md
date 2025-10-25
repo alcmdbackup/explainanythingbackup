@@ -1,7 +1,9 @@
-# Automatic Function Logging Implementation Plan
+# Automatic Server Function Logging Implementation Plan
 
 ## Goal
-Automatically log all function calls and inputs/outputs to server.log without manual logging
+Automatically log all **server-side** function calls and inputs/outputs to server.log without manual logging
+
+**⚠️ SERVER-SIDE ONLY**: This implementation is designed specifically for Node.js/server environments and will NOT work in client-side/browser code.
 
 ## Core Principle: EVERYTHING FLOWS THROUGH withLogging
 
@@ -81,12 +83,12 @@ All implementation files should be created in `src/lib/logging/` to keep the log
 - `src/lib/logging/moduleInterceptor.ts` - Phase 1: Module interception (70% coverage)
 - `src/lib/logging/runtimeWrapper.ts` - Phase 2: Runtime callback wrapping (20% coverage)
 - `src/lib/logging/universalInterceptor.ts` - Phase 3: Universal function interception (10% coverage)
-- `src/lib/logging/functionLogger.ts` - Contains `initializeAutoLogging()` function for unified initialization
+- `src/lib/logging/automaticServerLoggingBase.ts` - Contains `initializeAutoLogging()` function for unified initialization
 
 ### Step 1: Enhanced Module Interceptor
 ```typescript
 // src/lib/logging/moduleInterceptor.ts
-import { withLogging } from './functionLogger';
+import { withLogging } from './automaticServerLoggingBase';
 
 export function setupAdvancedModuleInterception() {
   const Module = require('module');
@@ -147,7 +149,7 @@ export function setupAdvancedModuleInterception() {
 ### Step 2: Runtime Callback Wrapper
 ```typescript
 // src/lib/logging/runtimeWrapper.ts
-import { withLogging } from './functionLogger';
+import { withLogging } from './automaticServerLoggingBase';
 
 export function setupRuntimeWrapping() {
   // Store already wrapped functions
@@ -198,7 +200,7 @@ export function setupRuntimeWrapping() {
 
 ```typescript
 // src/lib/logging/universalInterceptor.ts
-import { withLogging } from './functionLogger';
+import { withLogging } from './automaticServerLoggingBase';
 
 export function setupUniversalInterception() {
   const wrappedFunctions = new WeakSet();
@@ -256,9 +258,9 @@ export function setupUniversalInterception() {
 }
 ```
 
-### Step 4: Unified Initialization (Added to functionLogger.ts)
+### Step 4: Unified Initialization (Added to automaticServerLoggingBase.ts)
 
-The `initializeAutoLogging()` function is now included in `src/lib/logging/functionLogger.ts`:
+The `initializeAutoLogging()` function is now included in `src/lib/logging/automaticServerLoggingBase.ts`:
 
 ```typescript
 /**
@@ -293,7 +295,7 @@ export function initializeAutoLogging() {
 ### Step 5: Integration Point
 ```typescript
 // src/app/layout.tsx (or instrumentation.ts)
-import { initializeAutoLogging } from '@/lib/logging/functionLogger';
+import { initializeAutoLogging } from '@/lib/logging/automaticServerLoggingBase';
 
 // Single import enables everything - all automatic logging flows through withLogging
 initializeAutoLogging();

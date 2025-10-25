@@ -11,7 +11,7 @@ import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schema
 import { createTopic } from '@/lib/services/topics';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
-import { withLogging, withLoggingAndTracing } from '@/lib/logging/functionLogger';
+import { withLogging, withLoggingAndTracing } from '@/lib/logging/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';

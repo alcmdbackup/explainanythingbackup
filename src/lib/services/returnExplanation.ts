@@ -5,7 +5,7 @@ import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, search
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
-import { withLoggingAndTracing, withLogging } from '@/lib/logging/functionLogger';
+import { withLoggingAndTracing, withLogging } from '@/lib/logging/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
