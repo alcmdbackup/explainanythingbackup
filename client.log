@@ -1,0 +1,10 @@
+{"timestamp":"2024-10-26T05:03:00Z","level":"INFO","message":"Direct test after middleware fix","data":{"test":true},"requestId":"curl-test-456","source":"client"}
+{"timestamp":"2025-10-26T05:04:13.552Z","level":"INFO","message":"Browser test after middleware fix","data":{"testFromBrowser":true,"url":"http://localhost:3002/login?explanation_id=563&userQueryId=850"},"requestId":"browser-test-1761455053553","source":"client"}
+{"timestamp":"2025-10-26T05:15:45.681Z","level":"INFO","message":"Manual test log from button click","data":{"userAction":"button-click","component":"TestClientLogging"},"requestId":"test-1761455745681","source":"client"}
+{"timestamp":"2025-10-26T05:19:01.386Z","level":"INFO","message":"Runtime userEventHandler: addEventListener.mousemove","data":["[Object]"],"requestId":"runtime-1761455941386-8tpyu4zao","source":"client"}
+{"timestamp":"2025-10-26T05:19:01.387Z","level":"INFO","message":"Manual test log from button click","data":{"userAction":"button-click","component":"TestClientLogging"},"requestId":"test-1761455941387","source":"client"}
+{"timestamp":"2025-10-26T05:19:02.473Z","level":"INFO","message":"Runtime userAsync: setTimeout.callback","data":[],"requestId":"runtime-1761455942473-6gdj87ncw","source":"client"}
+{"timestamp":"2025-10-26T05:19:15.217Z","level":"INFO","message":"Runtime userEventHandler: addEventListener.mousemove","data":["[Object]"],"requestId":"runtime-1761455955217-t32yj5ovz","source":"client"}
+{"timestamp":"2025-10-26T05:19:16.221Z","level":"INFO","message":"Runtime userAsync: setTimeout.callback","data":[],"requestId":"runtime-1761455956222-kz3d4yrz5","source":"client"}
+{"timestamp":"2025-10-26T05:19:25.250Z","level":"INFO","message":"Runtime userEventHandler: addEventListener.mousemove","data":["[Object]"],"requestId":"runtime-1761455965250-h8jw4myn7","source":"client"}
+{"timestamp":"2025-10-26T05:19:26.255Z","level":"INFO","message":"Runtime userAsync: setTimeout.callback","data":[],"requestId":"runtime-1761455966255-55ia4jsmu","source":"client"}

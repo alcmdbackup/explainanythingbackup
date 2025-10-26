@@ -1,52 +1,259 @@
 # Client-Side Automatic Logging Implementation Plan
 
 ## Goal
-Automatically log all **client-side** function calls, React events, and async operations to local drive, mirroring the server-side automatic logging approach.
+Automatically log **USER-WRITTEN client-side** function calls, React events, and async operations to local drive, mirroring the server-side automatic logging approach.
 
-## Three-Phase Implementation Strategy
+## ⚠️ CRITICAL SAFETY REQUIREMENTS
 
-### Phase 1: Build-Time Component Interception (60% Coverage)
-**Leverage Next.js/Turbopack for build-time transforms:**
+### 🔄 Infinite Recursion Prevention (MANDATORY)
 
-1. **Create Babel/SWC Plugin**
+**Problem:** Client logging systems are extremely prone to infinite recursion because:
+1. Logging functions use the same browser APIs we want to wrap (fetch, Promise, setTimeout)
+2. Writing logs can trigger events that get logged again
+3. Circular object references in sanitization can cause infinite loops
+
+**REQUIRED Safeguards:**
+
+#### 1. Re-entrance Guard System
+```typescript
+// Global re-entrance prevention
+const LOGGING_IN_PROGRESS = new Set<string>();
+const MAX_RECURSION_DEPTH = 3;
+let currentRecursionDepth = 0;
+
+function withRecursionGuard<T>(fn: () => T, operation: string): T | null {
+  if (LOGGING_IN_PROGRESS.has(operation) || currentRecursionDepth >= MAX_RECURSION_DEPTH) {
+    return null; // Silent abort - do not log
+  }
+
+  LOGGING_IN_PROGRESS.add(operation);
+  currentRecursionDepth++;
+
+  try {
+    return fn();
+  } finally {
+    LOGGING_IN_PROGRESS.delete(operation);
+    currentRecursionDepth--;
+  }
+}
+```
+
+#### 2. Logging System API Exclusion
+```typescript
+// NEVER wrap these APIs that logging system uses
+const LOGGING_SYSTEM_APIS = [
+  'fetch',           // Used for dev server streaming
+  'XMLHttpRequest',  // HTTP requests
+  'setTimeout',      // Log batching
+  'setInterval',     // Periodic operations
+  'requestIdleCallback', // Performance optimization
+  'addEventListener', // File system events
+  'indexedDB',       // Storage operations
+  'console',         // Debug output
+  'JSON.stringify',  // Log serialization
+  'performance.now'  // Timing measurements
+];
+```
+
+#### 3. Circular Reference Detection
+```typescript
+function sanitizeWithCircularCheck(data: any, seen = new WeakSet()): any {
+  if (data && typeof data === 'object') {
+    if (seen.has(data)) {
+      return '[Circular Reference]';
+    }
+    seen.add(data);
+  }
+  // ... rest of sanitization
+}
+```
+
+### 🎯 User Code Only - System Code Exclusion (MANDATORY)
+
+**Problem:** Current filtering is insufficient. We must NEVER log:
+- Browser APIs (fetch, setTimeout, addEventListener, etc.)
+- Framework internals (React, Next.js, webpack)
+- Node modules code
+- Build system generated code
+- Polyfills and shims
+
+**REQUIRED Filtering Strategy:**
+
+#### 1. File Path Whitelist (Build-Time)
+```typescript
+// ONLY transform files in these directories
+const USER_CODE_DIRECTORIES = [
+  '/src/',           // User source code
+  '/app/',           // Next.js app directory
+  '/pages/',         // Next.js pages
+  '/components/',    // User components
+  '/lib/',           // User utilities
+  '/utils/'          // User utilities
+];
+
+// NEVER transform these paths
+const SYSTEM_CODE_BLOCKLIST = [
+  'node_modules/',
+  '.next/',
+  'dist/',
+  'build/',
+  '/__tests__/',
+  '.turbo/',
+  'webpack:',
+  'react',
+  'next'
+];
+```
+
+#### 2. Function Origin Detection
+```typescript
+function isUserWrittenFunction(fn: Function, name: string): boolean {
+  const fnString = fn.toString();
+
+  // REJECT: Native browser APIs
+  if (fnString.includes('[native code]')) return false;
+
+  // REJECT: System function patterns
+  const systemPatterns = [
+    /^use[A-Z]/,        // React hooks
+    /^__webpack/,       // Webpack internals
+    /^__next/,          // Next.js internals
+    /^React\./,         // React methods
+    /scheduler/,        // React scheduler
+    /node_modules/      // Dependencies
+  ];
+
+  if (systemPatterns.some(pattern => pattern.test(name) || pattern.test(fnString))) {
+    return false;
+  }
+
+  // ACCEPT: Only if source location indicates user code
+  const stack = new Error().stack;
+  if (stack) {
+    const userCodeFile = stack.split('\n').find(line =>
+      USER_CODE_DIRECTORIES.some(dir => line.includes(dir)) &&
+      !SYSTEM_CODE_BLOCKLIST.some(blocked => line.includes(blocked))
+    );
+    return !!userCodeFile;
+  }
+
+  return false;
+}
+```
+
+#### 3. Conservative Wrapping Strategy
+```typescript
+// NEVER wrap browser/system APIs - only user exports
+export function shouldWrapFunction(fn: Function, name: string, source: string): boolean {
+  // Circuit breaker: If any recursion detected, stop all wrapping
+  if (currentRecursionDepth > 0) return false;
+
+  // Only wrap functions explicitly exported from user modules
+  if (!source.startsWith('/src/') && !source.startsWith('/app/')) return false;
+
+  // Never wrap if function uses logging system APIs
+  const fnStr = fn.toString();
+  if (LOGGING_SYSTEM_APIS.some(api => fnStr.includes(api))) return false;
+
+  // Never wrap React/system patterns
+  if (!isUserWrittenFunction(fn, name)) return false;
+
+  // Additional safety: Function must be substantial user code
+  return fnStr.length > 50 && fnStr.includes('return');
+}
+```
+
+## REVISED: Conservative Three-Phase Implementation Strategy
+
+### Phase 1: Build-Time User Function Wrapping (80% Coverage)
+**SAFE: Transform only user-written code at build time**
+
+1. **Conservative Babel/SWC Plugin**
    - `src/lib/logging/clientBuildTransform.js` - Build-time function wrapping
-   - Auto-wrap exported React components
-   - Auto-wrap async functions and event handlers
-   - Inject `withClientLogging` wrapper at build time
+   - **ONLY** wrap functions exported from user modules in `/src/`, `/app/`, `/components/`
+   - **NEVER** wrap React hooks, browser APIs, or framework code
+   - Apply `shouldWrapFunction()` filters at build time
 
-2. **Component Pattern Detection**
-   - Wrap component functions (`useState`, `useEffect`, `useCallback`)
-   - Wrap event handlers (`onClick`, `onSubmit`, `onChange`)
-   - Wrap async operations (`fetch`, server actions)
+2. **User Function Pattern Detection**
+   ```typescript
+   // SAFE: Only wrap user-defined exports
+   export function handleSubmit() { ... }        // ✅ WRAP
+   export const handleClick = () => { ... }      // ✅ WRAP
+   export async function fetchUserData() { ... } // ✅ WRAP
 
-### Phase 2: Runtime Browser Interception (30% Coverage)
-**Target browser-specific async patterns:**
+   // NEVER wrap system code
+   useState()                                     // ❌ NEVER
+   useEffect()                                    // ❌ NEVER
+   fetch()                                        // ❌ NEVER
+   Promise.then()                                 // ❌ NEVER
+   ```
 
-1. **Promise Chain Interception**
-   - `Promise.prototype.then/catch/finally`
-   - `fetch()` API calls
-   - Server action calls
+3. **Build-Time Safety Checks**
+   - Verify file paths are in user directories
+   - Reject functions that call logging system APIs
+   - Add recursion guards to all wrapped functions
 
-2. **Event Handler Wrapping**
-   - DOM event listeners (`addEventListener`)
-   - React synthetic events
-   - Timer functions (`setTimeout`, `setInterval`)
+### Phase 2: Explicit User Event Handler Wrapping (15% Coverage)
+**SAFE: Only wrap explicitly user-defined event handlers**
 
-3. **Array Processing Callbacks**
-   - `.map()`, `.filter()`, `.forEach()`, `.reduce()`
-   - State update batching
+1. **Manual Component Wrapping** (NOT automatic browser API wrapping)
+   ```typescript
+   // SAFE: User explicitly wraps their own handlers
+   const handleSubmit = withClientLogging(
+     async (event) => { /* user code */ },
+     'handleSubmit',
+     { functionType: 'eventHandler' }
+   );
 
-### Phase 3: React Lifecycle Interception (10% Coverage)
-**Target React-specific patterns:**
+   // NEVER: Automatic browser API wrapping
+   // ❌ Promise.prototype.then = ...
+   // ❌ window.setTimeout = ...
+   // ❌ EventTarget.prototype.addEventListener = ...
+   ```
 
-1. **Hook Interception**
-   - `useState` setter functions
-   - `useEffect` callbacks
-   - `useCallback` wrapped functions
+2. **Opt-in Component Integration**
+   ```typescript
+   // User chooses to enable logging per component
+   const MyComponent = withComponentLogging(() => {
+     // Only user-written handlers get logged
+     const handleClick = (e) => { /* user code */ };
+     return <button onClick={handleClick}>Click</button>;
+   });
+   ```
 
-2. **Error Boundary Integration**
-   - Component error logging
-   - Async error tracking
+### Phase 3: Development-Only Request Tracing (5% Coverage)
+**SAFE: Minimal, development-only enhancements**
+
+1. **Request ID Correlation** (existing functionality)
+   - Use existing `RequestIdContext` - no changes needed
+   - User actions → server actions already traced
+
+2. **Manual Export Functions**
+   ```typescript
+   // SAFE: User explicitly calls these when needed
+   export function logUserAction(name: string, data: any) { ... }
+   export function exportClientLogs() { ... }
+   ```
+
+## ⚠️ ELIMINATED DANGEROUS APPROACHES
+
+### ❌ Removed: Runtime Browser API Wrapping
+**Reason: High infinite recursion risk**
+- ~~`Promise.prototype.then` wrapping~~ → Logging system uses promises
+- ~~`setTimeout/setInterval` wrapping~~ → Logging system uses timers
+- ~~`addEventListener` wrapping~~ → Logging system uses events
+- ~~`Array.prototype.map` wrapping~~ → Logging system uses arrays
+
+### ❌ Removed: React Hook Interception
+**Reason: System code, not user code**
+- ~~`useState` setter wrapping~~ → React internal, causes infinite loops
+- ~~`useEffect` callback wrapping~~ → React internal, not user code
+- ~~`useCallback` wrapping~~ → React internal, performance impact
+
+### ❌ Removed: Universal Function Interception
+**Reason: Cannot distinguish user vs system code safely**
+- ~~Module interception~~ → Too broad, catches system code
+- ~~Runtime universal wrapping~~ → Causes infinite recursion
 
 ## Client Log Persistence Strategy: RECOMMENDED HYBRID APPROACH
 
@@ -87,25 +294,45 @@ const logFileHandle = await window.showSaveFilePicker({
 
 ### 🔄 Implementation Flow
 ```typescript
-async function persistClientLog(entry: ClientLogEntry) {
-  // 1. Always store in IndexedDB (reliable backup)
-  await indexedDBStore(entry);
-
-  // 2. Try development server streaming (best UX)
-  if (process.env.NODE_ENV === 'development') {
-    try {
-      await fetch('/api/client-logs', {
-        method: 'POST',
-        body: JSON.stringify(entry)
-      });
-    } catch {
-      // Silently fallback to IndexedDB only
-    }
+async function persistClientLogSafely(entry: ClientLogEntry) {
+  // MANDATORY: Prevent infinite recursion in log persistence
+  if (LOGGING_IN_PROGRESS.has('persist') || currentRecursionDepth > 0) {
+    return; // Silent abort - do not log the logging
   }
 
-  // 3. File System API (if user opted in)
-  if (userFileHandle) {
-    await writeToUserFile(entry);
+  LOGGING_IN_PROGRESS.add('persist');
+
+  try {
+    // 1. Always store in IndexedDB (reliable backup)
+    await indexedDBStoreSafely(entry);
+
+    // 2. Try development server streaming (CAREFULLY - avoid recursion)
+    if (process.env.NODE_ENV === 'development') {
+      // Use native fetch directly (bypass any wrapping)
+      try {
+        await window.fetch('/api/client-logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry)
+        });
+      } catch {
+        // Silently fallback to IndexedDB only
+        // NEVER log this error - would cause recursion
+      }
+    }
+
+    // 3. File System API (if user opted in) - with error guards
+    if (userFileHandle) {
+      try {
+        await writeToUserFileSafely(entry);
+      } catch {
+        // Silent fail - never log persistence errors
+      }
+    }
+  } catch {
+    // Silent fail - persistence should never crash the app
+  } finally {
+    LOGGING_IN_PROGRESS.delete('persist');
   }
 }
 ```
@@ -482,14 +709,19 @@ Promise.all([
 
 ## Detailed Implementation Strategy
 
-### Core withClientLogging Function
+### SAFE Core withClientLogging Function
 
-Following the server-side pattern, create a client-side wrapper:
+**Conservative implementation with mandatory recursion guards:**
 
 ```typescript
-// src/lib/logging/client/clientLoggingBase.ts
+// src/lib/logging/client/safeClientLoggingBase.ts
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
+
+// Global recursion prevention (MANDATORY)
+const LOGGING_IN_PROGRESS = new Set<string>();
+const MAX_RECURSION_DEPTH = 3;
+let currentRecursionDepth = 0;
 
 export interface ClientLogConfig {
   enabled: boolean;
@@ -499,18 +731,18 @@ export interface ClientLogConfig {
   maxInputLength: number;
   maxOutputLength: number;
   sensitiveFields: string[];
-  functionType?: 'component' | 'eventHandler' | 'hook' | 'async';
+  functionType?: 'userFunction' | 'userEventHandler' | 'userAsync';
 }
 
 const defaultClientLogConfig: ClientLogConfig = {
-  enabled: true,
+  enabled: process.env.NODE_ENV === 'development', // Development only
   logInputs: true,
   logOutputs: false, // Prevent DOM log spam
   logErrors: true,
-  maxInputLength: 200,
-  maxOutputLength: 500,
-  sensitiveFields: ['password', 'token', 'apiKey', 'secret'],
-  functionType: 'component'
+  maxInputLength: 100, // Shorter for safety
+  maxOutputLength: 200,
+  sensitiveFields: ['password', 'token', 'apiKey', 'secret', 'key'],
+  functionType: 'userFunction'
 };
 
 export function withClientLogging<T extends (...args: any[]) => any>(
@@ -520,135 +752,194 @@ export function withClientLogging<T extends (...args: any[]) => any>(
 ): T {
   const finalConfig = { ...defaultClientLogConfig, ...config };
 
-  if (!finalConfig.enabled) {
+  // Safety check: Only wrap in development
+  if (!finalConfig.enabled || process.env.NODE_ENV !== 'development') {
     return fn;
   }
 
-  return ((...args: Parameters<T>): ReturnType<T> => {
-    const startTime = performance.now();
-    const sanitizedArgs = finalConfig.logInputs ? sanitizeClientData(args, finalConfig) : undefined;
+  // Safety check: Prevent wrapping logging system functions
+  const fnString = fn.toString();
+  if (fnString.includes('logger.') || fnString.includes('console.') || fnString.includes('fetch(')) {
+    return fn; // Silent abort - do not wrap
+  }
 
-    // Log function entry
-    logger.info(`${finalConfig.functionType} ${functionName} called`, {
-      inputs: sanitizedArgs,
-      timestamp: new Date().toISOString(),
-      component: getComponentName(),
-      userAgent: navigator.userAgent.substring(0, 50)
-    });
+  const logKey = `${functionName}-${Date.now()}`;
+
+  return ((...args: Parameters<T>): ReturnType<T> => {
+    // MANDATORY: Recursion guard
+    if (LOGGING_IN_PROGRESS.has(logKey) || currentRecursionDepth >= MAX_RECURSION_DEPTH) {
+      return fn(...args); // Execute without logging
+    }
+
+    // MANDATORY: Add to in-progress set
+    LOGGING_IN_PROGRESS.add(logKey);
+    currentRecursionDepth++;
 
     try {
+      const startTime = performance.now();
+      let sanitizedArgs: any;
+
+      // Safe sanitization with recursion guard
+      try {
+        sanitizedArgs = finalConfig.logInputs ?
+          sanitizeWithCircularCheck(args, new WeakSet()) :
+          undefined;
+      } catch {
+        sanitizedArgs = '[Sanitization Failed]';
+      }
+
+      // Safe logging with try-catch
+      try {
+        logger.info(`${finalConfig.functionType} ${functionName} called`, {
+          inputs: sanitizedArgs,
+          timestamp: new Date().toISOString(),
+          source: 'client-safe'
+        });
+      } catch {
+        // Silent fail - logging should never break user code
+      }
+
       const result = fn(...args);
 
-      // Handle both synchronous and asynchronous functions
+      // Handle async results safely
       if (result instanceof Promise) {
         return result
           .then((resolvedResult) => {
-            const duration = performance.now() - startTime;
-            const sanitizedResult = finalConfig.logOutputs ? sanitizeClientData(resolvedResult, finalConfig) : undefined;
-
-            logger.info(`${finalConfig.functionType} ${functionName} completed successfully`, {
-              outputs: sanitizedResult,
-              duration: `${duration.toFixed(2)}ms`,
-              timestamp: new Date().toISOString()
-            });
-
-            return resolvedResult;
-          })
-          .catch((error) => {
-            const duration = performance.now() - startTime;
-
-            if (finalConfig.logErrors) {
-              logger.error(`${finalConfig.functionType} ${functionName} failed`, {
-                error: error instanceof Error ? error.message : String(error),
-                stack: error instanceof Error ? error.stack : undefined,
+            try {
+              const duration = performance.now() - startTime;
+              logger.info(`${finalConfig.functionType} ${functionName} completed`, {
                 duration: `${duration.toFixed(2)}ms`,
                 timestamp: new Date().toISOString()
               });
+            } catch {
+              // Silent fail
             }
-
+            return resolvedResult;
+          })
+          .catch((error) => {
+            try {
+              if (finalConfig.logErrors) {
+                logger.error(`${finalConfig.functionType} ${functionName} failed`, {
+                  error: error instanceof Error ? error.message : String(error),
+                  timestamp: new Date().toISOString()
+                });
+              }
+            } catch {
+              // Silent fail
+            }
             throw error;
           }) as ReturnType<T>;
       } else {
         // Synchronous function
-        const duration = performance.now() - startTime;
-        const sanitizedResult = finalConfig.logOutputs ? sanitizeClientData(result, finalConfig) : undefined;
-
-        logger.info(`${finalConfig.functionType} ${functionName} completed successfully`, {
-          outputs: sanitizedResult,
-          duration: `${duration.toFixed(2)}ms`,
-          timestamp: new Date().toISOString()
-        });
-
+        try {
+          const duration = performance.now() - startTime;
+          logger.info(`${finalConfig.functionType} ${functionName} completed`, {
+            duration: `${duration.toFixed(2)}ms`,
+            timestamp: new Date().toISOString()
+          });
+        } catch {
+          // Silent fail
+        }
         return result;
       }
     } catch (error) {
-      // Synchronous error
-      const duration = performance.now() - startTime;
-
-      if (finalConfig.logErrors) {
-        logger.error(`${finalConfig.functionType} ${functionName} failed`, {
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-          duration: `${duration.toFixed(2)}ms`,
-          timestamp: new Date().toISOString()
-        });
+      // Log synchronous errors safely
+      try {
+        if (finalConfig.logErrors) {
+          logger.error(`${finalConfig.functionType} ${functionName} failed`, {
+            error: error instanceof Error ? error.message : String(error),
+            timestamp: new Date().toISOString()
+          });
+        }
+      } catch {
+        // Silent fail
       }
-
       throw error;
+    } finally {
+      // MANDATORY: Always clean up recursion guards
+      LOGGING_IN_PROGRESS.delete(logKey);
+      currentRecursionDepth--;
     }
   }) as T;
 }
 
-function sanitizeClientData(data: any, config: ClientLogConfig): any {
-  // Similar to server-side sanitization but adapted for browser objects
+// SAFE sanitization with circular reference protection
+function sanitizeWithCircularCheck(data: any, seen = new WeakSet(), depth = 0): any {
+  // Prevent deep recursion
+  if (depth > 5) return '[Max Depth Reached]';
+
   if (!data || typeof data !== 'object') {
     return data;
   }
 
-  // Handle DOM elements
+  // Circular reference protection
+  if (seen.has(data)) {
+    return '[Circular Reference]';
+  }
+  seen.add(data);
+
+  // Handle DOM elements safely
   if (data instanceof HTMLElement) {
-    return `<${data.tagName.toLowerCase()}${data.id ? ` id="${data.id}"` : ''}${data.className ? ` class="${data.className}"` : ''}>`;
+    return `<${data.tagName.toLowerCase()}${data.id ? ` id="${data.id}"` : ''}>`;
   }
 
-  // Handle Events
+  // Handle Events safely
   if (data instanceof Event) {
     return {
       type: data.type,
-      target: data.target instanceof HTMLElement ? `<${data.target.tagName.toLowerCase()}>` : 'unknown',
+      target: 'HTMLElement',
       timestamp: data.timeStamp
     };
   }
 
-  const sanitized = Array.isArray(data) ? [...data] : { ...data };
-
-  if (Array.isArray(sanitized)) {
-    return sanitized.map(item => sanitizeClientData(item, config));
+  // Handle Functions (log but don't traverse)
+  if (typeof data === 'function') {
+    return `[Function: ${data.name || 'anonymous'}]`;
   }
 
-  for (const [key, value] of Object.entries(sanitized)) {
-    // Remove sensitive fields
-    if (config.sensitiveFields?.some(field =>
-      key.toLowerCase().includes(field.toLowerCase())
-    )) {
-      sanitized[key] = '[REDACTED]';
-      continue;
-    }
+  try {
+    const sanitized = Array.isArray(data) ? [] : {};
 
-    // Truncate long string values
-    if (typeof value === 'string') {
-      const maxLength = key.includes('input') ? config.maxInputLength : config.maxOutputLength;
-      if (maxLength && value.length > maxLength) {
-        sanitized[key] = value.substring(0, maxLength) + '...';
+    if (Array.isArray(data)) {
+      // Limit array size for safety
+      const maxItems = Math.min(data.length, 10);
+      for (let i = 0; i < maxItems; i++) {
+        sanitized[i] = sanitizeWithCircularCheck(data[i], seen, depth + 1);
+      }
+      if (data.length > 10) {
+        sanitized.push(`[... ${data.length - 10} more items]`);
+      }
+    } else {
+      // Limit object properties for safety
+      const entries = Object.entries(data).slice(0, 10);
+      for (const [key, value] of entries) {
+        // Remove sensitive fields
+        if (['password', 'token', 'secret', 'key', 'apiKey'].some(field =>
+          key.toLowerCase().includes(field.toLowerCase())
+        )) {
+          sanitized[key] = '[REDACTED]';
+          continue;
+        }
+
+        // Truncate long strings
+        if (typeof value === 'string' && value.length > 100) {
+          sanitized[key] = value.substring(0, 100) + '...';
+          continue;
+        }
+
+        // Recursively sanitize
+        sanitized[key] = sanitizeWithCircularCheck(value, seen, depth + 1);
+      }
+
+      if (Object.keys(data).length > 10) {
+        sanitized['...'] = `[${Object.keys(data).length - 10} more properties]`;
       }
     }
 
-    // Recursively sanitize nested objects
-    if (value && typeof value === 'object') {
-      sanitized[key] = sanitizeClientData(value, config);
-    }
+    return sanitized;
+  } catch (error) {
+    return '[Sanitization Error]';
   }
-
-  return sanitized;
 }
 
 function getComponentName(): string {
@@ -669,110 +960,113 @@ function getComponentName(): string {
 }
 ```
 
-### Runtime Browser Interception
+### ❌ DANGEROUS RUNTIME INTERCEPTION REMOVED
+
+**⚠️ WARNING: The following approach was REMOVED due to infinite recursion risks:**
 
 ```typescript
-// src/lib/logging/client/runtimeInterceptor.ts
-import { withClientLogging } from './clientLoggingBase';
+// ❌ NEVER DO THIS - Causes infinite recursion
+// Promise.prototype.then = ...
+// window.setTimeout = ...
+// EventTarget.prototype.addEventListener = ...
+```
 
-export function setupClientRuntimeInterception() {
-  if (typeof window === 'undefined') return; // Client-side only
+**Why this is dangerous:**
+1. **Infinite Recursion**: Logging system uses promises, timers, and events
+2. **System Code Pollution**: Wraps framework and browser internals
+3. **Performance Impact**: Every single Promise/timer gets wrapped
+4. **Debugging Nightmare**: Stack traces become unreadable
 
-  const wrappedFunctions = new WeakSet();
+### ✅ SAFE ALTERNATIVE: Manual User Code Wrapping
 
-  function shouldSkipClientFunction(fn: Function, name: string): boolean {
-    // Skip React internals and framework code
-    const skipPatterns = [
-      'React',
-      '__webpack',
-      '__next',
-      'node_modules',
-      'react-dom',
-      'scheduler',
-      'useState',
-      'useEffect',
-      'useCallback'
-    ];
+**Instead of dangerous runtime interception, use explicit user code wrapping:**
 
-    const fnString = fn.toString();
-    return skipPatterns.some(pattern =>
-      fnString.includes(pattern) ||
-      name.includes(pattern)
-    ) || fnString.length < 20;
-  }
+```typescript
+// src/lib/logging/client/safeUserCodeWrapper.ts
 
-  function wrapClientCallback(fn: Function, name: string, type: string): Function {
-    if (wrappedFunctions.has(fn) || shouldSkipClientFunction(fn, name)) return fn;
+// SAFE: User explicitly chooses what to log
+export function createSafeEventHandler<T extends Function>(
+  fn: T,
+  name: string
+): T {
+  // Only wrap in development, with full safety guards
+  if (process.env.NODE_ENV !== 'development') return fn;
 
-    const wrapped = withClientLogging(fn as any, name, {
-      enabled: true,
-      logInputs: true,
-      logOutputs: false,
-      logErrors: true,
-      maxInputLength: 100,
-      functionType: type as any
-    });
-
-    wrappedFunctions.add(wrapped);
-    wrappedFunctions.add(fn);
-    return wrapped;
-  }
-
-  // Wrap Promise methods
-  const originalThen = Promise.prototype.then;
-  Promise.prototype.then = function(onFulfilled, onRejected) {
-    if (typeof onFulfilled === 'function') {
-      const fnName = onFulfilled.name || 'anonymous';
-      onFulfilled = wrapClientCallback(onFulfilled, `promise.then(${fnName})`, 'async');
-    }
-    if (typeof onRejected === 'function') {
-      const fnName = onRejected.name || 'anonymous';
-      onRejected = wrapClientCallback(onRejected, `promise.catch(${fnName})`, 'async');
-    }
-    return originalThen.call(this, onFulfilled, onRejected);
-  };
-
-  // Wrap setTimeout/setInterval
-  const originalSetTimeout = window.setTimeout;
-  window.setTimeout = function(callback: Function, delay: number, ...args: any[]) {
-    if (typeof callback === 'function') {
-      const fnName = callback.name || 'anonymous';
-      callback = wrapClientCallback(callback, `setTimeout(${fnName})`, 'async');
-    }
-    return originalSetTimeout.call(this, callback, delay, ...args);
-  };
-
-  const originalSetInterval = window.setInterval;
-  window.setInterval = function(callback: Function, delay: number, ...args: any[]) {
-    if (typeof callback === 'function') {
-      const fnName = callback.name || 'anonymous';
-      callback = wrapClientCallback(callback, `setInterval(${fnName})`, 'async');
-    }
-    return originalSetInterval.call(this, callback, delay, ...args);
-  };
-
-  // Wrap addEventListener
-  const originalAddEventListener = EventTarget.prototype.addEventListener;
-  EventTarget.prototype.addEventListener = function(type: string, listener: any, options?: any) {
-    if (typeof listener === 'function') {
-      const fnName = listener.name || 'anonymous';
-      listener = wrapClientCallback(listener, `addEventListener.${type}(${fnName})`, 'eventHandler');
-    }
-    return originalAddEventListener.call(this, type, listener, options);
-  };
-
-  // Wrap Array methods
-  ['map', 'filter', 'forEach', 'reduce'].forEach(method => {
-    const original = Array.prototype[method as keyof Array.prototype] as Function;
-    (Array.prototype as any)[method] = function(callback: Function, ...args: any[]) {
-      if (typeof callback === 'function') {
-        const fnName = callback.name || 'anonymous';
-        callback = wrapClientCallback(callback, `Array.${method}(${fnName})`, 'async');
-      }
-      return original.call(this, callback, ...args);
-    };
+  return withClientLogging(fn, name, {
+    functionType: 'userEventHandler',
+    enabled: true,
+    logInputs: true,
+    logOutputs: false
   });
 }
+
+// SAFE: User explicitly wraps their async functions
+export function createSafeAsyncFunction<T extends Function>(
+  fn: T,
+  name: string
+): T {
+  if (process.env.NODE_ENV !== 'development') return fn;
+
+  return withClientLogging(fn, name, {
+    functionType: 'userAsync',
+    enabled: true,
+    logInputs: true,
+    logOutputs: false
+  });
+}
+
+// SAFE: Optional component-level logging
+export function withComponentLogging<T extends Function>(
+  component: T,
+  componentName?: string
+): T {
+  if (process.env.NODE_ENV !== 'development') return component;
+
+  // Only log the top-level component render, not internals
+  return withClientLogging(component, componentName || 'Component', {
+    functionType: 'userFunction',
+    enabled: true,
+    logInputs: false, // Avoid logging props (performance)
+    logOutputs: false // Avoid logging JSX (noise)
+  });
+}
+```
+
+### Usage Examples (SAFE)
+
+```typescript
+// User manually opts into logging for their code
+export const MyComponent = withComponentLogging(() => {
+  // User explicitly wraps their event handlers
+  const handleSubmit = createSafeEventHandler(
+    async (event: FormEvent) => {
+      // User code that gets logged safely
+      await submitForm(event);
+    },
+    'handleSubmit'
+  );
+
+  // User explicitly wraps their async operations
+  const fetchData = createSafeAsyncFunction(
+    async () => {
+      // User code that gets logged safely
+      const data = await fetch('/api/data');
+      return data.json();
+    },
+    'fetchData'
+  );
+
+  return <form onSubmit={handleSubmit}>...</form>;
+});
+
+// NEVER automatically wrapped:
+// - Promise.prototype.then ❌
+// - setTimeout/setInterval ❌
+// - addEventListener ❌
+// - Array.prototype.map ❌
+// - React hooks ❌
+// - Browser APIs ❌
+```
 ```
 
 ### Local Drive Persistence
@@ -1239,4 +1533,117 @@ export const CLIENT_LOGGING_ENABLED = process.env.CLIENT_LOGGING !== 'false';
 // 3. Client logging completely disabled, server logging unaffected
 ```
 
-This comprehensive plan provides automatic client-side logging that mirrors your server-side approach while handling browser-specific challenges, providing multiple persistence options, and ensuring zero regression risk.
+## 🔒 FINAL SAFETY SUMMARY
+
+### ✅ MANDATORY Safety Requirements Implemented
+
+1. **Infinite Recursion Prevention**
+   - ✅ Re-entrance guards on all logging operations
+   - ✅ Maximum recursion depth limits (3 levels)
+   - ✅ Never wrap APIs that logging system uses
+   - ✅ Silent failure modes for all logging operations
+   - ✅ Circular reference detection in sanitization
+
+2. **User Code Only Filtering**
+   - ✅ File path whitelist: only `/src/`, `/app/`, `/components/`
+   - ✅ System code blocklist: `node_modules/`, React internals, browser APIs
+   - ✅ Function origin detection via stack traces
+   - ✅ Conservative wrapping strategy with explicit opt-in
+
+3. **Development Only Operation**
+   - ✅ Completely disabled in production
+   - ✅ No performance impact on production builds
+   - ✅ Easy emergency disable via environment variable
+
+### ⚠️ CRITICAL "NEVER DO" List
+
+1. **NEVER wrap these APIs** (infinite recursion risk):
+   - ❌ `Promise.prototype.then/catch/finally`
+   - ❌ `setTimeout/setInterval/requestAnimationFrame`
+   - ❌ `EventTarget.prototype.addEventListener`
+   - ❌ `fetch/XMLHttpRequest`
+   - ❌ `Array.prototype.map/filter/forEach`
+   - ❌ `console.*` methods
+   - ❌ `JSON.stringify/parse`
+   - ❌ `performance.*` APIs
+
+2. **NEVER log these system components**:
+   - ❌ React hooks (`useState`, `useEffect`, etc.)
+   - ❌ Next.js internals
+   - ❌ Webpack/build system code
+   - ❌ Browser polyfills and shims
+   - ❌ Node modules dependencies
+
+3. **NEVER assume safety**:
+   - ❌ Always use try-catch around logging operations
+   - ❌ Never let logging errors crash user code
+   - ❌ Never log without recursion guards
+   - ❌ Never enable in production without explicit opt-in
+
+### 📋 REQUIRED Testing Checklist
+
+#### Infinite Recursion Testing (CRITICAL)
+```typescript
+// Test: Logging system doesn't log itself
+function testLoggingSystemExclusion() {
+  const logger = createTestLogger();
+  const wrappedLogger = withClientLogging(logger.info, 'loggerTest');
+  wrappedLogger('test message'); // Should NOT create recursive logs
+
+  assert(getLogCount() === 1, 'Logging system logged itself - RECURSION RISK');
+}
+
+// Test: Maximum recursion depth respected
+function testRecursionDepthLimit() {
+  const deepFunction = (depth: number) => {
+    if (depth > 0) return deepFunction(depth - 1);
+    return 'done';
+  };
+
+  const wrapped = withClientLogging(deepFunction, 'deepTest');
+  wrapped(10); // Should not exceed MAX_RECURSION_DEPTH
+
+  assert(currentRecursionDepth === 0, 'Recursion depth not properly reset');
+}
+
+// Test: Circular reference handling
+function testCircularReferences() {
+  const obj: any = { name: 'test' };
+  obj.self = obj; // Circular reference
+
+  const wrappedFn = withClientLogging(() => obj, 'circularTest');
+  const result = wrappedFn(); // Should not cause infinite loop
+
+  assert(result.self === '[Circular Reference]', 'Circular reference not handled');
+}
+```
+
+#### User Code vs System Code Testing (CRITICAL)
+```typescript
+// Test: System code rejection
+function testSystemCodeRejection() {
+  const systemFunction = Promise.prototype.then;
+  const shouldWrap = shouldWrapFunction(systemFunction, 'then', 'system');
+
+  assert(!shouldWrap, 'System code was not rejected - POLLUTION RISK');
+}
+
+// Test: User code acceptance
+function testUserCodeAcceptance() {
+  const userFunction = function handleSubmit() { return 'user code'; };
+  const shouldWrap = shouldWrapFunction(userFunction, 'handleSubmit', '/src/components/Form.tsx');
+
+  assert(shouldWrap, 'User code was rejected - MISSING LOGS');
+}
+```
+
+### 🚨 Emergency Disable
+
+```bash
+# If infinite recursion occurs, immediately disable:
+echo "CLIENT_LOGGING=false" >> .env.local
+# Restart development server
+npm run dev
+```
+
+This **SAFE, CONSERVATIVE** plan provides client-side logging for USER CODE ONLY while preventing infinite recursion and system code pollution. The emphasis is on safety over coverage.
