@@ -1,0 +1,105 @@
+#!/bin/bash
+
+set -e  # Exit on error
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== Git Worktree Reset Script ===${NC}"
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${RED}Error: Not a git repository${NC}"
+    exit 1
+fi
+
+# Get the root directory of the git repository
+GIT_ROOT=$(git rev-parse --show-toplevel)
+PARENT_DIR=$(dirname "$GIT_ROOT")
+COUNTER_FILE="$GIT_ROOT/.worktree_counter"
+
+# Step 1: Remove all existing worktrees
+echo -e "\n${BLUE}Step 1: Removing existing worktrees...${NC}"
+
+# Get list of worktrees (excluding the main one)
+WORKTREES=$(git worktree list --porcelain | grep "^worktree" | awk '{print $2}' | grep -v "^$GIT_ROOT$" || true)
+
+if [ -n "$WORKTREES" ]; then
+    while IFS= read -r worktree_path; do
+        echo "Removing worktree: $worktree_path"
+        git worktree remove "$worktree_path" --force 2>/dev/null || true
+        # Also remove the directory if it still exists
+        if [ -d "$worktree_path" ]; then
+            rm -rf "$worktree_path"
+        fi
+    done <<< "$WORKTREES"
+
+    # Prune to clean up metadata
+    git worktree prune
+    echo -e "${GREEN}All worktrees removed and metadata cleaned${NC}"
+else
+    echo "No existing worktrees found"
+fi
+
+# Step 2: Update main directory from remote
+echo -e "\n${BLUE}Step 2: Updating main directory from remote...${NC}"
+
+# Get current branch name
+CURRENT_BRANCH=$(git branch --show-current)
+
+if [ -z "$CURRENT_BRANCH" ]; then
+    # Detached HEAD state, try to use default branch
+    CURRENT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+fi
+
+echo "Current branch: $CURRENT_BRANCH"
+
+# Fetch latest from remote
+git fetch origin
+
+# Pull latest changes
+git pull origin "$CURRENT_BRANCH"
+
+echo -e "${GREEN}Main directory updated${NC}"
+
+# Step 3 & 4: Create new worktrees with incremented counter
+echo -e "\n${BLUE}Step 3: Creating new worktrees...${NC}"
+
+# Read counter from file, or start at 0
+if [ -f "$COUNTER_FILE" ]; then
+    COUNTER=$(cat "$COUNTER_FILE")
+else
+    COUNTER=0
+fi
+
+echo "Current counter: $COUNTER"
+
+# Increment counter
+COUNTER=$((COUNTER + 1))
+
+# Save new counter
+echo "$COUNTER" > "$COUNTER_FILE"
+
+# Create two worktrees in parent directory
+for i in 0 1; do
+    BRANCH_NAME="git_worktree_${COUNTER}_${i}"
+    WORKTREE_PATH="$PARENT_DIR/worktree_${COUNTER}_${i}"
+
+    echo -e "\nCreating worktree: ${GREEN}$BRANCH_NAME${NC}"
+
+    # Delete branch if it already exists
+    git branch -D "$BRANCH_NAME" 2>/dev/null || true
+
+    # Create new worktree based on current branch
+    git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$CURRENT_BRANCH"
+
+    echo -e "${GREEN}Created: $WORKTREE_PATH${NC}"
+done
+
+echo -e "\n${GREEN}=== Complete! ===${NC}"
+echo -e "Counter: ${BLUE}$COUNTER${NC}"
+echo -e "\nWorktrees created:"
+git worktree list
