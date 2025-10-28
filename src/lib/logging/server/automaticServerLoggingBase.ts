@@ -1,5 +1,5 @@
 import { logger } from '@/lib/server_utilities';
-import { createAppSpan } from '../../../instrumentation';
+import { createAppSpan } from '../../../../instrumentation';
 import { 
   LogConfig, 
   TracingConfig, 
