@@ -1,0 +1,70 @@
+/** @type {import('jest').Config} */
+const config = {
+  preset: 'ts-jest',
+  testEnvironment: 'jsdom',
+
+  // Module paths for manual mocks
+  moduleDirectories: ['node_modules', '<rootDir>'],
+
+  // Module name mapper for absolute imports and aliases
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+    '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '^openai$': '<rootDir>/src/testing/mocks/openai.ts',
+    '^@pinecone-database/pinecone$': '<rootDir>/src/testing/mocks/@pinecone-database/pinecone.ts',
+    '^@supabase/supabase-js$': '<rootDir>/src/testing/mocks/@supabase/supabase-js.ts',
+  },
+
+  // Setup files after environment
+  setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+
+  // Test match patterns - colocated structure
+  testMatch: [
+    '**/*.test.ts',
+    '**/*.test.tsx',
+    '**/*.spec.ts',
+    '**/*.spec.tsx',
+  ],
+
+  // Coverage configuration
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/*.stories.{ts,tsx}',
+    '!src/testing/**',
+  ],
+
+  // Transform configuration
+  transform: {
+    '^.+\\.(ts|tsx)$': ['ts-jest', {
+      tsconfig: {
+        jsx: 'react-jsx',
+        esModuleInterop: true,
+        moduleResolution: 'node',
+      },
+    }],
+  },
+
+  // Ignore patterns
+  testPathIgnorePatterns: [
+    '/node_modules/',
+    '/.next/',
+    '/out/',
+    '/public/',
+  ],
+
+  // Verbose output
+  verbose: true,
+
+  // Coverage thresholds (starting at 0, will increase progressively)
+  coverageThreshold: {
+    global: {
+      branches: 0,
+      functions: 0,
+      lines: 0,
+      statements: 0,
+    },
+  },
+};
+
+module.exports = config;
