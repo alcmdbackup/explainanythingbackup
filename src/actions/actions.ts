@@ -2,20 +2,17 @@
 
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
-import { createExplanationPrompt } from '@/lib/prompts';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, explanationBaseType, explanationBaseSchema, type ExplanationInsertType, MatchMode, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, ExplanationStatus } from '@/lib/schemas/schemas';
-import { processContentToStoreEmbedding, findMatchesInVectorDb, loadFromPineconeUsingExplanationId } from '@/lib/services/vectorsim';
+import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
+import { processContentToStoreEmbedding, loadFromPineconeUsingExplanationId } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
-import { userQueryInsertSchema, matchWithCurrentContentType } from '@/lib/schemas/schemas';
+import { userQueryInsertSchema } from '@/lib/schemas/schemas';
 import { createTopic } from '@/lib/services/topics';
-import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
-import { withLogging, withLoggingAndTracing } from '@/lib/logging/server/automaticServerLoggingBase';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { getExplanationById, getRecentExplanations } from '@/lib/services/explanations';
 import { saveExplanationToLibrary, isExplanationSavedByUser, getUserLibraryExplanations } from '@/lib/services/userLibrary';
-import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
 import { 
   createUserExplanationEvent, 
   getMultipleExplanationMetrics, 
@@ -25,15 +22,25 @@ import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAl
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
-import { checkAndSaveTestingPipelineRecord, getTestingPipelineRecords, updateTestingPipelineRecordSetName } from '../lib/services/testingPipeline';
+import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName } from '../lib/services/testingPipeline';
 import { supabase } from '../lib/supabase';
 
 
 const FILE_DEBUG = true;
 
 // Constants for better maintainability
-const MIN_SIMILARITY_INDEX = 0;
 const CONTENT_FORMAT_TEMPLATE = '# {title}\n\n{content}';
+
+// Type for Pinecone vector data
+interface PineconeVectorMatch {
+    id: string;
+    score?: number;
+    values?: number[];
+    metadata?: Record<string, unknown>;
+}
+
+// Type for session metadata
+type SessionMetadata = Record<string, unknown>;
 
 
 
@@ -104,11 +111,14 @@ export const saveExplanationAndTopic = withLogging(
  * - Regenerates embeddings when content changes
  * - Used for editing published/draft articles
  */
-export const updateExplanationAndTopic = withLogging(
+const _updateExplanationAndTopic = withLogging(
     async function updateExplanationAndTopic(
-        explanationId: number,
-        updates: { content?: string; status?: ExplanationStatus; explanation_title?: string }
+        params: {
+            explanationId: number;
+            updates: { content?: string; status?: ExplanationStatus; explanation_title?: string };
+        }
     ) {
+        const { explanationId, updates } = params;
         try {
             // Import updateExplanation function
             const { updateExplanation } = await import('@/lib/services/explanations');
@@ -157,6 +167,8 @@ export const updateExplanationAndTopic = withLogging(
     }
 );
 
+export const updateExplanationAndTopic = serverReadRequestId(_updateExplanationAndTopic);
+
 /**
  * Saves or publishes changes to an explanation based on its current status
  *
@@ -166,14 +178,17 @@ export const updateExplanationAndTopic = withLogging(
  * - Returns the ID of the explanation (existing or new) that was published
  * - Used by the in-UI editing feature
  */
-export const saveOrPublishChanges = withLogging(
+const _saveOrPublishChanges = withLogging(
     async function saveOrPublishChanges(
-        explanationId: number,
-        newContent: string,
-        newTitle: string,
-        originalStatus: ExplanationStatus,
-        targetStatus: ExplanationStatus = ExplanationStatus.Published
+        params: {
+            explanationId: number;
+            newContent: string;
+            newTitle: string;
+            originalStatus: ExplanationStatus;
+            targetStatus?: ExplanationStatus;
+        }
     ) {
+        const { explanationId, newContent, newTitle, originalStatus, targetStatus = ExplanationStatus.Published } = params;
         try {
             if (originalStatus === ExplanationStatus.Draft) {
                 // For draft articles, update the existing record
@@ -189,7 +204,7 @@ export const saveOrPublishChanges = withLogging(
                     updates.explanation_title = newTitle;
                 }
 
-                const result = await updateExplanationAndTopic(explanationId, updates);
+                const result = await updateExplanationAndTopic({ explanationId, updates });
 
                 return {
                     success: result.success,
@@ -207,7 +222,7 @@ export const saveOrPublishChanges = withLogging(
 
                 // After creating, update status to target status if different from default
                 if (result.success && result.id && targetStatus !== ExplanationStatus.Draft) {
-                    await updateExplanationAndTopic(result.id, { status: targetStatus });
+                    await updateExplanationAndTopic({ explanationId: result.id, updates: { status: targetStatus } });
                 }
 
                 return {
@@ -236,6 +251,8 @@ export const saveOrPublishChanges = withLogging(
     }
 );
 
+export const saveOrPublishChanges = serverReadRequestId(_saveOrPublishChanges);
+
 /**
  * Key points:
  * - Saves user queries to database with userInputType tracking
@@ -258,7 +275,7 @@ export const saveUserQuery = withLogging(
                     userInputType,
                     allowedQuery,
                     previousExplanationViewedId,
-                    matches_with_diversity: matches?.map((match: any) => ({
+                    matches_with_diversity: matches?.map((match: MatchType) => ({
                         explanation_id: match.explanation_id,
                         ranking: match.ranking,
                         diversity_score: match.ranking?.diversity_score
@@ -895,7 +912,7 @@ export const refreshExplanationMetricsAction = serverReadRequestId(_refreshExpla
 const _loadFromPineconeUsingExplanationIdAction = withLogging(
     async function loadFromPineconeUsingExplanationIdAction(params: { explanationId: number; namespace?: string }): Promise<{
         success: boolean;
-        data: any | null;
+        data: PineconeVectorMatch | null;
         error: ErrorResponse | null;
     }> {
         try {
@@ -1103,7 +1120,7 @@ const _saveTestingPipelineStepAction = withLogging(
             explanation_title: string;
             user_prompt: string;
             source_content: string;
-            session_metadata?: any;
+            session_metadata?: SessionMetadata;
         }
     ): Promise<{
         success: boolean;
@@ -1371,7 +1388,7 @@ const _loadAISuggestionSessionAction = withLogging(
             steps: Array<{
                 step: string;
                 content: string;
-                session_metadata: any;
+                session_metadata: SessionMetadata;
                 created_at: string;
             }>;
         } | null;

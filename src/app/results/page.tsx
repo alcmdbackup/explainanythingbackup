@@ -656,11 +656,13 @@ export default function ResultsPage() {
             const targetStatus = ExplanationStatus.Published;
 
             const result = await saveOrPublishChanges(
-                withRequestId(explanationId),
-                currentContent,
-                explanationTitle,
-                originalStatus!,
-                targetStatus
+                withRequestId({
+                    explanationId,
+                    newContent: currentContent,
+                    newTitle: explanationTitle,
+                    originalStatus: originalStatus!,
+                    targetStatus
+                })
             );
 
             if (result.success && result.id) {

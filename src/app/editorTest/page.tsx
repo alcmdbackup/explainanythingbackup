@@ -79,7 +79,7 @@ export default function EditorTestPage() {
         steps: Array<{
             step: string;
             content: string;
-            session_metadata: any;
+            session_metadata: Record<string, unknown>;
             created_at: string;
         }>;
     } | null>(null);
@@ -872,7 +872,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         AI Suggestion Session Loaded
                                     </h3>
                                     <p className="mt-1 text-sm text-blue-700 dark:text-blue-300">
-                                        Session: <strong>"{loadedSessionData.session_metadata.user_prompt}"</strong>
+                                        Session: <strong>&quot;{loadedSessionData.session_metadata.user_prompt}&quot;</strong>
                                     </p>
                                     <p className="mt-1 text-xs text-blue-600 dark:text-blue-400">
                                         From: {loadedSessionData.session_metadata.explanation_title} |
@@ -901,7 +901,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     <option value="">Select AI suggestion session...</option>
                                     {sessionOptions.map((session) => (
                                         <option key={session.session_id} value={session.session_id}>
-                                            "{session.user_prompt}" - {session.explanation_title} ({new Date(session.created_at).toLocaleDateString()})
+                                            &quot;{session.user_prompt}&quot; - {session.explanation_title} ({new Date(session.created_at).toLocaleDateString()})
                                         </option>
                                     ))}
                                 </select>

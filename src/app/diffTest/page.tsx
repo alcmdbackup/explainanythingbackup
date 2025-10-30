@@ -189,7 +189,7 @@ export default function DiffTestPage() {
                     </h3>
                     <ul className="text-blue-800 dark:text-blue-200 text-sm space-y-1">
                         <li>• Use the preset buttons to load example content, or type your own</li>
-                        <li>• Click "Compute Markdown Diff" to generate CriticMarkup</li>
+                        <li>• Click &quot;Compute Markdown Diff&quot; to generate CriticMarkup</li>
                         <li>• View the generated CriticMarkup output and AST debug info</li>
                         <li>• Check the browser console for additional debug logs</li>
                         <li>• CriticMarkup syntax: {'{++addition++}'}, {'{--deletion--}'}, {'{~~old~>new~~}'}</li>

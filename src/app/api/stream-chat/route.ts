@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       },
     });
     }); // Close RequestIdContext.run()
-  } catch (error) {
+  } catch {
     return new Response('Internal Server Error', { status: 500 });
   }
 }
