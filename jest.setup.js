@@ -1,5 +1,8 @@
+// Add OpenAI shims for Node environment
+require('openai/shims/node');
+
 // Add custom Jest matchers from Testing Library
-import '@testing-library/jest-dom';
+require('@testing-library/jest-dom');
 
 // Mock environment variables for testing
 process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
