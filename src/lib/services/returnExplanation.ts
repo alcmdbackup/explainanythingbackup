@@ -372,7 +372,7 @@ export const returnExplanationLogic = withLoggingAndTracing(
         previousExplanationViewedVector?: { values: number[] } | null // Pinecone match object with embedding values for context in rewrite operations
     ): Promise<{
         originalUserInput: string,
-        match_found: Boolean | null,
+        match_found: boolean | null,
         error: ErrorResponse | null,
         explanationId: number | null,
         matches: matchWithCurrentContentType[],

@@ -1,3 +1,7 @@
+/**
+ * @jest-environment node
+ */
+
 import { callOpenAIModel, default_model, lighter_model } from './llms';
 import OpenAI from 'openai';
 import { z } from 'zod';
@@ -313,8 +317,7 @@ describe('llms', () => {
 
     it('should throw error when used on client side', async () => {
       // Mock window to simulate client-side environment
-      const originalWindow = global.window;
-      global.window = {} as any;
+      (global as any).window = {};
 
       await expect(
         callOpenAIModel(
@@ -330,8 +333,8 @@ describe('llms', () => {
         )
       ).rejects.toThrow('OpenAI client cannot be used on the client side');
 
-      // Restore window
-      global.window = originalWindow;
+      // Clean up window mock
+      delete (global as any).window;
     });
 
     it('should save tracking data even when database save fails', async () => {

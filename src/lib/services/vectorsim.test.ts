@@ -169,7 +169,7 @@ describe('vectorsim', () => {
       const query = 'test query';
       const matches = await findMatchesInVectorDb(query, false, null, 5, 'default');
 
-      expect(mockOpenAIInstance.embeddings.create).toHaveBeenCalledWith({
+       expect(mockOpenAIInstance.embeddings.create).toHaveBeenCalledWith({
         model: 'text-embedding-3-large',
         input: query
       });

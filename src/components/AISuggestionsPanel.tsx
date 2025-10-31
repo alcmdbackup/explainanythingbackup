@@ -7,7 +7,7 @@ interface AISuggestionsPanelProps {
   isVisible: boolean;
   onClose?: () => void;
   currentContent: string;
-  editorRef: React.RefObject<any>; // LexicalEditorRef
+  editorRef: React.RefObject<unknown>; // LexicalEditorRef
   onContentChange?: (content: string) => void;
   onEnterEditMode?: () => void;
   sessionData?: {
@@ -94,7 +94,7 @@ export default function AISuggestionsPanel({
       setIsLoading(false);
       setProgressState(null);
     }
-  }, [userPrompt, currentContent, editorRef, onContentChange, handleProgressUpdate]);
+  }, [userPrompt, currentContent, editorRef, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData]);
 
   if (!isVisible) {
     return null;
@@ -221,7 +221,7 @@ export default function AISuggestionsPanel({
 
         {/* Instructions */}
         <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
-          <p>• Describe the improvements you'd like to see</p>
+          <p>• Describe the improvements you&apos;d like to see</p>
           <p>• AI will analyze and enhance your content</p>
           <p>• Changes will be applied directly to the editor</p>
         </div>

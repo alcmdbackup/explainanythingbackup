@@ -32,7 +32,9 @@ describe('explanationTags', () => {
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
-            in: jest.fn().mockResolvedValue({ data: [], error: null }),
+            in: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [], error: null })  // Fixed: in() now returns object with eq()
+            }),
             eq: jest.fn().mockResolvedValue({ data: [], error: null })
           }),
           in: jest.fn().mockReturnValue({

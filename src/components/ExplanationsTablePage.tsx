@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
 import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
@@ -33,7 +32,6 @@ export default function ExplanationsTablePage({
 }) {
     const [sortBy, setSortBy] = useState<'title' | 'date'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    const router = useRouter();
 
     function stripTitleFromContent(content: string): string {
         return content.replace(/^#+\s.*(?:\r?\n|$)/, '').trim();

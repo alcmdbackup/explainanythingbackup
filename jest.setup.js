@@ -1,6 +1,3 @@
-// Add OpenAI shims for Node environment
-require('openai/shims/node');
-
 // Add custom Jest matchers from Testing Library
 require('@testing-library/jest-dom');
 

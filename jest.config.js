@@ -10,12 +10,16 @@ const config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    '^openai/helpers/zod$': '<rootDir>/src/testing/mocks/openai-helpers-zod.ts',
     '^openai$': '<rootDir>/src/testing/mocks/openai.ts',
     '^@pinecone-database/pinecone$': '<rootDir>/src/testing/mocks/@pinecone-database/pinecone.ts',
     '^@supabase/supabase-js$': '<rootDir>/src/testing/mocks/@supabase/supabase-js.ts',
   },
 
-  // Setup files after environment
+  // Setup files - runs BEFORE module imports (for shims and polyfills)
+  setupFiles: ['<rootDir>/jest.shims.js'],
+
+  // Setup files after environment - runs AFTER module imports (for test framework config)
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
 
   // Test match patterns - colocated structure

@@ -1,8 +1,10 @@
 # Testing Plan Progress
 
-## Current Status: Phase 2 COMPLETE ✅
+## Current Status: Phase 2 IN PROGRESS (Fixing Test Issues)
 
-**Tests Written:** 77 | **Passing:** 74 (96.1%) | **Test Files:** 11 | **Infrastructure:** Ready
+**Tests Written:** 101 | **Passing:** 91 (90.1%) | **Test Files:** 11 | **Infrastructure:** Ready
+**Previous Status:** 77 tests (74 passing) - llms.test.ts couldn't run due to module load error
+**Current Progress:** +24 tests discovered, +17 tests now passing
 
 ## Phase 1: Foundation Setup ✅ COMPLETE
 
@@ -30,15 +32,17 @@ src/testing/
 
 ## Phase 2: Critical Path Testing ✅ COMPLETE
 
-### Tier 1 Services Test Coverage
-1. [✅] returnExplanation.test.ts - Main explanation generation (**7 tests passing**)
-2. [✅] vectorsim.test.ts - Vector similarity search (**30 tests, 100% passing**)
-3. [✅] explanationTags.test.ts - Tag management (**20 tests, 95% passing**)
-4. [✅] llms.test.ts - LLM API integration (**Test file created, comprehensive coverage**)
-5. [✅] errorHandling.test.ts - Error handling (**27 tests, 92.6% passing**)
+### Tier 1 Services Test Coverage (Updated Counts)
+1. [✅] returnExplanation.test.ts - Main explanation generation (**7/7 tests passing - 100%**)
+2. [✅] vectorsim.test.ts - Vector similarity search (**30/30 tests passing - 100%**)
+3. [✅] explanationTags.test.ts - Tag management (**20/20 tests passing - 100% FIXED!**)
+4. [⚠️] llms.test.ts - LLM API integration (**9/17 tests passing - 53%**)
+5. [⚠️] errorHandling.test.ts - Error handling (**25/27 tests passing - 92.6%**)
 
-### Tests Summary
-- **returnExplanation.test.ts** (7 tests passing)
+**Total: 91/101 tests passing (90.1%)**
+
+### Tests Summary (Updated)
+- **returnExplanation.test.ts** ✅ (7 tests passing)
   - generateTitleFromUserQuery
   - postprocessNewExplanationContent
   - generateNewExplanation
@@ -46,7 +50,7 @@ src/testing/
   - returnExplanationLogic (empty input)
   - returnExplanationLogic (new generation flow)
 
-- **vectorsim.test.ts** (30 tests passing)
+- **vectorsim.test.ts** ✅ (30 tests passing)
   - calculateAllowedScores - Score calculations with various inputs
   - findMatchesInVectorDb - Complete query operations
   - searchForSimilarVectors - Vector search with filters
@@ -54,42 +58,47 @@ src/testing/
   - loadFromPineconeUsingExplanationId - Vector retrieval
   - Edge cases and error handling
 
-- **explanationTags.test.ts** (20 tests, 19 passing)
-  - addTagsToExplanation - Tag addition with validation
-  - removeTagsFromExplanation - Tag removal operations
-  - bulkRemoveTagsFromExplanations - Bulk operations
-  - getTagsForExplanation - Tag retrieval
-  - getExplanationIdsForTag - Reverse lookup
-  - explanationHasTags - Tag existence checking
-  - removeAllTagsFromExplanation - Complete tag removal
-  - getTagUsageStats - Usage statistics
-  - handleApplyForModifyTags - Tag modification handling
+- **explanationTags.test.ts** ✅ (20 tests, 100% passing - FIXED!)
+  - Fixed mock chaining issue for `explanationHasTags`
+  - All tag management operations fully tested
+  - Complete coverage of tag addition, removal, and queries
 
-- **llms.test.ts** (Comprehensive test coverage)
-  - callOpenAIModel - Non-streaming and streaming API calls
-  - Structured output with Zod schemas
-  - Parameter validation
-  - Error handling and edge cases
-  - Model constants validation
+- **llms.test.ts** ⚠️ (17 tests, 9 passing - 53% pass rate)
+  - ✅ Fixed: OpenAI shim loading issue
+  - ✅ Fixed: Node environment configuration
+  - ✅ Working: Basic API calls, validation, model constants
+  - ❌ Remaining issues: Streaming tests, structured output tests
+  - Root cause identified: Async iteration mocks and zodResponseFormat mocking
 
-- **errorHandling.test.ts** (27 tests, 25 passing)
+- **errorHandling.test.ts** ⚠️ (27 tests, 25 passing - 92.6% pass rate)
   - ERROR_CODES constants validation
   - handleError - Error categorization
   - createError - Custom error creation
   - createValidationError - Validation error formatting
   - createInputError - Input error helpers
-  - Integration tests for complex scenarios
+  - 2 tests still failing (minor assertion issues)
 
 ### Test Achievements
-- **Total Test Coverage:** 77 tests written across critical services
-- **Pass Rate:** 96.1% (74 of 77 tests passing)
+- **Total Tests Discovered:** 101 tests (was 77 - llms.test.ts couldn't load before)
+- **Pass Rate:** 90.1% (91 of 101 tests passing)
+- **Improvement:** Fixed llms.test.ts module loading + fixed explanationTags mock issue
 - **Mock Infrastructure:** Complete for OpenAI, Pinecone, and Supabase
 - **Colocated Structure:** Tests placed alongside source files for better maintenance
 
-### Known Issues (Minor - 3 failing tests)
-1. **explanationTags.test.ts**: 1 test failing due to mock chaining complexity
-2. **llms.test.ts**: Test initialization issue with mock setup
-3. **errorHandling.test.ts**: 2 tests with minor assertion mismatches
+### Issues Fixed Today
+1. ✅ **explanationTags.test.ts**: Fixed mock chaining for Supabase query builder (20/20 now passing)
+2. ✅ **llms.test.ts**: Fixed module loading issue - tests now run! (9/17 passing)
+   - Resolved OpenAI shim loading problem
+   - Fixed Node.js environment configuration
+   - Tests were completely blocked before, now 53% passing
+
+### Remaining Issues (10 failing tests)
+1. **llms.test.ts**: 8 tests failing
+   - Streaming async iteration mock issues
+   - Structured output with zodResponseFormat
+   - Error handling in streaming context
+2. **errorHandling.test.ts**: 2 tests failing
+   - Minor assertion mismatches (not yet investigated)
 
 ### Remaining Phases
 - **Phase 3:** Integration Testing (Week 4)
@@ -111,7 +120,15 @@ src/testing/
 
 ## Key Accomplishments
 ✅ Established robust testing foundation with Jest and mocks
-✅ Achieved 96% pass rate on critical business logic tests
+✅ Fixed critical llms.test.ts module loading issue - tests now run!
+✅ Fixed explanationTags.test.ts mock chaining issue - 100% passing
+✅ Achieved 90.1% overall pass rate (91/101 tests)
 ✅ Created comprehensive test suites for all Tier 1 services
 ✅ Implemented proper mocking patterns for external dependencies
 ✅ Set up colocated test structure for maintainability
+
+## Summary of Progress
+- **Before:** 77 tests counted, 74 passing (llms.test.ts couldn't even load)
+- **After:** 101 tests running, 91 passing (llms.test.ts now runs with 9/17 passing)
+- **Net Gain:** +17 passing tests discovered and fixed
+- **Achievement:** Unblocked a completely broken test file and achieved 53% pass rate on it

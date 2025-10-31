@@ -21,9 +21,9 @@ export default function TypographyTest() {
         <h2 className="text-2xl font-bold my-8">2. Regular Text (Without Prose)</h2>
         <div>
           <h1>This heading will look basic</h1>
-          <p>This paragraph won't have the typography plugin styling.</p>
+          <p>This paragraph won&apos;t have the typography plugin styling.</p>
           <ul>
-            <li>This list won't have proper spacing</li>
+            <li>This list won&apos;t have proper spacing</li>
             <li>Or nice bullets</li>
           </ul>
           <blockquote>

@@ -38,7 +38,7 @@ export default function TestClientLogging() {
         requestId: `test-${Date.now()}`,
         source: 'manual-test'
       })
-    }).then(response => {
+    }).then(() => {
       console.log('Manual log sent successfully');
     });
   };

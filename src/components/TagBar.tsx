@@ -86,7 +86,7 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         const hasModifications = hasModifiedTags();
         const shouldBeModified = hasModifications || (modeOverride !== undefined && modeOverride !== TagBarMode.Normal);
         setEffectiveIsTagsModified(shouldBeModified);
-    }, [tags, modeOverride, setEffectiveIsTagsModified]);
+    }, [tags, modeOverride, setEffectiveIsTagsModified, hasModifiedTags]);
 
     /**
      * Detects if any tags are in a modified state

@@ -278,7 +278,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     // match[1] = "++", "--", or "~~"
     // match[2] = inner content
     const marks = match[1]!;
-    let inner = match[2] ?? "";
+    const inner = match[2] ?? "";
 
     // Convert \n back to actual newlines if they were normalized during preprocessing
     /*if (inner.includes('\\n')) {
