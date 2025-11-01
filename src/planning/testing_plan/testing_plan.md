@@ -2,7 +2,13 @@
 
 ## Executive Summary
 
-Strategy for implementing unit tests across the ExplainAnything codebase (Next.js 15.2.3 with AI/LLM integration). Currently at 0% test coverage despite having Jest, Playwright, and React Testing Library installed.
+Comprehensive testing strategy for the ExplainAnything codebase (Next.js 15.2.3 with AI/LLM integration). Currently at 0% test coverage despite having Jest, Playwright, and React Testing Library installed.
+
+**Scope:** 12 testing phases covering 60+ production files across services, editor system, logging infrastructure, auth, API routes, components, and pages.
+
+**Timeline:** 5 months to reach 85% coverage with incremental adoption.
+
+**Key Areas:** Core business logic, Lexical editor integration, logging infrastructure, authentication flows, LLM prompts, and UI components.
 
 ## Current State Analysis
 
@@ -91,10 +97,11 @@ Strategy for implementing unit tests across the ExplainAnything codebase (Next.j
 ### Coverage Goals
 
 **Progressive Targets:**
-- Month 1: 40% coverage
-- Month 2: 60% coverage
-- Month 3: 75% coverage
-- Final: 85% coverage
+- Month 1: 30% coverage (Foundation + critical services)
+- Month 2: 50% coverage (Core features + logging + editor)
+- Month 3: 65% coverage (Extended services + auth + API routes)
+- Month 4: 80% coverage (Components + pages)
+- Month 5: 85% coverage (Final optimization + gap remediation)
 
 ### CI/CD Integration
 
@@ -102,6 +109,267 @@ Strategy for implementing unit tests across the ExplainAnything codebase (Next.j
 - Pre-commit hooks with Husky
 - Coverage reporting with Codecov
 - Parallel test execution for speed
+
+## Phase 6: Logging Infrastructure Testing (Week 7)
+
+### Overview
+Test the comprehensive server-side logging system that provides debugging and monitoring capabilities.
+
+### Files to Test (5 files)
+
+**Core Logging System:**
+- `src/lib/logging/server/automaticServerLoggingBase.ts` - Base logging functionality
+- `src/lib/logging/server/autoServerLoggingModuleInterceptor.ts` - Module-level interception
+- `src/lib/logging/server/autoServerLoggingRuntimeWrapper.ts` - Runtime wrapping
+- `src/lib/logging/server/autoServerLoggingUniversalInterceptor.ts` - Universal interception
+- `src/lib/logging/server/universalInterceptor.ts` - Core interceptor logic
+
+### Testing Priorities
+
+**Critical Scenarios:**
+- Log entry creation and formatting
+- Interception of function calls
+- Error logging and stack traces
+- Performance impact measurement
+- Log filtering and levels
+
+**Edge Cases:**
+- Circular reference handling
+- Large object serialization
+- Async function interception
+- Error boundary handling
+
+## Phase 7: Editor & Lexical System Testing (Week 8-9)
+
+### Overview
+Test the Lexical editor integration and custom markdown diffing functionality - a core feature area.
+
+### Files to Test (9 files)
+
+**Tier 1 - Core Editor Logic:**
+- `src/editorFiles/aiSuggestion.ts` - AI-powered suggestion generation
+- `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` - AST-based markdown diffing
+- `src/editorFiles/lexicalEditor/importExportUtils.ts` - Editor state serialization
+
+**Tier 2 - Lexical Nodes:**
+- `src/editorFiles/lexicalEditor/DiffTagNode.ts` - Custom diff tag node
+- `src/editorFiles/lexicalEditor/StandaloneTitleLinkNode.ts` - Custom link node
+
+**Tier 3 - Editor Components:**
+- `src/editorFiles/lexicalEditor/DiffTagHoverControls.tsx` - Hover UI controls
+- `src/editorFiles/lexicalEditor/DiffTagHoverPlugin.tsx` - Hover plugin
+- `src/editorFiles/lexicalEditor/LexicalEditor.tsx` - Main editor component
+- `src/editorFiles/lexicalEditor/ToolbarPlugin.tsx` - Toolbar functionality
+
+**Additional Test Files:**
+- `src/editorFiles/markdownASTdiff/generateTestResponses.ts` - Test data generation
+- `src/editorFiles/markdownASTdiff/testRunner.ts` - Test execution
+
+### Testing Priorities
+
+**AI Suggestion Testing:**
+- Suggestion generation from context
+- Suggestion quality evaluation
+- Error handling for LLM failures
+
+**Markdown Diff Testing:**
+- AST parsing accuracy
+- Diff calculation correctness
+- Edge cases (nested structures, code blocks, lists)
+
+**Lexical Node Testing:**
+- Node serialization/deserialization
+- Node transformations
+- Custom node behavior
+
+**Component Testing:**
+- User interactions (hover, click, edit)
+- Plugin lifecycle
+- Toolbar actions
+
+## Phase 8: Service Layer Extensions (Week 10)
+
+### Overview
+Test additional service layer files not covered in Phase 2.
+
+### Files to Test (6 files)
+
+**Business Logic Services:**
+- `src/lib/services/metrics.ts` - Analytics and metrics tracking
+- `src/lib/services/userQueries.ts` - User query processing
+- `src/lib/services/findMatches.ts` - Content matching algorithms
+- `src/lib/services/links.ts` - Link management
+- `src/lib/services/tagEvaluation.ts` - Tag quality evaluation
+- `src/lib/services/testingPipeline.ts` - Testing pipeline orchestration
+
+### Testing Priorities
+
+**Metrics Service:**
+- Event tracking accuracy
+- Aggregation logic
+- Privacy compliance
+
+**User Queries:**
+- Query parsing
+- Search optimization
+- Result ranking
+
+**Find Matches:**
+- Similarity algorithms
+- Match scoring
+- Performance optimization
+
+**Tag Evaluation:**
+- Tag quality metrics
+- Evaluation criteria
+- Recommendation generation
+
+## Phase 9: Authentication & Middleware (Week 11)
+
+### Overview
+Test security-critical authentication flows and middleware layers.
+
+### Files to Test (5 files)
+
+**Authentication Routes:**
+- `src/app/auth/callback/route.ts` - OAuth callback handling
+- `src/app/auth/confirm/route.ts` - Email confirmation flow
+
+**Server Actions:**
+- `src/app/login/actions.ts` - Login form actions
+- `src/editorFiles/actions/actions.ts` - Editor-specific actions
+
+**Middleware:**
+- `src/middleware.ts` - Next.js middleware (request processing)
+- `src/lib/utils/supabase/middleware.ts` - Supabase middleware
+
+### Testing Priorities
+
+**Security Testing:**
+- Authentication flow integrity
+- Session management
+- CSRF protection
+- Redirect validation
+
+**Middleware Testing:**
+- Request/response transformation
+- Error handling
+- Performance impact
+- Edge cases (missing headers, malformed requests)
+
+## Phase 10: API Routes & Utilities (Week 12)
+
+### Overview
+Test remaining API routes and critical utility functions.
+
+### Files to Test (11 files)
+
+**API Routes:**
+- `src/app/api/client-logs/route.ts` - Client-side log collection
+- `src/app/api/test-cases/route.ts` - Test case management
+- `src/app/api/test-responses/route.ts` - Test response handling
+- `src/app/api/stream-chat/route.ts` - Streaming chat endpoint
+
+**Core Utilities:**
+- `src/lib/prompts.ts` - LLM prompt templates (critical for AI behavior)
+- `src/lib/requestIdContext.ts` - Request ID context management
+- `src/lib/serverReadRequestId.ts` - Server-side request ID reading
+- `src/lib/formatDate.ts` - Date formatting utilities
+- `src/lib/supabase.ts` - Supabase client configuration
+
+**Hooks:**
+- `src/hooks/clientPassRequestId.ts` - Client-side request ID passing
+
+### Testing Priorities
+
+**API Routes:**
+- Request validation
+- Response formatting
+- Error handling
+- Streaming behavior
+
+**Prompts Testing:**
+- Template rendering
+- Variable substitution
+- Prompt quality
+- Edge cases (missing variables, special characters)
+
+**Request Context:**
+- Context propagation
+- Async boundary handling
+- Context isolation
+
+## Phase 11: Component Coverage (Week 13-14)
+
+### Overview
+Test React components for user-facing features.
+
+### Files to Test (10 components)
+
+**Core UI Components:**
+- `src/components/AISuggestionsPanel.tsx` - AI suggestions interface
+- `src/components/ExplanationsTablePage.tsx` - Explanations listing
+- `src/components/Navigation.tsx` - Site navigation
+- `src/components/ResultsLexicalEditor.tsx` - Results editor
+- `src/components/SearchBar.tsx` - Search interface
+- `src/components/TagBar.tsx` - Tag management UI
+
+**Editor Components:**
+- Components already listed in Phase 7
+
+### Testing Priorities
+
+**Component Testing:**
+- User interactions (click, type, submit)
+- Accessibility (ARIA, keyboard navigation)
+- Loading states
+- Error states
+- Responsive behavior
+
+**Integration:**
+- API call mocking
+- State management
+- Event handling
+
+## Phase 12: Page/Route Testing (Week 15)
+
+### Overview
+Test Next.js pages and route handlers for complete user journeys.
+
+### Files to Test (15+ pages)
+
+**Production Pages:**
+- `src/app/page.tsx` - Home page
+- `src/app/results/page.tsx` - Results display
+- `src/app/explanations/page.tsx` - Explanations listing
+- `src/app/userlibrary/page.tsx` - User library
+- `src/app/login/page.tsx` - Login page
+- `src/app/error/page.tsx` - Error handling
+- `src/app/layout.tsx` - Root layout
+
+**Test/Demo Pages:**
+- `src/app/diffTest/page.tsx` - Diff functionality test
+- `src/app/editorTest/page.tsx` - Editor test
+- `src/app/streaming-test/page.tsx` - Streaming test
+- `src/app/test-client-logging/page.tsx` - Client logging test
+- `src/app/resultsTest/page.tsx` - Results test
+- `src/app/mdASTdiff_demo/page.tsx` - Markdown AST demo
+- `src/app/latex-test/page.tsx` - LaTeX rendering test
+- `src/app/tailwind-test/page.tsx` - Tailwind test
+- `src/app/typography-test/page.tsx` - Typography test
+
+### Testing Priorities
+
+**Production Pages:**
+- Page load performance
+- SEO metadata
+- Error boundaries
+- Data fetching
+
+**Test Pages:**
+- Regression testing
+- Feature validation
+- Visual testing
 
 ## Testing Best Practices
 
@@ -146,29 +414,41 @@ Strategy for implementing unit tests across the ExplainAnything codebase (Next.j
 
 ## Implementation Timeline
 
-### Month 1: Foundation
-- Week 1: Setup & configuration
-- Week 2-3: Critical service tests
-- Week 4: Integration tests
+### Month 1: Foundation (Weeks 1-4)
+- Week 1: Setup & configuration (Phase 1)
+- Week 2-3: Critical service tests (Phase 2)
+- Week 4: Integration tests (Phase 3)
 
-### Month 2: Expansion
-- Week 5-6: Component tests
-- Week 7: E2E tests
-- Week 8: CI/CD setup
+### Month 2: Core Features (Weeks 5-8)
+- Week 5: E2E tests (Phase 4)
+- Week 6: CI/CD setup (Phase 5)
+- Week 7: Logging infrastructure tests (Phase 6)
+- Week 8-9: Editor & Lexical system tests (Phase 7)
 
-### Month 3: Maturity
-- Week 9-10: Remaining tests
-- Week 11: Performance testing
-- Week 12: Documentation
+### Month 3: Extended Coverage (Weeks 9-12)
+- Week 10: Service layer extensions (Phase 8)
+- Week 11: Authentication & middleware (Phase 9)
+- Week 12: API routes & utilities (Phase 10)
+
+### Month 4: UI & Polish (Weeks 13-15)
+- Week 13-14: Component coverage (Phase 11)
+- Week 15: Page/route testing (Phase 12)
+
+### Month 5: Maturity & Optimization
+- Week 16-17: Performance testing & optimization
+- Week 18: Documentation & knowledge sharing
+- Week 19-20: Coverage gap analysis & remediation
 
 ## Success Metrics
 
 ### Quantitative
-- 75% code coverage by month 3
-- < 5 minutes test execution time
+- 85% code coverage by month 5
+- < 5 minutes test execution time (unit tests)
+- < 15 minutes test execution time (all tests)
 - < 1% flaky tests
 - 80% bug detection rate
 - 50% reduction in MTTR
+- Coverage across all critical systems (services, editor, auth, API routes)
 
 ### Qualitative
 - Team comfortable with TDD
@@ -236,6 +516,18 @@ The colocated testing approach offers:
 - Higher adoption
 - Clear ownership
 
-Start small with critical business logic, build incrementally, maintain momentum through coverage requirements, and invest in developer experience. The goal is 75% coverage in 3 months while improving code quality and team confidence.
+This comprehensive testing strategy covers **all major systems** in the ExplainAnything codebase:
+- **Phases 1-5:** Core business logic, integration, E2E, and CI/CD
+- **Phases 6-10:** Extended coverage (logging, editor, services, auth, APIs)
+- **Phases 11-12:** UI components and pages
+
+Start small with critical business logic, build incrementally, maintain momentum through coverage requirements, and invest in developer experience. The goal is **85% coverage in 5 months** while improving code quality and team confidence across **60+ production files**.
+
+### Key Success Factors
+- Colocated tests for immediate visibility
+- Incremental adoption to maintain momentum
+- Mock at boundaries, not internals
+- Test behavior, not implementation
+- Comprehensive coverage of critical systems (editor, logging, auth)
 
 Remember: The best test is the one that gets written. Start today with colocated tests for immediate visibility and better maintenance.

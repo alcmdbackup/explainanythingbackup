@@ -8,15 +8,29 @@ import {
   getExplanationsByTopicId
 } from './explanations';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
-import { ExplanationInsertType, ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { ExplanationInsertType, ExplanationFullDbType, ExplanationStatus } from '@/lib/schemas/schemas';
 
 // Mock Supabase server client
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServerClient: jest.fn()
 }));
 
+type MockSupabaseClient = {
+  from: jest.Mock;
+  insert: jest.Mock;
+  select: jest.Mock;
+  single: jest.Mock;
+  eq: jest.Mock;
+  in: jest.Mock;
+  or: jest.Mock;
+  update: jest.Mock;
+  delete: jest.Mock;
+  order: jest.Mock;
+  range: jest.Mock;
+};
+
 describe('Explanations Service', () => {
-  let mockSupabase: any;
+  let mockSupabase: MockSupabaseClient;
 
   beforeEach(() => {
     // Reset all mocks before each test
@@ -49,7 +63,7 @@ describe('Explanations Service', () => {
         content: 'Test content',
         primary_topic_id: 1,
         secondary_topic_id: 2,
-        status: 'active'
+        status: ExplanationStatus.Published
       };
 
       const expectedResponse: ExplanationFullDbType = {
@@ -58,7 +72,7 @@ describe('Explanations Service', () => {
         content: 'Test content',
         primary_topic_id: 1,
         secondary_topic_id: 2,
-        status: 'active',
+        status: ExplanationStatus.Published,
         timestamp: '2024-01-01T00:00:00Z'
       };
 
@@ -82,7 +96,9 @@ describe('Explanations Service', () => {
       // Arrange
       const newExplanation: ExplanationInsertType = {
         explanation_title: 'Test Explanation',
-        content: 'Test content'
+        content: 'Test content',
+        primary_topic_id: 1,
+        status: ExplanationStatus.Published
       };
 
       const mockError = {
@@ -111,7 +127,7 @@ describe('Explanations Service', () => {
         content: 'Test content',
         primary_topic_id: 1,
         secondary_topic_id: 2,
-        status: 'active',
+        status: ExplanationStatus.Published,
         timestamp: '2024-01-01T00:00:00Z'
       };
 
@@ -162,12 +178,16 @@ describe('Explanations Service', () => {
           id: 1,
           explanation_title: 'Explanation 1',
           content: 'Content 1',
+          primary_topic_id: 1,
+          status: ExplanationStatus.Published,
           timestamp: '2024-01-01T00:00:00Z'
         },
         {
           id: 2,
           explanation_title: 'Explanation 2',
           content: 'Content 2',
+          primary_topic_id: 2,
+          status: ExplanationStatus.Published,
           timestamp: '2024-01-02T00:00:00Z'
         }
       ];
@@ -256,6 +276,7 @@ describe('Explanations Service', () => {
         explanation_title: 'Updated Title',
         content: 'Updated content',
         primary_topic_id: 1,
+        status: ExplanationStatus.Published,
         timestamp: '2024-01-01T00:00:00Z'
       };
 
@@ -324,8 +345,22 @@ describe('Explanations Service', () => {
       // Arrange
       const ids = [1, 2, 3];
       const mockExplanations: ExplanationFullDbType[] = [
-        { id: 1, explanation_title: 'Title 1', content: 'Content 1' },
-        { id: 2, explanation_title: 'Title 2', content: 'Content 2' }
+        { 
+          id: 1, 
+          explanation_title: 'Title 1', 
+          content: 'Content 1',
+          primary_topic_id: 1,
+          status: ExplanationStatus.Published,
+          timestamp: '2024-01-01T00:00:00Z'
+        },
+        { 
+          id: 2, 
+          explanation_title: 'Title 2', 
+          content: 'Content 2',
+          primary_topic_id: 2,
+          status: ExplanationStatus.Published,
+          timestamp: '2024-01-02T00:00:00Z'
+        }
       ];
 
       mockSupabase.in.mockResolvedValue({
@@ -378,13 +413,18 @@ describe('Explanations Service', () => {
           id: 1,
           explanation_title: 'Title 1',
           content: 'Content 1',
-          primary_topic_id: 5
+          primary_topic_id: 5,
+          status: ExplanationStatus.Published,
+          timestamp: '2024-01-01T00:00:00Z'
         },
         {
           id: 2,
           explanation_title: 'Title 2',
           content: 'Content 2',
-          secondary_topic_id: 5
+          primary_topic_id: 1,
+          secondary_topic_id: 5,
+          status: ExplanationStatus.Published,
+          timestamp: '2024-01-02T00:00:00Z'
         }
       ];
 
