@@ -2,7 +2,6 @@
  * @jest-environment node
  */
 
-import { callOpenAIModel, default_model, lighter_model } from './llms';
 import OpenAI from 'openai';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
@@ -32,28 +31,38 @@ jest.mock('openai/helpers/zod');
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
+import { callOpenAIModel, default_model, lighter_model } from './llms';
 
 describe('llms', () => {
-  let mockOpenAI: any;
+  let mockCreateSpy: jest.Mock;
+  let mockOpenAIInstance: any;
   let mockSupabase: any;
   let originalEnv: NodeJS.ProcessEnv;
 
-  beforeEach(() => {
-    jest.clearAllMocks();
-
-    // Store original env and set test API key
-    originalEnv = process.env;
-    process.env = { ...originalEnv, OPENAI_API_KEY: 'test-api-key' };
-
-    // Mock OpenAI client
-    mockOpenAI = {
+  beforeAll(() => {
+    // Create the mock OpenAI instance once for all tests
+    mockOpenAIInstance = {
       chat: {
         completions: {
           create: jest.fn()
         }
       }
     };
-    (OpenAI as jest.MockedClass<typeof OpenAI>).mockImplementation(() => mockOpenAI as any);
+
+    // Mock the OpenAI constructor to ALWAYS return the same instance
+    (OpenAI as jest.MockedClass<typeof OpenAI>).mockImplementation(() => mockOpenAIInstance);
+  });
+
+  beforeEach(() => {
+    // Store original env and set test API key
+    originalEnv = process.env;
+    process.env = { ...originalEnv, OPENAI_API_KEY: 'test-api-key' };
+
+    // Store reference to the create spy (same instance across all tests)
+    mockCreateSpy = mockOpenAIInstance.chat.completions.create;
+
+    // Reset the mock's call history and implementation for this test
+    mockCreateSpy.mockReset();
 
     // Mock Supabase
     mockSupabase = {
@@ -88,7 +97,7 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       };
 
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
 
       const result = await callOpenAIModel(
         'Test prompt',
@@ -103,7 +112,7 @@ describe('llms', () => {
       );
 
       expect(result).toBe('Test response');
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+      expect(mockCreateSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           model: 'gpt-4.1-mini',
           messages: expect.arrayContaining([
@@ -117,24 +126,27 @@ describe('llms', () => {
     });
 
     it('should handle streaming API call', async () => {
-      const mockStream = {
-        async *[Symbol.asyncIterator]() {
-          yield {
-            choices: [{ delta: { content: 'Hello ' } }]
-          };
-          yield {
-            choices: [{ delta: { content: 'World' } }],
-            usage: {
-              prompt_tokens: 5,
-              completion_tokens: 10,
-              total_tokens: 15
-            },
-            model: 'gpt-4.1-mini'
-          };
-        }
-      };
+      // Create an async generator function
+      async function* streamGenerator() {
+        yield {
+          choices: [{ delta: { content: 'Hello ' } }]
+        };
+        yield {
+          choices: [{
+            delta: { content: 'World' },
+            finish_reason: 'stop'
+          }],
+          usage: {
+            prompt_tokens: 5,
+            completion_tokens: 10,
+            total_tokens: 15
+          },
+          model: 'gpt-4.1-mini'
+        };
+      }
 
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
+      // Mock returns a promise that resolves to a new generator when called
+      mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
 
       const setText = jest.fn();
       const result = await callOpenAIModel(
@@ -152,7 +164,7 @@ describe('llms', () => {
       expect(result).toBe('Hello World');
       expect(setText).toHaveBeenCalledWith('Hello ');
       expect(setText).toHaveBeenCalledWith('Hello World');
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+      expect(mockCreateSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           stream: true
         })
@@ -165,7 +177,8 @@ describe('llms', () => {
         confidence: z.number()
       });
 
-      const mockResponse = {
+      // Replace the entire mock for this test
+      mockCreateSpy.mockResolvedValueOnce({
         choices: [{
           message: { content: '{"answer":"Test","confidence":0.9}' },
           finish_reason: 'stop'
@@ -176,9 +189,7 @@ describe('llms', () => {
           total_tokens: 30
         },
         model: 'gpt-4.1-mini'
-      };
-
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
+      });
 
       const result = await callOpenAIModel(
         'Test prompt',
@@ -194,7 +205,7 @@ describe('llms', () => {
 
       expect(result).toBe('{"answer":"Test","confidence":0.9}');
       expect(zodResponseFormat).toHaveBeenCalledWith(responseSchema, 'TestResponse');
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+      expect(mockCreateSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           response_format: { type: 'json_object' }
         })
@@ -251,7 +262,8 @@ describe('llms', () => {
 
     it('should handle OpenAI API errors', async () => {
       const apiError = new Error('OpenAI API error');
-      mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+      // Replace mock to reject
+      mockCreateSpy.mockRejectedValueOnce(apiError);
 
       await expect(
         callOpenAIModel(
@@ -271,16 +283,15 @@ describe('llms', () => {
     });
 
     it('should handle empty response', async () => {
-      const mockResponse = {
+      // Replace mock with empty response
+      mockCreateSpy.mockResolvedValueOnce({
         choices: [{
           message: { content: '' },
           finish_reason: 'stop'
         }],
         usage: {},
         model: 'gpt-4.1-mini'
-      };
-
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
+      });
 
       await expect(
         callOpenAIModel(
@@ -338,7 +349,8 @@ describe('llms', () => {
     });
 
     it('should save tracking data even when database save fails', async () => {
-      const mockResponse = {
+      // Replace mock with specific response
+      mockCreateSpy.mockResolvedValueOnce({
         choices: [{
           message: { content: 'Test response' },
           finish_reason: 'stop'
@@ -349,12 +361,10 @@ describe('llms', () => {
           total_tokens: 30
         },
         model: 'gpt-4.1-mini'
-      };
-
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
+      });
 
       // Make database save fail
-      mockSupabase.single.mockResolvedValue({
+      mockSupabase.single.mockResolvedValueOnce({
         data: null,
         error: new Error('Database error')
       });
@@ -381,24 +391,30 @@ describe('llms', () => {
     });
 
     it('should handle streaming with reasoning tokens', async () => {
-      const mockStream = {
-        async *[Symbol.asyncIterator]() {
-          yield {
-            choices: [{ delta: { content: 'Response' } }],
-            usage: {
-              prompt_tokens: 5,
-              completion_tokens: 10,
-              total_tokens: 15,
-              completion_tokens_details: {
-                reasoning_tokens: 3
-              }
-            },
-            model: 'gpt-4.1-mini'
-          };
-        }
-      };
+      // Create an async generator function
+      async function* streamGenerator() {
+        yield {
+          choices: [{ delta: { content: 'Response' } }]
+        };
+        yield {
+          choices: [{
+            delta: {},
+            finish_reason: 'stop'
+          }],
+          usage: {
+            prompt_tokens: 5,
+            completion_tokens: 10,
+            total_tokens: 15,
+            completion_tokens_details: {
+              reasoning_tokens: 3
+            }
+          },
+          model: 'gpt-4.1-mini'
+        };
+      }
 
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
+      // Mock returns a promise that resolves to a new generator when called
+      mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
 
       const setText = jest.fn();
       await callOpenAIModel(
@@ -425,7 +441,8 @@ describe('llms', () => {
         answer: z.string()
       });
 
-      const mockResponse = {
+      // Replace mock with specific response
+      mockCreateSpy.mockResolvedValueOnce({
         choices: [{
           message: { content: '{"answer":"Test"}' },
           finish_reason: 'stop'
@@ -436,9 +453,7 @@ describe('llms', () => {
           total_tokens: 30
         },
         model: 'gpt-4.1-mini'
-      };
-
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
+      });
 
       await callOpenAIModel(
         'Test prompt',
@@ -452,7 +467,7 @@ describe('llms', () => {
         false
       );
 
-      expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+      expect(mockCreateSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           messages: expect.arrayContaining([
             {
@@ -477,7 +492,8 @@ describe('llms', () => {
 
   describe('edge cases', () => {
     it('should handle invalid tracking data gracefully', async () => {
-      const mockResponse = {
+      // Replace mock with invalid token data
+      mockCreateSpy.mockResolvedValueOnce({
         choices: [{
           message: { content: 'Test' },
           finish_reason: 'stop'
@@ -488,9 +504,7 @@ describe('llms', () => {
           total_tokens: 30
         },
         model: 'gpt-4.1-mini'
-      };
-
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockResponse);
+      });
 
       const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
 
@@ -514,16 +528,16 @@ describe('llms', () => {
     });
 
     it('should handle streaming interruption gracefully', async () => {
-      const mockStream = {
-        async *[Symbol.asyncIterator]() {
-          yield {
-            choices: [{ delta: { content: 'Partial ' } }]
-          };
-          throw new Error('Stream interrupted');
-        }
-      };
+      // Create an async generator function that throws
+      async function* interruptedGenerator() {
+        yield {
+          choices: [{ delta: { content: 'Partial ' } }]
+        };
+        throw new Error('Stream interrupted');
+      }
 
-      mockOpenAI.chat.completions.create.mockResolvedValue(mockStream);
+      // Mock returns a promise that resolves to a new generator when called
+      mockCreateSpy.mockImplementationOnce(() => Promise.resolve(interruptedGenerator()));
 
       const setText = jest.fn();
       await expect(
