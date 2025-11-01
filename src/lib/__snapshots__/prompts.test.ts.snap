@@ -1,0 +1,700 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`prompts createExplanationPrompt should generate prompt with multiple additional rules 1`] = `
+"Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+
+Title: Machine Learning
+
+Rules:
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Include examples
+- Use simple analogies
+- Avoid jargon
+
+
+"
+`;
+
+exports[`prompts createExplanationPrompt should generate prompt with no additional rules 1`] = `
+"Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+
+Title: Quantum Computing
+
+Rules:
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+
+
+"
+`;
+
+exports[`prompts createExplanationPrompt should generate prompt with single additional rule 1`] = `
+"Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+
+Title: Quantum Computing
+
+Rules:
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Use simple language
+
+
+"
+`;
+
+exports[`prompts createExplanationPrompt should handle empty string title 1`] = `
+"Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+
+Title: 
+
+Rules:
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+
+
+"
+`;
+
+exports[`prompts createExplanationPrompt should handle special characters in title 1`] = `
+"Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+
+Title: C++ Programming & Design
+
+Rules:
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+
+
+"
+`;
+
+exports[`prompts createExplanationPrompt should handle very long title 1`] = `
+"Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+
+Title: The Complete History of Artificial Intelligence and Machine Learning from the 1950s to Present Day
+
+Rules:
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+
+
+"
+`;
+
+exports[`prompts createMatchSelectionPrompt should generate prompt with typical inputs 1`] = `
+"
+User Query: "How do quantum computers work?"
+
+Below are the top 5 potential sources that might answer this query:
+
+1. Quantum Computing Overview
+2. Introduction to Qubits
+
+Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
+Choose only the number of the most relevant source. If there is no match, then answer with 0.
+
+Your response must be a single integer between 0 and 5.
+"
+`;
+
+exports[`prompts createMatchSelectionPrompt should handle empty formattedMatches 1`] = `
+"
+User Query: "Test query"
+
+Below are the top 5 potential sources that might answer this query:
+
+
+
+Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
+Choose only the number of the most relevant source. If there is no match, then answer with 0.
+
+Your response must be a single integer between 0 and 5.
+"
+`;
+
+exports[`prompts createMatchSelectionPrompt should handle special characters in query 1`] = `
+"
+User Query: "C++ vs Rust: Which is better?"
+
+Below are the top 5 potential sources that might answer this query:
+
+Match 1
+
+Based on the user query, which ONE source (numbered 1-5) exactly matches the user query described above. 
+Choose only the number of the most relevant source. If there is no match, then answer with 0.
+
+Your response must be a single integer between 0 and 5.
+"
+`;
+
+exports[`prompts createStandaloneTitlePrompt should generate prompt with multiple subsection titles 1`] = `
+"You are tasked with creating Wikipedia-style standalone titles for multiple subsections.
+
+Original Article Title: "Quantum Computing"
+
+Original Subsection Titles:
+1. "Introduction"
+2. "Qubits"
+3. "Quantum Gates"
+4. "Applications"
+
+For each subsection title, create a concise, descriptive standalone title (2-6 words) that:
+1. Makes complete sense without reading the original article
+2. Follows Wikipedia title conventions (proper capitalization, clear and specific)
+3. Captures the essence of what this subsection covers
+4. Combines context from the article title with the subsection content
+5. Is searchable and discoverable on its own
+
+Return your response as a JSON object with a "titles" array containing the standalone titles in the same order as the input titles.
+
+Example format:
+{
+  "titles": [
+    "Machine Learning Model Training",
+    "Neural Network Architecture",
+    "Deep Learning Applications"
+  ]
+}"
+`;
+
+exports[`prompts createStandaloneTitlePrompt should generate prompt with single subsection title 1`] = `
+"You are tasked with creating Wikipedia-style standalone titles for multiple subsections.
+
+Original Article Title: "Machine Learning"
+
+Original Subsection Titles:
+1. "Introduction"
+
+For each subsection title, create a concise, descriptive standalone title (2-6 words) that:
+1. Makes complete sense without reading the original article
+2. Follows Wikipedia title conventions (proper capitalization, clear and specific)
+3. Captures the essence of what this subsection covers
+4. Combines context from the article title with the subsection content
+5. Is searchable and discoverable on its own
+
+Return your response as a JSON object with a "titles" array containing the standalone titles in the same order as the input titles.
+
+Example format:
+{
+  "titles": [
+    "Machine Learning Model Training",
+    "Neural Network Architecture",
+    "Deep Learning Applications"
+  ]
+}"
+`;
+
+exports[`prompts createStandaloneTitlePrompt should handle empty subsectionTitles array 1`] = `
+"You are tasked with creating Wikipedia-style standalone titles for multiple subsections.
+
+Original Article Title: "Test Article"
+
+Original Subsection Titles:
+
+
+For each subsection title, create a concise, descriptive standalone title (2-6 words) that:
+1. Makes complete sense without reading the original article
+2. Follows Wikipedia title conventions (proper capitalization, clear and specific)
+3. Captures the essence of what this subsection covers
+4. Combines context from the article title with the subsection content
+5. Is searchable and discoverable on its own
+
+Return your response as a JSON object with a "titles" array containing the standalone titles in the same order as the input titles.
+
+Example format:
+{
+  "titles": [
+    "Machine Learning Model Training",
+    "Neural Network Architecture",
+    "Deep Learning Applications"
+  ]
+}"
+`;
+
+exports[`prompts createStandaloneTitlePrompt should handle special characters in titles 1`] = `
+"You are tasked with creating Wikipedia-style standalone titles for multiple subsections.
+
+Original Article Title: "C++ Programming"
+
+Original Subsection Titles:
+1. "Classes & Objects"
+2. "Memory Management"
+
+For each subsection title, create a concise, descriptive standalone title (2-6 words) that:
+1. Makes complete sense without reading the original article
+2. Follows Wikipedia title conventions (proper capitalization, clear and specific)
+3. Captures the essence of what this subsection covers
+4. Combines context from the article title with the subsection content
+5. Is searchable and discoverable on its own
+
+Return your response as a JSON object with a "titles" array containing the standalone titles in the same order as the input titles.
+
+Example format:
+{
+  "titles": [
+    "Machine Learning Model Training",
+    "Neural Network Architecture",
+    "Deep Learning Applications"
+  ]
+}"
+`;
+
+exports[`prompts createTagEvaluationPrompt should generate prompt with typical inputs 1`] = `
+"
+Please evaluate the following explanation for multiple tag categories:
+
+Title: "Quantum Computing"
+
+Content: "Quantum computing uses qubits to perform calculations..."
+
+Evaluate the following aspects:
+
+1. DIFFICULTY LEVEL (1-3):
+- BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
+- NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
+- EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
+
+2. CONTENT LENGTH (4-6):
+- SHORT (4): Brief overview, key points only, under 500 words
+- MEDIUM (5): Standard explanation, balanced detail, 500-1500 words
+- LONG (6): Comprehensive coverage, extensive detail, over 1500 words
+
+3. SIMPLE TAGS (array of tag IDs, or null):
+Evaluate if the content contains these characteristics:
+- has_example (7): Contains practical examples or case studies
+- sequential (8): Presents information in step-by-step order
+- has_metaphor (9): Uses analogies, metaphors, or comparisons
+- instructional (10): Provides how-to instructions or procedures
+
+Return your response as a JSON object with:
+- difficultyLevel: integer (1-3)
+- length: integer (4-6)
+- simpleTags: array of integers (tag IDs) or null if none apply. Values here start at 7.
+
+Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
+"
+`;
+
+exports[`prompts createTagEvaluationPrompt should handle long content 1`] = `
+"
+Please evaluate the following explanation for multiple tag categories:
+
+Title: "Test"
+
+Content: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+
+Evaluate the following aspects:
+
+1. DIFFICULTY LEVEL (1-3):
+- BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
+- NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
+- EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
+
+2. CONTENT LENGTH (4-6):
+- SHORT (4): Brief overview, key points only, under 500 words
+- MEDIUM (5): Standard explanation, balanced detail, 500-1500 words
+- LONG (6): Comprehensive coverage, extensive detail, over 1500 words
+
+3. SIMPLE TAGS (array of tag IDs, or null):
+Evaluate if the content contains these characteristics:
+- has_example (7): Contains practical examples or case studies
+- sequential (8): Presents information in step-by-step order
+- has_metaphor (9): Uses analogies, metaphors, or comparisons
+- instructional (10): Provides how-to instructions or procedures
+
+Return your response as a JSON object with:
+- difficultyLevel: integer (1-3)
+- length: integer (4-6)
+- simpleTags: array of integers (tag IDs) or null if none apply. Values here start at 7.
+
+Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
+"
+`;
+
+exports[`prompts createTagEvaluationPrompt should handle short content 1`] = `
+"
+Please evaluate the following explanation for multiple tag categories:
+
+Title: "Test"
+
+Content: "Brief explanation."
+
+Evaluate the following aspects:
+
+1. DIFFICULTY LEVEL (1-3):
+- BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
+- NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
+- EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
+
+2. CONTENT LENGTH (4-6):
+- SHORT (4): Brief overview, key points only, under 500 words
+- MEDIUM (5): Standard explanation, balanced detail, 500-1500 words
+- LONG (6): Comprehensive coverage, extensive detail, over 1500 words
+
+3. SIMPLE TAGS (array of tag IDs, or null):
+Evaluate if the content contains these characteristics:
+- has_example (7): Contains practical examples or case studies
+- sequential (8): Presents information in step-by-step order
+- has_metaphor (9): Uses analogies, metaphors, or comparisons
+- instructional (10): Provides how-to instructions or procedures
+
+Return your response as a JSON object with:
+- difficultyLevel: integer (1-3)
+- length: integer (4-6)
+- simpleTags: array of integers (tag IDs) or null if none apply. Values here start at 7.
+
+Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
+"
+`;
+
+exports[`prompts createTagEvaluationPrompt should handle special characters in title and content 1`] = `
+"
+Please evaluate the following explanation for multiple tag categories:
+
+Title: "C++ & Rust"
+
+Content: "Content with "quotes" and special chars"
+
+Evaluate the following aspects:
+
+1. DIFFICULTY LEVEL (1-3):
+- BEGINNER (1): Basic concepts, minimal prerequisites, simple language, introductory material
+- NORMAL (2): Moderate complexity, some background knowledge helpful, standard terminology
+- EXPERT (3): Advanced concepts, significant prerequisites, technical language, specialized knowledge required
+
+2. CONTENT LENGTH (4-6):
+- SHORT (4): Brief overview, key points only, under 500 words
+- MEDIUM (5): Standard explanation, balanced detail, 500-1500 words
+- LONG (6): Comprehensive coverage, extensive detail, over 1500 words
+
+3. SIMPLE TAGS (array of tag IDs, or null):
+Evaluate if the content contains these characteristics:
+- has_example (7): Contains practical examples or case studies
+- sequential (8): Presents information in step-by-step order
+- has_metaphor (9): Uses analogies, metaphors, or comparisons
+- instructional (10): Provides how-to instructions or procedures
+
+Return your response as a JSON object with:
+- difficultyLevel: integer (1-3)
+- length: integer (4-6)
+- simpleTags: array of integers (tag IDs) or null if none apply. Values here start at 7.
+
+Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
+"
+`;
+
+exports[`prompts createTitlePrompt should generate prompt with typical user input 1`] = `
+"### Prompt
+
+**Topic:**
+
+> *How do quantum computers work?*
+
+**Task:**
+Guess the title for the encyclopedia article that would directly answer the user query above.
+Follow rules and principles below
+
+---
+
+### Title Rules
+
+1. Come up with a Wikipedia article title that could cover the prompt
+2. Prioritize the most concise title possible that clearly covers the prompt
+
+---
+
+### Additional Principles
+
+| Principle        | Description                                               | Example                                                   |
+| ---------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **Recognizable** | Instantly clear what the article is about                 | “United States” instead of “USA (nation‑state)”           |
+| **Natural**      | Use wording common in reliable sources, not forced syntax | “Barack Obama” rather than “Obama, Barack”                |
+| **Concise**      | Shorter is better, as long as it's clear                  | “World War II" instead of "The Second World War Conflict" |
+| **Precise**      | Specific enough to avoid confusion with similar topics    | "Mercury (element)" vs. "Mercury (planet)"                |
+| **Consistent**   | Matches naming patterns in the same topic area            | Use established Wikipedia or academic naming styles       |
+
+---
+"
+`;
+
+exports[`prompts createTitlePrompt should handle empty string 1`] = `
+"### Prompt
+
+**Topic:**
+
+> **
+
+**Task:**
+Guess the title for the encyclopedia article that would directly answer the user query above.
+Follow rules and principles below
+
+---
+
+### Title Rules
+
+1. Come up with a Wikipedia article title that could cover the prompt
+2. Prioritize the most concise title possible that clearly covers the prompt
+
+---
+
+### Additional Principles
+
+| Principle        | Description                                               | Example                                                   |
+| ---------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **Recognizable** | Instantly clear what the article is about                 | “United States” instead of “USA (nation‑state)”           |
+| **Natural**      | Use wording common in reliable sources, not forced syntax | “Barack Obama” rather than “Obama, Barack”                |
+| **Concise**      | Shorter is better, as long as it's clear                  | “World War II" instead of "The Second World War Conflict" |
+| **Precise**      | Specific enough to avoid confusion with similar topics    | "Mercury (element)" vs. "Mercury (planet)"                |
+| **Consistent**   | Matches naming patterns in the same topic area            | Use established Wikipedia or academic naming styles       |
+
+---
+"
+`;
+
+exports[`prompts createTitlePrompt should handle multi-line user input 1`] = `
+"### Prompt
+
+**Topic:**
+
+> *How do quantum computers work?
+What are qubits?*
+
+**Task:**
+Guess the title for the encyclopedia article that would directly answer the user query above.
+Follow rules and principles below
+
+---
+
+### Title Rules
+
+1. Come up with a Wikipedia article title that could cover the prompt
+2. Prioritize the most concise title possible that clearly covers the prompt
+
+---
+
+### Additional Principles
+
+| Principle        | Description                                               | Example                                                   |
+| ---------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **Recognizable** | Instantly clear what the article is about                 | “United States” instead of “USA (nation‑state)”           |
+| **Natural**      | Use wording common in reliable sources, not forced syntax | “Barack Obama” rather than “Obama, Barack”                |
+| **Concise**      | Shorter is better, as long as it's clear                  | “World War II" instead of "The Second World War Conflict" |
+| **Precise**      | Specific enough to avoid confusion with similar topics    | "Mercury (element)" vs. "Mercury (planet)"                |
+| **Consistent**   | Matches naming patterns in the same topic area            | Use established Wikipedia or academic naming styles       |
+
+---
+"
+`;
+
+exports[`prompts createTitlePrompt should handle special characters 1`] = `
+"### Prompt
+
+**Topic:**
+
+> *C++ vs Rust: Which is better?*
+
+**Task:**
+Guess the title for the encyclopedia article that would directly answer the user query above.
+Follow rules and principles below
+
+---
+
+### Title Rules
+
+1. Come up with a Wikipedia article title that could cover the prompt
+2. Prioritize the most concise title possible that clearly covers the prompt
+
+---
+
+### Additional Principles
+
+| Principle        | Description                                               | Example                                                   |
+| ---------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **Recognizable** | Instantly clear what the article is about                 | “United States” instead of “USA (nation‑state)”           |
+| **Natural**      | Use wording common in reliable sources, not forced syntax | “Barack Obama” rather than “Obama, Barack”                |
+| **Concise**      | Shorter is better, as long as it's clear                  | “World War II" instead of "The Second World War Conflict" |
+| **Precise**      | Specific enough to avoid confusion with similar topics    | "Mercury (element)" vs. "Mercury (planet)"                |
+| **Consistent**   | Matches naming patterns in the same topic area            | Use established Wikipedia or academic naming styles       |
+
+---
+"
+`;
+
+exports[`prompts createTitlePrompt should handle very long input 1`] = `
+"### Prompt
+
+**Topic:**
+
+> *I want to understand the complete history and evolution of quantum computing from its theoretical foundations in the 1980s to modern applications in cryptography and optimization*
+
+**Task:**
+Guess the title for the encyclopedia article that would directly answer the user query above.
+Follow rules and principles below
+
+---
+
+### Title Rules
+
+1. Come up with a Wikipedia article title that could cover the prompt
+2. Prioritize the most concise title possible that clearly covers the prompt
+
+---
+
+### Additional Principles
+
+| Principle        | Description                                               | Example                                                   |
+| ---------------- | --------------------------------------------------------- | --------------------------------------------------------- |
+| **Recognizable** | Instantly clear what the article is about                 | “United States” instead of “USA (nation‑state)”           |
+| **Natural**      | Use wording common in reliable sources, not forced syntax | “Barack Obama” rather than “Obama, Barack”                |
+| **Concise**      | Shorter is better, as long as it's clear                  | “World War II" instead of "The Second World War Conflict" |
+| **Precise**      | Specific enough to avoid confusion with similar topics    | "Mercury (element)" vs. "Mercury (planet)"                |
+| **Consistent**   | Matches naming patterns in the same topic area            | Use established Wikipedia or academic naming styles       |
+
+---
+"
+`;
+
+exports[`prompts editExplanationPrompt should generate prompt with typical inputs 1`] = `
+"You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
+
+Output format:
+- Title and content
+
+Rules:
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Use simple language
+- Make only necessary changes to improve clarity, accuracy, or adherence to the rules
+- Preserve the overall structure and flow of the existing content
+- Only modify sections that need improvement based on the rules above
+
+Topic: Quantum Computing
+
+Existing Content:
+Existing explanation content..."
+`;
+
+exports[`prompts editExplanationPrompt should handle empty additionalRules 1`] = `
+"You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
+
+Output format:
+- Title and content
+
+Rules:
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Make only necessary changes to improve clarity, accuracy, or adherence to the rules
+- Preserve the overall structure and flow of the existing content
+- Only modify sections that need improvement based on the rules above
+
+Topic: Test
+
+Existing Content:
+Existing content"
+`;
+
+exports[`prompts editExplanationPrompt should handle empty existing content 1`] = `
+"You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
+
+Output format:
+- Title and content
+
+Rules:
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Make only necessary changes to improve clarity, accuracy, or adherence to the rules
+- Preserve the overall structure and flow of the existing content
+- Only modify sections that need improvement based on the rules above
+
+Topic: Test
+
+Existing Content:
+"
+`;
+
+exports[`prompts editExplanationPrompt should handle long existing content 1`] = `
+"You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
+
+Output format:
+- Title and content
+
+Rules:
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Make only necessary changes to improve clarity, accuracy, or adherence to the rules
+- Preserve the overall structure and flow of the existing content
+- Only modify sections that need improvement based on the rules above
+
+Topic: Test
+
+Existing Content:
+AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+`;
+
+exports[`prompts editExplanationPrompt should handle multiple additional rules 1`] = `
+"You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
+
+Output format:
+- Title and content
+
+Rules:
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $rac{2}{5}$, for block math use double dollars 
+$$(expession)$$
+- Use lists and bullets sparingly
+- Include examples
+- Use analogies
+- Avoid jargon
+- Make only necessary changes to improve clarity, accuracy, or adherence to the rules
+- Preserve the overall structure and flow of the existing content
+- Only modify sections that need improvement based on the rules above
+
+Topic: Machine Learning
+
+Existing Content:
+Existing content"
+`;

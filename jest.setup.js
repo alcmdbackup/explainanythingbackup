@@ -8,6 +8,11 @@ process.env.OPENAI_API_KEY = 'test-openai-key';
 process.env.PINECONE_API_KEY = 'test-pinecone-key';
 process.env.PINECONE_INDEX = 'test-index';
 
+// Polyfills for Node environment (required by langchain/langsmith)
+const { TextEncoder, TextDecoder } = require('util');
+global.TextEncoder = TextEncoder;
+global.TextDecoder = TextDecoder;
+
 // Mock fetch globally
 global.fetch = jest.fn();
 
