@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useReducer } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction, saveOrPublishChanges } from '@/actions/actions';
@@ -14,6 +14,7 @@ import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
 import { ResultsLexicalEditorRef } from '@/components/ResultsLexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
+import { tagModeReducer, createInitialTagModeState, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -37,12 +38,7 @@ export default function ResultsPage() {
     const [userSaved, setUserSaved] = useState(false);
     const [userid, setUserid] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
-    const [tags, setTags] = useState<TagUIType[]>([]);
-    const [tempTagsForRewriteWithTags, setTempTagsForRewriteWithTags] = useState<TagUIType[]>([]);
-    const [originalTags, setOriginalTags] = useState<TagUIType[]>([]);
-    const [showRegenerateDropdown, setShowRegenerateDropdown] = useState(false);
-    const [modeOverride, setModeOverride] = useState<TagBarMode>(TagBarMode.Normal);
-    const [isTagsModified, setIsTagsModified] = useState(false);
+    const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
     const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
     const [explanationStatus, setExplanationStatus] = useState<ExplanationStatus | null>(null);
@@ -60,12 +56,8 @@ export default function ResultsPage() {
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
             if (regenerateDropdownRef.current && !regenerateDropdownRef.current.contains(event.target as Node)) {
-                if (showRegenerateDropdown) {
-                    setShowRegenerateDropdown(false);
-                    // Reset tags to original state when closing dropdown
-                    setTags(originalTags);
-                    setTempTagsForRewriteWithTags([]);
-                    setModeOverride(TagBarMode.Normal);
+                if (tagState.mode === 'normal' && tagState.showRegenerateDropdown) {
+                    dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
                 }
             }
         };
@@ -74,26 +66,7 @@ export default function ResultsPage() {
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showRegenerateDropdown, originalTags]);
-
-    // Reset temp tags when modified state is reset
-    useEffect(() => {
-        if (modeOverride === TagBarMode.Normal && tempTagsForRewriteWithTags.length > 0) {
-            setTempTagsForRewriteWithTags([]);
-        }
-    }, [modeOverride, tempTagsForRewriteWithTags.length]);
-
-    /**
-     * Determines if we're currently in rewrite with tags mode
-     * 
-     * • Returns true if tempTagsForRewriteWithTags has content
-     * • Used to determine which tags to pass to TagBar and other components
-     * • Provides a clean way to check rewrite mode without state tracking
-     * 
-     * Used by: TagBar component props, tag reset logic
-     * Calls: None
-     */
-    const isInRewriteMode = () => tempTagsForRewriteWithTags.length > 0;
+    }, [tagState.mode, tagState.showRegenerateDropdown]);
 
     /**
      * Fetches the current user's ID from authentication
@@ -123,21 +96,21 @@ export default function ResultsPage() {
 
     /**
      * Initializes temporary tags for "rewrite with tags" functionality
-     * 
+     *
      * • Fetches two preset tags from database: "medium" (ID 2) and "moderate" (ID 5)
      * • Converts database tags to TagUIType format with both active states set to true
      * • Uses getTempTagsForRewriteWithTagsAction to retrieve actual tag data
-     * • Resets temporary tags to default state when called
-     * 
+     * • Dispatches ENTER_REWRITE_MODE action with fetched tags
+     *
      * Used by: "Rewrite with tags" button click handler
-     * Calls: getTempTagsForRewriteWithTagsAction
+     * Calls: getTempTagsForRewriteWithTagsAction, dispatchTagAction
      */
     const initializeTempTagsForRewriteWithTags = async () => {
         try {
             const result = await getTempTagsForRewriteWithTagsAction();
             if (result.success && result.data) {
-                // Tags are already in the correct UI format with proper active states
-                setTempTagsForRewriteWithTags(result.data);
+                // Dispatch action to enter rewrite mode with temp tags
+                dispatchTagAction({ type: 'ENTER_REWRITE_MODE', tempTags: result.data });
             } else {
                 console.error('Failed to fetch temp tags for rewrite with tags:', result.error);
             }
@@ -253,18 +226,13 @@ export default function ResultsPage() {
             // Check if this explanation is saved by the user
             await checkUserSaved(explanation.id);
 
-            // Reset temp tags when loading a new explanation
-            setTempTagsForRewriteWithTags([]);
-
-            // Fetch tags for the explanation
+            // Fetch tags for the explanation and dispatch LOAD_TAGS
             const tagsResult = await getTagsForExplanationAction(withRequestId({ explanationId: explanation.id }));
             if (tagsResult.success && tagsResult.data) {
-                setTags(tagsResult.data);
-                setOriginalTags(tagsResult.data); // Save original tags
+                dispatchTagAction({ type: 'LOAD_TAGS', tags: tagsResult.data });
             } else {
                 logger.error('Failed to fetch tags for explanation:', { error: tagsResult.error });
-                setTags([]);
-                setOriginalTags([]);
+                dispatchTagAction({ type: 'LOAD_TAGS', tags: [] });
             }
 
             // Load vector representation from Pinecone
@@ -398,7 +366,7 @@ export default function ResultsPage() {
         setMatches([]);
         setContent('');
         setExplanationTitle('');
-        setTags([]); // Reset tags when generating new explanation, but preserve temp tags for rewrite with tags
+        dispatchTagAction({ type: 'LOAD_TAGS', tags: [] }); // Reset tags when generating new explanation
         setExplanationVector(null); // Reset vector when generating new explanation
         setExplanationStatus(null); // Reset explanation status when generating new explanation
 
@@ -579,21 +547,20 @@ export default function ResultsPage() {
      */
     const handleTagBarApplyClick = async (tagDescriptions: string[]) => {
         console.log('handleTagBarApplyClick called with tagDescriptions:', tagDescriptions);
-        console.log('modeOverride:', modeOverride);
-        console.log('TagBarMode.RewriteWithTags:', TagBarMode.RewriteWithTags);
+        console.log('tagState.mode:', tagState.mode);
         console.log('prompt:', prompt);
         console.log('explanationTitle:', explanationTitle);
         console.log('userid:', userid);
-        
+
         // Handle apply button click in rewrite or edit mode
-        if (modeOverride === TagBarMode.RewriteWithTags) {
+        if (tagState.mode === 'rewriteWithTags') {
             console.log('Calling handleUserAction with RewriteWithTags');
             console.log('Current mode:', mode);
             // For rewrite with tags, use the current explanation title as input
             const inputForRewrite = explanationTitle || prompt;
             console.log('Using input for rewrite:', inputForRewrite);
             await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null, null);
-        } else if (modeOverride === TagBarMode.EditWithTags) {
+        } else if (tagState.mode === 'editWithTags') {
             console.log('Calling handleUserAction with EditWithTags');
             console.log('Current mode:', mode);
             // For edit with tags, use the current explanation title as input
@@ -601,7 +568,7 @@ export default function ResultsPage() {
             console.log('Using input for edit:', inputForEdit);
             await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null, null);
         } else {
-            console.log('No matching mode found, modeOverride:', modeOverride);
+            console.log('No matching mode found, tagState.mode:', tagState.mode);
         }
     };
 
@@ -791,7 +758,7 @@ export default function ResultsPage() {
             setError(null);
             setUserSaved(false);
             setExplanationId(null);
-            setTags([]); // Reset tags when processing new parameters
+            dispatchTagAction({ type: 'LOAD_TAGS', tags: [] }); // Reset tags when processing new parameters
             setExplanationVector(null); // Reset vector when processing new parameters
             setExplanationStatus(null); // Reset explanation status when processing new parameters
 
@@ -871,23 +838,6 @@ export default function ResultsPage() {
     useEffect(() => {
         localStorage.setItem('explanation-mode', mode);
     }, [mode]);
-
-    // Handle clicking outside dropdown to close it
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (regenerateDropdownRef.current && !regenerateDropdownRef.current.contains(event.target as Node)) {
-                setShowRegenerateDropdown(false);
-            }
-        };
-
-        if (showRegenerateDropdown) {
-            document.addEventListener('mousedown', handleClickOutside);
-        }
-
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, [showRegenerateDropdown]);
 
 
 
@@ -1052,8 +1002,8 @@ export default function ResultsPage() {
                                         <div className="mt-4 border-b-2 border-gray-300 dark:border-gray-600"></div>
                                     </div>
                                 )}
-                                
-                                {!isTagsModified && !isPageLoading && (
+
+                                {!isTagsModified(tagState) && !isPageLoading && (
                                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
@@ -1095,12 +1045,13 @@ export default function ResultsPage() {
                                                         type="button"
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={() => {
-                                                            if (showRegenerateDropdown) {
-                                                                // Reset tags to original state when closing dropdown
-                                                                setTags(originalTags);
-                                                                setTempTagsForRewriteWithTags([]);
+                                                            if (tagState.mode === 'normal' && tagState.showRegenerateDropdown) {
+                                                                // Close dropdown and reset to normal
+                                                                dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
+                                                            } else {
+                                                                // Toggle dropdown
+                                                                dispatchTagAction({ type: 'TOGGLE_DROPDOWN' });
                                                             }
-                                                            setShowRegenerateDropdown(!showRegenerateDropdown);
                                                         }}
                                                         className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
@@ -1109,15 +1060,13 @@ export default function ResultsPage() {
                                                         </svg>
                                                     </button>
                                                 </div>
-                                                {showRegenerateDropdown && (
+                                                {tagState.mode === 'normal' && tagState.showRegenerateDropdown && (
                                                     <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
                                                         <div className="py-1">
                                                             <button
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={async () => {
-                                                                    setShowRegenerateDropdown(false);
                                                                     await initializeTempTagsForRewriteWithTags();
-                                                                    setModeOverride(TagBarMode.RewriteWithTags);
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
@@ -1126,9 +1075,7 @@ export default function ResultsPage() {
                                                             <button
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={() => {
-                                                                    setShowRegenerateDropdown(false);
-                                                                    setTags(originalTags); // Restore original tags for editing
-                                                                    setModeOverride(TagBarMode.EditWithTags);
+                                                                    dispatchTagAction({ type: 'ENTER_EDIT_MODE' });
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
@@ -1202,13 +1149,10 @@ export default function ResultsPage() {
                                 {/* Tags Bar - shown during streaming with only add tag button */}
                                 <div className="mb-2">
                                     <TagBar
-                                        tags={isInRewriteMode() ? tempTagsForRewriteWithTags : tags}
-                                        setTags={isInRewriteMode() ? setTempTagsForRewriteWithTags : setTags}
+                                        tagState={tagState}
+                                        dispatch={dispatchTagAction}
                                         className="mb-2"
                                         explanationId={explanationId}
-                                        modeOverride={modeOverride}
-                                        setModeOverride={setModeOverride}
-                                        setIsTagsModified={setIsTagsModified}
                                         onTagClick={(tag) => {
                                             // Handle tag clicks here - you can implement search, filtering, etc.
                                             console.log('Tag clicked:', tag);
@@ -1222,10 +1166,7 @@ export default function ResultsPage() {
                                 {/* Debug logging */}
                                 {(() => {
                                     console.log('TagBar props:', {
-                                        isInRewriteMode: isInRewriteMode(),
-                                        tempTagsForRewriteWithTags: tempTagsForRewriteWithTags,
-                                        tags: tags,
-                                        modeOverride: modeOverride,
+                                        tagState,
                                         explanationId: explanationId
                                     });
                                     return null;

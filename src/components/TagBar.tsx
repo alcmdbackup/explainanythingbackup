@@ -4,24 +4,21 @@ import { useState, useRef, useEffect } from 'react';
 import { TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
 import { getAllTagsAction } from '@/actions/actions';
 import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
+import { TagModeState, TagModeAction, getCurrentTags, getTagBarMode, isTagsModified as getIsTagsModified } from '@/reducers/tagModeReducer';
 
 interface TagBarProps {
-    tags: TagUIType[];
-    setTags: (tags: TagUIType[]) => void;
+    tagState: TagModeState;
+    dispatch: React.Dispatch<TagModeAction>;
     className?: string;
     onTagClick?: (tag: TagFullDbType) => void;
     explanationId?: number | null;
-    modeOverride?: TagBarMode;
-    setModeOverride?: (mode: TagBarMode) => void;
-    isTagsModified?: boolean;
-    setIsTagsModified?: (modified: boolean) => void;
     tagBarApplyClickHandler?: (tagDescriptions: string[]) => void;
     isStreaming?: boolean;
 }
 
 /**
  * Displays tags in a horizontal bar with chip-style styling
- * 
+ *
  * • Renders tags as small colored chips with tag names
  * • Shows empty state when no tags are available
  * • Supports two types of tags: simple tags and preset tag collections
@@ -31,11 +28,15 @@ interface TagBarProps {
  * • Shows pop-down menu when tags are modified with X, Apply, and Reset options
  * • Includes enhanced inline tag addition functionality with searchable dropdown
  * • Surfaces all available tags that are not currently active
- * 
+ *
  * Used by: Results page to display explanation tags
  * Calls: getTagsByPresetIdAction for preset tag dropdowns, getAllTagsAction for available tags
  */
-export default function TagBar({ tags, setTags, className = '', onTagClick, explanationId, modeOverride, setModeOverride, isTagsModified: externalIsTagsModified, setIsTagsModified: externalSetIsTagsModified, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
+export default function TagBar({ tagState, dispatch, className = '', onTagClick, explanationId, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
+    // Extract values from tagState
+    const tags = getCurrentTags(tagState);
+    const modeOverride = getTagBarMode(tagState);
+    const effectiveIsTagsModified = getIsTagsModified(tagState);
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
     const [showAddTagInput, setShowAddTagInput] = useState(false);
@@ -44,15 +45,10 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
     const [filteredAvailableTags, setFilteredAvailableTags] = useState<TagFullDbType[]>([]);
     const [isLoadingAvailableTags, setIsLoadingAvailableTags] = useState(false);
     const [showAvailableTagsDropdown, setShowAvailableTagsDropdown] = useState(false);
-    const [localIsModified, setLocalIsModified] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
     const modifiedMenuRef = useRef<HTMLDivElement>(null);
     const addTagInputRef = useRef<HTMLInputElement>(null);
     const availableTagsDropdownRef = useRef<HTMLDivElement>(null);
-
-    // Use external state if provided, otherwise use local state
-    const effectiveIsTagsModified = externalIsTagsModified !== undefined ? externalIsTagsModified : localIsModified;
-    const setEffectiveIsTagsModified = externalSetIsTagsModified || setLocalIsModified;
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -81,60 +77,19 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         }
     }, [showAddTagInput]);
 
-    /**
-     * Detects if any tags are in a modified state
-     *
-     * • Checks simple tags for tag_active_current != tag_active_initial
-     * • Checks preset tags for currentActiveTagId != originalTagId
-     * • Returns true if any tag has been modified from its original state
-     *
-     * Used by: Component to determine if modified menu should be shown
-     * Calls: None
-     */
-    const hasModifiedTags = (): boolean => {
-        return tags.some(tag => {
-            if ('tag_name' in tag) {
-                // Simple tag - check if tag_active_current != tag_active_initial
-                return tag.tag_active_current !== tag.tag_active_initial;
-            } else {
-                // Preset tag - check if currentActiveTagId != originalTagId
-                return tag.currentActiveTagId !== tag.originalTagId;
-            }
-        });
-    };
-
-    // Update isModified state when tags change
-    useEffect(() => {
-        const hasModifications = hasModifiedTags();
-        const shouldBeModified = hasModifications || (modeOverride !== undefined && modeOverride !== TagBarMode.Normal);
-        setEffectiveIsTagsModified(shouldBeModified);
-    }, [tags, modeOverride, setEffectiveIsTagsModified, hasModifiedTags]);
 
     /**
      * Resets all tags back to their original state
-     * 
-     * • Sets simple tags back to tag_active_current: true
-     * • Sets preset tags back to currentActiveTagId: originalTagId
-     * • Updates the tags state to reflect the reset
+     *
+     * • Dispatches RESET_TAGS action to reset tags to original state
      * • Closes the modified menu after reset
-     * 
+     *
      * Used by: Reset button click handler
-     * Calls: setTags, setShowModifiedMenu
+     * Calls: dispatch
      */
     const handleReset = () => {
-        const resetTags = tags.map(tag => {
-            if ('tag_name' in tag) {
-                // Simple tag - reset tag_active_current back to tag_active_initial
-                return { ...tag, tag_active_current: tag.tag_active_initial };
-            } else {
-                // Preset tag - reset currentActiveTagId back to originalTagId
-                return { ...tag, currentActiveTagId: tag.originalTagId };
-            }
-        });
-        setTags(resetTags);
+        dispatch({ type: 'RESET_TAGS' });
         setShowModifiedMenu(false);
-        if (setModeOverride) setModeOverride(TagBarMode.Normal);
-        setEffectiveIsTagsModified(false);
     };
 
     /**
@@ -244,40 +199,28 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
 
     /**
      * Handles apply button click in normal mode
-     * 
+     *
      * • Calls handleApplyForModifyTags with current tags and explanationId
-     * • Updates tags state to reflect the applied changes
+     * • Dispatches APPLY_TAGS action to update tags state after successful application
      * • Closes the modified menu after successful application
      * • Handles errors and provides user feedback
      * • Used by handleApplyRouter for normal mode
-     * • Calls: handleApplyForModifyTags, setTags, setShowModifiedMenu
+     * • Calls: handleApplyForModifyTags, dispatch
      */
     const handleApplyNormal = async () => {
         try {
             const result = await handleApplyForModifyTags(explanationId!, tags);
-            
+
             if (result.errors.length > 0) {
                 console.error('Errors applying tags:', result.errors);
                 // You could add a toast notification here
                 return;
             }
 
-            // Update tags to reflect the applied state
-            const updatedTags = tags.map(tag => {
-                if ('tag_name' in tag) {
-                    // Simple tag - update tag_active_initial to match tag_active_current
-                    return { ...tag, tag_active_initial: tag.tag_active_current };
-                } else {
-                    // Preset tag - update originalTagId to match currentActiveTagId
-                    return { ...tag, originalTagId: tag.currentActiveTagId };
-                }
-            });
-            
-            setTags(updatedTags);
+            // Dispatch APPLY_TAGS action to update state
+            dispatch({ type: 'APPLY_TAGS' });
             setShowModifiedMenu(false);
-            if (setModeOverride) setModeOverride(TagBarMode.Normal);
-            setEffectiveIsTagsModified(false);
-            
+
             console.log(`Successfully applied tags: ${result.added} added, ${result.removed} removed`);
         } catch (error) {
             console.error('Error applying tags:', error);
@@ -324,29 +267,28 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
 
     /**
      * Handles clicks on dropdown tag items
-     * 
+     *
      * • Updates the currentActiveTagId for the preset tag collection
-     * • Updates the tags state to reflect the new selection
+     * • Dispatches UPDATE_TAGS action to reflect the new selection
      * • Calls the optional onTagClick callback with the selected tag
      * • Closes the dropdown after selection
-     * 
+     *
      * Used by: Dropdown item click handler
-     * Calls: setTags, onTagClick callback
+     * Calls: dispatch, onTagClick callback
      */
     const handleDropdownTagClick = (selectedTag: TagFullDbType, presetTagIndex: number) => {
         setOpenDropdown(null);
-        
+
         // Update the currentActiveTagId for the preset tag collection
         const updatedTags = [...tags];
         const presetTag = updatedTags[presetTagIndex];
-        
+
         if ('tags' in presetTag) {
             // This is a preset tag collection
             presetTag.currentActiveTagId = selectedTag.id;
-            setTags(updatedTags);
-            // The useEffect will automatically update isModified state
+            dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
         }
-        
+
         if (onTagClick) {
             onTagClick(selectedTag);
         }
@@ -354,36 +296,34 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
 
     /**
      * Handles removing tags by setting tag_active_current to false
-     * 
+     *
      * • Sets tag_active_current = false for the specified tag
-     * • Updates the tags state to reflect the change
+     * • Dispatches UPDATE_TAGS action to reflect the change
      * • Works for both simple tags and preset tag collections
-     * 
+     *
      * Used by: "x" button click handlers for tag removal
-     * Calls: setTags
+     * Calls: dispatch
      */
     const handleRemoveTag = (tagIndex: number) => {
         const updatedTags = [...tags];
         updatedTags[tagIndex].tag_active_current = false;
-        setTags(updatedTags);
-        // The useEffect will automatically update isModified state
+        dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
     };
 
     /**
      * Handles restoring tags by setting tag_active_current to true
-     * 
+     *
      * • Sets tag_active_current = true for the specified tag
-     * • Updates the tags state to reflect the change
+     * • Dispatches UPDATE_TAGS action to reflect the change
      * • Works for both simple tags and preset tag collections
-     * 
+     *
      * Used by: "x" button click handlers for tag restoration
-     * Calls: setTags
+     * Calls: dispatch
      */
     const handleRestoreTag = (tagIndex: number) => {
         const updatedTags = [...tags];
         updatedTags[tagIndex].tag_active_current = true;
-        setTags(updatedTags);
-        // The useEffect will automatically update isModified state
+        dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
     };
 
     /**
@@ -531,15 +471,15 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
 
     /**
      * Adds a selected tag to the current tag set
-     * 
+     *
      * • Creates a new simple tag with the selected tag data
      * • Sets tag as active (tag_active_current: true)
-     * • Adds the new tag to the tags array
+     * • Dispatches UPDATE_TAGS to add the new tag to the array
      * • Closes the add tag interface
      * • Clears the search input
-     * 
+     *
      * Used by: Available tags dropdown item click handler
-     * Calls: setTags, setShowAddTagInput, setNewTagName
+     * Calls: dispatch, setShowAddTagInput, setNewTagName
      */
     const handleAddSelectedTag = (selectedTag: TagFullDbType) => {
         const newTag: TagUIType = {
@@ -547,12 +487,11 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
             tag_active_current: true,
             tag_active_initial: false
         };
-        
-        setTags([...tags, newTag]);
+
+        dispatch({ type: 'UPDATE_TAGS', tags: [...tags, newTag] });
         setShowAddTagInput(false);
         setNewTagName('');
         setShowAvailableTagsDropdown(false);
-        // The useEffect will automatically update isModified state
     };
 
     // During streaming, always show the TagBar even if there are no tags
