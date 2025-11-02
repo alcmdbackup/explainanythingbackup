@@ -81,20 +81,13 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
         }
     }, [showAddTagInput]);
 
-    // Update isModified state when tags change
-    useEffect(() => {
-        const hasModifications = hasModifiedTags();
-        const shouldBeModified = hasModifications || (modeOverride !== undefined && modeOverride !== TagBarMode.Normal);
-        setEffectiveIsTagsModified(shouldBeModified);
-    }, [tags, modeOverride, setEffectiveIsTagsModified, hasModifiedTags]);
-
     /**
      * Detects if any tags are in a modified state
-     * 
+     *
      * • Checks simple tags for tag_active_current != tag_active_initial
      * • Checks preset tags for currentActiveTagId != originalTagId
      * • Returns true if any tag has been modified from its original state
-     * 
+     *
      * Used by: Component to determine if modified menu should be shown
      * Calls: None
      */
@@ -109,6 +102,13 @@ export default function TagBar({ tags, setTags, className = '', onTagClick, expl
             }
         });
     };
+
+    // Update isModified state when tags change
+    useEffect(() => {
+        const hasModifications = hasModifiedTags();
+        const shouldBeModified = hasModifications || (modeOverride !== undefined && modeOverride !== TagBarMode.Normal);
+        setEffectiveIsTagsModified(shouldBeModified);
+    }, [tags, modeOverride, setEffectiveIsTagsModified, hasModifiedTags]);
 
     /**
      * Resets all tags back to their original state
