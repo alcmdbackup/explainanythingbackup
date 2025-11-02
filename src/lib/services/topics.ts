@@ -90,7 +90,7 @@ export async function getRecentTopics(
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
   
-  let query = supabase
+  const query = supabase
     .from('topics')
     .select()
     .order(orderBy, { ascending: order === 'asc' })

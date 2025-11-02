@@ -49,7 +49,7 @@ export default function TailwindTest() {
                 <li>Third item</li>
               </ul>
               <blockquote>
-                This is a blockquote that demonstrates the typography plugin's styling
+                This is a blockquote that demonstrates the typography plugin&apos;s styling
               </blockquote>
             </div>
           </div>

@@ -1,0 +1,164 @@
+#!/bin/bash
+
+set -e  # Exit on error
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+echo -e "${BLUE}=== Git Worktree Reset Script ===${NC}"
+
+# Check if we're in a git repository
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${RED}Error: Not a git repository${NC}"
+    exit 1
+fi
+
+# Get the root directory of the git repository
+GIT_ROOT=$(git rev-parse --show-toplevel)
+PARENT_DIR=$(dirname "$GIT_ROOT")
+COUNTER_FILE="$GIT_ROOT/.worktree_counter"
+
+# Step 0.5: Delete all old worktree directories from parent directory
+echo -e "\n${BLUE}Step 0.5: Cleaning up old worktree directories...${NC}"
+
+# Find and delete all worktree_* directories in parent directory
+OLD_WORKTREES=$(find "$PARENT_DIR" -maxdepth 1 -type d -name "worktree_*" 2>/dev/null || true)
+
+if [ -n "$OLD_WORKTREES" ]; then
+    while IFS= read -r old_worktree; do
+        if [ -d "$old_worktree" ]; then
+            echo "Deleting old worktree directory: $old_worktree"
+            rm -rf "$old_worktree"
+        fi
+    done <<< "$OLD_WORKTREES"
+    echo -e "${GREEN}Old worktree directories cleaned up${NC}"
+else
+    echo "No old worktree directories found"
+fi
+
+# Step 1: Remove all existing worktrees
+echo -e "\n${BLUE}Step 1: Removing existing worktrees...${NC}"
+
+# Get list of worktrees (excluding the main one)
+WORKTREES=$(git worktree list --porcelain | grep "^worktree" | awk '{print $2}' | grep -v "^$GIT_ROOT$" || true)
+
+if [ -n "$WORKTREES" ]; then
+    while IFS= read -r worktree_path; do
+        echo "Removing worktree: $worktree_path"
+        git worktree remove "$worktree_path" --force 2>/dev/null || true
+        # Also remove the directory if it still exists
+        if [ -d "$worktree_path" ]; then
+            rm -rf "$worktree_path"
+        fi
+    done <<< "$WORKTREES"
+
+    # Prune to clean up metadata
+    git worktree prune
+    echo -e "${GREEN}All worktrees removed and metadata cleaned${NC}"
+else
+    echo "No existing worktrees found"
+fi
+
+# Step 1.5: Delete orphaned local branches
+echo -e "\n${BLUE}Step 1.5: Cleaning up orphaned worktree branches...${NC}"
+
+# Get all local branches matching git_worktree_* pattern
+OLD_BRANCHES=$(git branch --list "git_worktree_*" | sed 's/^[* ]*//' || true)
+
+if [ -n "$OLD_BRANCHES" ]; then
+    while IFS= read -r branch; do
+        if [ -n "$branch" ]; then
+            echo "Deleting local branch: $branch"
+            git branch -D "$branch" 2>/dev/null || true
+        fi
+    done <<< "$OLD_BRANCHES"
+    echo -e "${GREEN}Orphaned branches cleaned up${NC}"
+else
+    echo "No orphaned branches found"
+fi
+
+# Step 2: Update main directory from remote
+echo -e "\n${BLUE}Step 2: Updating main directory from remote...${NC}"
+
+# Get current branch name
+CURRENT_BRANCH=$(git branch --show-current)
+
+if [ -z "$CURRENT_BRANCH" ]; then
+    # Detached HEAD state, try to use default branch
+    CURRENT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
+fi
+
+echo "Current branch: $CURRENT_BRANCH"
+
+# Fetch latest from remote
+git fetch origin
+
+# Pull latest changes
+git pull origin "$CURRENT_BRANCH"
+
+echo -e "${GREEN}Main directory updated${NC}"
+
+# Step 3 & 4: Create new worktrees with incremented counter
+echo -e "\n${BLUE}Step 3: Creating new worktrees...${NC}"
+
+# Read counter from file, or start at 0
+if [ -f "$COUNTER_FILE" ]; then
+    COUNTER=$(cat "$COUNTER_FILE")
+else
+    COUNTER=0
+fi
+
+echo "Current counter: $COUNTER"
+
+# Increment counter
+COUNTER=$((COUNTER + 1))
+
+# Save new counter
+echo "$COUNTER" > "$COUNTER_FILE"
+
+# Create two worktrees in parent directory
+for i in 0 1; do
+    BRANCH_NAME="git_worktree_${COUNTER}_${i}"
+    WORKTREE_PATH="$PARENT_DIR/worktree_${COUNTER}_${i}"
+
+    echo -e "\nCreating worktree: ${GREEN}$BRANCH_NAME${NC}"
+
+    # Delete branch if it already exists
+    git branch -D "$BRANCH_NAME" 2>/dev/null || true
+
+    # Create new worktree based on current branch
+    git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$CURRENT_BRANCH"
+
+    echo -e "${GREEN}Created: $WORKTREE_PATH${NC}"
+
+    # Copy configuration files and install dependencies
+    echo "Setting up dependencies and configuration..."
+
+    # Copy .env.local if it exists
+    if [ -f "$GIT_ROOT/.env.local" ]; then
+        echo "  Copying .env.local..."
+        cp "$GIT_ROOT/.env.local" "$WORKTREE_PATH/"
+    fi
+
+    # Install dependencies (don't copy node_modules as it breaks symlinks)
+    if [ -f "$WORKTREE_PATH/package.json" ]; then
+        echo "  Installing dependencies (this may take a few minutes)..."
+        if (cd "$WORKTREE_PATH" && npm install --legacy-peer-deps 2>&1); then
+            echo -e "  ${GREEN}✓ npm install succeeded${NC}"
+        else
+            echo -e "  ${RED}✗ npm install FAILED${NC}"
+            echo -e "${RED}Error: Failed to install dependencies for $WORKTREE_PATH${NC}"
+            exit 1
+        fi
+    fi
+
+    echo -e "${GREEN}Dependencies installed and configuration copied${NC}"
+done
+
+echo -e "\n${GREEN}=== Complete! ===${NC}"
+echo -e "Counter: ${BLUE}$COUNTER${NC}"
+echo -e "\nWorktrees created:"
+git worktree list

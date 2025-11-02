@@ -5,7 +5,7 @@ import { logger } from '@/lib/client_utilities';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { RenderCriticMarkupFromMDAstDiff } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
-import { runAllTests, formatTestResults, TestResult } from '@/editorFiles/markdownASTdiff/testRunner';
+import { runAllTests, TestResult } from '@/editorFiles/markdownASTdiff/testRunner';
 
 export default function MdASTdiffDemoPage() {
     const [beforeText, setBeforeText] = useState('');
@@ -109,9 +109,6 @@ export default function MdASTdiffDemoPage() {
             const results = runAllTests(testCasesContent);
             setTestResults(results);
 
-            // Generate formatted output and save to file
-            const formattedResults = formatTestResults(results);
-            
             // Save to test_responses.txt via API
             await fetch('/api/test-responses');
             

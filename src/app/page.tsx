@@ -1,17 +1,9 @@
 'use client';
 
-import { useState } from 'react';
 import SearchBar from '@/components/SearchBar';
 import Navigation from '@/components/Navigation';
 
 export default function Home() {
-    const [isGeneratingExplanation, setIsGeneratingExplanation] = useState(false);
-
-    const handleSearch = (query: string) => {
-        setIsGeneratingExplanation(true);
-        // The SearchBar component will handle navigation
-    };
-
     return (
         <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
             <Navigation showSearchBar={false} />

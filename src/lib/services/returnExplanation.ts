@@ -5,7 +5,7 @@ import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, search
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
-import { withLoggingAndTracing, withLogging } from '@/lib/logging/automaticServerLoggingBase';
+import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
@@ -372,7 +372,7 @@ export const returnExplanationLogic = withLoggingAndTracing(
         previousExplanationViewedVector?: { values: number[] } | null // Pinecone match object with embedding values for context in rewrite operations
     ): Promise<{
         originalUserInput: string,
-        match_found: Boolean | null,
+        match_found: boolean | null,
         error: ErrorResponse | null,
         explanationId: number | null,
         matches: matchWithCurrentContentType[],

@@ -39,10 +39,10 @@ $$
                         remarkPlugins={[remarkMath]}
                         rehypePlugins={[rehypeKatex]}
                         components={{
-                            inlineMath: ({node, children}) => (
+                            inlineMath: ({children}) => (
                                 <InlineMath math={String(children).replace(/\$/g, '')} />
                             ),
-                            math: ({node, children}) => (
+                            math: ({children}) => (
                                 <BlockMath math={String(children)} />
                             )
                         }}

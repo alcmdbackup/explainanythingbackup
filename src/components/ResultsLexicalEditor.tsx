@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState, forwardRef, useImperativeHandle, useCallback } from 'react';
-import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../editorFiles/lexicalEditor/LexicalEditor';
+import LexicalEditor, { LexicalEditorRef } from '../editorFiles/lexicalEditor/LexicalEditor';
 
 interface ResultsLexicalEditorProps {
   content: string;
@@ -126,15 +126,6 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
     }
   }, [isEditMode, isStreaming]);
 
-  // Handle edit mode toggle
-  const handleEditModeToggle = () => {
-    const newEditMode = !internalEditMode;
-    setInternalEditMode(newEditMode);
-    if (editorRef.current && !isStreaming) {
-      editorRef.current.setEditMode(newEditMode);
-    }
-    onEditModeToggle?.();
-  };
 
   // Handle content changes from editor
   const handleContentChange = (newContent: string) => {

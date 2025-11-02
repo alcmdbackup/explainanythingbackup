@@ -16,7 +16,7 @@ export async function register() {
     // Initialize automatic server logging system (Node.js runtime only)
     if (process.env.NEXT_RUNTIME !== 'edge') {
       try {
-        const { initializeAutoLogging } = await import('@/lib/logging/automaticServerLoggingBase');
+        const { initializeAutoLogging } = await import('@/lib/logging/server/automaticServerLoggingBase');
         initializeAutoLogging();
         console.log('🔧 Automatic logging system initialized');
       } catch (error) {

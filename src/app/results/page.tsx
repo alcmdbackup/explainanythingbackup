@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction, saveOrPublishChanges } from '@/actions/actions';
-import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagFullDbType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { clientPassRequestId } from '@/hooks/clientPassRequestId';
@@ -26,7 +27,6 @@ export default function ResultsPage() {
     const [content, setContent] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
-    const [explanationData, setExplanationData] = useState<explanationBaseType | null>(null);
     const [isPageLoading, setIsPageLoading] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -36,7 +36,6 @@ export default function ResultsPage() {
     const [explanationId, setExplanationId] = useState<number | null>(null);
     const [userSaved, setUserSaved] = useState(false);
     const [userid, setUserid] = useState<string | null>(null);
-    const [authError, setAuthError] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [tags, setTags] = useState<TagUIType[]>([]);
     const [tempTagsForRewriteWithTags, setTempTagsForRewriteWithTags] = useState<TagUIType[]>([]);
@@ -54,7 +53,6 @@ export default function ResultsPage() {
     const [isSavingChanges, setIsSavingChanges] = useState(false);
 
 
-    const isFirstRun = useRef(true);
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<ResultsLexicalEditorRef>(null); // For AI suggestions panel
 
@@ -76,7 +74,7 @@ export default function ResultsPage() {
         return () => {
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [showRegenerateDropdown]);
+    }, [showRegenerateDropdown, originalTags]);
 
     // Reset temp tags when modified state is reset
     useEffect(() => {
@@ -111,18 +109,15 @@ export default function ResultsPage() {
     const fetchUserid = async (): Promise<string | null> => {
         const { data: userData, error: userError } = await supabase_browser.auth.getUser();
         if (userError) {
-            setAuthError(`Authentication error: ${userError.message}`);
             setUserid(null);
             return null;
         }
         if (!userData?.user?.id) {
-            setAuthError('No user data found - user may not be authenticated');
             setUserid(null);
             return null;
         }
-        
+
         setUserid(userData.user.id);
-        setAuthError(null);
         return userData.user.id;
     };
 
@@ -163,7 +158,7 @@ export default function ResultsPage() {
      * Used by: processParams (during URL parameter processing)
      * Calls: router.replace (to clean URL)
      */
-    const initializeMode = (router: any, searchParams: URLSearchParams): MatchMode => {
+    const initializeMode = (router: AppRouterInstance, searchParams: URLSearchParams): MatchMode => {
         const urlMode = searchParams.get('mode') as MatchMode;
         const savedMode = localStorage.getItem('explanation-mode') as MatchMode;
         
@@ -205,7 +200,7 @@ export default function ResultsPage() {
         try {
             const saved = await isExplanationSavedByUserAction(withRequestId({ explanationid: idToCheck, userid }));
             setUserSaved(saved);
-        } catch (err) {
+        } catch {
             setUserSaved(false);
         }
     };
@@ -282,15 +277,16 @@ export default function ResultsPage() {
                 if (vectorResult.data) {
                     // Ensure the vector data has the expected structure
                     let vectorData = vectorResult.data;
-                    if (!vectorData.values && (vectorData as any).vector) {
+                    const vectorDataAny = vectorData as unknown as { vector?: number[] };
+                    if (!vectorData.values && vectorDataAny.vector) {
                         vectorData = {
                             ...vectorData,
-                            values: (vectorData as any).vector
+                            values: vectorDataAny.vector
                         };
                     }
-                    
+
                     setExplanationVector(vectorData);
-                    logger.debug('Loaded explanation vector:', { 
+                    logger.debug('Loaded explanation vector:', {
                         found: true,
                         explanationId: explanation.id,
                         vectorKeys: Object.keys(vectorData),
@@ -301,9 +297,9 @@ export default function ResultsPage() {
                         hasId: 'id' in vectorData,
                         hasScore: 'score' in vectorData,
                         hasMetadata: 'metadata' in vectorData,
-                        hasVector: 'vector' in (vectorData as any),
-                        vectorType: typeof (vectorData as any).vector,
-                        vectorLength: (vectorData as any).vector?.length || 0
+                        hasVector: 'vector' in vectorDataAny,
+                        vectorType: typeof vectorDataAny.vector,
+                        vectorLength: vectorDataAny.vector?.length || 0
                     }, true);
                 } else {
                     // No vector found for this explanation (this is normal for older explanations)
@@ -400,7 +396,6 @@ export default function ResultsPage() {
         setIsStreaming(false); // Reset streaming state
         setError(null);
         setMatches([]);
-        setExplanationData(null);
         setContent('');
         setExplanationTitle('');
         setTags([]); // Reset tags when generating new explanation, but preserve temp tags for rewrite with tags
@@ -460,8 +455,7 @@ export default function ResultsPage() {
         }
 
         const decoder = new TextDecoder();
-        let finalResult: any = null;
-        let streamingContent = '';
+        let finalResult: unknown = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -543,7 +537,7 @@ export default function ResultsPage() {
             return;
         }
 
-        const { data, error, originalUserInput, matches, match_found, explanationId, userQueryId } = finalResult;
+        const { data, error, originalUserInput, explanationId, userQueryId } = finalResult as { data?: unknown; error?: { message: string }; originalUserInput?: string; explanationId?: number; userQueryId?: number };
 
         logger.debug('API /returnExplanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
         
@@ -630,8 +624,8 @@ export default function ResultsPage() {
             logger.debug('Starting from handleSave', {}, true);
             await saveExplanationToLibraryAction(withRequestId({ explanationid: explanationId, userid }));
             setUserSaved(true);
-        } catch (err: any) {
-            setError(err.message || 'Failed to save explanation to library.');
+        } catch (err) {
+            setError((err as Error).message || 'Failed to save explanation to library.');
         }
         setIsSaving(false);
     };
@@ -656,11 +650,13 @@ export default function ResultsPage() {
             const targetStatus = ExplanationStatus.Published;
 
             const result = await saveOrPublishChanges(
-                withRequestId(explanationId),
-                currentContent,
-                explanationTitle,
-                originalStatus!,
-                targetStatus
+                withRequestId({
+                    explanationId,
+                    newContent: currentContent,
+                    newTitle: explanationTitle,
+                    originalStatus: originalStatus!,
+                    targetStatus
+                })
             );
 
             if (result.success && result.id) {
@@ -674,8 +670,8 @@ export default function ResultsPage() {
             } else {
                 setError(result.error?.message || 'Failed to publish changes');
             }
-        } catch (err: any) {
-            setError(err.message || 'Failed to publish changes');
+        } catch (err) {
+            setError((err as Error).message || 'Failed to publish changes');
         }
 
         setIsSavingChanges(false);
@@ -866,6 +862,7 @@ export default function ResultsPage() {
         };
         
         processParams();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [searchParams]);
     //Comment - any time explanation id changes, the page should have already reloaded
     //No need to add to dependency array here
@@ -873,9 +870,6 @@ export default function ResultsPage() {
     // Save mode to localStorage when it changes
     useEffect(() => {
         localStorage.setItem('explanation-mode', mode);
-        
-        // Verify it was actually saved
-        const verifyStored = localStorage.getItem('explanation-mode');
     }, [mode]);
 
     // Handle clicking outside dropdown to close it

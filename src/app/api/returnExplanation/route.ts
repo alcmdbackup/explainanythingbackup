@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
-import { returnExplanationLogic, StreamingCallback } from '@/lib/services/returnExplanation';
+import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 import { logger } from '@/lib/server_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
                                 });
                                 controller.enqueue(encoder.encode(`data: ${data}\n\n`));
                             }
-                        } catch (parseError) {
+                        } catch {
                             // If parsing fails, treat as regular content
                             const data = JSON.stringify({ 
                                 type: 'content',
