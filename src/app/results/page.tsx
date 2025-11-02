@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useReducer } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import { getExplanationByIdAction, saveExplanationToLibraryAction, isExplanationSavedByUserAction, getUserQueryByIdAction, createUserExplanationEventAction, getTagsForExplanationAction, getTempTagsForRewriteWithTagsAction, loadFromPineconeUsingExplanationIdAction, saveOrPublishChanges } from '@/actions/actions';
+import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges } from '@/actions/actions';
 import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
@@ -15,6 +15,7 @@ import { ResultsLexicalEditorRef } from '@/components/ResultsLexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 import { tagModeReducer, createInitialTagModeState, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
+import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -24,29 +25,53 @@ export default function ResultsPage() {
     const router = useRouter();
     const { withRequestId } = clientPassRequestId('anonymous');
     const [prompt, setPrompt] = useState('');
-    const [explanationTitle, setExplanationTitle] = useState('');
-    const [content, setContent] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
-    const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [isPageLoading, setIsPageLoading] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [showMatches, setShowMatches] = useState(false);
-    const [explanationId, setExplanationId] = useState<number | null>(null);
-    const [userSaved, setUserSaved] = useState(false);
     const [userid, setUserid] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
-    const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
     const [isEditMode, setIsEditMode] = useState(false);
-    const [explanationStatus, setExplanationStatus] = useState<ExplanationStatus | null>(null);
     const [originalContent, setOriginalContent] = useState('');
     const [originalTitle, setOriginalTitle] = useState('');
     const [originalStatus, setOriginalStatus] = useState<ExplanationStatus | null>(null);
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
     const [isSavingChanges, setIsSavingChanges] = useState(false);
+
+    // Initialize explanation loader hook
+    const {
+        explanationId,
+        explanationTitle,
+        content,
+        explanationStatus,
+        explanationVector,
+        systemSavedId,
+        userSaved,
+        isLoading: isLoadingExplanation,
+        error: explanationError,
+        setExplanationTitle,
+        setContent,
+        setExplanationStatus,
+        setExplanationVector,
+        setUserSaved,
+        setError: setExplanationError,
+        loadExplanation,
+        clearSystemSavedId
+    } = useExplanationLoader({
+        onTagsLoad: (tags) => dispatchTagAction({ type: 'LOAD_TAGS', tags }),
+        onMatchesLoad: (matches) => setMatches(matches),
+        onClearPrompt: () => setPrompt(''),
+        onSetOriginalValues: (content, title, status) => {
+            setOriginalContent(content);
+            setOriginalTitle(title);
+            setOriginalStatus(status);
+            setHasUnsavedChanges(false);
+        }
+    });
 
 
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
@@ -156,148 +181,7 @@ export default function ResultsPage() {
         return initialMode;
     };
 
-    /**
-     * Checks if the current explanation is saved by the user
-     * 
-     * • Validates that both explanationId and userid are available
-     * • Calls isExplanationSavedByUserAction to check save status
-     * • Updates userSaved state with the result
-     * • Handles errors by setting userSaved to false
-     * 
-     * Used by: loadExplanation (when loading an explanation)
-     * Calls: isExplanationSavedByUserAction
-     */
-    const checkUserSaved = async (targetExplanationId?: number) => {
-        const idToCheck = targetExplanationId || explanationId;
-        if (!idToCheck || !userid) return;
-        try {
-            const saved = await isExplanationSavedByUserAction(withRequestId({ explanationid: idToCheck, userid }));
-            setUserSaved(saved);
-        } catch {
-            setUserSaved(false);
-        }
-    };
 
-    /**
-     * Loads an explanation by ID and updates the UI state
-     * 
-     * • Fetches explanation data from the database using getExplanationById
-     * • Updates explanation title, content, and saved ID in component state
-     * • Resets generation loading state to allow content display
-     * • Enhances matches with current content if available
-     * • Optionally clears the prompt based on clearPrompt parameter
-     * • Resets tab to "Generated Output" to show the loaded content
-     * • Fetches tags for the explanation
-     * 
-     * Used by: useEffect (initial page load), handleSubmit (when match found), View buttons in matches tab
-     * Calls: getExplanationByIdAction, checkUserSaved, getTagsForExplanationAction
-     */
-    const loadExplanation = async (explanationId: number, clearPrompt: boolean, matches?: matchWithCurrentContentType[]) => {
-        try {
-            setError(null);
-            const explanation = await getExplanationByIdAction(withRequestId({ id: explanationId }));
-            
-            if (!explanation) {
-                setError('Explanation not found');
-                return;
-            }
-
-            setExplanationTitle(explanation.explanation_title);
-            setContent(explanation.content);
-            setSystemSavedId(explanation.id);
-            setExplanationId(explanation.id);
-            setExplanationStatus(explanation.status);
-
-            // Set original values for change tracking
-            setOriginalContent(explanation.content);
-            setOriginalTitle(explanation.explanation_title);
-            setOriginalStatus(explanation.status);
-            setHasUnsavedChanges(false);
-            if (matches) {
-                setMatches(matches);
-            }
-            if (clearPrompt) {
-                setPrompt('');
-            }
-
-            // Reset tab to "Generated Output" to show the loaded content
-            // setActiveTab('output'); // This line is removed as per the new_code
-
-            // Check if this explanation is saved by the user
-            await checkUserSaved(explanation.id);
-
-            // Fetch tags for the explanation and dispatch LOAD_TAGS
-            const tagsResult = await getTagsForExplanationAction(withRequestId({ explanationId: explanation.id }));
-            if (tagsResult.success && tagsResult.data) {
-                dispatchTagAction({ type: 'LOAD_TAGS', tags: tagsResult.data });
-            } else {
-                logger.error('Failed to fetch tags for explanation:', { error: tagsResult.error });
-                dispatchTagAction({ type: 'LOAD_TAGS', tags: [] });
-            }
-
-            // Load vector representation from Pinecone
-            logger.debug('Attempting to load vector for explanation:', { 
-                explanationId: explanation.id,
-                explanationTitle: explanation.explanation_title 
-            }, true);
-            const vectorResult = await loadFromPineconeUsingExplanationIdAction(withRequestId({ explanationId: explanation.id }));
-            if (vectorResult.success) {
-                if (vectorResult.data) {
-                    // Ensure the vector data has the expected structure
-                    let vectorData = vectorResult.data;
-                    const vectorDataAny = vectorData as unknown as { vector?: number[] };
-                    if (!vectorData.values && vectorDataAny.vector) {
-                        vectorData = {
-                            ...vectorData,
-                            values: vectorDataAny.vector
-                        };
-                    }
-
-                    setExplanationVector(vectorData);
-                    logger.debug('Loaded explanation vector:', {
-                        found: true,
-                        explanationId: explanation.id,
-                        vectorKeys: Object.keys(vectorData),
-                        hasValues: 'values' in vectorData,
-                        valuesType: typeof vectorData.values,
-                        isArray: Array.isArray(vectorData.values),
-                        valuesLength: vectorData.values?.length || 0,
-                        hasId: 'id' in vectorData,
-                        hasScore: 'score' in vectorData,
-                        hasMetadata: 'metadata' in vectorData,
-                        hasVector: 'vector' in vectorDataAny,
-                        vectorType: typeof vectorDataAny.vector,
-                        vectorLength: vectorDataAny.vector?.length || 0
-                    }, true);
-                } else {
-                    // No vector found for this explanation (this is normal for older explanations)
-                    setExplanationVector(null);
-                    logger.debug('No vector found for explanation:', { 
-                        found: false,
-                        explanationId: explanation.id 
-                    } ,true);
-                }
-            } else {
-                // Check if this is a specific error or just no vector found
-                if (vectorResult.error && vectorResult.error.message) {
-                    logger.error('Failed to load explanation vector:', { 
-                        error: vectorResult.error,
-                        explanationId: explanation.id 
-                    });
-                } else {
-                    logger.debug('No vector found for explanation (normal for older explanations):', { 
-                        explanationId: explanation.id 
-                    });
-                }
-                setExplanationVector(null);
-            }
-
-        } catch (err) {
-            const errorMessage = err instanceof Error ? err.message : 'Failed to load explanation';
-            setError(errorMessage);
-            logger.error('Failed to load explanation:', { error: errorMessage });
-        }
-    };
 
     /**
      * Loads user query data by ID and updates the UI state
@@ -508,9 +392,9 @@ export default function ResultsPage() {
         const { data, error, originalUserInput, explanationId, userQueryId } = finalResult as { data?: unknown; error?: { message: string }; originalUserInput?: string; explanationId?: number; userQueryId?: number };
 
         logger.debug('API /returnExplanation result:', { data, error, originalUserInput, explanationId, userQueryId }, FILE_DEBUG);
-        
+
         // Clear systemSavedId after the API call
-        setSystemSavedId(null);
+        clearSystemSavedId();
         
 
         
@@ -750,14 +634,13 @@ export default function ResultsPage() {
 
             setIsPageLoading(true);
             setIsStreaming(false); // Reset streaming state when processing new parameters
-            
+
             // Immediately clear old content to prevent flash
             setExplanationTitle('');
             setContent('');
             setMatches([]);
             setError(null);
             setUserSaved(false);
-            setExplanationId(null);
             dispatchTagAction({ type: 'LOAD_TAGS', tags: [] }); // Reset tags when processing new parameters
             setExplanationVector(null); // Reset vector when processing new parameters
             setExplanationStatus(null); // Reset explanation status when processing new parameters
@@ -800,11 +683,11 @@ export default function ResultsPage() {
                 // Only load explanation if it's different from the currently loaded one
                 if (urlExplanationId) {
                     const newExplanationIdFromUrl = parseInt(urlExplanationId);
-                    
+
                     // Prevent loop: only load if this is a different explanation than currently loaded
                     if (newExplanationIdFromUrl !== explanationId) {
-                        await loadExplanation(newExplanationIdFromUrl, true);
-                        
+                        await loadExplanation(newExplanationIdFromUrl, true, effectiveUserid);
+
                         // Track explanation loaded event
                         if (effectiveUserid) {
                             try {
@@ -816,8 +699,8 @@ export default function ResultsPage() {
                                     metadata: JSON.stringify({ source: 'url_navigation', method: 'direct_load' })
                                 });
                             } catch (error) {
-                                logger.error('Failed to track explanation loaded event:', { 
-                                    error: error instanceof Error ? error.message : String(error) 
+                                logger.error('Failed to track explanation loaded event:', {
+                                    error: error instanceof Error ? error.message : String(error)
                                 });
                             }
                         }
@@ -955,8 +838,8 @@ export default function ResultsPage() {
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <button 
-                                                            onClick={() => loadExplanation(match.explanation_id, false)}
+                                                        <button
+                                                            onClick={() => loadExplanation(match.explanation_id, false, userid)}
                                                             className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
                                                         >
                                                             View →
