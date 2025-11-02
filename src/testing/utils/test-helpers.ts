@@ -83,3 +83,64 @@ export const createMockEmbeddingResponse = (vector: number[]) => ({
     total_tokens: 50,
   },
 });
+
+/**
+ * Next.js API Route test utilities
+ */
+
+export const createMockNextRequest = (
+  body: unknown,
+  options: {
+    headers?: Record<string, string>;
+    method?: string;
+  } = {}
+) => {
+  const { headers = {}, method = 'POST' } = options;
+
+  return {
+    json: jest.fn().mockResolvedValue(body),
+    headers: new Map(Object.entries(headers)),
+    method,
+  };
+};
+
+/**
+ * Stream testing utilities
+ */
+
+export const collectStreamData = async (stream: ReadableStream): Promise<string[]> => {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  const chunks: string[] = [];
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(decoder.decode(value, { stream: true }));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return chunks;
+};
+
+export const parseSSEMessages = (chunks: string[]): unknown[] => {
+  const messages: unknown[] = [];
+  const fullText = chunks.join('');
+  const lines = fullText.split('\n');
+
+  for (const line of lines) {
+    if (line.startsWith('data: ')) {
+      const data = line.substring(6);
+      try {
+        messages.push(JSON.parse(data));
+      } catch {
+        // Skip invalid JSON
+      }
+    }
+  }
+
+  return messages;
+};
