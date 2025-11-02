@@ -40,46 +40,17 @@ type TagAction =
 
 ---
 
-## 🟠 **Critical Reducer 2: Loading/Generation State Machine** (3 variables → 1 reducer)
+## 🔴 **Critical Reducer 2: Page Lifecycle State Machine (COMBINED)** (12 variables → 1 reducer)
+
+**Key insight:** Loading/generation and edit/publishing states are **mutually exclusive** - you cannot be loading AND editing simultaneously. These should be combined into one unified state machine.
 
 ```typescript
-// Currently scattered:
+// Currently scattered across 12 state variables:
+// Loading/generation states:
 const [isPageLoading, setIsPageLoading] = useState(false);
 const [isStreaming, setIsStreaming] = useState(false);
 const [error, setError] = useState<string | null>(null);
-```
-
-**Why it's a perfect reducer candidate:**
-- ✅ Clear phases: `idle` → `loading` → `streaming` → `complete` / `error`
-- ✅ Impossible states currently possible: `isPageLoading=true` AND `error='some error'` simultaneously
-- ✅ Multiple setters called together throughout code (lines 395-403, 477-483, 532-537)
-- ✅ Manages only the generation lifecycle, not the actual content/title data (those remain as separate useState)
-
-**Proposed reducer:**
-```typescript
-type GenerationState =
-  | { status: 'idle' }
-  | { status: 'loading' }
-  | { status: 'streaming' }
-  | { status: 'complete' }
-  | { status: 'error'; error: string };
-
-type GenerationAction =
-  | { type: 'START_GENERATION' }
-  | { type: 'START_STREAMING' }
-  | { type: 'COMPLETE' }
-  | { type: 'ERROR'; error: string }
-  | { type: 'RESET' };
-```
-
-**Lines affected:** 30-32, 395-403, 486-522, 749-769
-
----
-
-## 🟡 **High Priority Reducer 3: Edit/Publishing State** (9 variables → 1 reducer)
-
-```typescript
-// Currently scattered across 9 state variables:
+// Edit/publishing states:
 const [isEditMode, setIsEditMode] = useState(false);
 const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 const [isSavingChanges, setIsSavingChanges] = useState(false);
@@ -92,29 +63,93 @@ const [content, setContent] = useState('');
 const [explanationTitle, setExplanationTitle] = useState('');
 ```
 
-**Why it's a perfect reducer candidate:**
-- ✅ Clear state machine: `viewing` → `editing` → `saving` → `viewing` (success) or `error` (failure)
-- ✅ Impossible states currently possible: `isSavingChanges=true` AND `isEditMode=true` simultaneously
-- ✅ Complex change detection logic: `hasUnsavedChanges` computed from content/title comparisons (line 669)
-- ✅ Complex status transitions: Published+changed → Draft display (lines 677-683)
-- ✅ 9 interdependent variables that must stay in sync
-- ✅ Multiple setters called together throughout code (lines 606-644, 669-688)
+**Why these MUST be combined:**
+- ✅ **Mutually exclusive phases**: Loading → Streaming → Viewing → Editing → Saving
+- ✅ When generation starts (line 311-316), it calls `clearExplanation()` which exits any edit state
+- ✅ Edit button is `disabled={isStreaming}` (line 1061) - cannot edit during generation
+- ✅ Regenerate clears explanation and starts loading - automatically exits editing
+- ✅ Impossible states currently possible: `isPageLoading=true` AND `isEditMode=true` simultaneously
+- ✅ Impossible states currently possible: `isStreaming=true` AND `isSavingChanges=true` simultaneously
+- ✅ 12 interdependent variables reduced to a single linear state machine
 
-**Proposed reducer:**
+**Actual code flow (proves mutual exclusivity):**
 ```typescript
-type EditState =
-  | {
-      mode: 'viewing';
+// Line 311-316: Starting generation EXITS edit mode
+setIsPageLoading(true);
+clearExplanation(); // ← Clears content, making edit mode impossible
+
+// Line 598, 1061: Can only edit when NOT streaming
+disabled={isStreaming}  // ← Edit button
+
+// Line 957-979: Regenerate EXITS edit mode and starts loading
+await handleUserAction(...) → clearExplanation() → setIsPageLoading(true)
+```
+
+**Visual state flow (proves linear progression):**
+```
+          ┌─────────┐
+          │  idle   │
+          └────┬────┘
+               │ START_GENERATION
+               ▼
+          ┌─────────┐
+          │ loading │
+          └────┬────┘
+               │ START_STREAMING
+               ▼
+          ┌──────────┐
+          │streaming │◄──── STREAM_CONTENT/TITLE
+          └────┬─────┘
+               │ LOAD_EXPLANATION
+               ▼
+          ┌─────────┐
+          │ viewing │
+          └────┬────┘
+               │ ENTER_EDIT_MODE
+               ▼
+          ┌─────────┐
+     ┌────┤ editing │
+     │    └────┬────┘
+     │         │ START_SAVE
+     │         ▼
+     │    ┌─────────┐
+     │    │ saving  │
+     │    └────┬────┘
+     │         │ SAVE_SUCCESS
+     │         ▼
+     │    (page reload)
+     │
+     └─── EXIT_EDIT_MODE (reverts to viewing)
+
+Note: Any phase can ERROR → error state
+      From error state can START_GENERATION → loading (retry)
+```
+
+**Proposed combined reducer:**
+```typescript
+type PageLifecycleState =
+  | { 
+      phase: 'idle';
+    }
+  | { 
+      phase: 'loading';
+    }
+  | { 
+      phase: 'streaming';
+      content: string;           // Accumulating during stream
+      title: string;             // Set during progress events
+    }
+  | { 
+      phase: 'viewing';
       content: string;
       title: string;
       status: ExplanationStatus;
-      // Original values preserved for future edits
-      originalContent: string;
+      originalContent: string;   // Preserved for future edits
       originalTitle: string;
       originalStatus: ExplanationStatus;
     }
-  | {
-      mode: 'editing';
+  | { 
+      phase: 'editing';
       content: string;
       title: string;
       status: ExplanationStatus; // Computed: Draft if published+changed
@@ -123,25 +158,30 @@ type EditState =
       originalStatus: ExplanationStatus;
       hasUnsavedChanges: boolean; // Computed: content !== original || title !== original
     }
-  | {
-      mode: 'saving';
+  | { 
+      phase: 'saving';
       content: string;
       title: string;
       originalStatus: ExplanationStatus; // Needed for save logic
     }
-  | {
-      mode: 'error';
-      content: string;
-      title: string;
-      status: ExplanationStatus;
-      originalContent: string;
-      originalTitle: string;
-      originalStatus: ExplanationStatus;
-      hasUnsavedChanges: boolean;
-      errorMessage: string;
+  | { 
+      phase: 'error'; 
+      error: string;
+      // Preserve state for recovery if error occurred during editing
+      content?: string;
+      title?: string;
+      status?: ExplanationStatus;
+      originalContent?: string;
+      originalTitle?: string;
+      originalStatus?: ExplanationStatus;
+      hasUnsavedChanges?: boolean;
     };
 
-type EditAction =
+type PageLifecycleAction =
+  | { type: 'START_GENERATION' }
+  | { type: 'START_STREAMING' }
+  | { type: 'STREAM_CONTENT'; content: string }
+  | { type: 'STREAM_TITLE'; title: string }
   | { type: 'LOAD_EXPLANATION'; content: string; title: string; status: ExplanationStatus }
   | { type: 'ENTER_EDIT_MODE' }
   | { type: 'EXIT_EDIT_MODE' } // Reverts to original values
@@ -150,18 +190,33 @@ type EditAction =
   | { type: 'START_SAVE' }
   | { type: 'SAVE_SUCCESS'; newId?: number; isNewExplanation: boolean }
   | { type: 'SAVE_ERROR'; error: string }
-  | { type: 'RESET' }; // For new generation
+  | { type: 'ERROR'; error: string }
+  | { type: 'RESET' };
 ```
 
-**State transition rules:**
+**State transition rules (full lifecycle):**
 ```typescript
-// LOAD_EXPLANATION: Initialize with loaded data (sets BOTH current AND original)
-*                 → viewing { content, title, status, originalContent, originalTitle, originalStatus }
+// START_GENERATION: User initiates new explanation (line 311-316)
+*                 → loading
 
-// ENTER_EDIT_MODE: Start editing (preserves original values)
-viewing | error   → editing { ...state, mode: 'editing', hasUnsavedChanges: false }
+// START_STREAMING: Server begins streaming response (line 401)
+loading           → streaming { content: '', title: '' }
 
-// UPDATE_CONTENT/TITLE: Update content during editing
+// STREAM_CONTENT/TITLE: Accumulate content during streaming (line 407, 416-420)
+streaming         → streaming { ...state, content: newContent } or { ...state, title: newTitle }
+
+// LOAD_EXPLANATION: Streaming complete or loaded from DB (line 206-222)
+streaming | idle  → viewing { 
+                      content, title, status, 
+                      originalContent: content,    // Set BOTH current AND original
+                      originalTitle: title, 
+                      originalStatus: status 
+                    }
+
+// ENTER_EDIT_MODE: User clicks "Edit" button (line 598, 1019-1024)
+viewing           → editing { ...state, phase: 'editing', hasUnsavedChanges: false }
+
+// UPDATE_CONTENT/TITLE: User edits content (line 604-634)
 editing           → editing {
                       ...state,
                       content: newContent,
@@ -169,69 +224,101 @@ editing           → editing {
                       status: computed             // Draft if (originalStatus === Published && hasChanges)
                     }
 
-// EXIT_EDIT_MODE: Cancel editing and revert changes
-editing | error   → viewing {
+// EXIT_EDIT_MODE: User clicks "Done Editing" without saving (line 598, 1064)
+editing           → viewing {
                       ...state,
-                      mode: 'viewing',
+                      phase: 'viewing',
                       content: originalContent,    // REVERT to original
                       title: originalTitle,        // REVERT to original
                       status: originalStatus       // REVERT to original
                     }
 
-// START_SAVE: Begin save operation
+// START_SAVE: User clicks "Publish Changes" (line 551-590)
 editing           → saving { content, title, originalStatus }
 
-// SAVE_SUCCESS: Save completed (page reload/navigate happens in useEffect)
-saving            → viewing (component will unmount due to navigation)
+// SAVE_SUCCESS: Save completed, page reloads (line 574-581)
+saving            → (navigation/reload - component unmounts)
 
-// SAVE_ERROR: Save failed
-saving            → error { ...preserved state from before save, errorMessage }
+// SAVE_ERROR: Save failed, return to editing (line 583-587)
+saving            → error { ...preserved state from before save, error }
 
-// RESET: Clear for new generation
-*                 → viewing { content: '', title: '', status: null, original values: '' }
+// ERROR: Error during any phase (line 389-396, 445-450, 462-467)
+loading|streaming|viewing|editing|saving → error { error, ...preserved state if available }
+
+// RESET: Clear for new generation (line 315, 700)
+*                 → idle
 ```
 
 **Key implementation notes:**
 
-1. **Computed properties (calculated in reducer, not stored):**
-   - `hasUnsavedChanges = content !== originalContent || title !== originalTitle`
-   - `status = (originalStatus === Published && hasUnsavedChanges) ? Draft : originalStatus`
-   - `isSavingChanges = mode === 'saving'` (derived from mode)
-   - `isEditMode = mode === 'editing'` (derived from mode)
+1. **Single phase field replaces multiple booleans:**
+   - `isPageLoading = phase === 'loading'` (derived from phase)
+   - `isStreaming = phase === 'streaming'` (derived from phase)
+   - `isEditMode = phase === 'editing'` (derived from phase)
+   - `isSavingChanges = phase === 'saving'` (derived from phase)
+   - **Impossible states become impossible**: Can't be loading AND editing simultaneously
 
-2. **Original values always preserved:**
-   - Set once on `LOAD_EXPLANATION`
+2. **Computed properties (calculated in reducer, not stored):**
+   - `hasUnsavedChanges = content !== originalContent || title !== originalTitle` (in editing phase)
+   - `status = (originalStatus === Published && hasUnsavedChanges) ? Draft : originalStatus` (in editing phase)
+
+3. **Original values always preserved (viewing/editing/error phases only):**
+   - Set once on `LOAD_EXPLANATION` (transition to viewing)
    - Never modified until next `LOAD_EXPLANATION`
    - Used for change detection and revert functionality
+   - Not present in loading/streaming phases (no content to preserve yet)
 
-3. **EXIT_EDIT_MODE behavior:**
+4. **Mutual exclusivity enforced by type system:**
+   - Loading phase: No content, no edit state
+   - Streaming phase: Accumulating content, cannot edit
+   - Viewing phase: Complete content, can enter edit mode
+   - Editing phase: Cannot start generation (Rewrite button clears explanation first)
+   - Saving phase: Cannot edit or generate
+
+5. **EXIT_EDIT_MODE behavior:**
    - **REVERTS** to original values (not just exits edit mode)
    - Matches "Cancel" semantics - user clicked "Done Editing" without saving
    - Consistent with tag reducer's `EXIT_TO_NORMAL` pattern
    - If user wants to keep changes, they must click "Publish Changes" first
 
-4. **Save success handling:**
+6. **Save success handling:**
    - Draft → Published (update): Backend updates same record, frontend reloads page (`window.location.href`)
    - Published → Published (new version): Backend creates new record, frontend navigates to new URL (`router.push`)
    - Both cause component unmount, so reducer doesn't need to handle post-save state
 
-5. **Edge cases handled:**
-   - Streaming content: Initial load sets original values after streaming completes (line 205-215)
-   - Draft banner: Show different message for actual draft vs. published+edited (lines 876-895)
-   - AI Suggestions Panel: Can trigger `ENTER_EDIT_MODE` directly (line 1247)
-   - Error state: Preserves all edit state so user can retry save
+7. **Streaming content handling:**
+   - `STREAM_CONTENT` action accumulates content in real-time (line 407)
+   - `STREAM_TITLE` action updates title from progress events (line 416-420)
+   - `LOAD_EXPLANATION` transitions streaming → viewing with final values (line 206-222)
+   - Original values set only when reaching viewing phase
 
-**Lines affected:**
-- State declarations: 43-49, 47-53
-- Load explanation: 205-215
-- Enter/exit edit mode: 652
-- Content change handler: 659-688
-- Status display logic: 677-683
-- Save changes handler: 606-644
-- Button visibility/disabled: 1097-1110
-- Edit mode toggle button: 1119
-- Draft banner: 876-895
-- AI Suggestions Panel: 1242-1247
+8. **Error state recovery:**
+   - Preserves whatever state was active when error occurred
+   - Can recover from edit mode errors (user can retry save)
+   - Can transition to loading from error (user clicks Rewrite to try again)
+
+9. **Edge cases handled:**
+   - Draft banner: Show different message for actual draft vs. published+edited (lines 817-836)
+   - AI Suggestions Panel: Can trigger `ENTER_EDIT_MODE` directly (line 1188)
+   - Regenerate from any state: Calls `clearExplanation()` → `START_GENERATION` → loading phase (line 315, 957-979)
+
+**Lines affected (comprehensive - covers entire lifecycle):**
+- **State declarations:** 48-63 (all loading/streaming/edit/saving states)
+- **Generation start:** 311-316 (START_GENERATION → loading)
+- **Streaming events:** 389-410 (START_STREAMING, STREAM_CONTENT, error handling)
+- **Title/content updates:** 407, 416-420 (STREAM_CONTENT, STREAM_TITLE)
+- **Complete/error:** 430-450, 462-467 (transition to viewing or error)
+- **Load explanation:** 206-222 (LOAD_EXPLANATION → viewing, sets original values)
+- **Auto-loading management:** 662-681 (derived loading state logic)
+- **URL parameter processing:** 696-697 (START_GENERATION on new params)
+- **Enter/exit edit mode:** 598, 1019-1024, 1064, 1188 (ENTER_EDIT_MODE, EXIT_EDIT_MODE)
+- **Content change handler:** 604-634 (UPDATE_CONTENT, hasUnsavedChanges computation)
+- **Status display logic:** 622-630 (computed status: Draft if published+changed)
+- **Save changes handler:** 551-590 (START_SAVE, SAVE_SUCCESS, SAVE_ERROR)
+- **Button disabled logic:** 795-796, 956, 987, 1008, 1017, 1032, 1041, 1054, 1061, 1079 (check phase states)
+- **Progress bar:** 800-804 (show when phase === 'loading')
+- **Draft banner:** 817-836 (check phase === 'editing' and hasUnsavedChanges)
+- **Streaming indicator:** 1144-1151 (show when phase === 'streaming' and !content)
 
 ---
 
@@ -353,21 +440,32 @@ const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]); // Li
 
 ### **Must Do (Prevents Bugs):**
 1. ✅ **Tag Mode Reducer** - 6 variables, complex transitions, impossible states possible
-2. ✅ **Loading/Generation Reducer** - 3-5 variables, clear phases, prevents loading+error simultaneously
-
-### **Should Do (Major Simplification):**
-3. ✅ **Edit/Publishing Reducer** - 5-10 variables, complex change detection, status transitions
+2. ✅ **Page Lifecycle Reducer (COMBINED)** - 12 variables, enforces mutual exclusivity between loading/streaming/viewing/editing/saving
 
 ### **Should Do (Better Organization & Testing):**
-4. ✅ **useExplanationLoader hook** - 6 variables, encapsulates loading logic, pairs with Edit reducer, easier to test
+3. ✅ **useExplanationLoader hook** - 6 variables, encapsulates loading logic from database/API, pairs with Page Lifecycle reducer, easier to test
 
 ### **Don't Do:**
-5. ❌ Simple toggles and independent state - useState is perfect
+4. ❌ Simple toggles and independent state - useState is perfect
+
+**Key insight on combining reducers:**
+
+The Loading/Generation and Edit/Publishing states were initially proposed as separate reducers, but **they are mutually exclusive** and should be combined:
+
+- You **cannot** load AND edit simultaneously
+- You **cannot** stream AND save simultaneously  
+- Regenerate **exits** edit mode automatically by clearing explanation
+- Edit button is **disabled** during loading/streaming
+
+By combining into a single **Page Lifecycle Reducer**, we:
+- Make impossible states truly impossible (enforced by TypeScript discriminated unions)
+- Reduce from 12 boolean/state variables to 1 discriminated union
+- Get a clear linear progression: `idle → loading → streaming → viewing → editing → saving`
+- Simplify all UI logic: `if (lifecycle.phase === 'editing')` vs checking 4+ booleans
 
 **Recommended implementation order:**
-1. **Tag Mode Reducer** (highest bug risk, most complex interdependencies)
-2. **Loading/Generation Reducer** (prevents impossible loading+error states)
-3. **Edit/Publishing Reducer** (complex change detection, status transitions)
-4. **useExplanationLoader hook** (clean separation, testable, pairs with #3)
+1. ✅ **Tag Mode Reducer** (highest bug risk, most complex interdependencies) - **DONE**
+2. **Page Lifecycle Reducer** (12 variables → 1, prevents impossible states, enforces mutual exclusivity)
+3. **useExplanationLoader hook** (clean separation, testable, provides data for lifecycle reducer)
 
-The combination of Edit reducer + Explanation Loader hook provides clear separation between **fetching data** (hook) and **modifying data** (reducer), making both easier to test per the testing strategy.
+The combination of Page Lifecycle reducer + Explanation Loader hook provides clear separation between **fetching data** (hook) and **managing the page state machine** (reducer), making both easier to test per the testing strategy.
