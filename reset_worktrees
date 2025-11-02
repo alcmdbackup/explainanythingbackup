@@ -21,6 +21,24 @@ GIT_ROOT=$(git rev-parse --show-toplevel)
 PARENT_DIR=$(dirname "$GIT_ROOT")
 COUNTER_FILE="$GIT_ROOT/.worktree_counter"
 
+# Step 0.5: Delete all old worktree directories from parent directory
+echo -e "\n${BLUE}Step 0.5: Cleaning up old worktree directories...${NC}"
+
+# Find and delete all worktree_* directories in parent directory
+OLD_WORKTREES=$(find "$PARENT_DIR" -maxdepth 1 -type d -name "worktree_*" 2>/dev/null || true)
+
+if [ -n "$OLD_WORKTREES" ]; then
+    while IFS= read -r old_worktree; do
+        if [ -d "$old_worktree" ]; then
+            echo "Deleting old worktree directory: $old_worktree"
+            rm -rf "$old_worktree"
+        fi
+    done <<< "$OLD_WORKTREES"
+    echo -e "${GREEN}Old worktree directories cleaned up${NC}"
+else
+    echo "No old worktree directories found"
+fi
+
 # Step 1: Remove all existing worktrees
 echo -e "\n${BLUE}Step 1: Removing existing worktrees...${NC}"
 
@@ -42,6 +60,24 @@ if [ -n "$WORKTREES" ]; then
     echo -e "${GREEN}All worktrees removed and metadata cleaned${NC}"
 else
     echo "No existing worktrees found"
+fi
+
+# Step 1.5: Delete orphaned local branches
+echo -e "\n${BLUE}Step 1.5: Cleaning up orphaned worktree branches...${NC}"
+
+# Get all local branches matching git_worktree_* pattern
+OLD_BRANCHES=$(git branch --list "git_worktree_*" | sed 's/^[* ]*//' || true)
+
+if [ -n "$OLD_BRANCHES" ]; then
+    while IFS= read -r branch; do
+        if [ -n "$branch" ]; then
+            echo "Deleting local branch: $branch"
+            git branch -D "$branch" 2>/dev/null || true
+        fi
+    done <<< "$OLD_BRANCHES"
+    echo -e "${GREEN}Orphaned branches cleaned up${NC}"
+else
+    echo "No orphaned branches found"
 fi
 
 # Step 2: Update main directory from remote
@@ -97,6 +133,29 @@ for i in 0 1; do
     git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$CURRENT_BRANCH"
 
     echo -e "${GREEN}Created: $WORKTREE_PATH${NC}"
+
+    # Copy configuration files and install dependencies
+    echo "Setting up dependencies and configuration..."
+
+    # Copy .env.local if it exists
+    if [ -f "$GIT_ROOT/.env.local" ]; then
+        echo "  Copying .env.local..."
+        cp "$GIT_ROOT/.env.local" "$WORKTREE_PATH/"
+    fi
+
+    # Install dependencies (don't copy node_modules as it breaks symlinks)
+    if [ -f "$WORKTREE_PATH/package.json" ]; then
+        echo "  Installing dependencies (this may take a few minutes)..."
+        if (cd "$WORKTREE_PATH" && npm install --legacy-peer-deps 2>&1); then
+            echo -e "  ${GREEN}✓ npm install succeeded${NC}"
+        else
+            echo -e "  ${RED}✗ npm install FAILED${NC}"
+            echo -e "${RED}Error: Failed to install dependencies for $WORKTREE_PATH${NC}"
+            exit 1
+        fi
+    fi
+
+    echo -e "${GREEN}Dependencies installed and configuration copied${NC}"
 done
 
 echo -e "\n${GREEN}=== Complete! ===${NC}"
