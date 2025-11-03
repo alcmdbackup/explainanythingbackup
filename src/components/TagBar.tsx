@@ -280,14 +280,14 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
         setOpenDropdown(null);
 
         // Update the currentActiveTagId for the preset tag collection
-        const updatedTags = [...tags];
-        const presetTag = updatedTags[presetTagIndex];
+        const updatedTags = tags.map((tag, idx) => {
+            if (idx === presetTagIndex && 'tags' in tag) {
+                return { ...tag, tags: [...tag.tags], currentActiveTagId: selectedTag.id };
+            }
+            return 'tags' in tag ? { ...tag, tags: [...tag.tags] } : { ...tag };
+        });
 
-        if ('tags' in presetTag) {
-            // This is a preset tag collection
-            presetTag.currentActiveTagId = selectedTag.id;
-            dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
-        }
+        dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
 
         if (onTagClick) {
             onTagClick(selectedTag);
@@ -305,7 +305,11 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
      * Calls: dispatch
      */
     const handleRemoveTag = (tagIndex: number) => {
-        const updatedTags = [...tags];
+        const updatedTags = tags.map(tag =>
+            'tags' in tag
+                ? { ...tag, tags: [...tag.tags] }
+                : { ...tag }
+        );
         updatedTags[tagIndex].tag_active_current = false;
         dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
     };
@@ -321,7 +325,11 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
      * Calls: dispatch
      */
     const handleRestoreTag = (tagIndex: number) => {
-        const updatedTags = [...tags];
+        const updatedTags = tags.map(tag =>
+            'tags' in tag
+                ? { ...tag, tags: [...tag.tags] }
+                : { ...tag }
+        );
         updatedTags[tagIndex].tag_active_current = true;
         dispatch({ type: 'UPDATE_TAGS', tags: updatedTags });
     };

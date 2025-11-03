@@ -278,10 +278,12 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
           showRegenerateDropdown: false,
         };
       } else if (state.mode === 'editWithTags') {
-        // Reset tags back to original
+        // Reset and exit back to normal mode
         return {
-          ...state,
+          mode: 'normal',
           tags: state.originalTags,
+          originalTags: state.originalTags,
+          showRegenerateDropdown: false,
         };
       }
       return state;
