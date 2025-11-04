@@ -16,6 +16,7 @@ import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 import { tagModeReducer, createInitialTagModeState, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
+import { useUserAuth } from '@/hooks/useUserAuth';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -32,7 +33,6 @@ export default function ResultsPage() {
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [showMatches, setShowMatches] = useState(false);
-    const [userid, setUserid] = useState<string | null>(null);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
     const [isEditMode, setIsEditMode] = useState(false);
@@ -73,6 +73,8 @@ export default function ResultsPage() {
         }
     });
 
+    // Initialize user authentication hook
+    const { userid, fetchUserid } = useUserAuth();
 
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<ResultsLexicalEditorRef>(null); // For AI suggestions panel
@@ -92,32 +94,6 @@ export default function ResultsPage() {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, [tagState.mode, tagState.showRegenerateDropdown]);
-
-    /**
-     * Fetches the current user's ID from authentication
-     * 
-     * • Retrieves user data from Supabase authentication
-     * • Handles authentication errors and missing user data
-     * • Updates component state with userid and auth error status
-     * • Returns the userid for immediate use in other functions
-     * 
-     * Used by: useEffect (URL parameter processing)
-     * Calls: supabase_browser.auth.getUser
-     */
-    const fetchUserid = async (): Promise<string | null> => {
-        const { data: userData, error: userError } = await supabase_browser.auth.getUser();
-        if (userError) {
-            setUserid(null);
-            return null;
-        }
-        if (!userData?.user?.id) {
-            setUserid(null);
-            return null;
-        }
-
-        setUserid(userData.user.id);
-        return userData.user.id;
-    };
 
     /**
      * Initializes temporary tags for "rewrite with tags" functionality
