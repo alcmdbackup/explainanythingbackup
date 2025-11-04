@@ -42,6 +42,7 @@ export type PageLifecycleState =
       originalContent: string;   // Preserved for future edits
       originalTitle: string;
       originalStatus: ExplanationStatus;
+      hasUnsavedChanges?: boolean; // True if content modified but not saved
     }
   | {
       phase: 'editing';
@@ -175,7 +176,7 @@ export function pageLifecycleReducer(
       };
 
     // ------------------------------------------------------------------------
-    // Edit Mode: viewing → editing
+    // Edit Mode: viewing → editing (preserves content and unsaved changes flag)
     // ------------------------------------------------------------------------
     case 'ENTER_EDIT_MODE':
       if (state.phase !== 'viewing') {
@@ -186,17 +187,17 @@ export function pageLifecycleReducer(
       }
       return {
         phase: 'editing',
-        content: state.content,
-        title: state.title,
-        status: state.status,
+        content: state.content,             // Keep current content (may be modified)
+        title: state.title,                 // Keep current title (may be modified)
+        status: state.status,               // Keep current status
         originalContent: state.originalContent,
         originalTitle: state.originalTitle,
         originalStatus: state.originalStatus,
-        hasUnsavedChanges: false, // No changes yet
+        hasUnsavedChanges: state.hasUnsavedChanges || false, // Preserve flag if set
       };
 
     // ------------------------------------------------------------------------
-    // Exit Edit Mode: editing → viewing (REVERTS to original values)
+    // Exit Edit Mode: editing → viewing (KEEPS modified content, does NOT revert)
     // ------------------------------------------------------------------------
     case 'EXIT_EDIT_MODE':
       if (state.phase !== 'editing') {
@@ -207,12 +208,13 @@ export function pageLifecycleReducer(
       }
       return {
         phase: 'viewing',
-        content: state.originalContent,    // REVERT to original
-        title: state.originalTitle,        // REVERT to original
-        status: state.originalStatus,      // REVERT to original
+        content: state.content,            // KEEP modified content
+        title: state.title,                // KEEP modified title
+        status: state.status,              // KEEP computed status (Draft if changed)
         originalContent: state.originalContent,
         originalTitle: state.originalTitle,
         originalStatus: state.originalStatus,
+        hasUnsavedChanges: state.hasUnsavedChanges, // Preserve unsaved changes flag
       };
 
     // ------------------------------------------------------------------------
@@ -468,5 +470,11 @@ export function getOriginalStatus(state: PageLifecycleState): ExplanationStatus 
  * Checks if there are unsaved changes
  */
 export function hasUnsavedChanges(state: PageLifecycleState): boolean {
-  return state.phase === 'editing' ? state.hasUnsavedChanges : false;
+  if (state.phase === 'editing') {
+    return state.hasUnsavedChanges;
+  }
+  if (state.phase === 'viewing') {
+    return state.hasUnsavedChanges || false;
+  }
+  return false;
 }

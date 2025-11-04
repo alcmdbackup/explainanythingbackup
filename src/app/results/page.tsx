@@ -541,7 +541,12 @@ export default function ResultsPage() {
      */
     const handleEditModeToggle = () => {
         if (isEditMode) {
-            // Exit edit mode (reverts to original values)
+            // Sync current editor content to lifecycle state before exiting edit mode
+            const currentContent = editorRef.current?.getContent() || '';
+            if (currentContent) {
+                dispatchLifecycle({ type: 'UPDATE_CONTENT', content: currentContent });
+            }
+            // Exit edit mode (preserves the content we just synced)
             dispatchLifecycle({ type: 'EXIT_EDIT_MODE' });
         } else {
             // Enter edit mode
@@ -551,17 +556,17 @@ export default function ResultsPage() {
 
     /**
      * Handles content changes from Lexical editor
-     * Reducer automatically computes hasUnsavedChanges and status
+     * Note: During editing, we don't update lifecycle state on every keystroke to prevent
+     * feedback loop that resets cursor. Content is synced when exiting edit mode.
      */
     const handleEditorContentChange = (newContent: string) => {
         console.log('🔄 handleEditorContentChange called');
         console.log('📝 newContent length:', newContent.length);
         console.log('📝 newContent preview:', newContent.substring(0, 100) + '...');
 
-        // Dispatch to reducer - it will automatically compute hasUnsavedChanges and status
-        dispatchLifecycle({ type: 'UPDATE_CONTENT', content: newContent });
-
-        console.log('✅ Content updated in lifecycle reducer');
+        // Don't update lifecycle state during editing - prevents cursor jumping
+        // Content will be synced to lifecycle state when user exits edit mode or saves
+        console.log('✅ Content tracked by editor (not dispatched to lifecycle)');
     };
 
 
@@ -948,8 +953,8 @@ export default function ResultsPage() {
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
                                         </button>
-                                        {/* Save/Publish Changes Button - shown when in edit mode with unsaved changes OR when viewing/editing a draft */}
-                                        {((isEditMode && hasUnsavedChanges) || originalStatus === ExplanationStatus.Draft) && (
+                                        {/* Save/Publish Changes Button - shown when there are unsaved changes OR when viewing/editing a draft */}
+                                        {(hasUnsavedChanges || originalStatus === ExplanationStatus.Draft) && (
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
                                                 disabled={isSavingChanges || (originalStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}

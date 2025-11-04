@@ -256,7 +256,7 @@ describe('pageLifecycleReducer', () => {
       expect(result.hasUnsavedChanges).toBe(true);
     });
 
-    it('should revert to viewing with original values on EXIT_EDIT_MODE', () => {
+    it('should preserve modified content on EXIT_EDIT_MODE (not revert)', () => {
       const editingState: PageLifecycleState = {
         phase: 'editing',
         content: 'Modified content',
@@ -273,12 +273,13 @@ describe('pageLifecycleReducer', () => {
 
       expect(result).toEqual({
         phase: 'viewing',
-        content: 'Original content', // REVERTED
-        title: 'Original title', // REVERTED
-        status: ExplanationStatus.Published, // REVERTED
+        content: 'Modified content', // PRESERVED (not reverted)
+        title: 'Modified title', // PRESERVED (not reverted)
+        status: ExplanationStatus.Draft, // PRESERVED (shows Draft)
         originalContent: 'Original content',
         originalTitle: 'Original title',
         originalStatus: ExplanationStatus.Published,
+        hasUnsavedChanges: true, // Still has unsaved changes
       });
     });
 
@@ -719,7 +720,7 @@ describe('pageLifecycleReducer', () => {
       expect(getContent(state)).toBe('Modified content');
     });
 
-    it('should handle edit → cancel (revert) flow', () => {
+    it('should handle edit → exit (preserve changes) → re-enter edit flow', () => {
       // Start in viewing
       let state: PageLifecycleState = {
         phase: 'viewing',
@@ -743,11 +744,18 @@ describe('pageLifecycleReducer', () => {
       expect(getContent(state)).toBe('Modified');
       expect(hasUnsavedChanges(state)).toBe(true);
 
-      // Exit without saving (revert)
+      // Exit edit mode (preserves changes)
       state = pageLifecycleReducer(state, { type: 'EXIT_EDIT_MODE' });
       expect(state.phase).toBe('viewing');
-      expect(getContent(state)).toBe('Original'); // REVERTED
-      expect(getStatus(state)).toBe(ExplanationStatus.Published); // REVERTED
+      expect(getContent(state)).toBe('Modified'); // PRESERVED (not reverted)
+      expect(getStatus(state)).toBe(ExplanationStatus.Draft); // Shows Draft indicator
+      expect(hasUnsavedChanges(state)).toBe(true); // Still has unsaved changes
+
+      // Can re-enter edit mode and continue editing
+      state = pageLifecycleReducer(state, { type: 'ENTER_EDIT_MODE' });
+      expect(state.phase).toBe('editing');
+      expect(getContent(state)).toBe('Modified'); // Still has modified content
+      expect(hasUnsavedChanges(state)).toBe(true); // Still has unsaved changes
     });
   });
 });
