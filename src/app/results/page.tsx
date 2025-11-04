@@ -15,6 +15,22 @@ import { ResultsLexicalEditorRef } from '@/components/ResultsLexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 import { tagModeReducer, createInitialTagModeState, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
+import {
+    pageLifecycleReducer,
+    initialPageLifecycleState,
+    isPageLoading as getIsPageLoading,
+    isStreaming as getIsStreaming,
+    isEditMode as getIsEditMode,
+    isSavingChanges as getIsSavingChanges,
+    getError as getPageError,
+    getContent as getPageContent,
+    getTitle as getPageTitle,
+    getStatus as getPageStatus,
+    getOriginalContent,
+    getOriginalTitle,
+    getOriginalStatus,
+    hasUnsavedChanges as getHasUnsavedChanges
+} from '@/reducers/pageLifecycleReducer';
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
 
@@ -27,20 +43,25 @@ export default function ResultsPage() {
     const { withRequestId } = clientPassRequestId('anonymous');
     const [prompt, setPrompt] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
-    const [isPageLoading, setIsPageLoading] = useState(false);
-    const [isStreaming, setIsStreaming] = useState(false);
-    const [error, setError] = useState<string | null>(null);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
     const [showMatches, setShowMatches] = useState(false);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
-    const [isEditMode, setIsEditMode] = useState(false);
-    const [originalContent, setOriginalContent] = useState('');
-    const [originalTitle, setOriginalTitle] = useState('');
-    const [originalStatus, setOriginalStatus] = useState<ExplanationStatus | null>(null);
-    const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-    const [isSavingChanges, setIsSavingChanges] = useState(false);
+
+    // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
+    const [lifecycleState, dispatchLifecycle] = useReducer(pageLifecycleReducer, initialPageLifecycleState);
+
+    // Derived state from reducer (for easier access)
+    const isPageLoading = getIsPageLoading(lifecycleState);
+    const isStreaming = getIsStreaming(lifecycleState);
+    const error = getPageError(lifecycleState);
+    const isEditMode = getIsEditMode(lifecycleState);
+    const isSavingChanges = getIsSavingChanges(lifecycleState);
+    const hasUnsavedChanges = getHasUnsavedChanges(lifecycleState);
+    const originalContent = getOriginalContent(lifecycleState);
+    const originalTitle = getOriginalTitle(lifecycleState);
+    const originalStatus = getOriginalStatus(lifecycleState);
 
     // Initialize explanation loader hook
     const {
@@ -66,10 +87,13 @@ export default function ResultsPage() {
         onMatchesLoad: (matches) => setMatches(matches),
         onClearPrompt: () => setPrompt(''),
         onSetOriginalValues: (content, title, status) => {
-            setOriginalContent(content);
-            setOriginalTitle(title);
-            setOriginalStatus(status);
-            setHasUnsavedChanges(false);
+            // Dispatch LOAD_EXPLANATION to set viewing state with original values
+            dispatchLifecycle({
+                type: 'LOAD_EXPLANATION',
+                content,
+                title,
+                status
+            });
         }
     });
 
@@ -172,23 +196,22 @@ export default function ResultsPage() {
      */
     const loadUserQuery = async (userQueryId: number) => {
         try {
-            setError(null);
             const userQuery = await getUserQueryByIdAction(withRequestId({ id: userQueryId }));
-            
+
             if (!userQuery) {
-                setError('User query not found');
+                dispatchLifecycle({ type: 'ERROR', error: 'User query not found' });
                 return;
             }
 
             setPrompt(userQuery.user_query);
             setMatches(userQuery.matches || []);
-            
+
             // Do not reset the active tab
             //setActiveTab('matches');
 
         } catch (err) {
             const errorMessage = err instanceof Error ? err.message : 'Failed to load user query';
-            setError(errorMessage);
+            dispatchLifecycle({ type: 'ERROR', error: errorMessage });
             logger.error('Failed to load user query:', { error: errorMessage });
         }
     };
@@ -214,18 +237,17 @@ export default function ResultsPage() {
         if (!userInput.trim()) return;
         
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
-        
+
         if (!effectiveUserid) {
-            setError('User not authenticated. Please log in to generate explanations.');
+            dispatchLifecycle({ type: 'ERROR', error: 'User not authenticated. Please log in to generate explanations.' });
             return;
         }
-        
-        setIsPageLoading(true);
-        setIsStreaming(false); // Reset streaming state
-        setError(null);
+
+        // Start generation (resets to loading phase)
+        dispatchLifecycle({ type: 'START_GENERATION' });
         setMatches([]);
-        setContent('');
-        setExplanationTitle('');
+        setContent(''); // Clear useExplanationLoader content
+        setExplanationTitle(''); // Clear useExplanationLoader title
         dispatchTagAction({ type: 'LOAD_TAGS', tags: [] }); // Reset tags when generating new explanation
         setExplanationVector(null); // Reset vector when generating new explanation
         setExplanationStatus(null); // Reset explanation status when generating new explanation
@@ -302,26 +324,23 @@ export default function ResultsPage() {
                         logger.debug('Client received streaming data:', { data }, FILE_DEBUG);
                         
                         if (data.type === 'error') {
-                            setError(data.error);
-                            setIsPageLoading(false);
-                            setIsStreaming(false);
+                            dispatchLifecycle({ type: 'ERROR', error: data.error });
                             setExplanationVector(null); // Reset vector on error
                             setExplanationStatus(null); // Reset status on error
-
                             return;
                         }
 
                         if (data.type === 'streaming_start') {
                             logger.debug('Client received streaming_start', { data }, FILE_DEBUG);
-                            setIsStreaming(true);
+                            dispatchLifecycle({ type: 'START_STREAMING' });
                         }
 
                         if (data.type === 'content') {
                             // Handle streaming content - update the UI in real-time
                             logger.debug('Client received content', { contentLength: data.content?.length }, FILE_DEBUG);
+                            dispatchLifecycle({ type: 'STREAM_CONTENT', content: data.content });
+                            // Also update useExplanationLoader for compatibility
                             setContent(data.content);
-                            // Ensure streaming state is true when receiving content
-                            setIsStreaming(true);
                         }
 
                         if (data.type === 'progress') {
@@ -329,10 +348,12 @@ export default function ResultsPage() {
                             console.log('Client received progress data:', data);
                             logger.debug('Received progress data:', { data }, FILE_DEBUG);
                             if (data.stage === 'title_generated' && data.title) {
-                                setExplanationTitle(data.title);
+                                dispatchLifecycle({ type: 'STREAM_TITLE', title: data.title });
+                                setExplanationTitle(data.title); // Also update useExplanationLoader
                             }
                             if (data.stage === 'searching_matches' && data.title) {
-                                setExplanationTitle(data.title);
+                                dispatchLifecycle({ type: 'STREAM_TITLE', title: data.title });
+                                setExplanationTitle(data.title); // Also update useExplanationLoader
                             }
                         }
 
@@ -358,8 +379,7 @@ export default function ResultsPage() {
         }
 
         if (!finalResult) {
-            setError('No result received from server');
-            setIsStreaming(false);
+            dispatchLifecycle({ type: 'ERROR', error: 'No result received from server' });
             setExplanationVector(null); // Reset vector on error
             setExplanationStatus(null); // Reset status on error
             return;
@@ -371,15 +391,13 @@ export default function ResultsPage() {
 
         // Clear systemSavedId after the API call
         clearSystemSavedId();
-        
 
-        
+
+
         if (error) {
-            setError(error.message);
-            setIsStreaming(false);
+            dispatchLifecycle({ type: 'ERROR', error: error.message });
             setExplanationVector(null); // Reset vector on error
             setExplanationStatus(null); // Reset status on error
-            // Loading state will be automatically managed by the content-watching useEffect
         } else {
             // Redirect to URL with explanation_id and userQueryId
             const params = new URLSearchParams();
@@ -446,13 +464,12 @@ export default function ResultsPage() {
     const handleSave = async () => {
         if (!explanationId || userSaved || isSaving || !userid) return;
         setIsSaving(true);
-        setError(null);
         try {
             logger.debug('Starting from handleSave', {}, true);
             await saveExplanationToLibraryAction(withRequestId({ explanationid: explanationId, userid }));
             setUserSaved(true);
         } catch (err) {
-            setError((err as Error).message || 'Failed to save explanation to library.');
+            dispatchLifecycle({ type: 'ERROR', error: (err as Error).message || 'Failed to save explanation to library.' });
         }
         setIsSaving(false);
     };
@@ -466,12 +483,13 @@ export default function ResultsPage() {
     const handleSaveOrPublishChanges = async () => {
         if (!explanationId || (!hasUnsavedChanges && originalStatus !== ExplanationStatus.Draft) || isSavingChanges || !userid) return;
 
-        setIsSavingChanges(true);
-        setError(null);
+        // Start save process
+        dispatchLifecycle({ type: 'START_SAVE' });
 
         try {
-            // Get current content from editor
-            const currentContent = editorRef.current?.getContent() || content;
+            // Get current content from editor or from lifecycle state
+            const currentContent = editorRef.current?.getContent() || getPageContent(lifecycleState);
+            const currentTitle = getPageTitle(lifecycleState);
 
             // Always target Published status - consistent "Publish Changes" experience
             const targetStatus = ExplanationStatus.Published;
@@ -480,13 +498,20 @@ export default function ResultsPage() {
                 withRequestId({
                     explanationId,
                     newContent: currentContent,
-                    newTitle: explanationTitle,
+                    newTitle: currentTitle,
                     originalStatus: originalStatus!,
                     targetStatus
                 })
             );
 
             if (result.success && result.id) {
+                // Dispatch SAVE_SUCCESS (component will unmount before this renders)
+                dispatchLifecycle({
+                    type: 'SAVE_SUCCESS',
+                    newId: result.id,
+                    isNewExplanation: result.isNewExplanation
+                });
+
                 if (result.isNewExplanation) {
                     // For published articles: Navigate to the new published article
                     router.push(`/results?explanation_id=${result.id}`);
@@ -495,57 +520,48 @@ export default function ResultsPage() {
                     window.location.href = `/results?explanation_id=${result.id}`;
                 }
             } else {
-                setError(result.error?.message || 'Failed to publish changes');
+                dispatchLifecycle({
+                    type: 'ERROR',
+                    error: result.error?.message || 'Failed to publish changes'
+                });
             }
         } catch (err) {
-            setError((err as Error).message || 'Failed to publish changes');
+            dispatchLifecycle({
+                type: 'ERROR',
+                error: (err as Error).message || 'Failed to publish changes'
+            });
         }
-
-        setIsSavingChanges(false);
     };
 
-    const formattedExplanation = content ? content : '';
+    // Get content from lifecycle reducer instead of useExplanationLoader
+    const formattedExplanation = getPageContent(lifecycleState) || content || '';
 
     /**
      * Handles edit mode toggle for Lexical editor
      */
     const handleEditModeToggle = () => {
-        setIsEditMode(!isEditMode);
+        if (isEditMode) {
+            // Exit edit mode (reverts to original values)
+            dispatchLifecycle({ type: 'EXIT_EDIT_MODE' });
+        } else {
+            // Enter edit mode
+            dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
+        }
     };
 
     /**
      * Handles content changes from Lexical editor
+     * Reducer automatically computes hasUnsavedChanges and status
      */
     const handleEditorContentChange = (newContent: string) => {
         console.log('🔄 handleEditorContentChange called');
         console.log('📝 newContent length:', newContent.length);
         console.log('📝 newContent preview:', newContent.substring(0, 100) + '...');
-        console.log('📚 originalContent length:', originalContent.length);
-        console.log('📚 originalContent preview:', originalContent.substring(0, 100) + '...');
-        console.log('🏷️ explanationTitle:', explanationTitle);
-        console.log('🏷️ originalTitle:', originalTitle);
-        console.log('📊 originalStatus:', originalStatus);
 
-         const hasChanges = newContent !== originalContent || explanationTitle !== originalTitle;
-         console.log('🔍 Content changed:', newContent !== originalContent);
-         console.log('🔍 Title changed:', explanationTitle !== originalTitle);
-         console.log('✅ hasChanges:', hasChanges);
+        // Dispatch to reducer - it will automatically compute hasUnsavedChanges and status
+        dispatchLifecycle({ type: 'UPDATE_CONTENT', content: newContent });
 
-         setHasUnsavedChanges(hasChanges);
-
-        // For published articles, show draft indicator when there are unsaved changes
-         if (originalStatus === ExplanationStatus.Published && hasChanges) {
-             console.log('🟡 Setting status to DRAFT (published article with changes)');
-             setExplanationStatus(ExplanationStatus.Draft);
-         } else if (!hasChanges) {
-             console.log('🟢 Resetting status to original:', originalStatus);
-             setExplanationStatus(originalStatus);
-         } else {
-             console.log('⚪ No status change (not published or other reason)');
-         }
-
-         console.log('📋 Final state - hasUnsavedChanges:', hasChanges);
-         console.log('================================');
+        console.log('✅ Content updated in lifecycle reducer');
     };
 
 
@@ -574,26 +590,7 @@ export default function ResultsPage() {
         fetchUserid();
     }, []);
 
-    // Auto-manage loading state based on content availability and UI state
-    useEffect(() => {
-        // If we have explanation content loaded, turn off loading and ensure UI updates
-        if ((explanationTitle || content) && !error) {
-            setIsPageLoading(false);
-            // Ensure streaming is off when content is fully loaded
-            if (!isStreaming) {
-                setIsStreaming(false);
-            }
-        }
-        // If we have matches loaded but no content, and we're not generating, turn off loading
-        else if (matches.length > 0 && !error && prompt && !explanationTitle && !content) {
-            setIsPageLoading(false);
-        }
-        // If there's an error, turn off loading to show error state
-        else if (error) {
-            setIsPageLoading(false);
-            setIsStreaming(false);
-        }
-    }, [explanationTitle, content, matches, error, prompt, explanationId, userSaved, isStreaming]);
+    // NOTE: Auto-loading useEffect removed - lifecycle reducer handles phase transitions explicitly
 
     useEffect(() => {
         //Prevent this from double running in dev due to React strict mode
@@ -608,14 +605,13 @@ export default function ResultsPage() {
             const pageLoadRequestId = `page-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
             RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: 'anonymous' });
 
-            setIsPageLoading(true);
-            setIsStreaming(false); // Reset streaming state when processing new parameters
+            // Reset lifecycle to idle when processing new URL parameters
+            dispatchLifecycle({ type: 'RESET' });
 
             // Immediately clear old content to prevent flash
             setExplanationTitle('');
             setContent('');
             setMatches([]);
-            setError(null);
             setUserSaved(false);
             dispatchTagAction({ type: 'LOAD_TAGS', tags: [] }); // Reset tags when processing new parameters
             setExplanationVector(null); // Reset vector when processing new parameters
@@ -877,7 +873,7 @@ export default function ResultsPage() {
                                                             // Use prompt if available, otherwise use explanation title
                                                             const userInput = prompt.trim() || explanationTitle;
                                                             if (!userInput) {
-                                                                setError('No input available for rewriting. Please try again.');
+                                                                dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
                                                                 return;
                                                             }
                                                             
