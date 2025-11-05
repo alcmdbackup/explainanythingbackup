@@ -250,6 +250,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   const [editor, setEditor] = useState<any>(null);
   const [internalMarkdownMode, setInternalMarkdownMode] = useState<boolean>(isMarkdownMode);
   const [internalEditMode, setInternalEditMode] = useState<boolean>(isEditMode);
+  const [pendingOperations, setPendingOperations] = useState<Array<(editor: any) => void>>([]);
 
   // Sync internal state with prop changes
   useEffect(() => {
@@ -259,6 +260,15 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   useEffect(() => {
     setInternalEditMode(isEditMode);
   }, [isEditMode]);
+
+  // Process pending operations when editor becomes ready
+  useEffect(() => {
+    if (editor && pendingOperations.length > 0) {
+      console.log('📝 LexicalEditor: Processing queued operations, count:', pendingOperations.length);
+      pendingOperations.forEach(operation => operation(editor));
+      setPendingOperations([]);
+    }
+  }, [editor, pendingOperations]);
 
   const initialConfig = {
     namespace: 'MyEditor',
@@ -335,7 +345,36 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           console.log('📝 LexicalEditor: setContentFromMarkdown completed successfully');
         });
       } else {
-        console.error('📝 LexicalEditor: editor is null, cannot set content');
+        console.log('📝 LexicalEditor: editor is null, queueing operation');
+        setPendingOperations(prev => [...prev, (editorInstance) => {
+          editorInstance.update(() => {
+            // Preprocess markdown to normalize multiline CriticMarkup
+            console.log('📝 LexicalEditor: [QUEUED] Preprocessing CriticMarkup...');
+            const preprocessedMarkdown = preprocessCriticMarkup(markdown);
+            console.log('📝 LexicalEditor: [QUEUED] Preprocessed markdown', {
+              preprocessedLength: preprocessedMarkdown?.length || 0,
+              preprocessedPreview: preprocessedMarkdown?.substring(0, 200)
+            });
+
+            // DIAGNOSTIC: Test regex matching on preprocessed markdown
+            const criticMarkupRegex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
+            const matchesAfterPreprocess = Array.from(preprocessedMarkdown.matchAll(criticMarkupRegex));
+            console.log('📝 DIAGNOSTIC: [QUEUED] Preprocessed markdown CriticMarkup matches:', {
+              matchCount: matchesAfterPreprocess.length,
+              firstThreeMatches: matchesAfterPreprocess.slice(0, 3).map(m => m[0].substring(0, 50))
+            });
+
+            console.log('📝 LexicalEditor: [QUEUED] Converting markdown to Lexical nodes...');
+            $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
+            console.log('📝 LexicalEditor: [QUEUED] Markdown conversion completed');
+
+            // Clean up trailing <br> tags from heading and paragraph text nodes as Lexical and Markdown stringify both add trailing BRs
+            //removeTrailingBreaksFromTextNodes(); --> DEPRECATED
+            console.log('📝 LexicalEditor: [QUEUED] Replacing <br> tags with newlines...');
+            replaceBrTagsWithNewlines();
+            console.log('📝 LexicalEditor: [QUEUED] setContentFromMarkdown completed successfully');
+          });
+        }]);
       }
     },
     getContentAsMarkdown: () => {
