@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer } from 'react';
+import { useState, useEffect, useRef, useReducer, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges } from '@/actions/actions';
@@ -10,8 +10,7 @@ import { RequestIdContext } from '@/lib/requestIdContext';
 import { clientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
-import ResultsLexicalEditor from '@/components/ResultsLexicalEditor';
-import { ResultsLexicalEditorRef } from '@/components/ResultsLexicalEditor';
+import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
 import { supabase_browser } from '@/lib/supabase';
 import { tagModeReducer, createInitialTagModeState, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
@@ -101,7 +100,14 @@ export default function ResultsPage() {
     const { userid, fetchUserid } = useUserAuth();
 
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
-    const editorRef = useRef<ResultsLexicalEditorRef>(null); // For AI suggestions panel
+    const editorRef = useRef<LexicalEditorRef>(null); // For AI suggestions panel
+
+    // Editor synchronization state (moved from ResultsLexicalEditor)
+    const [editorCurrentContent, setEditorCurrentContent] = useState('');
+    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const lastStreamingUpdateRef = useRef<string>('');
+    const isInitialLoadRef = useRef<boolean>(true);
+    const hasInitializedContent = useRef<boolean>(false);
 
     // Close dropdown when clicking outside and reset tags
     useEffect(() => {
@@ -488,7 +494,7 @@ export default function ResultsPage() {
 
         try {
             // Get current content from editor or from lifecycle state
-            const currentContent = editorRef.current?.getContent() || getPageContent(lifecycleState);
+            const currentContent = editorRef.current?.getContentAsMarkdown() || getPageContent(lifecycleState);
             const currentTitle = getPageTitle(lifecycleState);
 
             // Always target Published status - consistent "Publish Changes" experience
@@ -542,7 +548,7 @@ export default function ResultsPage() {
     const handleEditModeToggle = () => {
         if (isEditMode) {
             // Sync current editor content to lifecycle state before exiting edit mode
-            const currentContent = editorRef.current?.getContent() || '';
+            const currentContent = editorRef.current?.getContentAsMarkdown() || '';
             if (currentContent) {
                 dispatchLifecycle({ type: 'UPDATE_CONTENT', content: currentContent });
             }
@@ -561,12 +567,30 @@ export default function ResultsPage() {
      */
     const handleEditorContentChange = (newContent: string) => {
         console.log('🔄 handleEditorContentChange called');
-        console.log('📝 newContent length:', newContent.length);
-        console.log('📝 newContent preview:', newContent.substring(0, 100) + '...');
+        console.log('📝 newContent type:', typeof newContent);
+        console.log('📝 newContent length:', newContent?.length || 'undefined');
+        console.log('🎛️ isEditMode:', isEditMode);
+        console.log('🏁 isInitialLoadRef.current:', isInitialLoadRef.current);
 
-        // Don't update lifecycle state during editing - prevents cursor jumping
-        // Content will be synced to lifecycle state when user exits edit mode or saves
-        console.log('✅ Content tracked by editor (not dispatched to lifecycle)');
+        // Clear initial load flag on first user edit (when in edit mode)
+        if (isEditMode && isInitialLoadRef.current) {
+            console.log('🏁 Clearing isInitialLoadRef.current on user edit');
+            isInitialLoadRef.current = false;
+        }
+
+        const shouldCallParent = isEditMode && !isInitialLoadRef.current;
+        console.log('🤔 shouldCall parent:', shouldCallParent);
+
+        // Only propagate changes if user is in edit mode and this is not initial load
+        if (shouldCallParent) {
+            console.log('✅ Content change from user edit (tracked by editor)');
+            // Don't update lifecycle state during editing - prevents cursor jumping
+            // Content will be synced to lifecycle state when user exits edit mode or saves
+        } else {
+            console.log('❌ NOT propagating content change because:');
+            if (!isEditMode) console.log('  - Not in edit mode (isEditMode = false)');
+            if (isInitialLoadRef.current) console.log('  - Still in initial load (isInitialLoadRef.current = true)');
+        }
     };
 
 
@@ -699,7 +723,114 @@ export default function ResultsPage() {
         localStorage.setItem('explanation-mode', mode);
     }, [mode]);
 
+    // === Editor Synchronization Logic (moved from ResultsLexicalEditor) ===
 
+    // Lock editor during streaming to prevent conflicts
+    useEffect(() => {
+        if (isStreaming && editorRef.current) {
+            editorRef.current.setEditMode(false);
+        } else if (!isStreaming && editorRef.current) {
+            editorRef.current.setEditMode(isEditMode);
+        }
+    }, [isStreaming, isEditMode]);
+
+    // Debounced update function for streaming content
+    const debouncedUpdateContent = useCallback((newContent: string) => {
+        // Clear any existing debounce timeout
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+        }
+
+        // Set a new debounce timeout
+        debounceTimeoutRef.current = setTimeout(() => {
+            if (editorRef.current && newContent !== lastStreamingUpdateRef.current) {
+                try {
+                    editorRef.current.setContentFromMarkdown(newContent);
+                    lastStreamingUpdateRef.current = newContent;
+                    setEditorCurrentContent(newContent);
+
+                    // After first content update, mark as no longer initial load
+                    if (isInitialLoadRef.current) {
+                        setTimeout(() => {
+                            isInitialLoadRef.current = false;
+                        }, 0);
+                    }
+                } catch (error) {
+                    console.error('Error updating editor content during streaming:', error);
+                }
+            }
+        }, isStreaming ? 100 : 0);
+    }, [isStreaming]);
+
+    // Update editor content when content prop changes (streaming updates)
+    useEffect(() => {
+        // Early return if editor ref is not yet initialized
+        if (!editorRef.current) {
+            console.log('⏳ Editor ref not yet initialized, skipping content sync');
+            return;
+        }
+
+        const currentPageContent = getPageContent(lifecycleState) || content;
+
+        // On first run, just sync the state without updating the editor
+        // LexicalEditor handles initialContent on its own
+        if (!hasInitializedContent.current) {
+            console.log('📝 First content sync - initializing state only');
+            setEditorCurrentContent(currentPageContent);
+            hasInitializedContent.current = true;
+            return;
+        }
+
+        console.log('🔄 useEffect triggered - content comparison');
+        console.log('🔍 content length:', currentPageContent?.length || 'undefined');
+        console.log('🔍 editorCurrentContent length:', editorCurrentContent?.length || 'undefined');
+        console.log('🔍 content !== editorCurrentContent:', currentPageContent !== editorCurrentContent);
+        console.log('🔍 isEditMode:', isEditMode);
+
+        if (currentPageContent !== editorCurrentContent) {
+            // IMPORTANT: Don't overwrite editor content during edit mode
+            // This prevents AI suggestions from being destroyed
+            if (isEditMode && !isStreaming) {
+                console.log('⚠️ Skipping content update - editor is in edit mode');
+                return;
+            }
+
+            if (isStreaming) {
+                // Use debounced updates during streaming for better performance
+                debouncedUpdateContent(currentPageContent);
+            } else {
+                // Immediate update when not streaming
+                if (editorRef.current) {
+                    editorRef.current.setContentFromMarkdown(currentPageContent);
+                    setEditorCurrentContent(currentPageContent);
+                }
+            }
+
+            // After first content update, mark as no longer initial load
+            if (isInitialLoadRef.current) {
+                console.log('🏁 About to clear isInitialLoadRef, isStreaming:', isStreaming);
+                if (!isStreaming) {
+                    console.log('🏁 Setting isInitialLoadRef.current = false immediately (non-streaming)');
+                    isInitialLoadRef.current = false;
+                } else {
+                    console.log('🏁 Setting isInitialLoadRef.current = false via setTimeout (streaming)');
+                    setTimeout(() => {
+                        console.log('🏁 setTimeout executed: setting isInitialLoadRef.current = false');
+                        isInitialLoadRef.current = false;
+                    }, 0);
+                }
+            }
+        }
+    }, [content, editorCurrentContent, isStreaming, isEditMode, debouncedUpdateContent, lifecycleState]);
+
+    // Cleanup debounce timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+            }
+        };
+    }, []);
 
     return (
         <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
@@ -1069,14 +1200,18 @@ export default function ResultsPage() {
                                                 </div>
                                             </div>
                                         ) : isMarkdownMode ? (
-                                            <ResultsLexicalEditor
+                                            <LexicalEditor
                                                 ref={editorRef}
-                                                content={formattedExplanation}
-                                                isEditMode={isEditMode}
-                                                onEditModeToggle={handleEditModeToggle}
-                                                onContentChange={handleEditorContentChange}
-                                                isStreaming={isStreaming}
+                                                placeholder="Content will appear here..."
                                                 className="w-full"
+                                                initialContent={formattedExplanation}
+                                                isMarkdownMode={true}
+                                                isEditMode={isEditMode && !isStreaming}
+                                                showEditorState={false}
+                                                showTreeView={false}
+                                                showToolbar={true}
+                                                hideEditingUI={isStreaming}
+                                                onContentChange={handleEditorContentChange}
                                             />
                                         ) : (
                                             <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
@@ -1110,9 +1245,11 @@ export default function ResultsPage() {
 
                                 // CRITICAL: Directly update the editor with the new content
                                 if (editorRef.current) {
-                                    console.log('🎭 results/page.tsx: Calling editorRef.current.updateContent');
-                                    editorRef.current.updateContent(newContent);
-                                    console.log('🎭 results/page.tsx: editorRef.current.updateContent called successfully');
+                                    console.log('🎭 results/page.tsx: Calling editorRef.current.setContentFromMarkdown');
+                                    // Update both internal state and editor content
+                                    setEditorCurrentContent(newContent);
+                                    editorRef.current.setContentFromMarkdown(newContent);
+                                    console.log('🎭 results/page.tsx: editorRef.current.setContentFromMarkdown called successfully');
                                 } else {
                                     console.error('🎭 results/page.tsx: editorRef.current is null - cannot update editor');
                                 }
