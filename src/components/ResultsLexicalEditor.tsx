@@ -77,8 +77,16 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
     console.log('🔍 content length:', content?.length || 'undefined');
     console.log('🔍 currentContent length:', currentContent?.length || 'undefined');
     console.log('🔍 content !== currentContent:', content !== currentContent);
+    console.log('🔍 isEditMode:', isEditMode);
 
     if (content !== currentContent) {
+      // IMPORTANT: Don't overwrite editor content during edit mode
+      // This prevents AI suggestions from being destroyed
+      if (isEditMode && !isStreaming) {
+        console.log('⚠️ Skipping content update - editor is in edit mode');
+        return;
+      }
+
       if (isStreaming) {
         // Use debounced updates during streaming for better performance
         debouncedUpdateContent(content);
@@ -160,9 +168,23 @@ const ResultsLexicalEditor = forwardRef<ResultsLexicalEditorRef, ResultsLexicalE
   // Expose methods to parent component
   useImperativeHandle(ref, () => ({
     updateContent: (newContent: string) => {
+      console.log('🔧 ResultsLexicalEditor.updateContent called', {
+        contentLength: newContent?.length || 0,
+        hasEditorRef: !!editorRef.current,
+        currentContentLength: currentContent?.length || 0,
+        isEditMode,
+        isStreaming,
+        contentPreview: newContent?.substring(0, 150)
+      });
+
       if (editorRef.current) {
-        editorRef.current.setContentFromMarkdown(newContent);
+        console.log('🔧 ResultsLexicalEditor: Calling editorRef.current.setContentFromMarkdown');
+        // Update currentContent FIRST to prevent useEffect from overwriting
         setCurrentContent(newContent);
+        editorRef.current.setContentFromMarkdown(newContent);
+        console.log('🔧 ResultsLexicalEditor: setContentFromMarkdown completed, currentContent updated');
+      } else {
+        console.error('🔧 ResultsLexicalEditor: editorRef.current is null');
       }
     },
     getContent: () => {

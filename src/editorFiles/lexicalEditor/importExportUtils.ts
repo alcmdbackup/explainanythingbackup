@@ -264,7 +264,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
   regExp: /\{([+-~]{2})([\s\S]+?)\1\}/,
   importRegExp: /\{([+-~]{2})([\s\S]+?)\1\}/,
   replace: (textNode, match) => {
-    console.log("🔍 CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER replace called");
+    console.log("🔍🔍🔍 CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER replace called 🔍🔍🔍");
     console.log("📝 TextNode content:", JSON.stringify(textNode.getTextContent()));
     console.log("📝 TextNode content length:", textNode.getTextContent().length);
     console.log("📝 TextNode key:", textNode.getKey());
@@ -386,6 +386,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         
         // Replace the matched text with the DiffTagNodeInline (do this last)
         textNode.replace(diff);
+        console.log("✅ DiffTagNodeInline CREATED and REPLACED textNode with tag:", marks === "++" ? "ins" : "update");
 
         // Check if the newly created diff node should be promoted to top-level
         if (shouldPromoteToTopLevel(diff)) {
@@ -454,6 +455,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
     
     // Replace the matched text with the DiffTagNodeInline (do this last)
     textNode.replace(diff);
+    console.log("✅ DiffTagNodeInline CREATED and REPLACED textNode with tag:", tag);
 
     // Check if the newly created diff node should be promoted to top-level
     if (shouldPromoteToTopLevel(diff)) {

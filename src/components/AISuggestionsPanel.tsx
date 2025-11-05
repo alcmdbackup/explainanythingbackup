@@ -80,11 +80,43 @@ export default function AISuggestionsPanel({
 
       setLastResult(result);
 
+      console.log('🎭 AISuggestionsPanel: Processing result...', {
+        success: result.success,
+        hasContent: !!result.content,
+        contentLength: result.content?.length || 0,
+        contentPreview: result.content?.substring(0, 200),
+        hasCriticMarkup: result.content?.includes('{++') || result.content?.includes('{--') || result.content?.includes('{~~'),
+        sessionId: result.session_id,
+        error: result.error
+      });
+
+      // DIAGNOSTIC: Test if CriticMarkup regex would match
+      if (result.content) {
+        const criticMarkupRegex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
+        const matches = Array.from(result.content.matchAll(criticMarkupRegex));
+        console.log('🔍 DIAGNOSTIC: CriticMarkup regex test:', {
+          matchCount: matches.length,
+          matches: matches.slice(0, 3).map(m => ({
+            fullMatch: m[0].substring(0, 50),
+            marks: m[1],
+            innerPreview: m[2]?.substring(0, 30)
+          }))
+        });
+      }
+
       if (result.success && result.content) {
+        console.log('🎭 AISuggestionsPanel: Entering edit mode...');
         // Enter edit mode before applying the AI suggestions
         onEnterEditMode?.();
+        console.log('🎭 AISuggestionsPanel: Edit mode entered, calling onContentChange...');
         onContentChange?.(result.content);
+        console.log('🎭 AISuggestionsPanel: onContentChange called successfully');
       } else {
+        console.error('🎭 AISuggestionsPanel: Result not successful or no content', {
+          success: result.success,
+          hasContent: !!result.content,
+          error: result.error
+        });
         setError(result.error || 'Failed to generate suggestions');
       }
     } catch (err) {

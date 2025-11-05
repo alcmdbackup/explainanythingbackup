@@ -1100,11 +1100,27 @@ export default function ResultsPage() {
                             currentContent={content}
                             editorRef={editorRef}
                             onContentChange={(newContent) => {
+                                console.log('🎭 results/page.tsx: AISuggestionsPanel onContentChange called', {
+                                    contentLength: newContent?.length || 0,
+                                    hasEditorRef: !!editorRef.current,
+                                    contentPreview: newContent?.substring(0, 100)
+                                });
+
                                 setContent(newContent);
-                                // Also call the existing handler if needed
-                                // handleEditorContentChange(newContent);
+
+                                // CRITICAL: Directly update the editor with the new content
+                                if (editorRef.current) {
+                                    console.log('🎭 results/page.tsx: Calling editorRef.current.updateContent');
+                                    editorRef.current.updateContent(newContent);
+                                    console.log('🎭 results/page.tsx: editorRef.current.updateContent called successfully');
+                                } else {
+                                    console.error('🎭 results/page.tsx: editorRef.current is null - cannot update editor');
+                                }
                             }}
-                            onEnterEditMode={() => setIsEditMode(true)}
+                            onEnterEditMode={() => {
+                                console.log('🎭 results/page.tsx: Entering edit mode via AI suggestions');
+                                dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
+                            }}
                             sessionData={explanationId && explanationTitle ? {
                                 explanation_id: explanationId,
                                 explanation_title: explanationTitle

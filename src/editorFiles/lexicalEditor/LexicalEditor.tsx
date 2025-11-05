@@ -289,15 +289,53 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   // Expose the editor functions via ref
   useImperativeHandle(ref, () => ({
     setContentFromMarkdown: (markdown: string) => {
+      console.log('📝 LexicalEditor.setContentFromMarkdown called', {
+        markdownLength: markdown?.length || 0,
+        hasEditor: !!editor,
+        markdownPreview: markdown?.substring(0, 200),
+        hasCriticMarkup: markdown?.includes('{++') || markdown?.includes('{--') || markdown?.includes('{~~')
+      });
+
+      // DIAGNOSTIC: Test regex matching on raw markdown
+      if (markdown) {
+        const criticMarkupRegex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
+        const matches = Array.from(markdown.matchAll(criticMarkupRegex));
+        console.log('📝 DIAGNOSTIC: Raw markdown CriticMarkup matches:', {
+          matchCount: matches.length,
+          firstThreeMatches: matches.slice(0, 3).map(m => m[0].substring(0, 50))
+        });
+      }
+
       if (editor) {
         editor.update(() => {
           // Preprocess markdown to normalize multiline CriticMarkup
+          console.log('📝 LexicalEditor: Preprocessing CriticMarkup...');
           const preprocessedMarkdown = preprocessCriticMarkup(markdown);
+          console.log('📝 LexicalEditor: Preprocessed markdown', {
+            preprocessedLength: preprocessedMarkdown?.length || 0,
+            preprocessedPreview: preprocessedMarkdown?.substring(0, 200)
+          });
+
+          // DIAGNOSTIC: Test regex matching on preprocessed markdown
+          const criticMarkupRegex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
+          const matchesAfterPreprocess = Array.from(preprocessedMarkdown.matchAll(criticMarkupRegex));
+          console.log('📝 DIAGNOSTIC: Preprocessed markdown CriticMarkup matches:', {
+            matchCount: matchesAfterPreprocess.length,
+            firstThreeMatches: matchesAfterPreprocess.slice(0, 3).map(m => m[0].substring(0, 50))
+          });
+
+          console.log('📝 LexicalEditor: Converting markdown to Lexical nodes...');
           $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
+          console.log('📝 LexicalEditor: Markdown conversion completed');
+
           // Clean up trailing <br> tags from heading and paragraph text nodes as Lexical and Markdown stringify both add trailing BRs
           //removeTrailingBreaksFromTextNodes(); --> DEPRECATED
+          console.log('📝 LexicalEditor: Replacing <br> tags with newlines...');
           replaceBrTagsWithNewlines();
+          console.log('📝 LexicalEditor: setContentFromMarkdown completed successfully');
         });
+      } else {
+        console.error('📝 LexicalEditor: editor is null, cannot set content');
       }
     },
     getContentAsMarkdown: () => {
