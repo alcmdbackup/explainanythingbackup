@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useLexicalComposerContext } from "@lexical/react/LexicalComposerContext";
@@ -423,7 +424,7 @@ function BlockOptionsDropdownList({
       </button>
       <button className="item w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center justify-between" onClick={formatQuote}>
         <div className="flex items-center gap-2">
-          <span className="icon quote text-sm">"</span>
+          <span className="icon quote text-sm">&quot;</span>
           <span className="text text-sm">Quote</span>
         </div>
         {blockType === "quote" && <span className="active text-blue-500">✓</span>}
@@ -520,7 +521,7 @@ export default function ToolbarPlugin({ isMarkdownMode = true }: { isMarkdownMod
       }),
       editor.registerCommand(
         SELECTION_CHANGE_COMMAND,
-        (_payload, newEditor) => {
+        () => {
           updateToolbar();
           return false;
         },

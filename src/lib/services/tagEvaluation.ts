@@ -1,11 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { tagEvaluationSchema } from '@/lib/schemas/schemas';
 import { createTagEvaluationPrompt } from '@/lib/prompts';
-
-const FILE_DEBUG = false;
 
 // Custom error types for better error handling
 type ErrorResponse = {

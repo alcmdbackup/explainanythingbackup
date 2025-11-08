@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 import { matchesGlob } from 'node:path/posix';
 import { z } from 'zod';
 

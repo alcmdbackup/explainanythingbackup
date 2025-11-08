@@ -34,7 +34,11 @@ describe('GET /api/test-responses', () => {
 
   it('should run tests and return formatted results', async () => {
     const testCases = 'Test case 1\nTest case 2';
-    const testResults = [{ passed: true, name: 'Test 1' }];
+    const testResults = [{
+      testCase: { id: 1, description: 'Test 1', expectedDiff: '', before: 'before', after: 'after' },
+      criticMarkup: '{++Test 1++}',
+      success: true
+    }];
     const formattedResults = 'PASSED: Test 1';
 
     mockReadFileSync.mockReturnValue(testCases);
@@ -82,8 +86,8 @@ describe('GET /api/test-responses', () => {
 
   it('should format test results', async () => {
     const testResults = [
-      { passed: true, name: 'Test 1' },
-      { passed: false, name: 'Test 2' },
+      { testCase: { id: 1, description: 'Test 1', expectedDiff: '', before: 'before1', after: 'after1' }, criticMarkup: '{++Test 1++}', success: true },
+      { testCase: { id: 2, description: 'Test 2', expectedDiff: '', before: 'before2', after: 'after2' }, criticMarkup: '{--Test 2--}', success: false },
     ];
     mockReadFileSync.mockReturnValue('Cases');
     mockRunAllTests.mockReturnValue(testResults);

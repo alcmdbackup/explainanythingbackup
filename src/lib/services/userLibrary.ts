@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations';

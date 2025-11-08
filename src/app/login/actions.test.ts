@@ -98,8 +98,8 @@ describe('Login Actions', () => {
       await expect(login(formData)).rejects.toThrow('NEXT_REDIRECT: /');
 
       // Verify order: revalidate then redirect
-      const revalidateCall = (revalidatePath as jest.Mock).mock.invocationCallOrder[0];
-      const redirectCall = (redirect as jest.Mock).mock.invocationCallOrder[0];
+      const revalidateCall = (revalidatePath as jest.Mock<any, any>).mock.invocationCallOrder[0];
+      const redirectCall = (redirect as unknown as jest.Mock<any, any>).mock.invocationCallOrder[0];
       expect(revalidateCall).toBeLessThan(redirectCall);
     });
 
@@ -210,8 +210,8 @@ describe('Login Actions', () => {
 
       await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /');
 
-      const revalidateCall = (revalidatePath as jest.Mock).mock.invocationCallOrder[0];
-      const redirectCall = (redirect as jest.Mock).mock.invocationCallOrder[0];
+      const revalidateCall = (revalidatePath as jest.Mock<any, any>).mock.invocationCallOrder[0];
+      const redirectCall = (redirect as unknown as jest.Mock<any, any>).mock.invocationCallOrder[0];
       expect(revalidateCall).toBeLessThan(redirectCall);
     });
 
@@ -308,8 +308,8 @@ describe('Login Actions', () => {
     it('should revalidate path before redirecting', async () => {
       await expect(signOut()).rejects.toThrow('NEXT_REDIRECT: /');
 
-      const revalidateCall = (revalidatePath as jest.Mock).mock.invocationCallOrder[0];
-      const redirectCall = (redirect as jest.Mock).mock.invocationCallOrder[0];
+      const revalidateCall = (revalidatePath as jest.Mock<any, any>).mock.invocationCallOrder[0];
+      const redirectCall = (redirect as unknown as jest.Mock<any, any>).mock.invocationCallOrder[0];
       expect(revalidateCall).toBeLessThan(redirectCall);
     });
 

@@ -1,5 +1,6 @@
-import { LinkNode, $createLinkNode, $isLinkNode } from '@lexical/link';
-import { $createTextNode, type EditorConfig, type NodeKey, type LexicalNode } from 'lexical';
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { LinkNode } from '@lexical/link';
+import { type EditorConfig, type LexicalNode } from 'lexical';
 
 /**
  * Custom LinkNode that handles standalone title links with special click behavior

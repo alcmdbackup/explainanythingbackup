@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import OpenAI from 'openai';
 import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';

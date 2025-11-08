@@ -67,6 +67,8 @@ jest.mock('langchain/text_splitter', () => ({
   }))
 }));
 
+import { RecursiveCharacterTextSplitter } from 'langchain/text_splitter';
+
 describe('vectorsim', () => {
   let mockNamespace: any;
   let mockIndex: any;
@@ -403,8 +405,7 @@ describe('vectorsim', () => {
       const largeText = 'x'.repeat(100000);
 
       // Mock splitter to handle large text
-      const { RecursiveCharacterTextSplitter } = require('langchain/text_splitter');
-      RecursiveCharacterTextSplitter.mockImplementationOnce(() => ({
+      (RecursiveCharacterTextSplitter as unknown as jest.Mock).mockImplementationOnce(() => ({
         splitText: jest.fn().mockResolvedValue(
           Array(10).fill('chunk').map((c, i) => `${c}${i}`)
         )
@@ -418,9 +419,8 @@ describe('vectorsim', () => {
 
     it('should handle concurrent batch processing in upsert', async () => {
       // Create more chunks than batch size to test batching
-      const { RecursiveCharacterTextSplitter } = require('langchain/text_splitter');
       const manyChunks = Array(250).fill('chunk').map((c, i) => `${c}${i}`);
-      RecursiveCharacterTextSplitter.mockImplementationOnce(() => ({
+      (RecursiveCharacterTextSplitter as unknown as jest.Mock).mockImplementationOnce(() => ({
         splitText: jest.fn().mockResolvedValue(manyChunks)
       }));
 

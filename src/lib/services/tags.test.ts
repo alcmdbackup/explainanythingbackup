@@ -501,7 +501,7 @@ describe('Tags Service', () => {
         tag_name: 'Updated Name',
         tag_description: 'Updated description',
         presetTagId: null,
-        timestamp: '2024-01-01T00:00:00Z'
+        created_at: '2024-01-01T00:00:00Z'
       };
 
       mockSupabase.single.mockResolvedValue({
@@ -532,7 +532,7 @@ describe('Tags Service', () => {
         tag_name: 'Unchanged Name',
         tag_description: 'New description only',
         presetTagId: null,
-        timestamp: '2024-01-01T00:00:00Z'
+        created_at: '2024-01-01T00:00:00Z'
       };
 
       mockSupabase.single.mockResolvedValue({

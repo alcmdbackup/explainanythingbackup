@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
@@ -789,7 +790,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                         return !(tag.tag_active_initial === false && tag.tag_active_current === false);
                                     }
                                     return true; // Always show preset tags
-                                }).map((tag, index) => {
+                                }).map((tag) => {
                                     if ('tag_name' in tag) {
                                         // Simple tag
                                         if (tag.tag_active_current !== tag.tag_active_initial) {

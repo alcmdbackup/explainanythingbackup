@@ -64,18 +64,34 @@ export const createMockPresetTag = (overrides: Partial<PresetTagUIType> = {}): P
 /**
  * Creates a mock TagModeState for testing TagBar
  */
-export const createMockTagState = (overrides: Partial<TagModeState> = {}): TagModeState => {
-  const defaultState: TagModeState = {
-    mode: 'normal',
-    tags: [],
-    originalTags: [],
-    showRegenerateDropdown: false,
-  };
+export const createMockTagState = (overrides: any = {}): TagModeState => {
+  const mode = overrides.mode || 'normal';
 
+  if (mode === 'rewriteWithTags') {
+    return {
+      mode: 'rewriteWithTags',
+      tempTags: overrides.tags || overrides.tempTags || [],
+      originalTags: overrides.originalTags || [],
+      showRegenerateDropdown: false,
+    };
+  }
+
+  if (mode === 'editWithTags') {
+    return {
+      mode: 'editWithTags',
+      tags: overrides.tags || [],
+      originalTags: overrides.originalTags || [],
+      showRegenerateDropdown: false,
+    };
+  }
+
+  // Normal mode
   return {
-    ...defaultState,
-    ...overrides,
-  } as TagModeState;
+    mode: 'normal',
+    tags: overrides.tags || [],
+    originalTags: overrides.originalTags || [],
+    showRegenerateDropdown: overrides.showRegenerateDropdown !== undefined ? overrides.showRegenerateDropdown : false,
+  };
 };
 
 // ============================================================================
@@ -198,7 +214,7 @@ export const createSuccessResponse = <T>(data: T) => ({
 /**
  * Creates a failed server action response
  */
-export const createErrorResponse = (message = 'An error occurred', code = 'ERROR') => ({
+export const createErrorResponse = (message = 'An error occurred', code: import('@/lib/errorHandling').ErrorCode = 'UNKNOWN_ERROR') => ({
   success: false as const,
   data: null,
   error: { message, code },

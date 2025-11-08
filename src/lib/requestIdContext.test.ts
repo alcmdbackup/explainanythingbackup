@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 /* eslint-disable @typescript-eslint/no-require-imports */
 /* eslint-disable @next/next/no-assign-module-variable */
 

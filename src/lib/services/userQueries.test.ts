@@ -9,6 +9,7 @@ import {
 } from './userQueries';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import type { UserQueryInsertType } from '@/lib/schemas/schemas';
+import { UserInputType } from '@/lib/schemas/schemas';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -50,9 +51,13 @@ describe('UserQueries Service', () => {
       // Arrange
       const queryData: UserQueryInsertType = {
         user_query: 'What is React?',
-        explanation_title: 'Introduction to React',
-        content: 'React is a JavaScript library...',
-        matches: []
+        explanation_id: 123,
+        matches: [],
+        userid: 'test-user',
+        newExplanation: true,
+        userInputType: UserInputType.Query,
+        allowedQuery: true,
+        previousExplanationViewedId: null
       };
 
       const expectedResponse = {
@@ -81,9 +86,13 @@ describe('UserQueries Service', () => {
       // Arrange
       const queryData: UserQueryInsertType = {
         user_query: 'Test query',
-        explanation_title: 'Test',
-        content: 'Test content',
-        matches: []
+        explanation_id: 123,
+        matches: [],
+        userid: 'test-user',
+        newExplanation: true,
+        userInputType: UserInputType.Query,
+        allowedQuery: true,
+        previousExplanationViewedId: null
       };
 
       const mockError = { message: 'Database error' };

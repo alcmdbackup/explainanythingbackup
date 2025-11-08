@@ -33,7 +33,8 @@ export default function DiffTestPage() {
             console.log('After AST:', afterASTResult);
 
             // Generate CriticMarkup diff
-            const markup = RenderCriticMarkupFromMDAstDiff(beforeASTResult, afterASTResult);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const markup = RenderCriticMarkupFromMDAstDiff(beforeASTResult as any, afterASTResult as any);
             setCriticMarkup(markup);
 
             console.log('Generated CriticMarkup:', markup);

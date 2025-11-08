@@ -4,16 +4,15 @@ import { useState, useEffect, useRef, useReducer, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges } from '@/actions/actions';
-import { matchWithCurrentContentType, MatchMode, UserInputType, explanationBaseType, TagUIType, TagBarMode, ExplanationStatus } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
-import { clientPassRequestId } from '@/hooks/clientPassRequestId';
+import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
-import { supabase_browser } from '@/lib/supabase';
-import { tagModeReducer, createInitialTagModeState, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
+import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import {
     pageLifecycleReducer,
     initialPageLifecycleState,
@@ -24,10 +23,6 @@ import {
     getError as getPageError,
     getContent as getPageContent,
     getTitle as getPageTitle,
-    getStatus as getPageStatus,
-    getOriginalContent,
-    getOriginalTitle,
-    getOriginalStatus,
     hasUnsavedChanges as getHasUnsavedChanges
 } from '@/reducers/pageLifecycleReducer';
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
@@ -39,7 +34,7 @@ const FORCE_REGENERATION_ON_NAV = false;
 export default function ResultsPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { withRequestId } = clientPassRequestId('anonymous');
+    const { withRequestId } = useClientPassRequestId('anonymous');
     const [prompt, setPrompt] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
@@ -58,9 +53,6 @@ export default function ResultsPage() {
     const isEditMode = getIsEditMode(lifecycleState);
     const isSavingChanges = getIsSavingChanges(lifecycleState);
     const hasUnsavedChanges = getHasUnsavedChanges(lifecycleState);
-    const originalContent = getOriginalContent(lifecycleState);
-    const originalTitle = getOriginalTitle(lifecycleState);
-    const originalStatus = getOriginalStatus(lifecycleState);
 
     // Initialize explanation loader hook
     const {
@@ -71,14 +63,11 @@ export default function ResultsPage() {
         explanationVector,
         systemSavedId,
         userSaved,
-        isLoading: isLoadingExplanation,
-        error: explanationError,
         setExplanationTitle,
         setContent,
         setExplanationStatus,
         setExplanationVector,
         setUserSaved,
-        setError: setExplanationError,
         loadExplanation,
         clearSystemSavedId
     } = useExplanationLoader({
@@ -202,7 +191,8 @@ export default function ResultsPage() {
      */
     const loadUserQuery = async (userQueryId: number) => {
         try {
-            const userQuery = await getUserQueryByIdAction(withRequestId({ id: userQueryId }));
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const userQuery = await (getUserQueryByIdAction as any)(withRequestId({ id: userQueryId }));
 
             if (!userQuery) {
                 dispatchLifecycle({ type: 'ERROR', error: 'User query not found' });
@@ -472,7 +462,8 @@ export default function ResultsPage() {
         setIsSaving(true);
         try {
             logger.debug('Starting from handleSave', {}, true);
-            await saveExplanationToLibraryAction(withRequestId({ explanationid: explanationId, userid }));
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            await (saveExplanationToLibraryAction as any)(withRequestId({ explanationid: explanationId, userid }));
             setUserSaved(true);
         } catch (err) {
             dispatchLifecycle({ type: 'ERROR', error: (err as Error).message || 'Failed to save explanation to library.' });
@@ -487,7 +478,7 @@ export default function ResultsPage() {
      * For published articles: Creates new published version, leaving original unchanged
      */
     const handleSaveOrPublishChanges = async () => {
-        if (!explanationId || (!hasUnsavedChanges && originalStatus !== ExplanationStatus.Draft) || isSavingChanges || !userid) return;
+        if (!explanationId || (!hasUnsavedChanges && explanationStatus !== ExplanationStatus.Draft) || isSavingChanges || !userid) return;
 
         // Start save process
         dispatchLifecycle({ type: 'START_SAVE' });
@@ -500,12 +491,13 @@ export default function ResultsPage() {
             // Always target Published status - consistent "Publish Changes" experience
             const targetStatus = ExplanationStatus.Published;
 
-            const result = await saveOrPublishChanges(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result = await (saveOrPublishChanges as any)(
                 withRequestId({
                     explanationId,
                     newContent: currentContent,
                     newTitle: currentTitle,
-                    originalStatus: originalStatus!,
+                    originalStatus: explanationStatus!,
                     targetStatus
                 })
             );
@@ -617,7 +609,7 @@ export default function ResultsPage() {
     // Fetch userid once upfront
     useEffect(() => {
         fetchUserid();
-    }, []);
+    }, [fetchUserid]);
 
     // NOTE: Auto-loading useEffect removed - lifecycle reducer handles phase transitions explicitly
 
@@ -863,19 +855,19 @@ export default function ResultsPage() {
                             </div>
                         )}
 
-                        {/* Draft Status Banner */}
-                        {explanationStatus === ExplanationStatus.Draft && (
+                        {/* Draft/Edit Status Banner */}
+                        {(explanationStatus === ExplanationStatus.Draft || (explanationStatus === ExplanationStatus.Published && hasUnsavedChanges)) && (
                             <div className="max-w-2xl mx-auto mb-8 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-300 rounded-md shadow-sm">
                                 <div className="flex items-center">
                                     <div className="ml-3">
                                         <p className="text-sm font-medium">
-                                            {originalStatus === ExplanationStatus.Published && hasUnsavedChanges
+                                            {explanationStatus === ExplanationStatus.Published && hasUnsavedChanges
                                                 ? '✏️ Editing published article'
                                                 : '📝 This is a draft article'
                                             }
                                         </p>
                                         <p className="text-xs mt-1">
-                                            {originalStatus === ExplanationStatus.Published && hasUnsavedChanges
+                                            {explanationStatus === ExplanationStatus.Published && hasUnsavedChanges
                                                 ? 'Changes will create a new published version when published'
                                                 : 'Click "Publish Changes" to publish this draft'
                                             }
@@ -1085,10 +1077,10 @@ export default function ResultsPage() {
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
                                         </button>
                                         {/* Save/Publish Changes Button - shown when there are unsaved changes OR when viewing/editing a draft */}
-                                        {(hasUnsavedChanges || originalStatus === ExplanationStatus.Draft) && (
+                                        {(hasUnsavedChanges || explanationStatus === ExplanationStatus.Draft) && (
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
-                                                disabled={isSavingChanges || (originalStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
+                                                disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
                                                 className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                             >
                                                 <span className="leading-none">

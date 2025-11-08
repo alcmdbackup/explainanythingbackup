@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { RecursiveCharacterTextSplitter } from "langchain/text_splitter";
 import { logger, getRequiredEnvVar } from '@/lib/server_utilities';
 import OpenAI from 'openai';
@@ -25,12 +26,6 @@ interface TextChunk {
 
 interface EmbeddedChunk extends TextChunk {
   embedding: number[];
-}
-
-interface Vector {
-  id: string;
-  values: number[];
-  metadata: TextChunk;
 }
 
 /**
@@ -484,7 +479,7 @@ async function processContentToStoreEmbedding(
   markdown: string,
   explanation_id: number,
   topic_id: number,
-  debug: boolean = false,
+  _debug: boolean = false,
   namespace: string = 'default'
 ): Promise<{
   success: boolean;

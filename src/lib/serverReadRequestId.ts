@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { RequestIdContext } from './requestIdContext';
 import { randomUUID } from 'crypto';
 

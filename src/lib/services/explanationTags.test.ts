@@ -189,6 +189,8 @@ describe('explanationTags', () => {
           id: 456,
           tag_name: 'tag1',
           tag_description: 'desc1',
+          presetTagId: null,
+          created_at: new Date().toISOString(),
           tag_active_initial: true,
           tag_active_current: true
         }
@@ -341,8 +343,8 @@ describe('explanationTags', () => {
     it('should handle simple tag activation and deactivation', async () => {
       const explanationId = 123;
       const tags: TagUIType[] = [
-        { id: 456, tag_name: 'tag1', tag_description: '', tag_active_initial: false, tag_active_current: true }, // Activate
-        { id: 789, tag_name: 'tag2', tag_description: '', tag_active_initial: true, tag_active_current: false }  // Deactivate
+        { id: 456, tag_name: 'tag1', tag_description: '', presetTagId: null, created_at: new Date().toISOString(), tag_active_initial: false, tag_active_current: true }, // Activate
+        { id: 789, tag_name: 'tag2', tag_description: '', presetTagId: null, created_at: new Date().toISOString(), tag_active_initial: true, tag_active_current: false }  // Deactivate
       ];
 
       // Mock addTagsToExplanation
@@ -362,7 +364,7 @@ describe('explanationTags', () => {
     it('should handle no changes', async () => {
       const explanationId = 123;
       const tags: TagUIType[] = [
-        { id: 456, tag_name: 'tag1', tag_description: '', tag_active_initial: true, tag_active_current: true } // No change
+        { id: 456, tag_name: 'tag1', tag_description: '', presetTagId: null, created_at: new Date().toISOString(), tag_active_initial: true, tag_active_current: true } // No change
       ];
 
       const result = await handleApplyForModifyTags(explanationId, tags);

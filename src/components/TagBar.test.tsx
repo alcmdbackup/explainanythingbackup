@@ -867,7 +867,7 @@ describe('TagBar', () => {
 
   describe('Apply/Reset Logic', () => {
     it('should call handleApplyForModifyTags in normal mode', async () => {
-      mockHandleApplyForModifyTags.mockResolvedValue(createSuccessResponse({}));
+      mockHandleApplyForModifyTags.mockResolvedValue({ added: 0, removed: 1, errors: [] });
       const simpleTag = createMockSimpleTag({
         tag_active_current: false,
         tag_active_initial: true,
@@ -895,7 +895,7 @@ describe('TagBar', () => {
         tag_active_initial: false,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [simpleTag], mode: 'rewrite with tags' }),
+        tagState: createMockTagState({ tags: [simpleTag], mode: 'rewriteWithTags' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);
@@ -943,7 +943,7 @@ describe('TagBar', () => {
         tag_active_initial: true,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [activeTag, inactiveTag], mode: 'rewrite with tags' }),
+        tagState: createMockTagState({ tags: [activeTag, inactiveTag], mode: 'rewriteWithTags' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);
@@ -972,7 +972,7 @@ describe('TagBar', () => {
         tag_active_current: true,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [presetTag], mode: 'rewrite with tags' }),
+        tagState: createMockTagState({ tags: [presetTag], mode: 'rewriteWithTags' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);
@@ -1004,7 +1004,7 @@ describe('TagBar', () => {
     });
 
     it('should not apply when explanationId missing in normal mode', async () => {
-      mockHandleApplyForModifyTags.mockResolvedValue(createSuccessResponse({}));
+      mockHandleApplyForModifyTags.mockResolvedValue({ added: 0, removed: 0, errors: [] });
       const simpleTag = createMockSimpleTag({
         tag_active_current: false,
         tag_active_initial: true,

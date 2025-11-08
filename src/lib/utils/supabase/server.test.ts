@@ -56,9 +56,9 @@ describe('supabase/server', () => {
     });
 
     it('should configure getAll to retrieve cookies from cookie store', async () => {
-      const mockCookies = [
-        { name: 'session', value: 'token123', options: {} },
-        { name: 'user', value: 'user456', options: {} },
+      const mockCookies: Array<{ name: string; value: string }> = [
+        { name: 'session', value: 'token123' },
+        { name: 'user', value: 'user456' },
       ];
       mockCookieStore.getAll.mockReturnValue(mockCookies);
 

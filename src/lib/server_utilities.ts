@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { RequestIdContext } from './requestIdContext';

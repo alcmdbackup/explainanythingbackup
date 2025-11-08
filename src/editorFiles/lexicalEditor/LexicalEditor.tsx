@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 'use client';
 
 import { $getRoot} from 'lexical';
-import { useState, useCallback, useEffect, forwardRef, useImperativeHandle, useRef } from 'react';
+import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
 
@@ -21,20 +22,9 @@ import { AutoLinkPlugin } from '@lexical/react/LexicalAutoLinkPlugin';
 import { CheckListPlugin } from '@lexical/react/LexicalCheckListPlugin';
 
 // Import markdown functionality
-import { 
-  $convertFromMarkdownString, 
-  $convertToMarkdownString, 
-  registerMarkdownShortcuts,
-  HEADING,
-  QUOTE,
-  CODE,
-  UNORDERED_LIST,
-  ORDERED_LIST,
-  INLINE_CODE,
-  BOLD_STAR,
-  ITALIC_STAR,
-  STRIKETHROUGH,
-  LINK
+import {
+  $convertFromMarkdownString,
+  registerMarkdownShortcuts
 } from '@lexical/markdown';
 
 
@@ -125,17 +115,17 @@ function InitialContentPlugin({
         });
       }
     }
-  }, [editor, initialContent]); // Removed isMarkdownMode from dependencies
+  }, [editor, initialContent, isMarkdownMode]);
 
   return null;
 }
 
 // Custom plugin for tracking content changes and editor state
-function ContentChangePlugin({ 
+function ContentChangePlugin({
   onContentChange,
   onEditorStateChange,
-  isMarkdownMode = false
-}: { 
+  isMarkdownMode: _isMarkdownMode = false
+}: {
   onContentChange?: (content: string) => void;
   onEditorStateChange?: (editorStateJson: string) => void;
   isMarkdownMode?: boolean;
@@ -163,7 +153,7 @@ function ContentChangePlugin({
     } else {
       console.log('❌ LexicalEditor: No onContentChange callback provided');
     }
-  }, [editor, onContentChange, onEditorStateChange, isMarkdownMode]);
+  }, [editor, onContentChange, onEditorStateChange]);
 
   return <OnChangePlugin onChange={handleChange} />;
 }
@@ -243,7 +233,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   showTreeView = true,
   showToolbar = true,
   isEditMode = true,
-  onEditModeToggle,
+  onEditModeToggle: _onEditModeToggle,
   hideEditingUI = false
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
@@ -621,5 +611,7 @@ export function EditModeToggle({ isEditMode, onToggle }: { isEditMode: boolean; 
     </button>
   );
 }
+
+LexicalEditor.displayName = 'LexicalEditor';
 
 export default LexicalEditor;

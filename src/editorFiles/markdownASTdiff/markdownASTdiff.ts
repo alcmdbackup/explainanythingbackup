@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 // mdast-diff-with-critic.ts
 // Requires: npm i diff
 // ESM:

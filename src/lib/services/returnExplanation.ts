@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
@@ -295,7 +296,7 @@ export const applyTagsToExplanation = withLogging(
     async function applyTagsToExplanation(
         explanationId: number,
         tagEvaluation: any,
-        userid: string
+        _userid: string
     ): Promise<void> {
         try {
             if (!tagEvaluation || tagEvaluation.error) {

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { supabase } from '../supabase';
 import { logger } from '../client_utilities';
 

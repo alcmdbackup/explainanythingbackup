@@ -63,7 +63,7 @@ describe('findMatches Service', () => {
 
     it('should return error when matches array is empty', async () => {
       // Act
-      const result = await findBestMatchFromList('test query', [], MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', [], MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result).toEqual({
@@ -109,7 +109,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 2 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(mockCallOpenAIModel).toHaveBeenCalledWith(
@@ -135,7 +135,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ invalid: 'data' }));
 
       // Act
-      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result.error).toEqual({
@@ -152,7 +152,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.AllowMatch, 1, 'user123');
+      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.Normal, 1, 'user123');
 
       // Assert - should select the next available match (index 2)
       expect(result).toEqual({
@@ -176,7 +176,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', singleMatch, MatchMode.AllowMatch, 1, 'user123');
+      const result = await findBestMatchFromList('test query', singleMatch, MatchMode.Normal, 1, 'user123');
 
       // Assert
       expect(result).toEqual({
@@ -192,7 +192,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 99 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result).toEqual({
@@ -208,7 +208,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 0 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result).toEqual({
@@ -224,7 +224,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockRejectedValue(new Error('LLM API Error'));
 
       // Act
-      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', mockMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result).toEqual({
@@ -245,7 +245,7 @@ describe('findMatches Service', () => {
       const matchesWithoutTopicId: matchWithCurrentContentType[] = [{
         text: 'Match text',
         explanation_id: 1,
-        topic_id: null,
+        topic_id: 1,
         current_title: 'Match',
         current_content: 'Content',
         ranking: { similarity: 0.95, diversity_score: null }
@@ -253,7 +253,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', matchesWithoutTopicId, MatchMode.AllowMatch, null, 'user123');
+      const result = await findBestMatchFromList('test query', matchesWithoutTopicId, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result.topicId).toBeNull();
@@ -272,7 +272,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
 
       // Act
-      await findBestMatchFromList('test query', longContentMatches, MatchMode.AllowMatch, null, 'user123');
+      await findBestMatchFromList('test query', longContentMatches, MatchMode.Normal, null, 'user123');
 
       // Assert
       const promptCall = mockCallOpenAIModel.mock.calls[0][0];
@@ -318,7 +318,7 @@ describe('findMatches Service', () => {
         explanation_title: 'Test Explanation',
         content: 'Test content',
         primary_topic_id: 10,
-        secondary_topic_id: null,
+        secondary_topic_id: undefined,
         status: 'published' as any,
         timestamp: '2024-01-01T00:00:00Z'
       });
@@ -386,7 +386,7 @@ describe('findMatches Service', () => {
         explanation_title: 'Test',
         content: null as any,
         primary_topic_id: 10,
-        secondary_topic_id: null,
+        secondary_topic_id: undefined,
         status: 'published' as any,
         timestamp: '2024-01-01T00:00:00Z'
       });
@@ -405,7 +405,7 @@ describe('findMatches Service', () => {
         explanation_title: null as any,
         content: 'Content',
         primary_topic_id: 10,
-        secondary_topic_id: null,
+        secondary_topic_id: undefined,
         status: 'published' as any,
         timestamp: '2024-01-01T00:00:00Z'
       });

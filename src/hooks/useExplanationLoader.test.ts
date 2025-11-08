@@ -35,22 +35,27 @@ describe('useExplanationLoader', () => {
 
     const mockTags: TagUIType[] = [
         {
-            tag_id: 1,
+            id: 1,
             tag_name: 'beginner',
             tag_description: 'Beginner level',
-            active_for_input: true,
-            active_for_output: true
+            presetTagId: null,
+            created_at: new Date().toISOString(),
+            tag_active_current: true,
+            tag_active_initial: true
         },
         {
-            tag_id: 2,
+            id: 2,
             tag_name: 'technical',
             tag_description: 'Technical content',
-            active_for_input: true,
-            active_for_output: false
+            presetTagId: null,
+            created_at: new Date().toISOString(),
+            tag_active_current: true,
+            tag_active_initial: false
         }
     ];
 
     const mockVector = {
+        id: 'test-vector-id',
         values: new Array(1536).fill(0.1)
     };
 
@@ -58,15 +63,21 @@ describe('useExplanationLoader', () => {
         jest.clearAllMocks();
 
         // Default successful mocks
-        mockGetExplanationByIdAction.mockResolvedValue(mockExplanation);
+        mockGetExplanationByIdAction.mockResolvedValue({
+            ...mockExplanation,
+            primary_topic_id: 1,
+            timestamp: new Date().toISOString()
+        });
         mockIsExplanationSavedByUserAction.mockResolvedValue(true);
         mockGetTagsForExplanationAction.mockResolvedValue({
             success: true,
-            data: mockTags
+            data: mockTags,
+            error: null
         });
         mockLoadFromPineconeUsingExplanationIdAction.mockResolvedValue({
             success: true,
-            data: mockVector
+            data: mockVector,
+            error: null
         });
     });
 
@@ -181,7 +192,7 @@ describe('useExplanationLoader', () => {
         });
 
         it('should handle explanation not found error', async () => {
-            mockGetExplanationByIdAction.mockResolvedValue(null);
+            mockGetExplanationByIdAction.mockRejectedValue(new Error('Explanation not found'));
 
             const { result } = renderHook(() => useExplanationLoader());
 
@@ -243,6 +254,7 @@ describe('useExplanationLoader', () => {
             const mockMatches = [
                 {
                     explanation_id: 456,
+                    topic_id: 1,
                     current_title: 'Match 1',
                     current_content: 'Match content 1',
                     text: 'Match text',

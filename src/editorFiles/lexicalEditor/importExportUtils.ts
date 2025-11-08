@@ -1,9 +1,10 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { $convertFromMarkdownString, $convertToMarkdownString } from "@lexical/markdown";
 import { HEADING, QUOTE, CODE, UNORDERED_LIST, ORDERED_LIST, INLINE_CODE, BOLD_STAR, ITALIC_STAR, STRIKETHROUGH, LINK } from "@lexical/markdown";
 import type { TextMatchTransformer, ElementTransformer } from "@lexical/markdown";
 import { $createTextNode, TextNode, LexicalNode, $createParagraphNode, $getRoot, $setSelection, $isElementNode, $isTextNode } from "lexical";
 import { $dfs } from "@lexical/utils";
-import { $createHeadingNode, $isHeadingNode, HeadingNode } from "@lexical/rich-text";
+import { $isHeadingNode } from "@lexical/rich-text";
 import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline, DiffUpdateContainerInline, $createDiffUpdateContainerInline } from "./DiffTagNode";
 import { StandaloneTitleLinkNode, $createStandaloneTitleLinkNode, $isStandaloneTitleLinkNode } from "./StandaloneTitleLinkNode";
 
@@ -386,7 +387,7 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
         
         // Replace the matched text with the DiffTagNodeInline (do this last)
         textNode.replace(diff);
-        console.log("✅ DiffTagNodeInline CREATED and REPLACED textNode with tag:", marks === "++" ? "ins" : "update");
+        console.log("✅ DiffTagNodeInline CREATED and REPLACED textNode with tag: update");
 
         // Check if the newly created diff node should be promoted to top-level
         if (shouldPromoteToTopLevel(diff)) {
@@ -850,7 +851,7 @@ function fixHeadingFormatting(markdown: string): string {
  * • Ensures these blocks are on their own lines for proper parsing
  * • Processes in reverse order to avoid offset issues when inserting newlines
  */
-function fixCriticMarkupWithHeadings(markdown: string): string {
+function _fixCriticMarkupWithHeadings(markdown: string): string {
   // Find all CriticMarkup blocks that contain headings
   const criticMarkupWithHeadingsRegex = /\{([+-~]{2})([^}]*#{1,6}[^}]*)\1\}/g;
   let criticMarkupMatch;
@@ -867,7 +868,7 @@ function fixCriticMarkupWithHeadings(markdown: string): string {
   // Process CriticMarkup blocks with headings in reverse order
   let fixedMarkdown = markdown;
   for (let i = criticMarkupWithHeadings.length - 1; i >= 0; i--) {
-    const { match, start, end } = criticMarkupWithHeadings[i];
+    const { start, end } = criticMarkupWithHeadings[i];
     
     // Check if the opening { is not on a newline
     const charBefore = start > 0 ? fixedMarkdown[start - 1] : '';
@@ -1113,7 +1114,7 @@ export const STANDALONE_TITLE_LINK_TRANSFORMER: TextMatchTransformer = {
   importRegExp: /\[([^\]]+)\]\(\/standalone-title\?t=([^)]+)\)/,
   regExp: /\[([^\]]+)\]\(\/standalone-title\?t=([^)]+)\)$/,
   replace: (textNode: TextNode, match: RegExpMatchArray) => {
-    const [fullMatch, linkText, encodedTitle] = match;
+    const [, linkText, encodedTitle] = match;
     const url = `/standalone-title?t=${encodedTitle}`;
 
     const linkNode = $createStandaloneTitleLinkNode(url);

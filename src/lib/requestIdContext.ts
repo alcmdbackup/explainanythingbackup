@@ -1,7 +1,9 @@
 // Conditionally import AsyncLocalStorage only on server
+/* eslint-disable @typescript-eslint/no-require-imports */
 const storage = typeof window === 'undefined'
     ? new (require('async_hooks').AsyncLocalStorage)<{ requestId: string; userId: string }>()
     : null;
+/* eslint-enable @typescript-eslint/no-require-imports */
 
 // Client-side tracking
 let clientRequestId = { requestId: 'unknown', userId: 'anonymous' };

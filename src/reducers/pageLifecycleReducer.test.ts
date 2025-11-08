@@ -252,8 +252,8 @@ describe('pageLifecycleReducer', () => {
       };
       const result = pageLifecycleReducer(editingState, action);
 
-      expect(result.status).toBe(ExplanationStatus.Draft);
-      expect(result.hasUnsavedChanges).toBe(true);
+      expect(getStatus(result)).toBe(ExplanationStatus.Draft);
+      expect(hasUnsavedChanges(result)).toBe(true);
     });
 
     it('should preserve modified content on EXIT_EDIT_MODE (not revert)', () => {

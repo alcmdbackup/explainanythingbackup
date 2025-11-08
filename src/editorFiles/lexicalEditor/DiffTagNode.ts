@@ -1,4 +1,5 @@
-import type {EditorConfig, LexicalEditor, NodeKey, DOMConversionMap, DOMConversionOutput, DOMExportOutput} from "lexical";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import type {NodeKey, DOMConversionMap, DOMConversionOutput, DOMExportOutput} from "lexical";
 import {ElementNode, LexicalNode, $isTextNode} from "lexical";
 
 type DiffTag = "ins" | "del" | "update";

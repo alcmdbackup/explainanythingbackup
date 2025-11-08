@@ -65,9 +65,7 @@ describe('Metrics Service', () => {
     it('should create a new event successfully', async () => {
       // Arrange
       const expectedResponse: UserExplanationEventsType = {
-        ...mockEventData,
-        id: 1,
-        timestamp: '2024-01-01T00:00:00Z'
+        ...mockEventData
       };
 
       mockSupabase.single.mockResolvedValue({
@@ -437,9 +435,9 @@ describe('Metrics Service', () => {
 
       // Assert - should be ordered as [1, 2(null), 3]
       expect(result).toHaveLength(3);
-      expect(result[0]?.explanationid).toBe(1);
+      expect(result[0]?.explanation_id).toBe(1);
       expect(result[1]).toBeNull();
-      expect(result[2]?.explanationid).toBe(3);
+      expect(result[2]?.explanation_id).toBe(3);
     });
 
     it('should throw error when query fails', async () => {

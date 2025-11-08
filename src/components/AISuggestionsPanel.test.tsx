@@ -630,7 +630,7 @@ describe('AISuggestionsPanel', () => {
     it('should display progress bar during loading', async () => {
       const props = createMockAISuggestionsPanelProps({ currentContent: 'Test content' });
       let resolvePromise: (value: any) => void;
-      const promise = new Promise((resolve) => {
+      const promise = new Promise<{ success: boolean; content?: string; error?: string; session_id?: string }>((resolve) => {
         resolvePromise = resolve;
       });
       mockRunAISuggestionsPipelineAction.mockImplementation(() => promise);

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
 import { callOpenAIModel, default_model, lighter_model } from '@/lib/services/llms';

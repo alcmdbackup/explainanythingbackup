@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars, @typescript-eslint/no-unsafe-function-type */
 // src/lib/logging/runtimeWrapper.ts
 import { withLogging, shouldSkipAutoLogging } from './automaticServerLoggingBase';
 

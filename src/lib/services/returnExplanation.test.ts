@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 // Import OpenAI shims first
 import 'openai/shims/node';
 
@@ -159,7 +160,7 @@ describe('returnExplanation', () => {
       createMappingsHeadingsToLinks.mockResolvedValue({ '## Test': '## [[Test]]' });
       createMappingsKeytermsToLinks.mockResolvedValue({ 'keyword': '[[keyword]]' });
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
-      cleanupAfterEnhancements.mockImplementation(c => c);
+      cleanupAfterEnhancements.mockImplementation((c: string) => c);
 
       // Import the function
       const { postprocessNewExplanationContent } = require('./returnExplanation');
@@ -192,7 +193,7 @@ describe('returnExplanation', () => {
       createMappingsHeadingsToLinks.mockResolvedValue({});
       createMappingsKeytermsToLinks.mockResolvedValue({});
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
-      cleanupAfterEnhancements.mockImplementation(c => c);
+      cleanupAfterEnhancements.mockImplementation((c: string) => c);
 
       // Import the function
       const { generateNewExplanation } = require('./returnExplanation');

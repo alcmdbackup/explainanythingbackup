@@ -98,7 +98,7 @@ async function testTableSchema() {
             console.log('⚠️ RPC not available, using direct query...');
 
             // Alternative: direct query to check columns
-            const { data: tableInfo, error: tableError } = await supabase
+            const { error: tableError } = await supabase
                 .from('testing_edits_pipeline')
                 .select('*')
                 .limit(0); // Get structure without data
@@ -341,7 +341,7 @@ async function cleanupTestRecords() {
     console.log('\n🧹 Cleaning up test records...');
 
     try {
-        const { data, error } = await supabase
+        const { error } = await supabase
             .from('testing_edits_pipeline')
             .delete()
             .eq('session_id', testSessionData.session_id);

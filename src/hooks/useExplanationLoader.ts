@@ -9,7 +9,7 @@ import {
 } from '@/actions/actions';
 import { ExplanationStatus, TagUIType, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
-import { clientPassRequestId } from '@/hooks/clientPassRequestId';
+import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 
 /**
  * Custom hook for loading and managing explanation data
@@ -85,7 +85,7 @@ export function useExplanationLoader(
     options: UseExplanationLoaderOptions = {}
 ): UseExplanationLoaderReturn {
     const { onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
-    const { withRequestId } = clientPassRequestId('anonymous');
+    const { withRequestId } = useClientPassRequestId('anonymous');
 
     // State for the 7 explanation-related variables
     const [explanationId, setExplanationId] = useState<number | null>(null);

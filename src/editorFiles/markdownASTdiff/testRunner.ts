@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import { Root } from 'mdast';

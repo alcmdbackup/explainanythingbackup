@@ -332,7 +332,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
 
   describe('Error Handling', () => {
     it('should handle explanation loader error', () => {
-      mockUseExplanationLoader.error = 'Failed to load explanation';
+      (mockUseExplanationLoader as any).error = 'Failed to load explanation';
       (useExplanationLoader as jest.Mock).mockReturnValue(mockUseExplanationLoader);
 
       render(<ResultsPage />);
@@ -342,7 +342,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
     });
 
     it('should handle missing userid gracefully', () => {
-      mockUseUserAuth.userid = null;
+      (mockUseUserAuth as any).userid = null;
       (useUserAuth as jest.Mock).mockReturnValue(mockUseUserAuth);
 
       render(<ResultsPage />);
@@ -388,7 +388,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
 
   describe('Published vs Draft Status', () => {
     it('should handle published explanation', () => {
-      mockUseExplanationLoader.explanationStatus = ExplanationStatus.Published;
+      (mockUseExplanationLoader as any).explanationStatus = ExplanationStatus.Published;
       (useExplanationLoader as jest.Mock).mockReturnValue(mockUseExplanationLoader);
 
       render(<ResultsPage />);
@@ -397,7 +397,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
     });
 
     it('should handle draft explanation', () => {
-      mockUseExplanationLoader.explanationStatus = ExplanationStatus.Draft;
+      (mockUseExplanationLoader as any).explanationStatus = ExplanationStatus.Draft;
       (useExplanationLoader as jest.Mock).mockReturnValue(mockUseExplanationLoader);
 
       render(<ResultsPage />);

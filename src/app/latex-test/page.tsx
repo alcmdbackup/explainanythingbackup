@@ -1,6 +1,6 @@
 'use client';
 
-import { InlineMath, BlockMath } from 'react-katex';
+import { InlineMath } from 'react-katex';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -38,14 +38,6 @@ $$
                     <ReactMarkdown
                         remarkPlugins={[remarkMath]}
                         rehypePlugins={[rehypeKatex]}
-                        components={{
-                            inlineMath: ({children}) => (
-                                <InlineMath math={String(children).replace(/\$/g, '')} />
-                            ),
-                            math: ({children}) => (
-                                <BlockMath math={String(children)} />
-                            )
-                        }}
                     >
                         {markdownContent}
                     </ReactMarkdown>

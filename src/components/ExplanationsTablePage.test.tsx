@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import ExplanationsTablePage from './ExplanationsTablePage';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
 import type { ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { ExplanationStatus } from '@/lib/schemas/schemas';
 
 // Mock dependencies
 jest.mock('@/components/Navigation', () => {
@@ -38,16 +39,9 @@ describe('ExplanationsTablePage', () => {
     id: 1,
     explanation_title: 'Test Explanation',
     content: '# Test Explanation\n\nThis is test content',
-    user_id: 'user-123',
     timestamp: '2024-01-01T00:00:00Z',
-    query: 'test query',
-    background: 'test background',
-    query_classification: 'test',
-    tag_ids: [],
-    vector: [],
-    audience_level: 1,
-    llm_model: 'gpt-4o-mini',
-    explanation_status: 'published',
+    primary_topic_id: 1,
+    status: ExplanationStatus.Published,
     ...overrides,
   });
 

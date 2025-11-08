@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';

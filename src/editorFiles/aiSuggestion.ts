@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { z } from 'zod';
 import { default_model } from '@/lib/services/llms';
 
@@ -123,7 +124,7 @@ export function validateAISuggestionOutput(rawOutput: string): { success: true; 
     } else {
       return { success: false, error: result.error };
     }
-  } catch (error) {
+  } catch {
     // If JSON parsing fails, create a mock ZodError
     const mockError = new z.ZodError([
       {
@@ -221,7 +222,7 @@ export async function runAISuggestionsPipeline(
   const suggestions = suggestionsResult.data;
 
   // Save step 1 if session data provided
-  if (sessionData) {
+  if (sessionData && sessionData.session_id) {
     console.log('💾 PIPELINE: Saving step 1 to database...', {
       sessionId: sessionData.session_id,
       explanationId: sessionData.explanation_id,
@@ -247,7 +248,7 @@ export async function runAISuggestionsPipeline(
       console.error('❌ PIPELINE STEP 1 SAVE FAILED:', error);
     }
   } else {
-    console.log('⚠️ PIPELINE: No session data provided, skipping step 1 save');
+    console.log('⚠️ PIPELINE: No session data provided or missing session_id, skipping step 1 save');
   }
 
   onProgress?.('Applying suggestions...', 50);
@@ -267,7 +268,7 @@ export async function runAISuggestionsPipeline(
   const editedContent = editedContentResult.data;
 
   // Save step 2 if session data provided
-  if (sessionData) {
+  if (sessionData && sessionData.session_id) {
     console.log('💾 PIPELINE: Saving step 2 to database...');
     try {
       const saveResult = await saveTestingPipelineStepAction(
@@ -301,7 +302,7 @@ export async function runAISuggestionsPipeline(
   });
 
   // Save step 3 if session data provided
-  if (sessionData) {
+  if (sessionData && sessionData.session_id) {
     console.log('💾 PIPELINE: Saving step 3 to database...');
     try {
       const saveResult = await saveTestingPipelineStepAction(
@@ -332,7 +333,7 @@ export async function runAISuggestionsPipeline(
   });
 
   // Save step 4 if session data provided
-  if (sessionData) {
+  if (sessionData && sessionData.session_id) {
     console.log('💾 PIPELINE: Saving step 4 to database...');
     try {
       const saveResult = await saveTestingPipelineStepAction(

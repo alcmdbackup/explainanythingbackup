@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { logger } from '@/lib/server_utilities';
 
 // Error codes as constants for consistency

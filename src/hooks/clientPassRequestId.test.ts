@@ -1,8 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
+ 
 
 import { renderHook } from '@testing-library/react';
 import { RequestIdContext } from '@/lib/requestIdContext';
-import { clientPassRequestId } from './clientPassRequestId';
+import { useClientPassRequestId } from './clientPassRequestId';
 
 // Mock RequestIdContext
 jest.mock('@/lib/requestIdContext', () => ({
@@ -34,14 +34,14 @@ describe('clientPassRequestId', () => {
 
   describe('Basic Functionality', () => {
     it('should return an object with withRequestId function', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       expect(result.current).toHaveProperty('withRequestId');
       expect(typeof result.current.withRequestId).toBe('function');
     });
 
     it('should use default userId "anonymous" when not provided', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       result.current.withRequestId();
 
@@ -52,7 +52,7 @@ describe('clientPassRequestId', () => {
 
     it('should use custom userId when provided', () => {
       const customUserId = 'user-12345';
-      const { result } = renderHook(() => clientPassRequestId(customUserId));
+      const { result } = renderHook(() => useClientPassRequestId(customUserId));
 
       result.current.withRequestId();
 
@@ -68,7 +68,7 @@ describe('clientPassRequestId', () => {
       const fixedTimestamp = 1234567890000;
       Date.now = jest.fn(() => fixedTimestamp);
 
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
       const data = result.current.withRequestId();
 
       // Verify format: client-{timestamp}-{6 alphanumeric chars}
@@ -83,7 +83,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should generate unique requestId for each call', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const data1 = result.current.withRequestId();
       const data2 = result.current.withRequestId();
@@ -99,7 +99,7 @@ describe('clientPassRequestId', () => {
       const fixedTimestamp = 1234567890000;
       Date.now = jest.fn(() => fixedTimestamp);
 
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const data1 = result.current.withRequestId();
       const data2 = result.current.withRequestId();
@@ -114,7 +114,7 @@ describe('clientPassRequestId', () => {
   describe('RequestIdContext Integration', () => {
     it('should call RequestIdContext.setClient with requestId and userId', () => {
       const userId = 'test-user';
-      const { result } = renderHook(() => clientPassRequestId(userId));
+      const { result } = renderHook(() => useClientPassRequestId(userId));
 
       result.current.withRequestId();
 
@@ -126,7 +126,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should call setClient on every withRequestId call', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       result.current.withRequestId();
       result.current.withRequestId();
@@ -136,7 +136,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should call setClient with different requestIds each time', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       result.current.withRequestId();
       result.current.withRequestId();
@@ -150,7 +150,7 @@ describe('clientPassRequestId', () => {
 
   describe('Data Merging', () => {
     it('should attach __requestId to empty data object', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const data = result.current.withRequestId({});
 
@@ -162,7 +162,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should attach __requestId when no data provided', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const data = result.current.withRequestId();
 
@@ -174,7 +174,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should preserve existing properties in data object', () => {
-      const { result } = renderHook(() => clientPassRequestId('user-123'));
+      const { result } = renderHook(() => useClientPassRequestId('user-123'));
 
       const originalData = {
         name: 'Test',
@@ -196,7 +196,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should not mutate original data object', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const originalData = { foo: 'bar' };
       const returnedData = result.current.withRequestId(originalData);
@@ -207,7 +207,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should overwrite existing __requestId if present', () => {
-      const { result } = renderHook(() => clientPassRequestId('new-user'));
+      const { result } = renderHook(() => useClientPassRequestId('new-user'));
 
       const dataWithOldId = {
         foo: 'bar',
@@ -224,7 +224,7 @@ describe('clientPassRequestId', () => {
 
   describe('Function Stability (useCallback)', () => {
     it('should return stable withRequestId reference when userId unchanged', () => {
-      const { result, rerender } = renderHook(() => clientPassRequestId('user-123'));
+      const { result, rerender } = renderHook(() => useClientPassRequestId('user-123'));
 
       const firstReference = result.current.withRequestId;
 
@@ -237,7 +237,7 @@ describe('clientPassRequestId', () => {
 
     it('should return new withRequestId reference when userId changes', () => {
       const { result, rerender } = renderHook(
-        ({ userId }) => clientPassRequestId(userId),
+        ({ userId }) => useClientPassRequestId(userId),
         { initialProps: { userId: 'user-1' } }
       );
 
@@ -253,7 +253,7 @@ describe('clientPassRequestId', () => {
 
   describe('Edge Cases', () => {
     it('should handle undefined userId gracefully', () => {
-      const { result } = renderHook(() => clientPassRequestId(undefined));
+      const { result } = renderHook(() => useClientPassRequestId(undefined));
 
       const data = result.current.withRequestId();
 
@@ -261,7 +261,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should handle empty string userId', () => {
-      const { result } = renderHook(() => clientPassRequestId(''));
+      const { result } = renderHook(() => useClientPassRequestId(''));
 
       const data = result.current.withRequestId();
 
@@ -273,7 +273,7 @@ describe('clientPassRequestId', () => {
 
     it('should handle special characters in userId', () => {
       const specialUserId = 'user@example.com!#$%';
-      const { result } = renderHook(() => clientPassRequestId(specialUserId));
+      const { result } = renderHook(() => useClientPassRequestId(specialUserId));
 
       const data = result.current.withRequestId();
 
@@ -281,7 +281,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should handle complex nested data structures', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const complexData = {
         level1: {
@@ -304,7 +304,7 @@ describe('clientPassRequestId', () => {
     });
 
     it('should handle data with function properties', () => {
-      const { result } = renderHook(() => clientPassRequestId());
+      const { result } = renderHook(() => useClientPassRequestId());
 
       const callback = jest.fn();
       const dataWithFunction = {
@@ -322,7 +322,7 @@ describe('clientPassRequestId', () => {
 
   describe('Type Safety', () => {
     it('should return correct __requestId structure', () => {
-      const { result } = renderHook(() => clientPassRequestId('user-123'));
+      const { result } = renderHook(() => useClientPassRequestId('user-123'));
 
       const data = result.current.withRequestId({ foo: 'bar' });
 
@@ -335,8 +335,8 @@ describe('clientPassRequestId', () => {
 
   describe('Multiple Hook Instances', () => {
     it('should work correctly with multiple hook instances', () => {
-      const { result: result1 } = renderHook(() => clientPassRequestId('user-1'));
-      const { result: result2 } = renderHook(() => clientPassRequestId('user-2'));
+      const { result: result1 } = renderHook(() => useClientPassRequestId('user-1'));
+      const { result: result2 } = renderHook(() => useClientPassRequestId('user-2'));
 
       const data1 = result1.current.withRequestId({ source: 'hook1' });
       const data2 = result2.current.withRequestId({ source: 'hook2' });

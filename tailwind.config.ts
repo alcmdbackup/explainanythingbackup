@@ -1,4 +1,5 @@
 import type { Config } from 'tailwindcss'
+import typographyPlugin from '@tailwindcss/typography'
 
 console.log('Loading Tailwind config...');
 
@@ -16,7 +17,7 @@ const config: Config = {
     },
   },
   plugins: [
-    require('@tailwindcss/typography'),
+    typographyPlugin,
   ],
 }
 

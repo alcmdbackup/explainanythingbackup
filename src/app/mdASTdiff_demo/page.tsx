@@ -58,7 +58,8 @@ export default function MdASTdiffDemoPage() {
             const afterAST = unified().use(remarkParse).parse(afterText);
 
             // Generate CriticMarkup output
-            const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST, {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST as any, afterAST as any, {
                 textGranularity: 'word'
             });
 

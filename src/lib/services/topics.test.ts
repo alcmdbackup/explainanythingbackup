@@ -52,7 +52,8 @@ describe('Topics Service', () => {
         id: 1,
         topic_title: 'Physics',
         topic_description: 'Study of matter and energy',
-        created_at: '2024-01-01T00:00:00Z'
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
       };
 
       // Mock the select query to find existing topic
@@ -83,7 +84,8 @@ describe('Topics Service', () => {
         id: 2,
         topic_title: 'Chemistry',
         topic_description: 'Study of substances',
-        created_at: '2024-01-01T00:00:00Z'
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
       };
 
       // Mock select to not find existing topic (PGRST116 = No rows found)
@@ -160,7 +162,8 @@ describe('Topics Service', () => {
         id: 1,
         topic_title: 'Mathematics',
         topic_description: 'Study of numbers',
-        created_at: '2024-01-01T00:00:00Z'
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
       };
 
       mockSupabase.single.mockResolvedValue({
@@ -213,13 +216,15 @@ describe('Topics Service', () => {
           id: 1,
           topic_title: 'Topic 1',
           topic_description: 'Description 1',
-          created_at: '2024-01-01T00:00:00Z'
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z'
         },
         {
           id: 2,
           topic_title: 'Topic 2',
           topic_description: 'Description 2',
-          created_at: '2024-01-02T00:00:00Z'
+          created_at: '2024-01-02T00:00:00Z',
+          updated_at: '2024-01-02T00:00:00Z'
         }
       ];
 
@@ -305,7 +310,8 @@ describe('Topics Service', () => {
         id: 1,
         topic_title: 'Physics',
         topic_description: 'Updated description',
-        created_at: '2024-01-01T00:00:00Z'
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
       };
 
       mockSupabase.single.mockResolvedValue({
@@ -377,13 +383,15 @@ describe('Topics Service', () => {
           id: 1,
           topic_title: 'Physics',
           topic_description: 'Study of matter',
-          created_at: '2024-01-01T00:00:00Z'
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z'
         },
         {
           id: 2,
           topic_title: 'Astrophysics',
           topic_description: 'Study of space',
-          created_at: '2024-01-02T00:00:00Z'
+          created_at: '2024-01-02T00:00:00Z',
+          updated_at: '2024-01-02T00:00:00Z'
         }
       ];
 

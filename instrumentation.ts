@@ -93,7 +93,7 @@ export async function register() {
   if (typeof process !== 'undefined' && 
       typeof process.on === 'function' && 
       process.env.NEXT_RUNTIME !== 'edge') {
-    process.on('unhandledRejection', (reason, promise) => {
+    process.on('unhandledRejection', (reason) => {
       const span = trace.getActiveSpan();
       if (span) {
         span.recordException(reason as Error);

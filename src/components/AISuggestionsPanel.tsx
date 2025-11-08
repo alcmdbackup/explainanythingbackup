@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
 import { useState, useCallback } from 'react';
@@ -25,7 +26,7 @@ export default function AISuggestionsPanel({
   isVisible,
   onClose,
   currentContent,
-  editorRef,
+  editorRef: _editorRef = null,
   onContentChange,
   onEnterEditMode,
   sessionData
@@ -126,7 +127,7 @@ export default function AISuggestionsPanel({
       setIsLoading(false);
       setProgressState(null);
     }
-  }, [userPrompt, currentContent, editorRef, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData]);
+  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData]);
 
   if (!isVisible) {
     return null;
