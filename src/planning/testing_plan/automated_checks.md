@@ -18,7 +18,9 @@ Set up git hooks to **guarantee** these checks run before every commit:
 - Global CLAUDE.md already instructs: "After every code block you write, lint, compile and write corresponding tests"
 - Permission pre-approvals exist for: `npm test:*`, `npx tsc:*`, `npx eslint:*`
 - No git hooks currently configured in project
-- No Claude Code hooks currently configured
+- ✅ **Claude Code hooks CONFIGURED** (`.claude/settings.json`) - Option 4 implementation:
+  - **PostToolUse**: Quick lint of individual files after Edit/Write (~0.5-1s per edit)
+  - **Stop**: Full checks (tsc + lint + tests) when Claude finishes, skips for markdown/JSON-only changes
 
 ## Claude Code Hooks Capabilities
 
