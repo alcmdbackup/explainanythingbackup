@@ -22,7 +22,7 @@ import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAl
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
-import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName } from '../lib/services/testingPipeline';
+import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
 import { supabase } from '../lib/supabase';
 
 
@@ -695,7 +695,7 @@ const _getTagsForExplanationAction = withLogging(
             return {
                 success: false,
                 data: null,
-                error: handleError(error, 'getTagsForExplanationAction', { explanationId })
+                error: handleError(error, 'getTagsForExplanationAction', { explanationId: params.explanationId })
             };
         }
     },
@@ -1251,7 +1251,7 @@ const _updateTestingPipelineRecordSetNameAction = withLogging(
         newSetName: string
     ): Promise<{
         success: boolean;
-        data: { id: number; name: string; step: string; content: string; created_at: string; updated_at: string } | null;
+        data: TestingPipelineRecord | null;
         error: ErrorResponse | null;
     }> {
         try {
@@ -1414,7 +1414,7 @@ const _loadAISuggestionSessionAction = withLogging(
                 return {
                     success: false,
                     data: null,
-                    error: createError('Session not found', ERROR_CODES.NOT_FOUND)
+                    error: createError(ERROR_CODES.NOT_FOUND, 'Session not found')
                 };
             }
 

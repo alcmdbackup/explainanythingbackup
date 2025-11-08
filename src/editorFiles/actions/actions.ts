@@ -5,7 +5,7 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../../editorFiles/aiSuggestion';
-import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName } from '../../lib/services/testingPipeline';
+import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../../lib/services/testingPipeline';
 import { supabase } from '../../lib/supabase';
 
 const FILE_DEBUG = true;
@@ -273,7 +273,7 @@ export const updateTestingPipelineRecordSetNameAction = withLogging(
         newSetName: string
     ): Promise<{
         success: boolean;
-        data: { id: number; name: string; step: string; content: string; created_at: string; updated_at: string } | null;
+        data: TestingPipelineRecord | null;
         error: ErrorResponse | null;
     }> {
         try {

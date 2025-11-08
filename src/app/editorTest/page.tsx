@@ -111,7 +111,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         try {
             setError('');
             // Reuse the same action from results page
-            const explanation = await getExplanationByIdAction(explanationId);
+            const explanation = await getExplanationByIdAction({ id: explanationId });
 
             if (explanation && editorRef.current) {
                 // Load into Lexical editor (replaces hardcoded Einstein content)
@@ -527,7 +527,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                         const saveResult = await saveTestingPipelineStepAction(
                             testSetName,
                             '1_ai_suggestion',
-                            mergedOutput
+                            mergeActionResult.data ?? ''
                         );
 
                         if (saveResult.success && saveResult.data?.saved) {
@@ -541,10 +541,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
                     logger.debug('AI suggestions received and validated', {
                         responseLength: result.data.length,
-                        editsCount: validationResult.data.edits.length
+                        editsCount: validationActionResult.data?.data?.edits?.length ?? 0
                     });
                 } else {
-                    setSuggestionError(`AI response validation failed: ${validationResult.error.message}`);
+                    setSuggestionError(`AI response validation failed: ${validationActionResult.error?.message ?? 'Unknown error'}`);
                 }
             } else {
                 setSuggestionError(result.error?.message || 'Failed to generate AI suggestions');

@@ -141,7 +141,7 @@ describe('TagBar', () => {
       const props = createMockTagBarProps({
         tagState: createMockTagState({
           tags: [simpleTag],
-          mode: 'rewrite with tags', // Use exact enum value with spaces
+          mode: 'rewriteWithTags', // Use exact enum value with spaces
         }),
       });
       render(<TagBar {...props} />);
@@ -157,7 +157,7 @@ describe('TagBar', () => {
       const props = createMockTagBarProps({
         tagState: createMockTagState({
           tags: [simpleTag],
-          mode: 'edit with tags',
+          mode: 'editWithTags',
         }),
       });
       render(<TagBar {...props} />);

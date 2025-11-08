@@ -22,11 +22,13 @@ describe('POST /api/client-logs', () => {
   });
 
   afterEach(() => {
-    process.env.NODE_ENV = originalEnv;
+    if (originalEnv !== undefined) {
+      Object.defineProperty(process.env, 'NODE_ENV', { value: originalEnv });
+    }
   });
 
   it('should reject requests in production', async () => {
-    process.env.NODE_ENV = 'production';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'production' });
 
     const request = createMockNextRequest({ message: 'Test log' }) as unknown as NextRequest;
     const response = await POST(request);
@@ -41,7 +43,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should accept and log requests in development', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const logEntry = {
       timestamp: '2024-01-01T00:00:00.000Z',
@@ -66,7 +68,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should add source field to log entry', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const logEntry = { message: 'Test' };
     const request = createMockNextRequest(logEntry) as unknown as NextRequest;
@@ -83,7 +85,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should append newline to log entry', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const request = createMockNextRequest({ message: 'Test' }) as unknown as NextRequest;
     await POST(request);
@@ -93,7 +95,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should handle complex log entries', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const complexEntry = {
       timestamp: '2024-01-01T00:00:00.000Z',
@@ -118,7 +120,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should handle file write errors', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     mockAppendFileSync.mockImplementation(() => {
       throw new Error('Disk full');
@@ -134,7 +136,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should handle invalid JSON in request', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const request = {
       json: jest.fn().mockRejectedValue(new Error('Invalid JSON')),
@@ -149,7 +151,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should handle empty log entry', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const request = createMockNextRequest({}) as unknown as NextRequest;
     const response = await POST(request);
@@ -163,7 +165,7 @@ describe('POST /api/client-logs', () => {
   });
 
   it('should log to correct file path', async () => {
-    process.env.NODE_ENV = 'development';
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
 
     const request = createMockNextRequest({ message: 'Test' }) as unknown as NextRequest;
     await POST(request);

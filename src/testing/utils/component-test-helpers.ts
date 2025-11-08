@@ -192,14 +192,16 @@ export const createMockExplanationsTablePageProps = (overrides = {}) => ({
 export const createSuccessResponse = <T>(data: T) => ({
   success: true as const,
   data,
+  error: null,
 });
 
 /**
  * Creates a failed server action response
  */
-export const createErrorResponse = (message = 'An error occurred') => ({
+export const createErrorResponse = (message = 'An error occurred', code = 'ERROR') => ({
   success: false as const,
-  error: { message },
+  data: null,
+  error: { message, code },
 });
 
 /**
