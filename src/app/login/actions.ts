@@ -40,7 +40,8 @@ export async function signup(formData: FormData) {
 
   if (error) {
     console.error('Signup error:', error.message, error)
-    redirect('/error')
+    console.error('Signup error details:', JSON.stringify(error, null, 2))
+    redirect(`/error?message=${encodeURIComponent(error.message)}`)
   }
 
   revalidatePath('/', 'layout')
