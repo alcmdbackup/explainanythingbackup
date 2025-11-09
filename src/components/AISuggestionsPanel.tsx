@@ -8,7 +8,7 @@ interface AISuggestionsPanelProps {
   isVisible: boolean;
   onClose?: () => void;
   currentContent: string;
-  editorRef: React.RefObject<unknown>; // LexicalEditorRef
+  editorRef?: React.RefObject<unknown>; // LexicalEditorRef
   onContentChange?: (content: string) => void;
   onEnterEditMode?: () => void;
   sessionData?: {
@@ -26,7 +26,7 @@ export default function AISuggestionsPanel({
   isVisible,
   onClose,
   currentContent,
-  editorRef: _editorRef = null,
+  editorRef: _editorRef,
   onContentChange,
   onEnterEditMode,
   sessionData

@@ -34,7 +34,7 @@ export function setupServerRuntimeWrapping() {
 
   // Wrap Promise methods (safer than Array methods)
   const originalThen = Promise.prototype.then;
-  Promise.prototype.then = function(onFulfilled, onRejected) {
+  (Promise.prototype.then as any) = function(this: any, onFulfilled: any, onRejected: any) {
     if (typeof onFulfilled === 'function' && !isWrapping) {
       const fnName = onFulfilled.name || 'anonymous';
       onFulfilled = wrapCallback(onFulfilled, `promise.then(${fnName})`);

@@ -18,9 +18,9 @@ export interface MdastNode {
   checked?: boolean | null;
   lang?: string | null;
   meta?: string | null;
-  align?: string[] | null;
+  align?: (string | null)[] | null;
   children?: MdastNode[];
-  [key: string]: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
 }
 
 /**

@@ -225,7 +225,12 @@ export function useExplanationLoader(
                         };
                     }
 
-                    setExplanationVector(vectorData);
+                    // Only set if values exist
+                    if (vectorData.values) {
+                        setExplanationVector(vectorData as { values: number[] });
+                    } else {
+                        setExplanationVector(null);
+                    }
                     logger.debug('Loaded explanation vector:', {
                         found: true,
                         explanationId: explanation.id,

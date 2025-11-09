@@ -35,21 +35,21 @@ export function setupServerUniversalInterception() {
 
   // Only intercept setTimeout/setInterval for critical path tracking
   const originalSetTimeout = global.setTimeout;
-  global.setTimeout = function(callback: Function, delay: number, ...args: any[]) {
+  (global.setTimeout as any) = function(this: any, callback: Function, delay: number, ...args: any[]) {
     if (typeof callback === 'function' && !isIntercepting) {
       const fnName = callback.name || 'anonymous';
       callback = wrapGlobalFunction(callback, `setTimeout(${fnName})`);
     }
-    return originalSetTimeout.call(this, callback, delay, ...args);
+    return (originalSetTimeout as any).call(this, callback, delay, ...args);
   };
 
   const originalSetInterval = global.setInterval;
-  global.setInterval = function(callback: Function, delay: number, ...args: any[]) {
+  (global.setInterval as any) = function(this: any, callback: Function, delay: number, ...args: any[]) {
     if (typeof callback === 'function' && !isIntercepting) {
       const fnName = callback.name || 'anonymous';
       callback = wrapGlobalFunction(callback, `setInterval(${fnName})`);
     }
-    return originalSetInterval.call(this, callback, delay, ...args);
+    return (originalSetInterval as any).call(this, callback, delay, ...args);
   };
 
   console.log('⚠️ Universal interception enabled - use with caution in production');

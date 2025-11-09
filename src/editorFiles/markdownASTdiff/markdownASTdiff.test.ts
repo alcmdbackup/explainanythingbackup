@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Tests for markdownASTdiff.ts - AST-based markdown diffing with CriticMarkup
  * Phase 7: Editor & Lexical System Testing

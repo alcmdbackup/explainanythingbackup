@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { type UserSavedExplanationType } from '@/lib/schemas/schemas';
 import { getUserLibraryExplanationsAction } from '@/actions/actions';
-import { logger } from '@/lib/server_utilities';
+import { logger } from '@/lib/client_utilities';
 import ExplanationsTablePage from '@/components/ExplanationsTablePage';
 import { supabase_browser } from '@/lib/supabase';
 

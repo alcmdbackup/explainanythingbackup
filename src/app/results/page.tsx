@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer, useCallback } from 'react';
+import { useState, useEffect, useRef, useReducer, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges } from '@/actions/actions';
@@ -31,7 +31,7 @@ import { useUserAuth } from '@/hooks/useUserAuth';
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
 
-export default function ResultsPage() {
+function ResultsPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const { withRequestId } = useClientPassRequestId('anonymous');
@@ -1259,5 +1259,19 @@ export default function ResultsPage() {
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function ResultsPage() {
+    return (
+        <Suspense fallback={<div className="h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
+            <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+        </div>}>
+            <ResultsPageContent />
+        </Suspense>
     );
 } 

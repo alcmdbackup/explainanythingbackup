@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
 import {
   shouldSkipAutoLogging,
   withLogging,
@@ -1103,17 +1102,17 @@ describe('automaticServerLoggingBase', () => {
     const originalWindow = global.window;
 
     beforeEach(() => {
-      // @ts-ignore
+      // @ts-expect-error - Deleting global.window for testing
       delete global.window;
     });
 
     afterEach(() => {
-      // @ts-ignore
+      // @ts-expect-error - Restoring global.window after testing
       global.window = originalWindow;
     });
 
     it('should not initialize on client-side', () => {
-      // @ts-ignore
+      // @ts-expect-error - Setting global.window for client-side test
       global.window = {} as any;
 
       initializeAutoLogging();
@@ -1124,7 +1123,7 @@ describe('automaticServerLoggingBase', () => {
 
     it('should initialize on server-side', async () => {
       // Ensure window is undefined (server-side)
-      // @ts-ignore
+      // @ts-expect-error - Deleting global.window for server-side test
       delete global.window;
 
       // This test just verifies the function can be called

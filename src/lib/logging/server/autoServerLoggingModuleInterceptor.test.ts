@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-function-type */
 import { setupServerModuleInterception } from './autoServerLoggingModuleInterceptor';
 import * as baseModule from './automaticServerLoggingBase';
 
@@ -36,6 +35,7 @@ describe('autoServerLoggingModuleInterceptor', () => {
     });
 
     // Get Node Module object
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     Module = require('module');
     originalModuleLoad = Module._load;
   });

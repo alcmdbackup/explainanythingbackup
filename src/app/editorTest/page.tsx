@@ -1,7 +1,7 @@
 'use client';
 
 import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../../editorFiles/lexicalEditor/LexicalEditor';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../editorFiles/actions/actions';
 import { getExplanationByIdAction, getAISuggestionSessionsAction, loadAISuggestionSessionAction } from '../../actions/actions';
@@ -16,7 +16,9 @@ import {
     getAndApplyAISuggestionsAction
 } from '../../editorFiles/actions/actions';
 
-export default function EditorTestPage() {
+export const dynamic = 'force-dynamic';
+
+function EditorTestPageContent() {
     const searchParams = useSearchParams();
     const [currentContent, setCurrentContent] = useState<string>('');
     const [aiSuggestions, setAiSuggestions] = useState<string>('');
@@ -1426,5 +1428,19 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 </div>
             </main>
         </div>
+    );
+}
+
+export default function EditorTestPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen bg-white dark:bg-gray-900 flex items-center justify-center">
+            <div className="flex space-x-1">
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
+                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+            </div>
+        </div>}>
+            <EditorTestPageContent />
+        </Suspense>
     );
 }
