@@ -4,20 +4,12 @@
 
 Comprehensive testing strategy for the ExplainAnything codebase (Next.js 15.2.3 with AI/LLM integration).
 
-**Current Status (Updated 2025-11-08):**
-<<<<<<< HEAD
-- **Coverage:** ~40% (Statements) - improved with Phase 6
-- **Test Files:** 53 test files
-- **Total Tests:** 1,299 tests (1,236 passing, 63 failing)
+**Current Status (Updated 2025-01-08):**
+- **Coverage:** ~42% (Statements), ~36% (Branches), ~39% (Functions)
+- **Test Files:** 58 test files
+- **Total Tests:** 1,551 tests (1,475 passing, 63 failing, 13 skipped)
 - **Pass Rate:** 95.1%
-- **Phases Complete:** 8-9 of 12 phases (Phase 6 partially complete)
-=======
-- **Coverage:** ~40% (Statements), ~35% (Branches), ~37% (Functions)
-- **Test Files:** 52 test files
-- **Total Tests:** 1,270 tests (1,263 passing, 7 failing)
-- **Pass Rate:** 99.4%
-- **Phases Complete:** 7-8 of 12 phases (Phase 7 started: 10% complete)
->>>>>>> de9970d (partial progress on Phase 7 of testing)
+- **Phases Complete:** 9-10 of 12 phases (Phase 7A-7D complete)
 
 **Target:** 85% coverage within 1.5-2 months (by Month 5-5.5)
 
@@ -27,7 +19,18 @@ Comprehensive testing strategy for the ExplainAnything codebase (Next.js 15.2.3 
 
 ## Phase Completion Status
 
-### ✅ Completed Phases (8-9/12)
+### ✅ Completed Phases (9-10/12)
+
+**Phase 7: Editor & Lexical System** - 40% COMPLETE
+- Status: 4/10 files tested (176 tests added)
+- ✅ **Phase 7A:** markdownASTdiff.ts - 63 tests, 77% coverage
+- ✅ **Phase 7B:** importExportUtils.ts - 52 tests, CriticMarkup transformers, export/cleanup
+- ✅ **Phase 7B:** StandaloneTitleLinkNode.ts - 12 tests, custom link node
+- ✅ **Phase 7C:** DiffTagNode.ts - 63 tests, 3 node classes (inline/block/container)
+- ✅ **Phase 7D:** aiSuggestion.ts - 49 tests, schema validation, prompt generation
+- ✅ Test infrastructure: editor-test-helpers.ts (AST mocks, fixtures, helpers)
+- ⏳ **Remaining:** actions.ts, DiffTagHoverPlugin.tsx, DiffTagHoverControls.tsx, LexicalEditor.tsx, ToolbarPlugin.tsx
+- Priority: HIGH (core editor feature area)
 
 **Phase 6: Logging Infrastructure** - PARTIALLY COMPLETE
 - Status: 2/5 files tested (60% directory coverage)
@@ -79,14 +82,7 @@ Comprehensive testing strategy for the ExplainAnything codebase (Next.js 15.2.3 
 - ✅ Pages: 6/7 tested (home, results, explanations, userlibrary, login, error)
 - ❌ Missing: layout.tsx
 
-### ❌ Not Started Phases (3-4/12)
-
-**Phase 7: Editor & Lexical System** - IN PROGRESS
-- Status: 10% COMPLETE (1/10 files tested)
-- ✅ **Phase 7A COMPLETE:** markdownASTdiff.ts - 77% coverage, 63 tests (sentence tokenization, similarity alignment, multi-pass algorithm, CriticMarkup output, atomic nodes)
-- ✅ Test infrastructure: editor-test-helpers.ts (AST mocks, fixtures, CriticMarkup helpers)
-- ❌ Remaining (9 files): importExportUtils.ts, DiffTagNode.ts, aiSuggestion.ts, actions.ts, LexicalEditor.tsx, ToolbarPlugin.tsx, DiffTagHoverPlugin.tsx, DiffTagHoverControls.tsx, StandaloneTitleLinkNode.ts
-- Priority: HIGH (core feature area)
+### ❌ Not Started Phases (2-3/12)
 
 **Phase 3: Integration Testing**
 - Status: NOT STARTED (likely covered in unit tests)
@@ -191,38 +187,20 @@ Comprehensive testing strategy for the ExplainAnything codebase (Next.js 15.2.3 
 ## Next Steps (Prioritized)
 
 ### Immediate (Current)
-1. ✅ Update testing_plan.md (this document)
-<<<<<<< HEAD
-2. ✅ Phase 6: Core logging infrastructure tested (92 tests, 2/5 files)
-3. Fix 63 failing tests (2 days)
-4. Add layout.tsx test (1 day)
+1. ✅ Update testing_plan.md (this document) - COMPLETED
+2. ✅ Phase 7A-7D (176 tests, 4 files) - COMPLETED
+   - markdownASTdiff.ts, importExportUtils.ts, StandaloneTitleLinkNode.ts, DiffTagNode.ts, aiSuggestion.ts
+3. Complete Phase 7E: Remaining React components (5 files, ~100 tests)
+   - actions.ts (server actions, 20-25 tests)
+   - DiffTagHoverPlugin.tsx (20-25 tests)
+   - DiffTagHoverControls.tsx (12-15 tests)
+   - LexicalEditor.tsx (30-35 tests)
+   - ToolbarPlugin.tsx (25-30 tests)
 
-### Short-term (Weeks 2-3) - OPTIONAL
-5. Complete Phase 6: Remaining logging files
-   - Test Runtime/Universal interceptors (experimental features)
-   - Estimated: 80-100 additional tests
-   - Priority: LOW (core logging already tested)
-
-### Medium-term (Weeks 4-7)
-5. Phase 7: Editor & Lexical System
-   - Test aiSuggestion.ts (AI-powered suggestions)
-   - Test markdownASTdiff.ts (AST diffing)
-   - Test Lexical nodes (DiffTagNode, StandaloneTitleLinkNode)
-   - Test editor components (plugins, toolbar, hover controls)
-   - Estimated: 300-400 tests
-=======
-2. ✅ Phase 7A: markdownASTdiff.ts (77-79% coverage, 63 tests) - COMPLETED
-3. Continue Phase 7B-7E: Remaining 9 files
-   - importExportUtils.ts, DiffTagNode.ts (Week 1-2)
-   - aiSuggestion.ts, actions.ts (Week 2-3)
-   - LexicalEditor.tsx, ToolbarPlugin.tsx (Week 3-4)
-   - DiffTagHoverPlugin.tsx, DiffTagHoverControls.tsx, StandaloneTitleLinkNode.ts (Week 4-5)
-
-### Short-term (Weeks 2-3)
-4. Fix 7 failing tests from previous phases (1 day)
+### Short-term (Next 1-2 weeks)
+4. Fix 63 failing tests from previous phases (2 days)
 5. Add layout.tsx test (1 day)
-6. Complete Phase 7B-7C (import/export + AI pipeline)
->>>>>>> de9970d (partial progress on Phase 7 of testing)
+6. Coverage optimization to reach 50% (1 week)
 
 ### Long-term (Weeks 8-10)
 6. Coverage Optimization
@@ -298,22 +276,25 @@ Comprehensive testing strategy for the ExplainAnything codebase (Next.js 15.2.3 
 
 **Strengths:**
 - Strong test infrastructure and quality (95.1% pass rate)
-- 8-9 of 12 phases complete (Phase 6 partially complete)
-- 1,299 tests across 53 test files (+92 tests in Phase 6)
+- 9-10 of 12 phases complete (Phase 7 40% complete)
+- 1,551 tests across 58 test files (+176 tests in Phase 7A-7D)
 - Comprehensive mock coverage for external dependencies
-- Phase 6: Core logging infrastructure tested (90-100% coverage on critical files)
+- Phase 7: Core editor system tested (nodes, import/export, AI pipeline)
 
-**Recent Achievements:**
-- ✅ Created logging-test-helpers.ts utility
-- ✅ automaticServerLoggingBase.ts: 75 tests, 90% coverage
-- ✅ autoServerLoggingModuleInterceptor.ts: 17 tests, 100% coverage
+**Recent Achievements (Phase 7A-7D):**
+- ✅ markdownASTdiff.ts: 63 tests, AST diffing & CriticMarkup generation
+- ✅ importExportUtils.ts: 52 tests, markdown transformers & cleanup utilities
+- ✅ StandaloneTitleLinkNode.ts: 12 tests, custom Lexical node
+- ✅ DiffTagNode.ts: 63 tests, 3 node classes with full serialization
+- ✅ aiSuggestion.ts: 49 tests, schema validation & prompt generation
+- ✅ Created comprehensive editor-test-helpers.ts utility
 
 **Focus Areas:**
-- Fix failing tests - 2 days
-- Phase 7 (Editor) - 2-3 weeks
-- Coverage optimization - 2-3 weeks
-- Optional: Complete Phase 6 remaining files
+- Complete Phase 7E: React components (5 files, ~100 tests)
+- Fix 63 failing tests from previous phases
+- Coverage optimization to reach 50%
+- Add layout.tsx test
 
-**Next Immediate Action:** Fix 63 failing tests (primarily useExplanationLoader hook issues), then proceed to Phase 7 (Editor & Lexical System) or continue with Phase 6 remaining files.
+**Next Immediate Action:** Complete Phase 7E (actions.ts + 4 React components) to finish editor system testing, then address failing tests from previous phases.
 
-The colocated testing approach has proven successful with excellent discoverability and maintainability. Continue this pattern for Phases 6 and 7 to complete the testing implementation.
+The colocated testing approach has proven highly successful with excellent discoverability and maintainability. Phase 7 demonstrates strong coverage of complex editor functionality including custom Lexical nodes, CriticMarkup transformers, and AI-powered suggestion pipeline.
