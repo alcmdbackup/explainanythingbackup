@@ -1,8 +1,9 @@
 'use client'
 
 import { useSearchParams } from 'next/navigation'
+import { Suspense } from 'react'
 
-export default function ErrorPage() {
+function ErrorContent() {
   const searchParams = useSearchParams()
   const message = searchParams.get('message')
 
@@ -11,5 +12,13 @@ export default function ErrorPage() {
       <p>Sorry, something went wrong</p>
       {message && <p>Error: {message}</p>}
     </div>
+  )
+}
+
+export default function ErrorPage() {
+  return (
+    <Suspense fallback={<div><p>Sorry, something went wrong</p></div>}>
+      <ErrorContent />
+    </Suspense>
   )
 }
