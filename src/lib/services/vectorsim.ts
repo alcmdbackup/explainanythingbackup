@@ -438,7 +438,7 @@ async function calculateAllowedScores(anchorMatches: any[], explanationMatches: 
   
   // Calculate allowedTitle: true if average of both scores > 0.15
   const averageScore = (anchorScore + explanationScore) / 2;
-  const allowedTitle = anchorScore > 0.25;
+  const allowedTitle = anchorScore > 0;
   
   logger.debug('Allowed scores calculated:', {
     anchorMatchesCount: anchorMatches.length,
