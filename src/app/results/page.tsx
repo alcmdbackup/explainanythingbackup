@@ -681,8 +681,8 @@ function ResultsPageContent() {
                     if (newExplanationIdFromUrl !== explanationId) {
                         await loadExplanation(newExplanationIdFromUrl, true, effectiveUserid);
 
-                        // Track explanation loaded event
-                        if (effectiveUserid) {
+                        // Track explanation loaded event (only for authenticated users)
+                        if (effectiveUserid && effectiveUserid !== 'anonymous' && effectiveUserid.length > 0) {
                             try {
                                 await createUserExplanationEventAction({
                                     event_name: 'explanation_viewed',
