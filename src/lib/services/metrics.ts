@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use server'
 
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { 
   userExplanationEventsSchema, 
   type UserExplanationEventsType,
@@ -36,7 +36,8 @@ import {
  * • Used by analytics and tracking functions to record user interactions
  */
 export async function createUserExplanationEvent(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
-  const supabase = await createSupabaseServerClient();
+  // Use service client to bypass RLS for metrics tracking
+  const supabase = await createSupabaseServiceClient();
   
   // Validate input data against schema
   const validationResult = userExplanationEventsSchema.safeParse(eventData);
