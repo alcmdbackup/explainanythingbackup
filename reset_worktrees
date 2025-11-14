@@ -158,6 +158,32 @@ for i in 0 1; do
     echo -e "${GREEN}Dependencies installed and configuration copied${NC}"
 done
 
+# Step 5: Copy Claude configuration files
+echo -e "\n${BLUE}Step 5: Copying Claude configuration files...${NC}"
+
+if [ -f "$HOME/.claude.json" ]; then
+    echo "  Copying .claude.json..."
+    cp "$HOME/.claude.json" "$GIT_ROOT/.claude.json"
+else
+    echo "  Warning: $HOME/.claude.json not found"
+fi
+
+if [ -f "$HOME/.claude/settings.json" ]; then
+    echo "  Copying settings.json..."
+    cp "$HOME/.claude/settings.json" "$GIT_ROOT/settings.json"
+else
+    echo "  Warning: $HOME/.claude/settings.json not found"
+fi
+
+if [ -f "$HOME/.claude/CLAUDE.md" ]; then
+    echo "  Copying CLAUDE.md..."
+    cp "$HOME/.claude/CLAUDE.md" "$GIT_ROOT/CLAUDE.md"
+else
+    echo "  Warning: $HOME/.claude/CLAUDE.md not found"
+fi
+
+echo -e "${GREEN}Claude configuration files copied${NC}"
+
 echo -e "\n${GREEN}=== Complete! ===${NC}"
 echo -e "Counter: ${BLUE}$COUNTER${NC}"
 echo -e "\nWorktrees created:"
