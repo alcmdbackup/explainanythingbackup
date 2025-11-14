@@ -142,3 +142,71 @@ Entanglement occurs when particles interact in such a way that the quantum state
 
 Einstein famously called entanglement "spooky action at a distance" because he was uncomfortable with its implications. However, experiments have repeatedly confirmed that entanglement is real and follows the predictions of quantum mechanics.
 `;
+
+/**
+ * Mock response for heading link mappings
+ */
+export const headingLinkMappingsResponse = createMockOpenAIResponse(
+  JSON.stringify({
+    'What is Entanglement?': '## [What is Entanglement?](https://en.wikipedia.org/wiki/Quantum_entanglement)',
+    'Key Properties': '## [Key Properties](https://physics.info/quantum/)',
+    'Applications': '## [Applications](https://en.wikipedia.org/wiki/Quantum_computing)',
+    'Historical Context': '## [Historical Context](https://en.wikipedia.org/wiki/EPR_paradox)',
+  })
+);
+
+/**
+ * Mock response for key term link mappings
+ */
+export const keyTermLinkMappingsResponse = createMockOpenAIResponse(
+  JSON.stringify({
+    'superposition': '[superposition](https://en.wikipedia.org/wiki/Quantum_superposition)',
+    'correlation': '[correlation](https://en.wikipedia.org/wiki/Correlation_does_not_imply_causation)',
+    'quantum computing': '[quantum computing](https://en.wikipedia.org/wiki/Quantum_computing)',
+    'quantum cryptography': '[quantum cryptography](https://en.wikipedia.org/wiki/Quantum_cryptography)',
+  })
+);
+
+/**
+ * Empty link mappings (no links found)
+ */
+export const emptyLinkMappingsResponse = createMockOpenAIResponse(
+  JSON.stringify({})
+);
+
+/**
+ * Complete explanation generation fixture for happy path testing
+ */
+export const completeExplanationFixture = {
+  title: 'Understanding Quantum Entanglement',
+  rawContent: fullExplanationContent,
+  enhancedContent: `# Understanding Quantum Entanglement
+
+Quantum entanglement is one of the most fascinating and counterintuitive phenomena in quantum mechanics. When particles become entangled, their quantum states become correlated in ways that seem to defy classical physics.
+
+## [What is Entanglement?](https://en.wikipedia.org/wiki/Quantum_entanglement)
+
+Entanglement occurs when particles interact in such a way that the quantum state of each particle cannot be described independently of the others. Instead, we must describe the system as a whole.
+
+## [Key Properties](https://physics.info/quantum/)
+
+1. **[Superposition](https://en.wikipedia.org/wiki/Quantum_superposition)**: Entangled particles exist in multiple states simultaneously until measured
+2. **Correlation**: Measuring one particle instantly affects the state of its entangled partner
+3. **Non-locality**: This [correlation](https://en.wikipedia.org/wiki/Correlation_does_not_imply_causation) appears to happen faster than light could travel between particles
+
+## [Applications](https://en.wikipedia.org/wiki/Quantum_computing)
+
+- **[Quantum Computing](https://en.wikipedia.org/wiki/Quantum_computing)**: Exploits entanglement for parallel computation
+- **[Quantum Cryptography](https://en.wikipedia.org/wiki/Quantum_cryptography)**: Uses entanglement for secure communication
+- **Quantum Teleportation**: Transfers quantum states between particles
+
+## [Historical Context](https://en.wikipedia.org/wiki/EPR_paradox)
+
+Einstein famously called entanglement "spooky action at a distance" because he was uncomfortable with its implications. However, experiments have repeatedly confirmed that entanglement is real and follows the predictions of quantum mechanics.
+`,
+  tags: [
+    { tag_name: 'quantum-physics', confidence: 0.95 },
+    { tag_name: 'advanced', confidence: 0.85 },
+    { tag_name: 'theoretical', confidence: 0.90 },
+  ],
+};

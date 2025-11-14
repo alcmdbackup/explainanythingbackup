@@ -12,6 +12,7 @@ jest.mock('next/navigation', () => {
   const mocks = jest.requireActual('@/__mocks__/next/navigation');
   return {
     redirect: mocks.redirect,
+    unstable_rethrow: mocks.unstable_rethrow,
   };
 });
 jest.mock('next/cache', () => {

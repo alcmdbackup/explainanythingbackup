@@ -15,6 +15,17 @@ export const redirect = jest.fn((url: string, type?: 'replace' | 'push') => {
 });
 
 /**
+ * Mock unstable_rethrow function that re-throws redirect errors
+ * In Next.js, this function checks if the error is a redirect/notFound and re-throws it
+ */
+export const unstable_rethrow = jest.fn((error: unknown) => {
+  if (error instanceof Error && error.message.startsWith('NEXT_REDIRECT')) {
+    throw error;
+  }
+  // For non-redirect errors, do nothing (let the catch block handle it)
+});
+
+/**
  * Client-side hooks for component testing
  */
 export const useRouter = jest.fn(() => ({

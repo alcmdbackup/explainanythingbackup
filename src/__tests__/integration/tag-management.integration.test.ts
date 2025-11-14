@@ -45,20 +45,20 @@ describe('Tag Management Integration Tests', () => {
 
   const createTopicInDb = async () => {
     const mockTopic = {
-      topic_id: `${testId}-topic-${Date.now()}`,
-      topic_name: 'Test Topic',
+      topic_title: `Test Topic ${testId}-${Date.now()}`,
+      topic_description: 'Test topic description',
     };
     const { data, error } = await supabase.from('topics').insert(mockTopic).select().single();
     if (error) throw new Error(`Failed to create topic: ${error.message}`);
     return data;
   };
 
-  const createExplanationInDb = async (topicId: string) => {
+  const createExplanationInDb = async (topicId: number) => {
     const mockExplanation = {
-      explanation_id: `${testId}-explanation-${Date.now()}`,
-      topic_id: topicId,
-      title: 'Test Explanation',
-      content: 'Test content',
+      explanation_title: `Test Explanation ${testId}-${Date.now()}`,
+      primary_topic_id: topicId,
+      content: 'Test explanation content for tag management tests',
+      status: 'published',
     };
     const { data, error } = await supabase.from('explanations').insert(mockExplanation).select().single();
     if (error) throw new Error(`Failed to create explanation: ${error.message}`);
@@ -67,8 +67,7 @@ describe('Tag Management Integration Tests', () => {
 
   const createTagInDb = async (tagName: string, presetTagId: number | null = null) => {
     const mockTag = {
-      tag_id: `${testId}-tag-${tagName}-${Date.now()}`,
-      tag_name: tagName,
+      tag_name: `${tagName}-${testId}-${Date.now()}`,
       tag_description: `Description for ${tagName}`,
       presetTagId,
     };
@@ -80,20 +79,20 @@ describe('Tag Management Integration Tests', () => {
   describe('Adding Tags to Explanation', () => {
     it('should add valid tags to an explanation', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tag1 = await createTagInDb('javascript');
       const tag2 = await createTagInDb('tutorial');
 
-      const results = await addTagsToExplanation(explanation.explanation_id, [tag1.tag_id, tag2.tag_id]);
+      const results = await addTagsToExplanation(explanation.id, [tag1.id, tag2.id]);
 
       expect(results).toHaveLength(2);
-      expect(results[0].explanation_id).toBe(explanation.explanation_id);
+      expect(results[0].explanation_id).toBe(explanation.id);
       expect(results[0].isDeleted).toBe(false);
 
       const { data: dbRelationships } = await supabase
         .from('explanation_tags')
         .select('*')
-        .eq('explanation_id', explanation.explanation_id)
+        .eq('explanation_id', explanation.id)
         .eq('isDeleted', false);
 
       expect(dbRelationships).toHaveLength(2);
@@ -101,12 +100,12 @@ describe('Tag Management Integration Tests', () => {
 
     it('should throw error when adding conflicting preset tags', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tag1 = await createTagInDb('basic', 1);
       const tag2 = await createTagInDb('advanced', 1);
 
       await expect(
-        addTagsToExplanation(explanation.explanation_id, [tag1.tag_id, tag2.tag_id])
+        addTagsToExplanation(explanation.id, [tag1.id, tag2.id])
       ).rejects.toThrow('multiple preset tags of the same type cannot be added');
     });
   });
@@ -114,18 +113,18 @@ describe('Tag Management Integration Tests', () => {
   describe('Removing Tags from Explanation', () => {
     it('should soft delete tags (set isDeleted to true)', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tag1 = await createTagInDb('nodejs');
       const tag2 = await createTagInDb('api');
 
-      await addTagsToExplanation(explanation.explanation_id, [tag1.tag_id, tag2.tag_id]);
-      await removeTagsFromExplanation(explanation.explanation_id, [tag1.tag_id]);
+      await addTagsToExplanation(explanation.id, [tag1.id, tag2.id]);
+      await removeTagsFromExplanation(explanation.id, [tag1.id]);
 
       const { data: relationships } = await supabase
         .from('explanation_tags')
         .select('*')
-        .eq('explanation_id', explanation.explanation_id)
-        .eq('tag_id', tag1.tag_id)
+        .eq('explanation_id', explanation.id)
+        .eq('tag_id', tag1.id)
         .single();
 
       expect(relationships.isDeleted).toBe(true);
@@ -133,8 +132,8 @@ describe('Tag Management Integration Tests', () => {
       const { data: activeTag } = await supabase
         .from('explanation_tags')
         .select('*')
-        .eq('explanation_id', explanation.explanation_id)
-        .eq('tag_id', tag2.tag_id)
+        .eq('explanation_id', explanation.id)
+        .eq('tag_id', tag2.id)
         .single();
 
       expect(activeTag.isDeleted).toBe(false);
@@ -142,39 +141,39 @@ describe('Tag Management Integration Tests', () => {
 
     it('should not return soft-deleted tags in getTagsForExplanation', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tag1 = await createTagInDb('python');
       const tag2 = await createTagInDb('django');
 
-      await addTagsToExplanation(explanation.explanation_id, [tag1.tag_id, tag2.tag_id]);
-      await removeTagsFromExplanation(explanation.explanation_id, [tag1.tag_id]);
+      await addTagsToExplanation(explanation.id, [tag1.id, tag2.id]);
+      await removeTagsFromExplanation(explanation.id, [tag1.id]);
 
-      const tags = await getTagsForExplanation(explanation.explanation_id);
+      const tags = await getTagsForExplanation(explanation.id);
 
       expect(tags).toHaveLength(1);
-      expect(tags[0].tagName).toBe('django');
+      expect(tags[0].tag_name).toContain('django');
     });
   });
 
   describe('Reactivating Soft-Deleted Tags', () => {
     it('should reactivate soft-deleted tag when added again', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tag = await createTagInDb('react');
 
-      await addTagsToExplanation(explanation.explanation_id, [tag.tag_id]);
-      await removeTagsFromExplanation(explanation.explanation_id, [tag.tag_id]);
+      await addTagsToExplanation(explanation.id, [tag.id]);
+      await removeTagsFromExplanation(explanation.id, [tag.id]);
 
       const { data: deletedRelationship } = await supabase
         .from('explanation_tags')
         .select('*')
-        .eq('explanation_id', explanation.explanation_id)
-        .eq('tag_id', tag.tag_id)
+        .eq('explanation_id', explanation.id)
+        .eq('tag_id', tag.id)
         .single();
 
       expect(deletedRelationship.isDeleted).toBe(true);
 
-      const results = await addTagsToExplanation(explanation.explanation_id, [tag.tag_id]);
+      const results = await addTagsToExplanation(explanation.id, [tag.id]);
 
       expect(results).toHaveLength(1);
       expect(results[0].isDeleted).toBe(false);
@@ -183,8 +182,8 @@ describe('Tag Management Integration Tests', () => {
       const { data: reactivatedRelationship } = await supabase
         .from('explanation_tags')
         .select('*')
-        .eq('explanation_id', explanation.explanation_id)
-        .eq('tag_id', tag.tag_id)
+        .eq('explanation_id', explanation.id)
+        .eq('tag_id', tag.id)
         .single();
 
       expect(reactivatedRelationship.isDeleted).toBe(false);
@@ -195,14 +194,14 @@ describe('Tag Management Integration Tests', () => {
   describe('Bulk Tag Operations', () => {
     it('should handle adding multiple tags efficiently', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tags = await Promise.all(
         Array.from({ length: 5 }, (_, i) => createTagInDb(`tag-${i}`))
       );
-      const tagIds = tags.map((t) => t.tag_id);
+      const tagIds = tags.map((t) => t.id);
 
       const startTime = Date.now();
-      const results = await addTagsToExplanation(explanation.explanation_id, tagIds);
+      const results = await addTagsToExplanation(explanation.id, tagIds);
       const duration = Date.now() - startTime;
 
       expect(results).toHaveLength(5);
@@ -211,7 +210,7 @@ describe('Tag Management Integration Tests', () => {
       const { data: dbRelationships } = await supabase
         .from('explanation_tags')
         .select('*')
-        .eq('explanation_id', explanation.explanation_id)
+        .eq('explanation_id', explanation.id)
         .eq('isDeleted', false);
 
       expect(dbRelationships).toHaveLength(5);
@@ -219,18 +218,18 @@ describe('Tag Management Integration Tests', () => {
 
     it('should handle removing multiple tags efficiently', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const tags = await Promise.all(
         Array.from({ length: 5 }, (_, i) => createTagInDb(`remove-tag-${i}`))
       );
-      const tagIds = tags.map((t) => t.tag_id);
+      const tagIds = tags.map((t) => t.id);
 
-      await addTagsToExplanation(explanation.explanation_id, tagIds);
+      await addTagsToExplanation(explanation.id, tagIds);
 
       const toRemove = tagIds.slice(0, 3);
-      await removeTagsFromExplanation(explanation.explanation_id, toRemove);
+      await removeTagsFromExplanation(explanation.id, toRemove);
 
-      const activeTags = await getTagsForExplanation(explanation.explanation_id);
+      const activeTags = await getTagsForExplanation(explanation.id);
       expect(activeTags).toHaveLength(2);
     });
   });
@@ -238,25 +237,29 @@ describe('Tag Management Integration Tests', () => {
   describe('Tag UI Format Conversion', () => {
     it('should return tags in correct UI format', async () => {
       const topic = await createTopicInDb();
-      const explanation = await createExplanationInDb(topic.topic_id);
+      const explanation = await createExplanationInDb(topic.id);
       const simpleTag = await createTagInDb('javascript', null);
       const presetTag = await createTagInDb('beginner', 1);
 
-      await addTagsToExplanation(explanation.explanation_id, [simpleTag.tag_id, presetTag.tag_id]);
+      await addTagsToExplanation(explanation.id, [simpleTag.id, presetTag.id]);
 
-      const tags = await getTagsForExplanation(explanation.explanation_id);
+      const tags = await getTagsForExplanation(explanation.id);
 
       expect(tags).toHaveLength(2);
 
-      const simpleTagResult = tags.find((t) => t.tagName === 'javascript');
+      // Simple tags have tag_name directly, preset tags have tags array
+      const simpleTagResult = tags.find((t) => 'tag_name' in t && t.tag_name.includes('javascript'));
       expect(simpleTagResult).toBeDefined();
-      expect(simpleTagResult?.type).toBe('simple');
+      if (simpleTagResult && 'tag_name' in simpleTagResult) {
+        expect(simpleTagResult.tag_name).toContain('javascript');
+        expect(simpleTagResult.presetTagId).toBeNull();
+      }
 
-      const presetTagResult = tags.find((t) => t.tagName === 'beginner');
+      const presetTagResult = tags.find((t) => 'tags' in t && t.tags.some(tag => tag.tag_name.includes('beginner')));
       expect(presetTagResult).toBeDefined();
-      expect(presetTagResult?.type).toBe('preset');
-      if (presetTagResult?.type === 'preset') {
-        expect(presetTagResult.presetTagId).toBe(1);
+      if (presetTagResult && 'tags' in presetTagResult) {
+        expect(presetTagResult.tags).toBeDefined();
+        expect(presetTagResult.tags.some(tag => tag.presetTagId === 1)).toBe(true);
       }
     });
   });

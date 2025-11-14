@@ -32,6 +32,59 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+// Mock Next.js headers and cookies for integration tests
+// Service functions use createSupabaseServerClient() which needs cookies()
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(() => Promise.resolve({
+    getAll: jest.fn(() => []),
+    get: jest.fn(() => undefined),
+    set: jest.fn(),
+    delete: jest.fn(),
+  })),
+  headers: jest.fn(() => Promise.resolve({
+    get: jest.fn(() => null),
+  })),
+}));
+
+// Mock Supabase server client to use service role client for integration tests
+// This bypasses RLS and uses a properly initialized client with all methods
+jest.mock('@/lib/utils/supabase/server', () => {
+  const { createClient } = require('@supabase/supabase-js');
+
+  return {
+    createSupabaseServerClient: jest.fn(() => {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!url || !serviceRoleKey) {
+        throw new Error('Missing Supabase credentials in integration test environment');
+      }
+
+      return Promise.resolve(createClient(url, serviceRoleKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }));
+    }),
+    createSupabaseServiceClient: jest.fn(() => {
+      const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+      if (!url || !serviceRoleKey) {
+        throw new Error('Missing Supabase credentials in integration test environment');
+      }
+
+      return Promise.resolve(createClient(url, serviceRoleKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false,
+        },
+      }));
+    }),
+  };
+});
+
 // Integration test specific configuration
 console.log('Integration test environment loaded');
 console.log('- PINECONE_NAMESPACE:', process.env.PINECONE_NAMESPACE);

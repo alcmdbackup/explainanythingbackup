@@ -76,17 +76,39 @@ export async function teardownTestDatabase(supabase: SupabaseClient): Promise<vo
   try {
     console.log('Cleaning up test data...');
 
-    // Clean up in reverse dependency order to avoid foreign key violations
-    // 1. Junction tables and dependents first
-    await supabase.from('explanation_tags').delete().ilike('explanation_id', `${TEST_PREFIX}%`);
-    await supabase.from('userExplanationEvents').delete().ilike('user_id', `${TEST_PREFIX}%`);
-    await supabase.from('userLibrary').delete().ilike('user_id', `${TEST_PREFIX}%`);
-    await supabase.from('userQueries').delete().ilike('user_id', `${TEST_PREFIX}%`);
+    // Clean up test data by filtering on text fields that contain our test prefix
+    // Can't use .ilike() on integer ID fields, must use text fields
 
-    // 2. Main tables
-    await supabase.from('explanations').delete().ilike('explanation_id', `${TEST_PREFIX}%`);
-    await supabase.from('topics').delete().ilike('topic_id', `${TEST_PREFIX}%`);
-    await supabase.from('tags').delete().ilike('tag_id', `${TEST_PREFIX}%`);
+    // 1. Get IDs of test records first (for junction tables)
+    const { data: testTopics } = await supabase
+      .from('topics')
+      .select('id')
+      .ilike('topic_title', `%${TEST_PREFIX}%`);
+
+    const { data: testExplanations } = await supabase
+      .from('explanations')
+      .select('id')
+      .ilike('explanation_title', `%${TEST_PREFIX}%`);
+
+    const { data: testTags } = await supabase
+      .from('tags')
+      .select('id')
+      .ilike('tag_name', `%${TEST_PREFIX}%`);
+
+    const topicIds = testTopics?.map(t => t.id) || [];
+    const explanationIds = testExplanations?.map(e => e.id) || [];
+    const tagIds = testTags?.map(t => t.id) || [];
+
+    // 2. Clean up junction tables using the IDs
+    if (explanationIds.length > 0) {
+      await supabase.from('explanation_tags').delete().in('explanation_id', explanationIds);
+      await supabase.from('userLibrary').delete().in('explanation_id', explanationIds);
+    }
+
+    // 3. Clean up main tables by text fields
+    await supabase.from('explanations').delete().ilike('explanation_title', `%${TEST_PREFIX}%`);
+    await supabase.from('topics').delete().ilike('topic_title', `%${TEST_PREFIX}%`);
+    await supabase.from('tags').delete().ilike('tag_name', `%${TEST_PREFIX}%`);
 
     console.log('Test data cleanup complete');
   } catch (error) {
@@ -100,17 +122,17 @@ export async function teardownTestDatabase(supabase: SupabaseClient): Promise<vo
  * Returns test data IDs for use in tests
  */
 export async function seedTestData(supabase: SupabaseClient): Promise<{
-  topicId: string;
-  explanationId: string;
-  tagIds: string[];
+  topicId: number;
+  explanationId: number;
+  tagIds: number[];
 }> {
   const testId = `${TEST_PREFIX}${Date.now()}`;
 
   // Create test topic
-  const mockTopic = createMockTopic({
-    topic_id: `${testId}-topic-1`,
-    topic_name: 'Test Topic',
-  });
+  const mockTopic = {
+    topic_title: `Test Topic ${testId}`,
+    topic_description: 'Test topic for integration testing',
+  };
 
   const { data: topic, error: topicError } = await supabase
     .from('topics')
@@ -123,12 +145,12 @@ export async function seedTestData(supabase: SupabaseClient): Promise<{
   }
 
   // Create test explanation
-  const mockExplanation = createMockExplanation({
-    explanation_id: `${testId}-explanation-1`,
-    topic_id: topic.topic_id,
-    title: 'Test Explanation',
+  const mockExplanation = {
+    explanation_title: `Test Explanation ${testId}`,
+    primary_topic_id: topic.id,
     content: 'This is a test explanation for integration testing.',
-  });
+    status: 'published',
+  };
 
   const { data: explanation, error: explanationError } = await supabase
     .from('explanations')
@@ -142,8 +164,14 @@ export async function seedTestData(supabase: SupabaseClient): Promise<{
 
   // Create test tags
   const mockTags = [
-    createMockTag({ tag_id: `${testId}-tag-basic`, tag_name: 'basic' }),
-    createMockTag({ tag_id: `${testId}-tag-technical`, tag_name: 'technical' }),
+    {
+      tag_name: `basic-${testId}`,
+      tag_description: 'Basic level tag for testing',
+    },
+    {
+      tag_name: `technical-${testId}`,
+      tag_description: 'Technical tag for testing',
+    },
   ];
 
   const { data: tags, error: tagsError } = await supabase
@@ -158,9 +186,9 @@ export async function seedTestData(supabase: SupabaseClient): Promise<{
   console.log('Test data seeded successfully');
 
   return {
-    topicId: topic.topic_id,
-    explanationId: explanation.explanation_id,
-    tagIds: tags?.map((t) => t.tag_id) || [],
+    topicId: topic.id,
+    explanationId: explanation.id,
+    tagIds: tags?.map((t) => t.id) || [],
   };
 }
 
@@ -173,12 +201,33 @@ export async function cleanupTestData(
   testId: string
 ): Promise<void> {
   try {
-    // Clean up in reverse dependency order
-    await supabase.from('explanation_tags').delete().ilike('explanation_id', `${testId}%`);
-    await supabase.from('userExplanationEvents').delete().ilike('user_id', `${testId}%`);
-    await supabase.from('explanations').delete().ilike('explanation_id', `${testId}%`);
-    await supabase.from('topics').delete().ilike('topic_id', `${testId}%`);
-    await supabase.from('tags').delete().ilike('tag_id', `${testId}%`);
+    // Get IDs of test records for this specific testId
+    const { data: testTopics } = await supabase
+      .from('topics')
+      .select('id')
+      .ilike('topic_title', `%${testId}%`);
+
+    const { data: testExplanations } = await supabase
+      .from('explanations')
+      .select('id')
+      .ilike('explanation_title', `%${testId}%`);
+
+    const { data: testTags } = await supabase
+      .from('tags')
+      .select('id')
+      .ilike('tag_name', `%${testId}%`);
+
+    const explanationIds = testExplanations?.map(e => e.id) || [];
+
+    // Clean up junction tables using the IDs
+    if (explanationIds.length > 0) {
+      await supabase.from('explanation_tags').delete().in('explanation_id', explanationIds);
+    }
+
+    // Clean up main tables by text fields
+    await supabase.from('explanations').delete().ilike('explanation_title', `%${testId}%`);
+    await supabase.from('topics').delete().ilike('topic_title', `%${testId}%`);
+    await supabase.from('tags').delete().ilike('tag_name', `%${testId}%`);
   } catch (error) {
     console.error(`Error cleaning up test data for ${testId}:`, error);
   }
