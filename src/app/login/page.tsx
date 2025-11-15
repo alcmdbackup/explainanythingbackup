@@ -85,7 +85,10 @@ export default function LoginPage() {
         <form onSubmit={handleSubmit(onSubmit)}>
           <CardContent className="space-y-4">
             {formError && (
-              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+              <div
+                data-testid="login-error"
+                className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
+              >
                 {formError}
               </div>
             )}
@@ -94,6 +97,7 @@ export default function LoginPage() {
               <Label htmlFor="email">Email</Label>
               <Input
                 id="email"
+                data-testid="login-email"
                 type="email"
                 placeholder="name@example.com"
                 disabled={isLoading}
@@ -113,6 +117,7 @@ export default function LoginPage() {
               <div className="relative">
                 <Input
                   id="password"
+                  data-testid="login-password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   disabled={isLoading}
@@ -175,6 +180,7 @@ export default function LoginPage() {
           <CardFooter className="flex flex-col space-y-4">
             <Button
               type="submit"
+              data-testid="login-submit"
               className="w-full"
               disabled={isLoading}
             >
@@ -200,6 +206,7 @@ export default function LoginPage() {
             <Button
               type="button"
               variant="outline"
+              data-testid="signup-toggle"
               className="w-full"
               onClick={() => setIsSignup(!isSignup)}
               disabled={isLoading}
