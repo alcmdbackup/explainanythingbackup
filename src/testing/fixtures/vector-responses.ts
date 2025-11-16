@@ -13,17 +13,21 @@ export const pineconeNoMatchesResponse = {
 
 /**
  * Mock Pinecone query response with high similarity match
+ * Note: topic_id should match the topic of the explanation in the database
  */
-export function createPineconeHighSimilarityMatch(explanationId: string) {
+export function createPineconeHighSimilarityMatch(explanationId: string, topicId?: number) {
   return {
     matches: [
       {
         id: explanationId,
         score: 0.92,
         metadata: {
+          explanation_id: parseInt(explanationId, 10),
+          topic_id: topicId || parseInt(explanationId, 10), // Default to explanationId if not provided
           topic: 'Quantum Physics',
           title: 'What is Quantum Entanglement?',
           content_preview: 'Quantum entanglement is a physical phenomenon...',
+          text: 'Quantum entanglement is a physical phenomenon that occurs when pairs or groups of particles interact.',
         },
         values: Array(3072).fill(0).map(() => Math.random()),
       },

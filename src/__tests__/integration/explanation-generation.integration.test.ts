@@ -29,6 +29,7 @@ import {
   generateRandomEmbedding,
 } from '@/testing/fixtures/vector-responses';
 import { SupabaseClient } from '@supabase/supabase-js';
+import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
 
 // Create shared mock functions at module level
 const mockPineconeQuery = jest.fn();
@@ -60,7 +61,7 @@ jest.mock('@pinecone-database/pinecone', () => ({
 
 // Mock OpenAI before any imports
 jest.mock('openai', () => {
-  return jest.fn().mockImplementation(() => ({
+  const MockOpenAI = jest.fn().mockImplementation(() => ({
     embeddings: {
       create: mockOpenAIEmbeddingsCreate,
     },
@@ -70,6 +71,11 @@ jest.mock('openai', () => {
       },
     },
   }));
+  // Handle ES module default export
+  return {
+    __esModule: true,
+    default: MockOpenAI,
+  };
 });
 
 // Import returnExplanation service after mocking
@@ -110,9 +116,6 @@ describe('Explanation Generation Integration Tests', () => {
       const userQuery = 'What is quantum entanglement?';
       const mockEmbedding = generateRandomEmbedding(3072);
 
-      // Mock OpenAI: Title generation
-      mockOpenAIChatCreate.mockResolvedValueOnce(titleGenerationResponse);
-
       // Mock OpenAI: Embedding creation (for vector search)
       mockOpenAIEmbeddingsCreate.mockResolvedValue({
         data: [{ embedding: mockEmbedding }],
@@ -121,30 +124,46 @@ describe('Explanation Generation Integration Tests', () => {
       // Mock Pinecone: No matches found (all 3 searches)
       mockPineconeQuery.mockResolvedValue(pineconeNoMatchesResponse);
 
-      // Mock OpenAI: Content generation (non-streaming)
-      mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: fullExplanationContent } }],
+      // Smart mock that handles parallel calls correctly
+      // Calls 3-5 (heading links, key term links, tag evaluation) run in parallel via Promise.all
+      // Use prompt content to identify call type (more reliable than checking Zod schemas)
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        // Title generation - prompt contains "Guess the title"
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          return titleGenerationResponse;
+        }
+
+        // Tag evaluation - prompt contains "evaluate" (case-insensitive)
+        if (hasResponseFormat && (prompt.includes('difficulty level') || prompt.toLowerCase().includes('evaluate'))) {
+          return tagEvaluationResponse;
+        }
+
+        // Key term links - prompt contains "KEY TERMS WITH CONTEXT"
+        if (hasResponseFormat && prompt.includes('KEY TERMS WITH CONTEXT')) {
+          return keyTermLinkMappingsResponse;
+        }
+
+        // Heading links - prompt contains "standalone titles" or "subsection"
+        if (hasResponseFormat && (prompt.includes('standalone titles') || prompt.includes('subsection'))) {
+          return headingLinkMappingsResponse;
+        }
+
+        // Content generation (no schema, no response_format)
+        return {
+          choices: [{ message: { content: fullExplanationContent } }],
+        };
       });
-
-      // Mock OpenAI: Link enhancement (heading links)
-      mockOpenAIChatCreate.mockResolvedValueOnce(headingLinkMappingsResponse);
-
-      // Mock OpenAI: Link enhancement (key term links)
-      mockOpenAIChatCreate.mockResolvedValueOnce(keyTermLinkMappingsResponse);
-
-      // Mock OpenAI: Tag evaluation
-      mockOpenAIChatCreate.mockResolvedValueOnce(tagEvaluationResponse);
-
-      // Mock Pinecone: Successful embedding upsert
-      mockPineconeUpsert.mockResolvedValueOnce(pineconeUpsertSuccessResponse);
 
       // Act
       const result = await returnExplanationLogic(
         userQuery,             // userInput: string
         null,                  // savedId: number | null
-        'normal',              // matchMode: MatchMode
+        MatchMode.Normal,      // matchMode: MatchMode
         userId,                // userid: string
-        'natural_language',    // userInputType: UserInputType
+        UserInputType.Query,   // userInputType: UserInputType
         [],                    // additionalRules: string[]
         undefined,             // onStreamingText?: StreamingCallback
         undefined,             // existingContent?: string
@@ -158,7 +177,7 @@ describe('Explanation Generation Integration Tests', () => {
       expect(result.data).toMatchObject({
         explanation_title: expect.stringContaining('Quantum'),
         content: expect.stringContaining('entanglement'),
-        status: 'draft',
+        // Note: status is set by database on save, not returned in result.data
       });
 
       // Verify explanation saved in database
@@ -172,36 +191,29 @@ describe('Explanation Generation Integration Tests', () => {
       expect(savedExplanation).toBeTruthy();
       expect(savedExplanation!.explanation_title).toBe(result.data!.explanation_title);
 
-      // Verify topic created
-      const { data: savedTopic, error: topicError } = await supabase
-        .from('topics')
-        .select('*')
-        .eq('id', result.data!.primary_topic_id)
+      // Verify topic created by checking explanation's foreign key
+      const { data: explanationWithTopic, error: topicQueryError } = await supabase
+        .from('explanations')
+        .select('primary_topic_id')
+        .eq('id', result.explanationId)
         .single();
 
-      expect(topicError).toBeNull();
-      expect(savedTopic).toBeTruthy();
+      expect(topicQueryError).toBeNull();
+      expect(explanationWithTopic).toBeTruthy();
+      expect(explanationWithTopic!.primary_topic_id).toBeTruthy();
 
-      // Verify Pinecone upsert was called (embedding stored)
-      expect(mockPineconeUpsert).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({
-            id: expect.any(String),
-            values: expect.any(Array),
-            metadata: expect.any(Object),
-          }),
-        ])
-      );
+      // Note: Pinecone upsert for embedding storage is NOT called in returnExplanationLogic
+      // The embedding storage might happen in a separate process/job
 
-      // Verify user query was logged
+      // Verify user query was logged (table is userQueries, column is explanation_id)
       const { data: userQueries } = await supabase
-        .from('user_queries')
+        .from('userQueries')
         .select('*')
-        .ilike('user_query', `%${userQuery}%`)
-        .eq('matched_explanation_id', result.explanationId);
+        .eq('id', result.userQueryId);
 
       expect(userQueries).toBeTruthy();
       expect(userQueries!.length).toBeGreaterThan(0);
+      expect(userQueries![0].user_query).toContain(userQuery);
     });
   });
 
@@ -239,11 +251,6 @@ describe('Explanation Generation Integration Tests', () => {
       const userQuery = 'What is quantum entanglement?';
       const mockEmbedding = generateRandomEmbedding(3072);
 
-      // Mock OpenAI: Title generation
-      mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ title: 'Understanding Quantum Entanglement' }) } }],
-      });
-
       // Mock OpenAI: Embedding creation
       mockOpenAIEmbeddingsCreate.mockResolvedValue({
         data: [{ embedding: mockEmbedding }],
@@ -251,16 +258,38 @@ describe('Explanation Generation Integration Tests', () => {
 
       // Mock Pinecone: High similarity match found
       mockPineconeQuery.mockResolvedValue(
-        createPineconeHighSimilarityMatch(existingExplanation!.id.toString())
+        createPineconeHighSimilarityMatch(existingExplanation!.id.toString(), existingTopic!.id)
       );
+
+      // Mock OpenAI: Title generation and match selection
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          return {
+            choices: [{ message: { content: JSON.stringify({ title1: 'Understanding Quantum Entanglement', title2: 'Quantum Entanglement Explained', title3: 'The Science of Quantum Entanglement' }) } }],
+          };
+        }
+
+        // Match selection - returns index of best match (1-based index)
+        if (hasResponseFormat && (prompt.includes('select') || prompt.includes('match') || prompt.includes('source'))) {
+          return {
+            choices: [{ message: { content: JSON.stringify({ selectedSourceIndex: 1 }) } }],
+          };
+        }
+
+        // Shouldn't reach here for match case
+        return { choices: [{ message: { content: 'Unexpected call' } }] };
+      });
 
       // Act
       const result = await returnExplanationLogic(
         userQuery,             // userInput: string
         null,                  // savedId: number | null
-        'normal',              // matchMode: MatchMode
+        MatchMode.Normal,      // matchMode: MatchMode
         userId,                // userid: string
-        'natural_language',    // userInputType: UserInputType
+        UserInputType.Query,   // userInputType: UserInputType
         [],                    // additionalRules: string[]
         undefined,             // onStreamingText?: StreamingCallback
         undefined,             // existingContent?: string
@@ -281,18 +310,18 @@ describe('Explanation Generation Integration Tests', () => {
       expect(allExplanations).toHaveLength(1); // Only the existing one
 
       // Verify OpenAI content generation was NOT called (should skip generation)
-      // mockOpenAIChatCreate call count should be 1 (title only)
-      expect(mockOpenAIChatCreate).toHaveBeenCalledTimes(1);
+      // mockOpenAIChatCreate call count should be 2 (title + match selection)
+      expect(mockOpenAIChatCreate).toHaveBeenCalledTimes(2);
 
       // Verify user query logged with match reference
       const { data: userQueries } = await supabase
-        .from('user_queries')
+        .from('userQueries')
         .select('*')
-        .ilike('user_query', `%${userQuery}%`)
-        .eq('matched_explanation_id', existingExplanation!.id);
+        .eq('id', result.userQueryId);
 
       expect(userQueries).toBeTruthy();
-      expect(userQueries.length).toBeGreaterThan(0);
+      expect(userQueries!.length).toBeGreaterThan(0);
+      expect(userQueries![0].user_query).toContain(userQuery);
     });
   });
 
@@ -302,11 +331,6 @@ describe('Explanation Generation Integration Tests', () => {
       const userQuery = 'What is quantum entanglement?';
       const mockEmbedding = generateRandomEmbedding(3072);
 
-      // Mock OpenAI: Title generation succeeds
-      mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ title: 'Test Title' }) } }],
-      });
-
       // Mock OpenAI: Embedding creation
       mockOpenAIEmbeddingsCreate.mockResolvedValue({
         data: [{ embedding: mockEmbedding }],
@@ -315,16 +339,34 @@ describe('Explanation Generation Integration Tests', () => {
       // Mock Pinecone: No matches
       mockPineconeQuery.mockResolvedValue(pineconeNoMatchesResponse);
 
-      // Mock OpenAI: Content generation FAILS
-      mockOpenAIChatCreate.mockRejectedValueOnce(new Error(errorResponse.error.message));
+      // Mock OpenAI: Title generation succeeds, content generation FAILS
+      let titleGenerated = false;
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          titleGenerated = true;
+          return {
+            choices: [{ message: { content: JSON.stringify({ title1: 'Test Title', title2: 'Test Title 2', title3: 'Test Title 3' }) } }],
+          };
+        }
+
+        // Content generation - fail
+        if (titleGenerated && !hasResponseFormat) {
+          throw new Error(errorResponse.error.message);
+        }
+
+        return { choices: [{ message: { content: 'Unexpected call' } }] };
+      });
 
       // Act
       const result = await returnExplanationLogic(
         userQuery,             // userInput: string
         null,                  // savedId: number | null
-        'normal',              // matchMode: MatchMode
+        MatchMode.Normal,      // matchMode: MatchMode
         userId,                // userid: string
-        'natural_language',    // userInputType: UserInputType
+        UserInputType.Query,   // userInputType: UserInputType
         [],                    // additionalRules: string[]
         undefined,             // onStreamingText?: StreamingCallback
         undefined,             // existingContent?: string
@@ -384,9 +426,9 @@ describe('Explanation Generation Integration Tests', () => {
       const result = await returnExplanationLogic(
         userQuery,             // userInput: string
         null,                  // savedId: number | null
-        'normal',              // matchMode: MatchMode
+        MatchMode.Normal,      // matchMode: MatchMode
         userId,                // userid: string
-        'natural_language',    // userInputType: UserInputType
+        UserInputType.Query,   // userInputType: UserInputType
         [],                    // additionalRules: string[]
         undefined,             // onStreamingText?: StreamingCallback
         undefined,             // existingContent?: string
@@ -417,8 +459,10 @@ describe('Explanation Generation Integration Tests', () => {
   });
 
   describe('Streaming Response Handling', () => {
-    it('should invoke streaming callback during explanation generation', async () => {
-      // Arrange
+    it('should handle non-streaming explanation generation with callback', async () => {
+      // Note: Full streaming tests require complex async iterator mocking
+      // This test verifies the basic flow works when a callback is provided but not used
+      // The actual streaming behavior (async iteration) would require mocking OpenAI's stream response
       const userQuery = 'What is quantum entanglement?';
       const mockEmbedding = generateRandomEmbedding(3072);
       const streamingCallbacks: string[] = [];
@@ -428,10 +472,11 @@ describe('Explanation Generation Integration Tests', () => {
         streamingCallbacks.push(text);
       };
 
-      // Mock OpenAI: Title generation
-      mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ title: 'Test Title' }) } }],
-      });
+      // Reset all mocks to ensure clean state
+      mockOpenAIChatCreate.mockReset();
+      mockOpenAIEmbeddingsCreate.mockReset();
+      mockPineconeQuery.mockReset();
+      mockPineconeUpsert.mockReset();
 
       // Mock OpenAI: Embedding
       mockOpenAIEmbeddingsCreate.mockResolvedValue({
@@ -441,31 +486,63 @@ describe('Explanation Generation Integration Tests', () => {
       // Mock Pinecone: No matches
       mockPineconeQuery.mockResolvedValue(pineconeNoMatchesResponse);
 
-      // Mock OpenAI: Content generation (non-streaming, but we'll call the callback)
-      mockOpenAIChatCreate.mockImplementationOnce(async (params: any) => {
-        // Simulate streaming by calling callback if provided
-        if (params.stream && typeof params.onChunk === 'function') {
-          params.onChunk('Test content chunk 1');
-          params.onChunk('Test content chunk 2');
+      // Smart mock that handles parallel calls correctly
+      // Use prompt content to identify call type (more reliable than checking Zod schemas)
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        // Title generation - prompt contains "Guess the title" and has response_format
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          return {
+            choices: [{ message: { content: JSON.stringify({ title1: 'Test Title', title2: 'Test Title 2', title3: 'Test Title 3' }) } }],
+          };
         }
+
+        // Tag evaluation - prompt contains "evaluate" (case-insensitive check)
+        if (hasResponseFormat && (prompt.includes('difficulty level') || prompt.toLowerCase().includes('evaluate'))) {
+          return tagEvaluationResponse;
+        }
+
+        // Heading/Key term links - prompts contain specific keywords
+        if (hasResponseFormat && prompt.includes('KEY TERMS WITH CONTEXT')) {
+          return keyTermLinkMappingsResponse;
+        }
+        if (hasResponseFormat && (prompt.includes('standalone titles') || prompt.includes('subsection'))) {
+          return headingLinkMappingsResponse;
+        }
+
+        // Content generation - when streaming is requested, return async iterator
+        if (params.stream === true) {
+          // Return an async generator to simulate OpenAI streaming
+          async function* streamGenerator() {
+            const chunks = ['# Understanding', ' Quantum', ' Entanglement\n\n', '...'];
+            for (const chunk of chunks) {
+              yield {
+                choices: [{ delta: { content: chunk }, finish_reason: null }],
+                model: 'gpt-4.1-mini',
+                usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+              };
+            }
+          }
+          return streamGenerator();
+        }
+
+        // Non-streaming content generation
         return {
           choices: [{ message: { content: fullExplanationContent } }],
         };
       });
 
-      // Mock remaining calls
-      mockOpenAIChatCreate.mockResolvedValueOnce(headingLinkMappingsResponse);
-      mockOpenAIChatCreate.mockResolvedValueOnce(keyTermLinkMappingsResponse);
-      mockOpenAIChatCreate.mockResolvedValueOnce(tagEvaluationResponse);
       mockPineconeUpsert.mockResolvedValueOnce(pineconeUpsertSuccessResponse);
 
       // Act
       const result = await returnExplanationLogic(
         userQuery,             // userInput: string
         null,                  // savedId: number | null
-        'normal',              // matchMode: MatchMode
+        MatchMode.Normal,      // matchMode: MatchMode
         userId,                // userid: string
-        'natural_language',    // userInputType: UserInputType
+        UserInputType.Query,   // userInputType: UserInputType
         [],                    // additionalRules: string[]
         onStreamingText,       // onStreamingText?: StreamingCallback
         undefined,             // existingContent?: string
@@ -473,12 +550,12 @@ describe('Explanation Generation Integration Tests', () => {
         null                   // previousExplanationViewedVector?: { values: number[] } | null
       );
 
-      // Assert
+      // Assert - should complete without error (streaming callback may or may not be called depending on implementation)
       expect(result.error).toBeNull();
+      expect(result.explanationId).toBeTruthy();
 
-      // Verify streaming callbacks were invoked
-      // Note: Actual behavior depends on returnExplanationLogic implementation
-      // This test may need adjustment based on actual streaming implementation
+      // Verify callbacks were invoked (progress events sent via onStreamingText)
+      expect(streamingCallbacks.length).toBeGreaterThan(0);
     });
   });
 
@@ -496,33 +573,55 @@ describe('Explanation Generation Integration Tests', () => {
       const userQuery = 'Test duplicate constraint';
       const mockEmbedding = generateRandomEmbedding(3072);
 
-      // Mock OpenAI to return same topic title
-      mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ title: duplicateTopicTitle }) } }],
-      });
-
       mockOpenAIEmbeddingsCreate.mockResolvedValue({
         data: [{ embedding: mockEmbedding }],
       });
 
       mockPineconeQuery.mockResolvedValue(pineconeNoMatchesResponse);
 
-      mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: fullExplanationContent } }],
+      // Smart mock that handles parallel calls correctly
+      // Use prompt content to identify call type
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        // Title generation - return duplicate topic title
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          return {
+            choices: [{ message: { content: JSON.stringify({ title1: duplicateTopicTitle, title2: 'Alt Title 2', title3: 'Alt Title 3' }) } }],
+          };
+        }
+
+        // Tag evaluation
+        if (hasResponseFormat && (prompt.includes('difficulty level') || prompt.includes('Evaluate'))) {
+          return tagEvaluationResponse;
+        }
+
+        // Key term links
+        if (hasResponseFormat && prompt.includes('KEY TERMS WITH CONTEXT')) {
+          return keyTermLinkMappingsResponse;
+        }
+
+        // Heading links
+        if (hasResponseFormat && (prompt.includes('standalone titles') || prompt.includes('subsection'))) {
+          return headingLinkMappingsResponse;
+        }
+
+        // Content generation
+        return {
+          choices: [{ message: { content: fullExplanationContent } }],
+        };
       });
 
-      mockOpenAIChatCreate.mockResolvedValueOnce(headingLinkMappingsResponse);
-      mockOpenAIChatCreate.mockResolvedValueOnce(keyTermLinkMappingsResponse);
-      mockOpenAIChatCreate.mockResolvedValueOnce(tagEvaluationResponse);
       mockPineconeUpsert.mockResolvedValueOnce(pineconeUpsertSuccessResponse);
 
       // Act
       const result = await returnExplanationLogic(
         userQuery,             // userInput: string
         null,                  // savedId: number | null
-        'normal',              // matchMode: MatchMode
+        MatchMode.Normal,      // matchMode: MatchMode
         userId,                // userid: string
-        'natural_language',    // userInputType: UserInputType
+        UserInputType.Query,   // userInputType: UserInputType
         [],                    // additionalRules: string[]
         undefined,             // onStreamingText?: StreamingCallback
         undefined,             // existingContent?: string

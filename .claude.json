@@ -1,9 +1,10 @@
 {
-  "numStartups": 7,
+  "numStartups": 12,
   "installMethod": "unknown",
   "autoUpdates": true,
+  "hasSeenTasksHint": true,
   "tipsHistory": {
-    "enter-to-steer-in-relatime": 1,
+    "enter-to-steer-in-relatime": 8,
     "new-user-warmup": 7,
     "memory-command": 2,
     "plan-mode-for-complex-tasks": 2,
@@ -12,13 +13,13 @@
     "theme-command": 2,
     "status-line": 2,
     "stickers-command": 2,
-    "# for memory": 2,
-    "paste-images-mac": 2,
+    "# for memory": 8,
+    "paste-images-mac": 8,
     "double-esc-code-restore": 2,
     "continue": 2,
     "shift-tab": 2,
     "tab-toggle-thinking": 2,
-    "prompt-queue": 2,
+    "prompt-queue": 8,
     "todo-list": 3,
     "shift-enter": 6,
     "install-github-app": 6,
@@ -113,10 +114,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1763086207272
+      "timestamp": 1763211168921
     }
   },
-  "lastPlanModeUse": 1763043853461,
+  "lastPlanModeUse": 1763211187587,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",

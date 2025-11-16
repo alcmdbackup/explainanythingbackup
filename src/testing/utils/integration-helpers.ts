@@ -234,13 +234,31 @@ export async function cleanupTestData(
 }
 
 /**
+ * Generates a valid UUID v4 for test purposes
+ * Using crypto.randomUUID() if available, otherwise a fallback
+ */
+function generateTestUUID(): string {
+  // Use crypto.randomUUID if available (Node 19+)
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  // Fallback: generate a valid UUID v4 format
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/**
  * Creates a complete test context with database connection and cleanup
  * Useful for tests that need full setup/teardown
  */
 export async function createTestContext(): Promise<TestContext> {
   const supabase = createTestSupabaseClient();
   const testId = `${TEST_PREFIX}${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  const userId = `${testId}-user`;
+  // Use valid UUID for userId to satisfy database constraints
+  const userId = generateTestUUID();
 
   const cleanup = async () => {
     await cleanupTestData(supabase, testId);
