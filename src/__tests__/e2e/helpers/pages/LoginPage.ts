@@ -2,11 +2,12 @@ import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
 
 export class LoginPage extends BasePage {
-  private emailInput = '[data-testid="login-email"]';
-  private passwordInput = '[data-testid="login-password"]';
-  private submitButton = '[data-testid="login-submit"]';
+  // Use accessible selectors as primary (more robust than data-testid)
+  private emailInput = '#email';
+  private passwordInput = '#password';
+  private submitButton = 'button[type="submit"]';
   private errorMessage = '[data-testid="login-error"]';
-  private signupToggle = '[data-testid="signup-toggle"]';
+  private signupToggle = 'button:has-text("Sign up")';
 
   constructor(page: Page) {
     super(page);
@@ -40,7 +41,8 @@ export class LoginPage extends BasePage {
 
   async isLoggedIn() {
     const cookies = await this.page.context().cookies();
-    return cookies.some((c) => c.name.includes('supabase'));
+    // Supabase cookies use 'sb-' prefix or 'supabase' in name
+    return cookies.some((c) => c.name.includes('supabase') || c.name.startsWith('sb-'));
   }
 
   async fillEmail(email: string) {

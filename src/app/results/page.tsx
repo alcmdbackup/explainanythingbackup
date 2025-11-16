@@ -970,7 +970,7 @@ function ResultsPageContent() {
                                 {explanationTitle && !isPageLoading && (
                                     <div className="mb-4">
                                         <div className="flex items-center justify-between min-h-[2.5rem]">
-                                            <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
+                                            <h1 data-testid="explanation-title" className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
                                                 {explanationTitle}
                                             </h1>
                                             {matches && matches.length > 0 && (
@@ -1072,6 +1072,7 @@ function ResultsPageContent() {
                                         <button
                                             onClick={handleSave}
                                             disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming}
+                                            data-testid="save-to-library"
                                             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
@@ -1182,7 +1183,8 @@ function ResultsPageContent() {
                                             background: rgba(156, 163, 175, 0.9);
                                         }
                                     `}</style>
-                                    <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                    <div data-testid="explanation-content" className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                        {!isStreaming && content && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex items-center justify-center py-12">
                                                 <div className="flex space-x-1">

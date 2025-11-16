@@ -1,9 +1,9 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, Page } from '@playwright/test';
 import { LoginPage } from '../helpers/pages/LoginPage';
 
 // Define custom fixtures for authentication
 export const test = base.extend<{
-  authenticatedPage: ReturnType<typeof base.extend>['page'];
+  authenticatedPage: Page;
 }>({
   authenticatedPage: async ({ page }, use) => {
     // Login before the test
@@ -17,9 +17,9 @@ export const test = base.extend<{
     // Wait for redirect after login
     await page.waitForURL('/', { timeout: 10000 });
 
-    // Verify session cookie exists
+    // Verify session cookie exists (Supabase uses 'sb-' prefix)
     const cookies = await page.context().cookies();
-    const hasAuthCookie = cookies.some((c) => c.name.includes('supabase'));
+    const hasAuthCookie = cookies.some((c) => c.name.includes('supabase') || c.name.startsWith('sb-'));
     expect(hasAuthCookie).toBe(true);
 
     // Provide the authenticated page to the test

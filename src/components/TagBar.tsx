@@ -566,8 +566,9 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                     return (
                                         <div key={tag.id} className="relative">
                                                                                 <span
+                                        data-testid="tag-item"
                                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
-                                            tag.tag_active_current 
+                                            tag.tag_active_current
                                                 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
                                                 : 'bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400 border-gray-200 dark:border-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700/50 line-through opacity-75'
                                         }`}
@@ -845,6 +846,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             return (
                                 <div key={tag.id} className="relative">
                                     <span
+                                        data-testid="tag-item"
                                         className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50"
                                         title={tag.tag_description}
                                         onClick={() => handleSimpleTagClick(tag)}

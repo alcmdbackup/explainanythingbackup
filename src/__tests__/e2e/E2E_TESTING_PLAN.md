@@ -5,7 +5,7 @@
 **Goal:** Validate critical user journeys end-to-end to ensure application reliability and prevent regressions
 **Timeline:** 2-3 weeks (10-12 days of focused work)
 **Priority:** Medium (optional enhancement, but high value for regression prevention)
-**Current Status:** ✅ **Phase 1 Complete** - Foundation setup done, 3 smoke tests created
+**Current Status:** ✅ **Phase 2 Complete** - Auth flow tests implemented with 8/9 passing
 **Target:** 52-66 E2E tests covering 7 critical user journeys
 
 ---
@@ -39,8 +39,30 @@
 - `npm run test:e2e:headed` - Headed browser mode
 - `npm run test:e2e:chromium` - Chromium only
 
-### ❌ Phase 2: Auth Flow Tests (NOT STARTED)
-**Estimated:** 3-4 hours | 8-10 tests
+### ✅ Phase 2: Auth Flow Tests (COMPLETE - Nov 16, 2025)
+**Duration:** ~3 hours
+**Status:** 8/9 tests passing (1 skipped)
+
+**Tests Implemented in `specs/01-auth/auth.spec.ts`:**
+1. ✅ `should login with valid credentials` - Login and redirect to home
+2. ✅ `should show error with invalid credentials` - Error display for bad login
+3. ✅ `should redirect unauthenticated user from protected route` - Protected route guard
+4. ✅ `should persist session after page refresh` - Session persistence
+5. ✅ `should access protected route when authenticated` - Auth state maintained
+6. ⏭️ `should logout successfully` - SKIPPED (Server Action redirect issue)
+7. ✅ `should redirect to home when accessing login while authenticated` - Auth redirect
+8. ✅ `should handle empty email submission` - Form validation
+9. ✅ `should handle empty password submission` - Form validation
+
+**Additional Infrastructure:**
+- Enhanced `fixtures/auth.ts` with Supabase cookie detection (sb-* prefix)
+- Improved `helpers/pages/LoginPage.ts` with robust selectors (#email, #password)
+- Added data-testid to results page, TagBar, ExplanationsTablePage
+
+**Known Issues:**
+1. **Logout Server Action**: signOut() uses redirect() which doesn't work from onClick handler
+2. **Supabase Rate Limiting**: Multiple rapid auth tests trigger rate limits; use --workers=1
+3. **Cookie Detection**: Supabase uses 'sb-' prefixed cookies, not 'supabase' in name
 
 ### ❌ Phase 3: Search & Generate Flow - Part 1 (NOT STARTED)
 **Estimated:** 8-10 hours | 8-10 tests
@@ -526,7 +548,7 @@ export async function mockOpenAIStreaming(page: Page, mockResponse: {
 | Phase | Task | Duration | Tests | Status |
 |-------|------|----------|-------|--------|
 | **Phase 1** | Setup & Configuration | 2 days | 3 smoke | ✅ COMPLETE |
-| **Phase 2** | Journey 1: Authentication | 1 day | 8-10 | ❌ NOT STARTED |
+| **Phase 2** | Journey 1: Authentication | 1 day | 9 (8 pass) | ✅ COMPLETE |
 | **Phase 3** | Journey 2: Search/Generate (Part 1) | 2 days | 8-10 | ❌ NOT STARTED |
 | **Phase 4** | Journey 2: Search/Generate (Part 2) | 1 day | 4-5 | ❌ NOT STARTED |
 | **Phase 5** | Journey 3: Library Management | 1 day | 8-10 | ❌ NOT STARTED |
@@ -535,7 +557,7 @@ export async function mockOpenAIStreaming(page: Page, mockResponse: {
 | **Phase 8** | CI/CD Integration + Documentation | 1 day | - | ❌ NOT STARTED |
 
 **Total:** 10-12 days
-**Total Tests:** 52-66 E2E tests (3 currently implemented)
+**Total Tests:** 52-66 E2E tests (12 currently implemented: 3 smoke + 9 auth)
 
 ---
 
@@ -688,12 +710,13 @@ npm run test:e2e
 
 ## Summary
 
-**Phase 1 COMPLETE** - E2E testing infrastructure is now set up:
+**Phase 2 COMPLETE** - Authentication flow tests implemented:
 - Playwright configuration ready
-- Directory structure created
+- Directory structure created (now in `src/__tests__/e2e/`)
 - 3 POMs implemented (Login, Search, Base)
-- 8 data-testid attributes added to components
-- 3 smoke tests verifying basic page loads
+- 12+ data-testid attributes added to components
+- 12 tests total: 3 smoke tests + 9 auth tests (8 passing, 1 skipped)
 - NPM scripts configured
+- Auth fixtures with proper Supabase cookie detection
 
-**Next:** Phase 2 - Auth Flow Tests (8-10 tests)
+**Next:** Phase 3 - Search & Generate Flow (8-10 tests)

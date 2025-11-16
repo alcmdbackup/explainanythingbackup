@@ -125,9 +125,10 @@ export default function ExplanationsTablePage({
                             {getSortedExplanations().map((explanation) => (
                                 <tr
                                     key={explanation.id}
+                                    data-testid="explanation-row"
                                     className="odd:bg-gray-50 even:bg-white dark:odd:bg-gray-800 dark:even:bg-gray-900 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors"
                                 >
-                                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900 dark:text-white">
+                                    <td data-testid="explanation-title" className="px-6 py-4 whitespace-nowrap font-medium text-gray-900 dark:text-white">
                                         {explanation.explanation_title}
                                     </td>
                                     <td className="px-6 py-4 whitespace-nowrap text-gray-600 dark:text-gray-400 max-w-xs truncate">
@@ -137,7 +138,7 @@ export default function ExplanationsTablePage({
                                         {formatUserFriendlyDate(explanation.timestamp)}
                                     </td>
                                     {hasDateSaved && (
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                                             {explanation.dateSaved
                                                 ? formatUserFriendlyDate(explanation.dateSaved)
                                                 : '-'}
