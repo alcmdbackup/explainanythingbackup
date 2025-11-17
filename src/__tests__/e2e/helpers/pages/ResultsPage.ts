@@ -29,11 +29,13 @@ export class ResultsPage extends BasePage {
   }
 
   async waitForStreamingComplete(timeout = 60000) {
-    await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });
+    // Wait for element to be attached (not visible, since it has hidden class)
+    await this.page.waitForSelector(this.streamCompleteIndicator, { timeout, state: 'attached' });
   }
 
   async isStreamComplete() {
-    return await this.page.isVisible(this.streamCompleteIndicator);
+    // Check if element exists in DOM (not visible, since it has hidden class)
+    return await this.page.locator(this.streamCompleteIndicator).count() > 0;
   }
 
   // Content methods

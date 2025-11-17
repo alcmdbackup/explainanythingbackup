@@ -100,7 +100,7 @@
               "specs": [
                 {
                   "title": "should submit query from home page and redirect to results",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -113,58 +113,18 @@
                         {
                           "workerIndex": 0,
                           "parallelIndex": 0,
-                          "status": "failed",
-                          "duration": 17702,
-                          "error": {
-                            "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
-                            "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:24:18",
-                            "location": {
-                              "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                              "column": 18,
-                              "line": 24
-                            },
-                            "snippet": "  22 |\n  23 |       // Verify redirect to results page with query param\n> 24 |       await page.waitForURL(/\\/results\\?q=/, { timeout: 10000 });\n     |                  ^\n  25 |       const query = await resultsPage.getQueryFromUrl();\n  26 |       expect(query).toContain('quantum entanglement');\n  27 |     });"
-                          },
-                          "errors": [
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                                "column": 18,
-                                "line": 24
-                              },
-                              "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n\n  22 |\n  23 |       // Verify redirect to results page with query param\n> 24 |       await page.waitForURL(/\\/results\\?q=/, { timeout: 10000 });\n     |                  ^\n  25 |       const query = await resultsPage.getQueryFromUrl();\n  26 |       expect(query).toContain('quantum entanglement');\n  27 |     });\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:24:18"
-                            }
-                          ],
+                          "status": "passed",
+                          "duration": 10565,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:49:53.152Z",
+                          "startTime": "2025-11-17T19:35:36.050Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/error-context.md"
-                            }
-                          ],
-                          "errorLocation": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "column": 18,
-                            "line": 24
-                          }
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-676816568170fd40a2e7",
@@ -174,7 +134,7 @@
                 },
                 {
                   "title": "should not submit empty query",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -185,60 +145,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 1,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
-                          "status": "failed",
-                          "duration": 11726,
-                          "error": {
-                            "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m",
-                            "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:37:26",
-                            "location": {
-                              "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                              "column": 26,
-                              "line": 37
-                            },
-                            "snippet": "  35 |       // Button should be disabled or search should not proceed\n  36 |       const isDisabled = await searchPage.isSearchButtonDisabled();\n> 37 |       expect(isDisabled).toBe(true);\n     |                          ^\n  38 |\n  39 |       // Verify we're still on home page\n  40 |       expect(page.url()).not.toContain('/results');"
-                          },
-                          "errors": [
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                                "column": 26,
-                                "line": 37
-                              },
-                              "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32mtrue\u001b[39m\nReceived: \u001b[31mfalse\u001b[39m\n\n  35 |       // Button should be disabled or search should not proceed\n  36 |       const isDisabled = await searchPage.isSearchButtonDisabled();\n> 37 |       expect(isDisabled).toBe(true);\n     |                          ^\n  38 |\n  39 |       // Verify we're still on home page\n  40 |       expect(page.url()).not.toContain('/results');\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:37:26"
-                            }
-                          ],
+                          "status": "passed",
+                          "duration": 6547,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:50:14.782Z",
+                          "startTime": "2025-11-17T19:35:47.544Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-d5df2-ould-not-submit-empty-query-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-d5df2-ould-not-submit-empty-query-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-d5df2-ould-not-submit-empty-query-chromium/error-context.md"
-                            }
-                          ],
-                          "errorLocation": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "column": 26,
-                            "line": 37
-                          }
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-92b23fb1bd25aa370977",
@@ -248,7 +168,7 @@
                 },
                 {
                   "title": "should allow search from results page",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -259,52 +179,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 2,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
-                          "status": "timedOut",
-                          "duration": 31970,
-                          "error": {
-                            "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                            "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                          },
-                          "errors": [
-                            {
-                              "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                            },
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts",
-                                "column": 21,
-                                "line": 32
-                              },
-                              "message": "Error: page.waitForSelector: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"stream-complete\"]') to be visible\u001b[22m\n\n\n   at helpers/pages/ResultsPage.ts:32\n\n  30 |\n  31 |   async waitForStreamingComplete(timeout = 60000) {\n> 32 |     await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });\n     |                     ^\n  33 |   }\n  34 |\n  35 |   async isStreamComplete() {\n    at ResultsPage.waitForStreamingComplete (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:32:21)\n    at ResultsPage.waitForCompleteGeneration (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:124:16)\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:52:7"
-                            }
-                          ],
+                          "status": "passed",
+                          "duration": 18679,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:50:29.955Z",
+                          "startTime": "2025-11-17T19:35:54.120Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-899b5-ow-search-from-results-page-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-899b5-ow-search-from-results-page-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-899b5-ow-search-from-results-page-chromium/error-context.md"
-                            }
-                          ]
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-3c6c801c5c742e545e30",
@@ -317,7 +205,7 @@
             {
               "title": "Explanation Generation",
               "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 63,
+              "line": 66,
               "column": 8,
               "specs": [
                 {
@@ -333,15 +221,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 3,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 9309,
+                          "duration": 12742,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:51:05.657Z",
+                          "startTime": "2025-11-17T19:36:12.826Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -351,12 +239,12 @@
                   ],
                   "id": "c7b27eb59abe36abe4b5-bc38850ec01839d90964",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 64,
+                  "line": 67,
                   "column": 9
                 },
                 {
                   "title": "should display full content after streaming completes",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -367,62 +255,30 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 3,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
-                          "status": "timedOut",
-                          "duration": 31558,
-                          "error": {
-                            "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                            "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                          },
-                          "errors": [
-                            {
-                              "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                            },
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts",
-                                "column": 21,
-                                "line": 32
-                              },
-                              "message": "Error: page.waitForSelector: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"stream-complete\"]') to be visible\u001b[22m\n\n\n   at helpers/pages/ResultsPage.ts:32\n\n  30 |\n  31 |   async waitForStreamingComplete(timeout = 60000) {\n> 32 |     await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });\n     |                     ^\n  33 |   }\n  34 |\n  35 |   async isStreamComplete() {\n    at ResultsPage.waitForStreamingComplete (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:32:21)\n    at ResultsPage.waitForCompleteGeneration (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:124:16)\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:82:7"
-                            }
-                          ],
+                          "status": "passed",
+                          "duration": 11333,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:51:15.509Z",
+                          "startTime": "2025-11-17T19:36:25.583Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-b6ac0-t-after-streaming-completes-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-b6ac0-t-after-streaming-completes-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-b6ac0-t-after-streaming-completes-chromium/error-context.md"
-                            }
-                          ]
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-a19fb8b2aa8dc4b3cf53",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 76,
+                  "line": 79,
                   "column": 9
                 },
                 {
                   "title": "should show stream-complete indicator when generation finishes",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -433,197 +289,119 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
-                          "status": "timedOut",
-                          "duration": 32278,
-                          "error": {
-                            "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                            "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                          },
-                          "errors": [
-                            {
-                              "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                            },
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts",
-                                "column": 21,
-                                "line": 32
-                              },
-                              "message": "Error: page.waitForSelector: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"stream-complete\"]') to be visible\u001b[22m\n\n\n   at helpers/pages/ResultsPage.ts:32\n\n  30 |\n  31 |   async waitForStreamingComplete(timeout = 60000) {\n> 32 |     await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });\n     |                     ^\n  33 |   }\n  34 |\n  35 |   async isStreamComplete() {\n    at ResultsPage.waitForStreamingComplete (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:32:21)\n    at ResultsPage.waitForCompleteGeneration (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:124:16)\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:95:7"
-                            }
-                          ],
+                          "status": "passed",
+                          "duration": 14606,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:51:48.686Z",
+                          "startTime": "2025-11-17T19:36:36.934Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-ed34c-or-when-generation-finishes-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-ed34c-or-when-generation-finishes-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-ed34c-or-when-generation-finishes-chromium/error-context.md"
-                            }
-                          ]
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-e6b5a7ce57710908c114",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 89,
+                  "line": 95,
                   "column": 9
                 },
                 {
                   "title": "should automatically assign tags after generation",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
                       "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                            "line": 107,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
                       "projectId": "chromium",
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 5,
-                          "parallelIndex": 0,
-                          "status": "timedOut",
-                          "duration": 30182,
-                          "error": {
-                            "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                            "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                          },
-                          "errors": [
-                            {
-                              "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                            },
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts",
-                                "column": 21,
-                                "line": 32
-                              },
-                              "message": "Error: page.waitForSelector: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"stream-complete\"]') to be visible\u001b[22m\n\n\n   at helpers/pages/ResultsPage.ts:32\n\n  30 |\n  31 |   async waitForStreamingComplete(timeout = 60000) {\n> 32 |     await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });\n     |                     ^\n  33 |   }\n  34 |\n  35 |   async isStreamComplete() {\n    at ResultsPage.waitForStreamingComplete (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:32:21)\n    at ResultsPage.waitForCompleteGeneration (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:124:16)\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:107:7"
-                            }
-                          ],
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:52:22.645Z",
+                          "startTime": "2025-11-17T19:36:51.564Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-a2e74-ssign-tags-after-generation-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-a2e74-ssign-tags-after-generation-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-a2e74-ssign-tags-after-generation-chromium/error-context.md"
-                            }
-                          ]
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "skipped"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-87bcafd7add426d08fe0",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 101,
-                  "column": 9
+                  "line": 107,
+                  "column": 10
                 },
                 {
                   "title": "should enable save-to-library button after generation",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
                       "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                            "line": 124,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
                       "projectId": "chromium",
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 6,
-                          "parallelIndex": 0,
-                          "status": "timedOut",
-                          "duration": 30188,
-                          "error": {
-                            "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                            "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                          },
-                          "errors": [
-                            {
-                              "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                            },
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts",
-                                "column": 21,
-                                "line": 32
-                              },
-                              "message": "Error: page.waitForSelector: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"stream-complete\"]') to be visible\u001b[22m\n\n\n   at helpers/pages/ResultsPage.ts:32\n\n  30 |\n  31 |   async waitForStreamingComplete(timeout = 60000) {\n> 32 |     await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });\n     |                     ^\n  33 |   }\n  34 |\n  35 |   async isStreamComplete() {\n    at ResultsPage.waitForStreamingComplete (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:32:21)\n    at ResultsPage.waitForCompleteGeneration (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:124:16)\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:122:7"
-                            }
-                          ],
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:52:54.948Z",
+                          "startTime": "2025-11-17T19:36:51.566Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-4d8c0-ary-button-after-generation-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-4d8c0-ary-button-after-generation-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-4d8c0-ary-button-after-generation-chromium/error-context.md"
-                            }
-                          ]
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "skipped"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-175145150b8e3f55a3fc",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 116,
-                  "column": 9
+                  "line": 124,
+                  "column": 10
                 }
               ]
             },
             {
               "title": "Error Handling",
               "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 129,
+              "line": 139,
               "column": 8,
               "specs": [
                 {
@@ -639,15 +417,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 15365,
+                          "duration": 10977,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:53:27.493Z",
+                          "startTime": "2025-11-17T19:36:51.567Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -657,7 +435,7 @@
                   ],
                   "id": "c7b27eb59abe36abe4b5-950846c35b5a27ded25b",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 130,
+                  "line": 140,
                   "column": 9
                 },
                 {
@@ -673,15 +451,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 13902,
+                          "duration": 11363,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:53:43.164Z",
+                          "startTime": "2025-11-17T19:37:02.568Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -691,7 +469,7 @@
                   ],
                   "id": "c7b27eb59abe36abe4b5-e4f3a935bff53107ce57",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 146,
+                  "line": 156,
                   "column": 9
                 }
               ]
@@ -699,12 +477,12 @@
             {
               "title": "URL State",
               "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 165,
+              "line": 175,
               "column": 8,
               "specs": [
                 {
                   "title": "should preserve query in URL after generation",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -715,57 +493,25 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
+                          "workerIndex": 0,
                           "parallelIndex": 0,
-                          "status": "timedOut",
-                          "duration": 30693,
-                          "error": {
-                            "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m",
-                            "stack": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                          },
-                          "errors": [
-                            {
-                              "message": "\u001b[31mTest timeout of 30000ms exceeded.\u001b[39m"
-                            },
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts",
-                                "column": 21,
-                                "line": 32
-                              },
-                              "message": "Error: page.waitForSelector: Test timeout of 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"stream-complete\"]') to be visible\u001b[22m\n\n\n   at helpers/pages/ResultsPage.ts:32\n\n  30 |\n  31 |   async waitForStreamingComplete(timeout = 60000) {\n> 32 |     await this.page.waitForSelector(this.streamCompleteIndicator, { timeout });\n     |                     ^\n  33 |   }\n  34 |\n  35 |   async isStreamComplete() {\n    at ResultsPage.waitForStreamingComplete (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:32:21)\n    at ResultsPage.waitForCompleteGeneration (/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/helpers/pages/ResultsPage.ts:124:16)\n    at /Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:173:7"
-                            }
-                          ],
+                          "status": "passed",
+                          "duration": 10859,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-11-17T18:53:57.085Z",
+                          "startTime": "2025-11-17T19:37:13.948Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-2b9d2-ery-in-URL-after-generation-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-2b9d2-ery-in-URL-after-generation-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results/specs-02-search-generate-s-2b9d2-ery-in-URL-after-generation-chromium/error-context.md"
-                            }
-                          ]
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-d8067076febe5bfe3c7d",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 166,
+                  "line": 176,
                   "column": 9
                 }
               ]
@@ -777,11 +523,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-17T18:49:49.098Z",
-    "duration": 278837.35000000003,
-    "expected": 3,
-    "skipped": 0,
-    "unexpected": 8,
+    "startTime": "2025-11-17T19:35:31.627Z",
+    "duration": 113340.07400000001,
+    "expected": 9,
+    "skipped": 2,
+    "unexpected": 0,
     "flaky": 0
   }
 }

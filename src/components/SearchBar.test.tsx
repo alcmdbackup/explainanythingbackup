@@ -365,7 +365,7 @@ describe('SearchBar', () => {
     });
 
     it('should enable input and button when disabled=false', () => {
-      render(<SearchBar disabled={false} />);
+      render(<SearchBar disabled={false} initialValue="test query" />);
       const input = screen.getByRole('textbox');
       const button = screen.getByRole('button');
       expect(input).not.toBeDisabled();

@@ -41,6 +41,7 @@ function ResultsPageContent() {
     const [isSaving, setIsSaving] = useState(false);
     const [showMatches, setShowMatches] = useState(false);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
+    const [streamCompleted, setStreamCompleted] = useState(false);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
 
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
@@ -361,8 +362,9 @@ function ResultsPageContent() {
                         if (data.type === 'complete' && data.result) {
                             logger.debug('Client received complete', { hasResult: !!data.result }, FILE_DEBUG);
                             finalResult = data.result;
+                            setStreamCompleted(true); // Mark stream as completed for E2E testing
                             //setIsStreaming(false);
-                            //wait for page reload to set this to false. This will prevent the flashing of the action buttons. 
+                            //wait for page reload to set this to false. This will prevent the flashing of the action buttons.
                             break;
                         }
                     } catch (parseError) {
@@ -840,7 +842,7 @@ function ResultsPageContent() {
 
             {/* Progress Bar */}
             {isPageLoading && (
-                <div className="w-full bg-gray-200 dark:bg-gray-700">
+                <div data-testid="loading-indicator" className="w-full bg-gray-200 dark:bg-gray-700">
                     <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
                 </div>
             )}
@@ -1184,7 +1186,7 @@ function ResultsPageContent() {
                                         }
                                     `}</style>
                                     <div data-testid="explanation-content" className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
-                                        {!isStreaming && content && <div data-testid="stream-complete" className="hidden" />}
+                                        {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex items-center justify-center py-12">
                                                 <div className="flex space-x-1">

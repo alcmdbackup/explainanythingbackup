@@ -14,12 +14,20 @@ export class SearchPage extends BasePage {
   }
 
   async search(query: string) {
-    await this.page.fill(this.searchInput, query);
+    // Clear and type to properly trigger React state updates
+    await this.page.click(this.searchInput);
+    await this.page.fill(this.searchInput, '');
+    await this.page.type(this.searchInput, query);
     await this.page.click(this.searchButton);
   }
 
   async fillQuery(query: string) {
-    await this.page.fill(this.searchInput, query);
+    // Clear and type to properly trigger React state updates
+    await this.page.click(this.searchInput);
+    await this.page.fill(this.searchInput, '');
+    if (query) {
+      await this.page.type(this.searchInput, query);
+    }
   }
 
   async clickSearch() {
