@@ -8,7 +8,7 @@
  * - Stored procedure execution
  */
 
-import { createTestContext } from '@/testing/utils/integration-helpers';
+import { setupTestDatabase, teardownTestDatabase, createTestContext } from '@/testing/utils/integration-helpers';
 import { SupabaseClient } from '@supabase/supabase-js';
 
 describe('Metrics Aggregation Integration Tests', () => {
@@ -18,6 +18,16 @@ describe('Metrics Aggregation Integration Tests', () => {
   let cleanup: () => Promise<void>;
   let testExplanationId: number;
   let testTopicId: number;
+
+  beforeAll(async () => {
+    supabase = await setupTestDatabase();
+    console.log('Metrics aggregation integration tests: Database setup complete');
+  });
+
+  afterAll(async () => {
+    await teardownTestDatabase(supabase);
+    console.log('Metrics aggregation integration tests: Database cleanup complete');
+  });
 
   beforeEach(async () => {
     const context = await createTestContext();

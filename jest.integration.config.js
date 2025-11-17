@@ -12,9 +12,9 @@ const config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '\\.(css|less|scss|sass)$': 'identity-obj-proxy',
+    // NOTE: OpenAI and Pinecone NOT mapped here - let test files jest.mock() with custom responses
+    // This gives integration tests full control over mock behavior
     '^openai/helpers/zod$': '<rootDir>/src/testing/mocks/openai-helpers-zod.ts',
-    '^openai$': '<rootDir>/src/testing/mocks/openai.ts',
-    '^@pinecone-database/pinecone$': '<rootDir>/src/testing/mocks/@pinecone-database/pinecone.ts',
     // NOTE: Supabase NOT mocked for integration tests - we use real DB
     '^langchain/text_splitter$': '<rootDir>/src/testing/mocks/langchain-text-splitter.ts',
   },

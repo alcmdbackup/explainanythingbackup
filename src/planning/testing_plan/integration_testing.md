@@ -2,20 +2,21 @@
 
 ## Executive Summary
 
-**Current State (Updated: 2025-11-16 - Phase 3C Complete!):**
+**Current State (Updated: 2025-11-17 - Jest Mock Bug Fixed!):**
 - **Unit Tests:** 51 test files, 1,207 tests (99.4% pass rate)
 - **Integration Tests:** ✅ **44 tests passing across 7 scenarios** (100% pass rate)
   - Explanation Generation: 6/6 passing ✅
   - Streaming API: 5/5 passing ✅
   - Vector Matching: 7/7 passing ✅
   - Tag Management: 8/8 passing ✅
-  - Explanation Update: 7/7 passing ✅ (NEW!)
-  - Auth Flow: 5/5 passing ✅ (NEW!)
-  - Metrics Aggregation: 6/6 passing ✅ (NEW!)
-  - Execution time: ~33 seconds (all 7 test files)
+  - Explanation Update: 7/7 passing ✅
+  - Auth Flow: 5/5 passing ✅
+  - Metrics Aggregation: 6/6 passing ✅
+  - Execution time: **~30 seconds** (all 7 test files) - Fixed from 83 min runtime!
   - Pass rate: **100% (44/44 tests)** 🎉
 - **Coverage:** 38.37% (unit test coverage only)
 - **Gap:** Tier 1-2 complete! 3 Tier 3 scenarios remain (Phase 3D)
+- **Recent Fix:** Resolved Jest moduleNameMapper conflict that caused mock failures
 
 **Goal:** Implement comprehensive integration testing to validate service interactions, data flow, and external API integration that unit tests cannot cover.
 
@@ -1595,3 +1596,118 @@ Time:        ~33s
 2. Scenario 9: Error Handling Integration
 3. Scenario 10: Logging Infrastructure
 4. Estimated time: 6-10 hours for 10-15 additional tests
+
+---
+
+## Session Log: 2025-11-17 - Critical Bug Fix: Jest Mock Configuration 🔧
+
+**Objective:** Debug and fix integration test failures (5/7 suites failing, 83 min runtime)
+
+**Starting State:**
+- 39/44 tests passing (89% pass rate)
+- 5 test suites failing with timeouts
+- Runtime: 5008 seconds (83 minutes!) vs expected 30 seconds
+- Error: `Exceeded timeout of 30000 ms for a hook`
+
+**Root Cause Analysis:**
+
+1. **Initial Symptoms:**
+   - Metrics-aggregation: `beforeAll` hook timeout + `supabase undefined`
+   - Streaming-api: 914 seconds runtime (15 min)
+   - Vector-matching: 1021 seconds runtime (17 min)
+   - Explanation-generation: 2014 seconds runtime (33 min!)
+
+2. **Investigation:**
+   - Verified Supabase connectivity: ✅ Working (0.6s response)
+   - Verified credentials: ✅ Valid service role key
+   - Checked test patterns: Found inconsistency in `beforeAll` setup
+
+3. **ROOT CAUSE IDENTIFIED:** **Double Mock Conflict**
+   - `jest.integration.config.js` had:
+     ```js
+     moduleNameMapper: {
+       '^openai$': '<rootDir>/src/testing/mocks/openai.ts',
+       '^@pinecone-database/pinecone$': '<rootDir>/src/testing/mocks/@pinecone-database/pinecone.ts',
+     }
+     ```
+   - Test files also called:
+     ```js
+     jest.mock('openai', () => { /* custom mock */ });
+     ```
+   - **Result:** Jest `moduleNameMapper` PREEMPTS `jest.mock()` calls
+   - Tests expected custom mock responses but got hardcoded defaults
+   - Some tests entered infinite loops or slow retry paths
+
+**Fixes Applied:**
+
+1. **Removed moduleNameMapper entries** (~5 min)
+   - File: `jest.integration.config.js`
+   - Removed: `'^openai$'` and `'^@pinecone-database/pinecone$'` mappings
+   - Now: Test files have full control via `jest.mock()`
+
+2. **Fixed metrics-aggregation setup pattern** (~5 min)
+   - File: `metrics-aggregation.integration.test.ts`
+   - Added missing `beforeAll(setupTestDatabase())` and `afterAll(teardownTestDatabase())`
+   - Aligned with other test files (auth-flow, tag-management, etc.)
+
+**Files Modified:**
+
+1. **`jest.integration.config.js`**
+   ```js
+   // BEFORE:
+   moduleNameMapper: {
+     '^openai$': '<rootDir>/src/testing/mocks/openai.ts',
+     '^@pinecone-database/pinecone$': '<rootDir>/src/testing/mocks/@pinecone-database/pinecone.ts',
+   }
+
+   // AFTER:
+   moduleNameMapper: {
+     // OpenAI and Pinecone NOT mapped - let test files jest.mock() with custom responses
+   }
+   ```
+
+2. **`metrics-aggregation.integration.test.ts`**
+   - Added `beforeAll(async () => { supabase = await setupTestDatabase(); })`
+   - Added `afterAll(async () => { await teardownTestDatabase(supabase); })`
+
+**Final State:**
+- **44/44 tests passing** ✅ (100% pass rate)
+- **Runtime: 30 seconds** (down from 83 minutes - 99.4% improvement!)
+- All 7 test suites operational
+- Phase 3C integrity restored
+
+**Test Results:**
+```
+PASS src/__tests__/integration/auth-flow.integration.test.ts (5 tests)
+PASS src/__tests__/integration/metrics-aggregation.integration.test.ts (6 tests)
+PASS src/__tests__/integration/streaming-api.integration.test.ts (5 tests)
+PASS src/__tests__/integration/vector-matching.integration.test.ts (7 tests)
+PASS src/__tests__/integration/tag-management.integration.test.ts (8 tests)
+PASS src/__tests__/integration/explanation-generation.integration.test.ts (6 tests)
+PASS src/__tests__/integration/explanation-update.integration.test.ts (7 tests)
+
+Test Suites: 7 passed, 7 total
+Tests:       44 passed, 44 total
+Time:        30.013 s
+```
+
+**Time Spent:** ~30 minutes
+
+**Key Learnings:**
+1. **Jest moduleNameMapper preempts jest.mock()** - Can't override mapped modules in test files
+2. **Module mapping is for STATIC replacements** - Not for customizable test mocks
+3. **Extremely long test runtimes** indicate mock failures, not network issues
+4. **Pattern consistency matters** - All test files should follow same setup pattern
+5. **Integration tests need different mock strategy** than unit tests
+
+**Impact:**
+- Restored Phase 3C completion status
+- Integration tests are reliable and fast again
+- Cleared path for Phase 3D implementation
+- Documentation updated to prevent future issues
+
+**Next Steps for Phase 3D:**
+1. Scenario 8: Request ID Propagation (3-4 tests)
+2. Scenario 9: Error Handling Integration (4-5 tests)
+3. Scenario 10: Logging Infrastructure (3-4 tests)
+4. Estimated time: 6-10 hours for 10-13 additional tests
