@@ -46,6 +46,62 @@ jest.mock('next/headers', () => ({
   })),
 }));
 
+// Global mock for Pinecone - can be overridden in individual test files
+// This prevents module-level instantiation from failing
+jest.mock('@pinecone-database/pinecone', () => {
+  const mockQuery = jest.fn();
+  const mockUpsert = jest.fn();
+  const mockFetch = jest.fn();
+
+  const namespaceObj = {
+    query: mockQuery,
+    upsert: mockUpsert,
+    fetch: mockFetch,
+  };
+
+  const indexObj = {
+    namespace: jest.fn().mockReturnValue(namespaceObj),
+  };
+
+  return {
+    Pinecone: jest.fn().mockImplementation(() => ({
+      // Support both uppercase Index (old API) and lowercase index (current API)
+      Index: jest.fn().mockReturnValue(indexObj),
+      index: jest.fn().mockReturnValue(indexObj),
+    })),
+    RecordValues: {},
+    __mockQuery: mockQuery,
+    __mockUpsert: mockUpsert,
+    __mockFetch: mockFetch,
+  };
+});
+
+// Global mock for OpenAI - can be overridden in individual test files
+jest.mock('openai', () => {
+  const mockEmbeddingsCreate = jest.fn();
+  const mockChatCreate = jest.fn();
+
+  const MockOpenAI = jest.fn().mockImplementation(() => ({
+    embeddings: {
+      create: mockEmbeddingsCreate,
+    },
+    chat: {
+      completions: {
+        create: mockChatCreate,
+      },
+    },
+  }));
+
+  // Export mock functions for test access
+  MockOpenAI.__mockEmbeddingsCreate = mockEmbeddingsCreate;
+  MockOpenAI.__mockChatCreate = mockChatCreate;
+
+  return {
+    __esModule: true,
+    default: MockOpenAI,
+  };
+});
+
 // Mock Supabase server client to use service role client for integration tests
 // This bypasses RLS and uses a properly initialized client with all methods
 jest.mock('@/lib/utils/supabase/server', () => {

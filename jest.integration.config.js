@@ -66,6 +66,10 @@ const config = {
   testTimeout: 30000, // 30 seconds for database operations
   maxWorkers: 1, // Run tests sequentially to avoid database conflicts
 
+  // Clear mock call history between tests, but preserve mock implementations
+  clearMocks: true,
+  restoreMocks: false, // Don't restore original implementations
+
   // Coverage thresholds (integration tests focus on flow, not coverage)
   coverageThreshold: {
     global: {

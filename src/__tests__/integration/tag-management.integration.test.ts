@@ -205,7 +205,7 @@ describe('Tag Management Integration Tests', () => {
       const duration = Date.now() - startTime;
 
       expect(results).toHaveLength(5);
-      expect(duration).toBeLessThan(2000);
+      expect(duration).toBeLessThan(5000); // Allow more time for actual DB operations
 
       const { data: dbRelationships } = await supabase
         .from('explanation_tags')

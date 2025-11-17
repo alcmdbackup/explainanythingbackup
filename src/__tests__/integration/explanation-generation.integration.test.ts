@@ -31,54 +31,20 @@ import {
 import { SupabaseClient } from '@supabase/supabase-js';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
 
-// Create shared mock functions at module level
-const mockPineconeQuery = jest.fn();
-const mockPineconeUpsert = jest.fn();
-const mockPineconeFetch = jest.fn();
-const mockOpenAIEmbeddingsCreate = jest.fn();
-const mockOpenAIChatCreate = jest.fn();
+// Access global mocks from jest.integration-setup.js
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const PineconeMock = require('@pinecone-database/pinecone');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const OpenAIMock = require('openai').default;
 
-// Mock Pinecone before any imports
-jest.mock('@pinecone-database/pinecone', () => ({
-  Pinecone: jest.fn().mockImplementation(() => ({
-    Index: jest.fn().mockReturnValue({
-      namespace: jest.fn().mockReturnValue({
-        query: mockPineconeQuery,
-        upsert: mockPineconeUpsert,
-        fetch: mockPineconeFetch,
-      }),
-    }),
-    index: jest.fn().mockReturnValue({
-      namespace: jest.fn().mockReturnValue({
-        query: mockPineconeQuery,
-        upsert: mockPineconeUpsert,
-        fetch: mockPineconeFetch,
-      }),
-    }),
-  })),
-  RecordValues: {},
-}));
+// Get mock functions from global mocks
+const mockPineconeQuery = PineconeMock.__mockQuery;
+const mockPineconeUpsert = PineconeMock.__mockUpsert;
+const mockPineconeFetch = PineconeMock.__mockFetch;
+const mockOpenAIEmbeddingsCreate = OpenAIMock.__mockEmbeddingsCreate;
+const mockOpenAIChatCreate = OpenAIMock.__mockChatCreate;
 
-// Mock OpenAI before any imports
-jest.mock('openai', () => {
-  const MockOpenAI = jest.fn().mockImplementation(() => ({
-    embeddings: {
-      create: mockOpenAIEmbeddingsCreate,
-    },
-    chat: {
-      completions: {
-        create: mockOpenAIChatCreate,
-      },
-    },
-  }));
-  // Handle ES module default export
-  return {
-    __esModule: true,
-    default: MockOpenAI,
-  };
-});
-
-// Import returnExplanation service after mocking
+// Import returnExplanation service (uses global mocks)
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 
 describe('Explanation Generation Integration Tests', () => {
