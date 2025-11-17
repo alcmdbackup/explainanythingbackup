@@ -79,442 +79,391 @@
   },
   "suites": [
     {
-      "title": "specs/02-search-generate/search-generate.spec.ts",
-      "file": "specs/02-search-generate/search-generate.spec.ts",
+      "title": "specs/03-library/library.spec.ts",
+      "file": "specs/03-library/library.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Search and Generate Flow",
-          "file": "specs/02-search-generate/search-generate.spec.ts",
-          "line": 11,
+          "title": "User Library Management",
+          "file": "specs/03-library/library.spec.ts",
+          "line": 4,
           "column": 6,
-          "specs": [],
-          "suites": [
+          "specs": [
             {
-              "title": "Search Navigation",
-              "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 12,
-              "column": 8,
-              "specs": [
+              "title": "should show loading state when navigating to library",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "should submit query from home page and redirect to results",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6942,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:02:10.116Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 10565,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:35:36.050Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "c7b27eb59abe36abe4b5-676816568170fd40a2e7",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 13,
-                  "column": 9
-                },
-                {
-                  "title": "should not submit empty query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 6547,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:35:47.544Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-92b23fb1bd25aa370977",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 29,
-                  "column": 9
-                },
-                {
-                  "title": "should allow search from results page",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 18679,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:35:54.120Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-3c6c801c5c742e545e30",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 43,
-                  "column": 9
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "c2c8e39bad2c9e91410f-bea2d96a4016c991fa17",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 16,
+              "column": 7
             },
             {
-              "title": "Explanation Generation",
-              "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 66,
-              "column": 8,
-              "specs": [
+              "title": "should display user library page after authentication",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "should show title during streaming",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 17310,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:02:17.820Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 12742,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:36:12.826Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "c7b27eb59abe36abe4b5-bc38850ec01839d90964",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 67,
-                  "column": 9
-                },
-                {
-                  "title": "should display full content after streaming completes",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 11333,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:36:25.583Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-a19fb8b2aa8dc4b3cf53",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 79,
-                  "column": 9
-                },
-                {
-                  "title": "should show stream-complete indicator when generation finishes",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 14606,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:36:36.934Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-e6b5a7ce57710908c114",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 95,
-                  "column": 9
-                },
-                {
-                  "title": "should automatically assign tags after generation",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 107,
-                            "column": 10
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": -1,
-                          "parallelIndex": -1,
-                          "status": "skipped",
-                          "duration": 0,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:36:51.564Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-87bcafd7add426d08fe0",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 107,
-                  "column": 10
-                },
-                {
-                  "title": "should enable save-to-library button after generation",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 124,
-                            "column": 10
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": -1,
-                          "parallelIndex": -1,
-                          "status": "skipped",
-                          "duration": 0,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:36:51.566Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-175145150b8e3f55a3fc",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 124,
-                  "column": 10
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "c2c8e39bad2c9e91410f-272b8bbd25de21517ba2",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 27,
+              "column": 7
             },
             {
-              "title": "Error Handling",
-              "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 139,
-              "column": 8,
-              "specs": [
+              "title": "should display page title when content loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "should handle API error gracefully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 13868,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:02:35.168Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 10977,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:36:51.567Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "c7b27eb59abe36abe4b5-950846c35b5a27ded25b",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 140,
-                  "column": 9
-                },
-                {
-                  "title": "should not crash with very long query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 11363,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:37:02.568Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-e4f3a935bff53107ce57",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 156,
-                  "column": 9
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "c2c8e39bad2c9e91410f-9101560dd64b2f086e63",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 39,
+              "column": 7
             },
             {
-              "title": "URL State",
-              "file": "specs/02-search-generate/search-generate.spec.ts",
-              "line": 175,
-              "column": 8,
-              "specs": [
+              "title": "should have sortable table headers when content loads",
+              "ok": true,
+              "tags": [],
+              "tests": [
                 {
-                  "title": "should preserve query in URL after generation",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
                     {
-                      "timeout": 30000,
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 12215,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:02:49.065Z",
                       "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 10859,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-17T19:37:13.948Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
+                      "attachments": []
                     }
                   ],
-                  "id": "c7b27eb59abe36abe4b5-d8067076febe5bfe3c7d",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 176,
-                  "column": 9
+                  "status": "expected"
                 }
-              ]
+              ],
+              "id": "c2c8e39bad2c9e91410f-42f42e5af70ba2e70335",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 55,
+              "column": 7
+            },
+            {
+              "title": "should allow sorting by title",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 12769,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:03:01.308Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-fec60d55751692ee32d0",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 73,
+              "column": 7
+            },
+            {
+              "title": "should allow sorting by date",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 15450,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:03:14.108Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-cfacebbcf0bd3160aa6a",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 92,
+              "column": 7
+            },
+            {
+              "title": "should navigate to results page when clicking View link",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 12229,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:03:29.591Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-1f0ec91ec5a7dba65e64",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 111,
+              "column": 7
+            },
+            {
+              "title": "should show Date Saved column for user library",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10960,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:03:42.104Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-300d49dec551f8f7ef12",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 131,
+              "column": 7
+            },
+            {
+              "title": "should have search bar in navigation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 11352,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:03:53.088Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-6e6fd0825689d0614fa5",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 146,
+              "column": 7
+            },
+            {
+              "title": "should handle search from library page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 14480,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:04:04.463Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-563182ce84d16fcef32b",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 160,
+              "column": 7
+            },
+            {
+              "title": "should require authentication to access library",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 16953,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-17T20:04:18.971Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "c2c8e39bad2c9e91410f-8bc35a0d8bef4a2874b9",
+              "file": "specs/03-library/library.spec.ts",
+              "line": 183,
+              "column": 7
             }
           ]
         }
@@ -523,10 +472,10 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-17T19:35:31.627Z",
-    "duration": 113340.07400000001,
-    "expected": 9,
-    "skipped": 2,
+    "startTime": "2025-11-17T20:02:05.778Z",
+    "duration": 150052.193,
+    "expected": 11,
+    "skipped": 0,
     "unexpected": 0,
     "flaky": 0
   }

@@ -37,7 +37,7 @@ export default function UserLibraryPage() {
 
     return (
         loading ? (
-            <div className="flex justify-center items-center min-h-screen">
+            <div data-testid="library-loading" className="flex justify-center items-center min-h-screen">
                 <span className="text-lg text-gray-700 dark:text-gray-200">Loading your library...</span>
             </div>
         ) : (
