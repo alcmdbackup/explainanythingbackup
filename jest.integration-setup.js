@@ -59,20 +59,30 @@ jest.mock('@pinecone-database/pinecone', () => {
     fetch: mockFetch,
   };
 
+  // Create stable index and namespace functions that persist across clearAllMocks
+  const mockNamespace = jest.fn().mockReturnValue(namespaceObj);
   const indexObj = {
-    namespace: jest.fn().mockReturnValue(namespaceObj),
+    namespace: mockNamespace,
+  };
+
+  // Create stable index function
+  const mockIndexFn = jest.fn().mockReturnValue(indexObj);
+
+  // Create stable Pinecone instance - same instance returned every time
+  const pineconeInstance = {
+    // Support both uppercase Index (old API) and lowercase index (current API)
+    Index: mockIndexFn,
+    index: mockIndexFn,
   };
 
   return {
-    Pinecone: jest.fn().mockImplementation(() => ({
-      // Support both uppercase Index (old API) and lowercase index (current API)
-      Index: jest.fn().mockReturnValue(indexObj),
-      index: jest.fn().mockReturnValue(indexObj),
-    })),
+    Pinecone: jest.fn().mockImplementation(() => pineconeInstance),
     RecordValues: {},
     __mockQuery: mockQuery,
     __mockUpsert: mockUpsert,
     __mockFetch: mockFetch,
+    __mockNamespace: mockNamespace,
+    __mockIndexFn: mockIndexFn,
   };
 });
 
