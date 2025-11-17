@@ -11,7 +11,7 @@ export const test = base.extend<{
     await loginPage.navigate();
     await loginPage.login(
       process.env.TEST_USER_EMAIL || 'abecha@gmail.com',
-      process.env.TEST_USER_PASSWORD || 'password'
+      process.env.TEST_USER_PASSWORD || 'Password1!'
     );
 
     // Wait for redirect after login

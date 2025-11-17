@@ -5,7 +5,7 @@
 **Goal:** Validate critical user journeys end-to-end to ensure application reliability and prevent regressions
 **Timeline:** 2-3 weeks (10-12 days of focused work)
 **Priority:** Medium (optional enhancement, but high value for regression prevention)
-**Current Status:** ✅ **Phase 2 Complete** - Auth flow tests implemented with 8/9 passing
+**Current Status:** 🟡 **Phase 3 In Progress** - Search/Generate tests scaffolded (3/11 passing)
 **Target:** 52-66 E2E tests covering 7 critical user journeys
 
 ---
@@ -64,8 +64,41 @@
 2. **Supabase Rate Limiting**: Multiple rapid auth tests trigger rate limits; use --workers=1
 3. **Cookie Detection**: Supabase uses 'sb-' prefixed cookies, not 'supabase' in name
 
-### ❌ Phase 3: Search & Generate Flow - Part 1 (NOT STARTED)
-**Estimated:** 8-10 hours | 8-10 tests
+### 🟡 Phase 3: Search & Generate Flow - Part 1 (IN PROGRESS - Nov 17, 2025)
+**Duration:** ~2 hours so far
+**Status:** 3/11 tests passing, infrastructure scaffolded
+
+**Files Created:**
+1. `helpers/pages/ResultsPage.ts` - Full POM for results page
+2. `helpers/api-mocks.ts` - SSE streaming mock infrastructure
+3. `specs/02-search-generate/search-generate.spec.ts` - 11 tests scaffolded
+
+**Tests Implemented (3 passing, 8 failing):**
+1. ✅ `should show title during streaming` - PASSES (direct navigation)
+2. ❌ `should submit query from home page` - FAILS (React controlled textarea issue)
+3. ❌ `should not submit empty query` - FAILS (button not disabled)
+4. ❌ `should allow search from results page` - FAILS (missing data-testid)
+5. ❌ `should display full content after streaming` - FAILS (missing data-testid)
+6. ❌ `should show stream-complete indicator` - FAILS (missing data-testid)
+7. ❌ `should auto-assign tags` - FAILS (missing data-testid)
+8. ❌ `should enable save-to-library button` - FAILS (missing data-testid)
+9. ✅ `should handle API error gracefully` - PASSES
+10. ✅ `should not crash with very long query` - PASSES
+11. ❌ `should preserve query in URL` - FAILS (missing data-testid)
+
+**Blockers Identified:**
+1. **Missing data-testid attributes** on results page:
+   - `stream-complete` - Streaming completion indicator
+   - `explanation-title` - Title display element
+   - `explanation-content` - Content area
+   - `tag-item` - Individual tags
+   - `save-to-library` - Save button
+2. **React controlled input issue** - `page.fill()` doesn't properly trigger React state updates
+3. **API route mocking** - Need to intercept actual `/api/returnExplanation` calls
+
+**Configuration Updates:**
+- Changed baseURL to `http://localhost:3002` in `playwright.config.ts`
+- Updated test credentials to `abecha@gmail.com / Password1!`
 
 ### ❌ Phase 4: Search & Generate Flow - Part 2 (NOT STARTED)
 **Estimated:** 3-4 hours | 4-5 tests
@@ -534,12 +567,13 @@ export async function mockOpenAIStreaming(page: Page, mockResponse: {
 ### 4.1 Test User Account
 
 **Email:** `abecha@gmail.com`
-**Password:** `password`
+**Password:** `Password1!`
 
 **Setup:**
 - User already exists in Supabase Auth
 - Use for all authenticated tests
 - Pre-configured in `.env.local`
+- Updated Nov 17, 2025 to use correct password
 
 ---
 
@@ -549,7 +583,7 @@ export async function mockOpenAIStreaming(page: Page, mockResponse: {
 |-------|------|----------|-------|--------|
 | **Phase 1** | Setup & Configuration | 2 days | 3 smoke | ✅ COMPLETE |
 | **Phase 2** | Journey 1: Authentication | 1 day | 9 (8 pass) | ✅ COMPLETE |
-| **Phase 3** | Journey 2: Search/Generate (Part 1) | 2 days | 8-10 | ❌ NOT STARTED |
+| **Phase 3** | Journey 2: Search/Generate (Part 1) | 2 days | 11 (3 pass) | 🟡 IN PROGRESS |
 | **Phase 4** | Journey 2: Search/Generate (Part 2) | 1 day | 4-5 | ❌ NOT STARTED |
 | **Phase 5** | Journey 3: Library Management | 1 day | 8-10 | ❌ NOT STARTED |
 | **Phase 6** | Journey 4: Content Viewing + Tags | 1 day | 11-15 | ❌ NOT STARTED |
@@ -557,7 +591,7 @@ export async function mockOpenAIStreaming(page: Page, mockResponse: {
 | **Phase 8** | CI/CD Integration + Documentation | 1 day | - | ❌ NOT STARTED |
 
 **Total:** 10-12 days
-**Total Tests:** 52-66 E2E tests (12 currently implemented: 3 smoke + 9 auth)
+**Total Tests:** 52-66 E2E tests (23 currently implemented: 3 smoke + 9 auth + 11 search/generate)
 
 ---
 
@@ -690,33 +724,46 @@ jobs:
 
 ## 10. Next Steps (Immediate Actions)
 
-### To Complete Phase 2 (Auth Flow):
-1. Create `e2e/specs/01-auth/auth.spec.ts` with 8-10 tests
-2. Test login success/failure flows
-3. Test protected route redirects
-4. Test logout functionality
-5. Test session persistence
+### To Complete Phase 3 (Search & Generate Flow):
+1. **Add missing data-testid attributes** to `src/app/results/page.tsx`:
+   - `data-testid="explanation-title"` on title element
+   - `data-testid="explanation-content"` on content container
+   - `data-testid="stream-complete"` when streaming finishes
+   - `data-testid="save-to-library"` on save button
+2. **Add tag data-testid** to `src/components/TagBar.tsx`:
+   - `data-testid="tag-item"` on each tag
+3. **Fix React controlled input** - Use `page.type()` instead of `page.fill()` for textarea
+4. **Verify API mock intercepts** - Ensure route mocking catches actual API calls
 
-### To Run Current Smoke Tests:
+### To Run Current Tests:
 ```bash
-# Terminal 1: Start dev server
-npm run dev
+# Start dev server on port 3002
+npm run dev -- -p 3002
 
-# Terminal 2: Run E2E tests
-npm run test:e2e
+# Run auth tests (8 passing)
+npx playwright test src/__tests__/e2e/specs/01-auth/ --workers=1 --project=chromium
+
+# Run search-generate tests (3 passing, 8 need app changes)
+npx playwright test src/__tests__/e2e/specs/02-search-generate/ --workers=1 --project=chromium
 ```
 
 ---
 
 ## Summary
 
-**Phase 2 COMPLETE** - Authentication flow tests implemented:
-- Playwright configuration ready
+**Phase 3 IN PROGRESS** - Search & Generate flow tests scaffolded:
+- Playwright configuration updated to use port 3002
 - Directory structure created (now in `src/__tests__/e2e/`)
-- 3 POMs implemented (Login, Search, Base)
-- 12+ data-testid attributes added to components
-- 12 tests total: 3 smoke tests + 9 auth tests (8 passing, 1 skipped)
+- 4 POMs implemented (Login, Search, Base, Results)
+- API mock infrastructure created (`helpers/api-mocks.ts`)
+- 23 tests total: 3 smoke + 9 auth (8 passing) + 11 search/generate (3 passing)
 - NPM scripts configured
-- Auth fixtures with proper Supabase cookie detection
+- Auth fixtures updated with correct password (`Password1!`)
+- Test credentials: `abecha@gmail.com / Password1!`
 
-**Next:** Phase 3 - Search & Generate Flow (8-10 tests)
+**Blockers for Phase 3 completion:**
+- Missing data-testid attributes on results page components
+- React controlled input filling issue (page.fill vs page.type)
+- API route mocking not intercepting actual calls
+
+**Next:** Add data-testid attributes to results page, then complete Phase 3 tests

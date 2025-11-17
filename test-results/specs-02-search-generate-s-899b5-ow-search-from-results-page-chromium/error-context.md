@@ -1,0 +1,47 @@
+# Page snapshot
+
+```yaml
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - navigation [ref=e3]:
+      - generic [ref=e5]:
+        - heading "Explain Anything" [level=1] [ref=e6]
+        - generic [ref=e9]:
+          - textbox "Search any topic..." [ref=e10]: initial query
+          - button "Search" [ref=e11]
+        - generic [ref=e12]:
+          - link "Home" [ref=e13] [cursor=pointer]:
+            - /url: /
+          - link "My Library" [ref=e14] [cursor=pointer]:
+            - /url: /userlibrary
+          - link "All explanations" [ref=e15] [cursor=pointer]:
+            - /url: /explanations
+          - button "Logout" [ref=e16]
+    - main [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e21]: "{code: \"22P02\", details: Null, hint: ..., message: ...}"
+        - generic [ref=e25]:
+          - heading "AI Suggestions" [level=3] [ref=e27]
+          - generic [ref=e28]:
+            - generic [ref=e29]:
+              - generic [ref=e30]: What would you like to improve?
+              - textbox "What would you like to improve?" [ref=e31]:
+                - /placeholder: Describe what you'd like to improve about this content...
+            - button "Get AI Suggestions" [disabled] [ref=e32]
+            - generic [ref=e33]:
+              - paragraph [ref=e34]: • Describe the improvements you'd like to see
+              - paragraph [ref=e35]: • AI will analyze and enhance your content
+              - paragraph [ref=e36]: • Changes will be applied directly to the editor
+  - generic [ref=e41] [cursor=pointer]:
+    - button "Open Next.js Dev Tools" [ref=e42]:
+      - img [ref=e43]
+    - generic [ref=e46]:
+      - button "Open issues overlay" [ref=e47]:
+        - generic [ref=e48]:
+          - generic [ref=e49]: "0"
+          - generic [ref=e50]: "1"
+        - generic [ref=e51]: Issue
+      - button "Collapse issues badge" [ref=e52]:
+        - img [ref=e53]
+  - alert [ref=e55]
+```
