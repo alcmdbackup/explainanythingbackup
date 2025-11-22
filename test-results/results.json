@@ -79,20 +79,20 @@
   },
   "suites": [
     {
-      "title": "specs/03-library/library.spec.ts",
-      "file": "specs/03-library/library.spec.ts",
+      "title": "specs/04-content-viewing/viewing.spec.ts",
+      "file": "specs/04-content-viewing/viewing.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "User Library Management",
-          "file": "specs/03-library/library.spec.ts",
+          "title": "Content Viewing",
+          "file": "specs/04-content-viewing/viewing.spec.ts",
           "line": 4,
           "column": 6,
           "specs": [
             {
-              "title": "should show loading state when navigating to library",
+              "title": "should load existing explanation by ID from URL",
               "ok": true,
               "tags": [],
               "tests": [
@@ -107,12 +107,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6942,
+                      "duration": 11095,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-17T20:02:10.116Z",
+                      "startTime": "2025-11-22T19:55:30.408Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -120,13 +120,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "c2c8e39bad2c9e91410f-bea2d96a4016c991fa17",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 16,
+              "id": "d2d0fd29d1b81bb9f321-92011ac7b0c336d5b4ea",
+              "file": "specs/04-content-viewing/viewing.spec.ts",
+              "line": 11,
               "column": 7
             },
             {
-              "title": "should display user library page after authentication",
+              "title": "should display explanation title",
               "ok": true,
               "tags": [],
               "tests": [
@@ -141,12 +141,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 17310,
+                      "duration": 8812,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-17T20:02:17.820Z",
+                      "startTime": "2025-11-22T19:55:42.368Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -154,13 +154,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "c2c8e39bad2c9e91410f-272b8bbd25de21517ba2",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 27,
+              "id": "d2d0fd29d1b81bb9f321-7da13e003dd0fc69aa88",
+              "file": "specs/04-content-viewing/viewing.spec.ts",
+              "line": 45,
               "column": 7
             },
             {
-              "title": "should display page title when content loads",
+              "title": "should display tags for explanation",
               "ok": true,
               "tags": [],
               "tests": [
@@ -175,12 +175,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 13868,
+                      "duration": 17343,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-17T20:02:35.168Z",
+                      "startTime": "2025-11-22T19:55:51.207Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -188,13 +188,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "c2c8e39bad2c9e91410f-9101560dd64b2f086e63",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 39,
+              "id": "d2d0fd29d1b81bb9f321-db06cb18fc3e820ce165",
+              "file": "specs/04-content-viewing/viewing.spec.ts",
+              "line": 71,
               "column": 7
             },
             {
-              "title": "should have sortable table headers when content loads",
+              "title": "should show save button state correctly",
               "ok": true,
               "tags": [],
               "tests": [
@@ -209,12 +209,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 12215,
+                      "duration": 7766,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-17T20:02:49.065Z",
+                      "startTime": "2025-11-22T19:56:08.582Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -222,13 +222,13 @@
                   "status": "expected"
                 }
               ],
-              "id": "c2c8e39bad2c9e91410f-42f42e5af70ba2e70335",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 55,
+              "id": "d2d0fd29d1b81bb9f321-744e04773c9bb9f9d367",
+              "file": "specs/04-content-viewing/viewing.spec.ts",
+              "line": 96,
               "column": 7
             },
             {
-              "title": "should allow sorting by title",
+              "title": "should preserve explanation ID in URL",
               "ok": true,
               "tags": [],
               "tests": [
@@ -243,12 +243,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 12769,
+                      "duration": 6709,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-17T20:03:01.308Z",
+                      "startTime": "2025-11-22T19:56:16.376Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -256,213 +256,9 @@
                   "status": "expected"
                 }
               ],
-              "id": "c2c8e39bad2c9e91410f-fec60d55751692ee32d0",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 73,
-              "column": 7
-            },
-            {
-              "title": "should allow sorting by date",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 15450,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-17T20:03:14.108Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-cfacebbcf0bd3160aa6a",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 92,
-              "column": 7
-            },
-            {
-              "title": "should navigate to results page when clicking View link",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 12229,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-17T20:03:29.591Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-1f0ec91ec5a7dba65e64",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 111,
-              "column": 7
-            },
-            {
-              "title": "should show Date Saved column for user library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 10960,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-17T20:03:42.104Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-300d49dec551f8f7ef12",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 131,
-              "column": 7
-            },
-            {
-              "title": "should have search bar in navigation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 11352,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-17T20:03:53.088Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-6e6fd0825689d0614fa5",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 146,
-              "column": 7
-            },
-            {
-              "title": "should handle search from library page",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 14480,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-17T20:04:04.463Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-563182ce84d16fcef32b",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 160,
-              "column": 7
-            },
-            {
-              "title": "should require authentication to access library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 16953,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-17T20:04:18.971Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-8bc35a0d8bef4a2874b9",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 183,
+              "id": "d2d0fd29d1b81bb9f321-06d066fb72697b022a37",
+              "file": "specs/04-content-viewing/viewing.spec.ts",
+              "line": 118,
               "column": 7
             }
           ]
@@ -472,9 +268,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-17T20:02:05.778Z",
-    "duration": 150052.193,
-    "expected": 11,
+    "startTime": "2025-11-22T19:55:26.523Z",
+    "duration": 56735.941,
+    "expected": 5,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

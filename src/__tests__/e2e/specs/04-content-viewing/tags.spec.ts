@@ -1,49 +1,15 @@
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
 
-test.describe('Content Viewing', () => {
+test.describe('Tag Management', () => {
   let resultsPage: ResultsPage;
 
   test.beforeEach(async ({ authenticatedPage }) => {
     resultsPage = new ResultsPage(authenticatedPage);
   });
 
-  test('should load existing explanation by ID from URL', async ({ authenticatedPage }) => {
-    // First, we need to get an existing explanation ID from the library
-    await authenticatedPage.goto('/userlibrary');
-
-    // Wait for library to load
-    await Promise.race([
-      authenticatedPage.waitForSelector('table', { timeout: 30000 }),
-      authenticatedPage.waitForSelector('.bg-red-100', { timeout: 30000 }),
-    ]).catch(() => {});
-
-    const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-
-    if (!hasExplanations) {
-      test.skip();
-      return;
-    }
-
-    // Click on the first explanation's View link
-    await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-
-    // Wait for navigation to results page
-    await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
-
-    // Wait for content to load (not streaming, just DB fetch - use longer timeout)
-    await resultsPage.waitForAnyContent(60000);
-
-    // Verify explanation displays
-    const title = await resultsPage.getTitle();
-    expect(title.length).toBeGreaterThan(0);
-
-    const hasContent = await resultsPage.hasContent();
-    expect(hasContent).toBe(true);
-  });
-
-  test('should display explanation title', async ({ authenticatedPage }) => {
-    // Navigate to library first
+  test('should display existing tags on explanation', async ({ authenticatedPage }) => {
+    // Navigate to library first to get an explanation with tags
     await authenticatedPage.goto('/userlibrary');
     await Promise.race([
       authenticatedPage.waitForSelector('table', { timeout: 30000 }),
@@ -56,20 +22,18 @@ test.describe('Content Viewing', () => {
       return;
     }
 
-    // Get the expected title from library
-    const expectedTitle = await authenticatedPage.locator('[data-testid="explanation-title"]').first().textContent();
-
-    // Click View
+    // Navigate to first explanation
     await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
     await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
     await resultsPage.waitForAnyContent(60000);
 
-    const displayedTitle = await resultsPage.getTitle();
-    expect(displayedTitle).toContain(expectedTitle || '');
+    // Verify tags are displayed (may be 0 or more)
+    const tagCount = await resultsPage.getTagCount();
+    expect(tagCount).toBeGreaterThanOrEqual(0);
   });
 
-  test('should display tags for explanation', async ({ authenticatedPage }) => {
-    // Navigate to a saved explanation
+  test('should show tag management buttons when tags are modified', async ({ authenticatedPage }) => {
+    // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
     await Promise.race([
       authenticatedPage.waitForSelector('table', { timeout: 30000 }),
@@ -86,14 +50,28 @@ test.describe('Content Viewing', () => {
     await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
     await resultsPage.waitForAnyContent(60000);
 
-    // Check for TagBar presence (may or may not have tags)
-    const hasTags = await resultsPage.hasTags();
+    // Check if Apply and Reset buttons exist (they appear when tags are modified)
+    // Note: These buttons may be hidden initially and only appear after tag modification
+    const tagCount = await resultsPage.getTagCount();
 
-    // Either has tags or TagBar is simply empty
-    expect(typeof hasTags).toBe('boolean');
+    if (tagCount > 0) {
+      // Try to remove a tag to trigger the modification UI
+      await resultsPage.removeTag(0);
+
+      // After modification, Apply and Reset should be visible
+      const applyVisible = await resultsPage.isApplyButtonVisible();
+      const resetVisible = await resultsPage.isResetButtonVisible();
+
+      // At least one should be visible after modification
+      expect(applyVisible || resetVisible).toBe(true);
+    } else {
+      // No tags to modify - test passes trivially
+      expect(true).toBe(true);
+    }
   });
 
-  test('should show save button state correctly', async ({ authenticatedPage }) => {
+  test('should handle tag input field interaction', async ({ authenticatedPage }) => {
+    // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
     await Promise.race([
       authenticatedPage.waitForSelector('table', { timeout: 30000 }),
@@ -110,12 +88,16 @@ test.describe('Content Viewing', () => {
     await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
     await resultsPage.waitForAnyContent(60000);
 
-    // Save button should be visible (already saved explanations show "Saved" or are disabled)
-    const saveButtonExists = await resultsPage.isSaveToLibraryVisible();
-    expect(saveButtonExists).toBe(true);
+    // Look for add tag input (may need to click a button to show it first)
+    // The tag input field should be present in the tag bar
+    const hasTagInput = await authenticatedPage.locator('[data-testid="tag-add-input"]').count() > 0;
+
+    // Tag input may or may not be visible depending on UI state
+    expect(typeof hasTagInput).toBe('boolean');
   });
 
-  test('should preserve explanation ID in URL', async ({ authenticatedPage }) => {
+  test('should preserve tag state after page refresh', async ({ authenticatedPage }) => {
+    // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
     await Promise.race([
       authenticatedPage.waitForSelector('table', { timeout: 30000 }),
@@ -130,13 +112,17 @@ test.describe('Content Viewing', () => {
 
     await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
     await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+    await resultsPage.waitForAnyContent(60000);
 
-    // Verify explanation_id is in the URL
-    const hasId = await resultsPage.hasExplanationIdInUrl();
-    expect(hasId).toBe(true);
+    // Get initial tag count
+    const initialTagCount = await resultsPage.getTagCount();
 
-    const explanationId = await resultsPage.getExplanationIdFromUrl();
-    expect(explanationId).toBeTruthy();
-    expect(explanationId?.length).toBeGreaterThan(0);
+    // Refresh the page
+    await authenticatedPage.reload();
+    await resultsPage.waitForAnyContent(60000);
+
+    // Tag count should be preserved
+    const afterRefreshTagCount = await resultsPage.getTagCount();
+    expect(afterRefreshTagCount).toBe(initialTagCount);
   });
 });

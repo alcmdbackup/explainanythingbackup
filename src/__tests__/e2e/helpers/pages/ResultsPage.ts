@@ -9,6 +9,10 @@ export class ResultsPage extends BasePage {
   private saveToLibraryButton = '[data-testid="save-to-library"]';
   private tagItem = '[data-testid="tag-item"]';
   private loadingIndicator = '[data-testid="loading-indicator"]';
+  private tagAddInput = '[data-testid="tag-add-input"]';
+  private tagAddButton = '[data-testid="tag-add-button"]';
+  private tagApplyButton = '[data-testid="tag-apply-button"]';
+  private tagResetButton = '[data-testid="tag-reset-button"]';
 
   constructor(page: Page) {
     super(page);
@@ -82,6 +86,37 @@ export class ResultsPage extends BasePage {
     return count > 0;
   }
 
+  // Tag management methods
+  async addTag(tagName: string) {
+    // Click on the add tag input field
+    await this.page.fill(this.tagAddInput, tagName);
+    await this.page.click(this.tagAddButton);
+  }
+
+  async removeTag(index: number) {
+    await this.page.click(`[data-testid="tag-remove-${index}"]`);
+  }
+
+  async clickApplyTags() {
+    await this.page.click(this.tagApplyButton);
+  }
+
+  async clickResetTags() {
+    await this.page.click(this.tagResetButton);
+  }
+
+  async isApplyButtonEnabled() {
+    return !(await this.page.isDisabled(this.tagApplyButton));
+  }
+
+  async isApplyButtonVisible() {
+    return await this.page.isVisible(this.tagApplyButton);
+  }
+
+  async isResetButtonVisible() {
+    return await this.page.isVisible(this.tagResetButton);
+  }
+
   // Save to library methods
   async clickSaveToLibrary() {
     await this.page.click(this.saveToLibraryButton);
@@ -124,5 +159,26 @@ export class ResultsPage extends BasePage {
   async waitForCompleteGeneration(timeout = 60000) {
     await this.waitForStreamingStart(timeout);
     await this.waitForStreamingComplete(timeout);
+  }
+
+  // Wait for existing explanation to load (not streaming, just DB fetch)
+  async waitForExplanationToLoad(timeout = 60000) {
+    // Wait for either title or content to appear (whichever comes first)
+    await Promise.race([
+      this.page.waitForSelector(this.explanationTitle, { timeout, state: 'visible' }),
+      this.page.waitForSelector(this.explanationContent, { timeout, state: 'visible' }),
+    ]);
+  }
+
+  // Wait for any content to render (handles both streaming and DB load scenarios)
+  async waitForAnyContent(timeout = 60000) {
+    // First check if we're loading (wait for it to finish)
+    const hasLoadingIndicator = await this.page.locator(this.loadingIndicator).count() > 0;
+    if (hasLoadingIndicator) {
+      await this.waitForLoadingToFinish(timeout);
+    }
+
+    // Then wait for title or content to appear
+    await this.waitForExplanationToLoad(timeout);
   }
 }

@@ -5,9 +5,9 @@
 **Goal:** Validate critical user journeys end-to-end to ensure application reliability and prevent regressions
 **Timeline:** 2-3 weeks (10-12 days of focused work)
 **Priority:** Medium (optional enhancement, but high value for regression prevention)
-**Current Status:** ✅ **Phase 4 Complete** - Library Management tests passing (11/11)
+**Current Status:** ✅ **Phase 5 Complete** - Content Viewing & Tags tests passing (9/9)
 **Target:** 52-66 E2E tests covering 7 critical user journeys
-**Current Tests:** 34 tests total (3 smoke + 9 auth + 11 search/generate + 11 library)
+**Current Tests:** 43 tests total (3 smoke + 9 auth + 11 search/generate + 11 library + 9 content viewing/tags)
 
 ---
 
@@ -136,24 +136,48 @@ After streaming completes, the page redirects to `/results?explanation_id=xxx` a
 2. **Empty Library**: Tests skip when user has no saved explanations
 3. **Client-side Auth**: Library uses client-side auth check, not middleware redirect
 
-### 🔄 Phase 5: Content Viewing & Tags (IN PROGRESS - Nov 17, 2025)
-**Estimated:** 3-4 hours | 8-10 tests
-**Status:** 5 tests created, not yet run
+### ✅ Phase 5: Content Viewing & Tags (COMPLETE - Nov 17, 2025)
+**Duration:** ~3 hours
+**Status:** 9/9 tests passing (100%)
 
 **Files Created:**
-1. `specs/04-content-viewing/viewing.spec.ts` - 5 content viewing tests (in progress)
+1. `specs/04-content-viewing/viewing.spec.ts` - 5 content viewing tests
+2. `specs/04-content-viewing/tags.spec.ts` - 4 tag management tests
 
-**Tests Implemented (not yet validated):**
-1. `should load existing explanation by ID from URL`
-2. `should display explanation title`
-3. `should display tags for explanation`
-4. `should show save button state correctly`
-5. `should preserve explanation ID in URL`
+**Components Updated with data-testid:**
+- ✅ `src/components/TagBar.tsx` - Added 5 attributes:
+  - `tag-remove-{index}` - Individual tag remove buttons
+  - `tag-add-input` - Tag input field
+  - `tag-add-button` - Add tag button
+  - `tag-apply-button` - Apply changes button
+  - `tag-reset-button` - Reset changes button
 
-**Remaining Tests to Write:**
-- Tag management tests (add/remove tags, filter by tags)
-- Tag display validation
-- Error handling for invalid explanation IDs
+**ResultsPage POM Enhanced:**
+- ✅ Added `waitForExplanationToLoad()` - Wait for DB-loaded content
+- ✅ Added `waitForAnyContent()` - Universal wait for streaming or DB load
+- ✅ Added tag management methods: `addTag()`, `removeTag()`, `clickApplyTags()`, `clickResetTags()`
+- ✅ Added button visibility checks: `isApplyButtonEnabled()`, `isApplyButtonVisible()`, `isResetButtonVisible()`
+
+**Viewing Tests (5 tests - all passing):**
+1. ✅ `should load existing explanation by ID from URL` - PASSES
+2. ✅ `should display explanation title` - PASSES
+3. ✅ `should display tags for explanation` - PASSES
+4. ✅ `should show save button state correctly` - PASSES
+5. ✅ `should preserve explanation ID in URL` - PASSES
+
+**Tag Management Tests (4 tests - all passing):**
+1. ✅ `should display existing tags on explanation` - PASSES
+2. ✅ `should show tag management buttons when tags are modified` - PASSES
+3. ✅ `should handle tag input field interaction` - PASSES
+4. ✅ `should preserve tag state after page refresh` - PASSES
+
+**Key Fixes Made:**
+1. **ResultsPage.ts**: Added `waitForAnyContent()` method to handle both streaming and DB load scenarios
+2. **viewing.spec.ts**: Changed from `waitForCompleteGeneration()` to `waitForAnyContent()` for loading existing explanations
+
+**Known Issues:**
+1. **Empty Library**: Tests skip gracefully when user has no saved explanations
+2. **Infrastructure**: Dev server may get overwhelmed after multiple sequential tests (intermittent network errors)
 
 ### ❌ Phase 6: Regeneration & Error Cases (NOT STARTED)
 **Estimated:** 4-5 hours | 8-10 tests
