@@ -79,6 +79,159 @@
   },
   "suites": [
     {
+      "title": "specs/04-content-viewing/tags.spec.ts",
+      "file": "specs/04-content-viewing/tags.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Tag Management",
+          "file": "specs/04-content-viewing/tags.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should display existing tags on explanation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 26091,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-22T20:33:33.526Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9a90287d0feeac884504-8d42e996a725b08b99d4",
+              "file": "specs/04-content-viewing/tags.spec.ts",
+              "line": 20,
+              "column": 7
+            },
+            {
+              "title": "should show tag management buttons when tags are modified",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 20445,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-22T20:34:00.353Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9a90287d0feeac884504-c3400b4423f3c57472b4",
+              "file": "specs/04-content-viewing/tags.spec.ts",
+              "line": 44,
+              "column": 7
+            },
+            {
+              "title": "should handle tag input field interaction",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6731,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-22T20:34:20.846Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9a90287d0feeac884504-0cc1c05602c7c312447f",
+              "file": "specs/04-content-viewing/tags.spec.ts",
+              "line": 82,
+              "column": 7
+            },
+            {
+              "title": "should preserve tag state after page refresh",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 60000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 29174,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-22T20:34:27.589Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "9a90287d0feeac884504-4e21db7cb10320909cc4",
+              "file": "specs/04-content-viewing/tags.spec.ts",
+              "line": 108,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
       "title": "specs/04-content-viewing/viewing.spec.ts",
       "file": "specs/04-content-viewing/viewing.spec.ts",
       "column": 0,
@@ -97,7 +250,7 @@
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -107,12 +260,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 11095,
+                      "duration": 7116,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-22T19:55:30.408Z",
+                      "startTime": "2025-11-22T20:34:56.803Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -122,7 +275,7 @@
               ],
               "id": "d2d0fd29d1b81bb9f321-92011ac7b0c336d5b4ea",
               "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 11,
+              "line": 20,
               "column": 7
             },
             {
@@ -131,7 +284,7 @@
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -141,12 +294,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 8812,
+                      "duration": 7460,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-22T19:55:42.368Z",
+                      "startTime": "2025-11-22T20:35:03.932Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -156,7 +309,7 @@
               ],
               "id": "d2d0fd29d1b81bb9f321-7da13e003dd0fc69aa88",
               "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 45,
+              "line": 54,
               "column": 7
             },
             {
@@ -165,7 +318,7 @@
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -175,12 +328,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 17343,
+                      "duration": 17147,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-22T19:55:51.207Z",
+                      "startTime": "2025-11-22T20:35:11.408Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -190,7 +343,7 @@
               ],
               "id": "d2d0fd29d1b81bb9f321-db06cb18fc3e820ce165",
               "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 71,
+              "line": 80,
               "column": 7
             },
             {
@@ -199,7 +352,7 @@
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -209,12 +362,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 7766,
+                      "duration": 7630,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-22T19:56:08.582Z",
+                      "startTime": "2025-11-22T20:35:28.570Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -224,7 +377,7 @@
               ],
               "id": "d2d0fd29d1b81bb9f321-744e04773c9bb9f9d367",
               "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 96,
+              "line": 105,
               "column": 7
             },
             {
@@ -233,7 +386,7 @@
               "tags": [],
               "tests": [
                 {
-                  "timeout": 30000,
+                  "timeout": 60000,
                   "annotations": [],
                   "expectedStatus": "passed",
                   "projectId": "chromium",
@@ -243,12 +396,12 @@
                       "workerIndex": 0,
                       "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 6709,
+                      "duration": 6479,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-11-22T19:56:16.376Z",
+                      "startTime": "2025-11-22T20:35:36.217Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -258,7 +411,7 @@
               ],
               "id": "d2d0fd29d1b81bb9f321-06d066fb72697b022a37",
               "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 118,
+              "line": 127,
               "column": 7
             }
           ]
@@ -268,9 +421,9 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-22T19:55:26.523Z",
-    "duration": 56735.941,
-    "expected": 5,
+    "startTime": "2025-11-22T20:33:29.045Z",
+    "duration": 133811.853,
+    "expected": 9,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

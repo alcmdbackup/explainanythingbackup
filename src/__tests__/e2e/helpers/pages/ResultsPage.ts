@@ -172,13 +172,27 @@ export class ResultsPage extends BasePage {
 
   // Wait for any content to render (handles both streaming and DB load scenarios)
   async waitForAnyContent(timeout = 60000) {
-    // First check if we're loading (wait for it to finish)
-    const hasLoadingIndicator = await this.page.locator(this.loadingIndicator).count() > 0;
-    if (hasLoadingIndicator) {
-      await this.waitForLoadingToFinish(timeout);
-    }
-
-    // Then wait for title or content to appear
-    await this.waitForExplanationToLoad(timeout);
+    // Wait directly for title OR content to be visible
+    // This is more robust than checking loading indicator first, since the title
+    // only renders when BOTH the data is loaded AND isPageLoading is false in React state
+    await Promise.race([
+      this.page.waitForSelector(this.explanationTitle, { timeout, state: 'visible' }),
+      this.page.waitForSelector(this.explanationContent, { timeout, state: 'visible' }),
+    ]).catch(async (error) => {
+      // If page was closed, just re-throw the original error
+      if (error.message?.includes('closed') || error.message?.includes('Target')) {
+        throw error;
+      }
+      // If neither appears, check if there's an error state or empty state
+      try {
+        const hasError = await this.page.locator('.bg-red-100').count() > 0;
+        if (hasError) {
+          throw new Error('Page loaded with error state instead of content');
+        }
+      } catch {
+        // Page might be closed, just throw timeout error
+      }
+      throw new Error('Timeout waiting for explanation content to appear');
+    });
   }
 }

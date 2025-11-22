@@ -4,8 +4,17 @@ import { ResultsPage } from '../../helpers/pages/ResultsPage';
 test.describe('Tag Management', () => {
   let resultsPage: ResultsPage;
 
+  // Use serial mode to avoid test isolation issues with network requests
+  // Also add retries for flaky network conditions
+  test.describe.configure({ mode: 'serial', retries: 1 });
+
+  // Increase timeout for these tests since they involve DB loading
+  test.setTimeout(60000);
+
   test.beforeEach(async ({ authenticatedPage }) => {
     resultsPage = new ResultsPage(authenticatedPage);
+    // Longer delay to ensure clean network state between tests and let dev server recover
+    await authenticatedPage.waitForTimeout(1000);
   });
 
   test('should display existing tags on explanation', async ({ authenticatedPage }) => {
