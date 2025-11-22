@@ -852,7 +852,7 @@ function ResultsPageContent() {
                     {/* Main Content Area */}
                     <div className="flex-1 px-4 py-8">
                         {error && (
-                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
+                            <div data-testid="error-message" className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
                                 {error}
                             </div>
                         )}
@@ -997,6 +997,7 @@ function ResultsPageContent() {
                                                 <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
                                                     <button
                                                         type="button"
+                                                        data-testid="rewrite-button"
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={async () => {
                                                             // Main rewrite button - regenerate the article
@@ -1028,6 +1029,7 @@ function ResultsPageContent() {
                                                     </button>
                                                     <button
                                                         type="button"
+                                                        data-testid="rewrite-dropdown-toggle"
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={() => {
                                                             if (tagState.mode === 'normal' && tagState.showRegenerateDropdown) {
@@ -1049,6 +1051,7 @@ function ResultsPageContent() {
                                                     <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
                                                         <div className="py-1">
                                                             <button
+                                                                data-testid="rewrite-with-tags"
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={async () => {
                                                                     await initializeTempTagsForRewriteWithTags();
@@ -1058,6 +1061,7 @@ function ResultsPageContent() {
                                                                 Rewrite with tags
                                                             </button>
                                                             <button
+                                                                data-testid="edit-with-tags"
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={() => {
                                                                     dispatchTagAction({ type: 'ENTER_EDIT_MODE' });

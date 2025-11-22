@@ -114,4 +114,14 @@ export class UserLibraryPage extends BasePage {
     await this.page.locator('[data-testid="search-input"]').fill(query);
     await this.page.locator('[data-testid="search-submit"]').click();
   }
+
+  async waitForTableToLoad(timeout: number = 30000): Promise<boolean> {
+    await this.waitForContentOrError(timeout);
+    const count = await this.getExplanationCount();
+    return count > 0;
+  }
+
+  async clickViewOnRow(index: number) {
+    await this.clickViewByIndex(index);
+  }
 }

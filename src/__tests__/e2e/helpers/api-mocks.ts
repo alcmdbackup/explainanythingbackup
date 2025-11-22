@@ -125,6 +125,7 @@ function createSSEEvents(response: MockExplanationResponse): string {
  */
 function createSSEEventsWithDelay(
   response: MockExplanationResponse,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _delayMs: number
 ): string {
   // Same as createSSEEvents, but all at once (Playwright route.fulfill doesn't support streaming delays)
@@ -183,3 +184,70 @@ export const shortMockExplanation: MockExplanationResponse = {
   explanation_id: 'mock-short-001',
   userQueryId: 'mock-query-short-001',
 };
+
+/**
+ * Mock the API to return a validation error (400).
+ */
+export async function mockReturnExplanationValidationError(
+  page: Page,
+  errorMessage: string = 'Missing required parameters'
+) {
+  await page.route('**/api/returnExplanation', async (route) => {
+    await route.fulfill({
+      status: 400,
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ error: errorMessage }),
+    });
+  });
+}
+
+/**
+ * Mock the API to timeout (never respond).
+ * The route will hang indefinitely until the test times out.
+ */
+export async function mockReturnExplanationTimeout(page: Page) {
+  await page.route('**/api/returnExplanation', async () => {
+    // Don't call route.fulfill() - this will cause the request to hang
+    await new Promise(() => {
+      // Never resolves - simulates network timeout
+    });
+  });
+}
+
+/**
+ * Mock the API to return an SSE stream error mid-stream.
+ */
+export async function mockReturnExplanationStreamError(
+  page: Page,
+  errorMessage: string = 'Stream interrupted'
+) {
+  await page.route('**/api/returnExplanation', async (route) => {
+    const events: string[] = [];
+
+    // Start streaming normally
+    events.push(`data: ${JSON.stringify({ type: 'streaming_start' })}\n\n`);
+    events.push(`data: ${JSON.stringify({
+      type: 'progress',
+      stage: 'title_generated',
+      title: 'Partial Title',
+    })}\n\n`);
+
+    // Then send error event
+    events.push(`data: ${JSON.stringify({
+      type: 'error',
+      error: errorMessage,
+    })}\n\n`);
+
+    await route.fulfill({
+      status: 200,
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+      body: events.join(''),
+    });
+  });
+}

@@ -13,6 +13,11 @@ export class ResultsPage extends BasePage {
   private tagAddButton = '[data-testid="tag-add-button"]';
   private tagApplyButton = '[data-testid="tag-apply-button"]';
   private tagResetButton = '[data-testid="tag-reset-button"]';
+  private errorMessage = '[data-testid="error-message"]';
+  private rewriteButton = '[data-testid="rewrite-button"]';
+  private rewriteDropdownToggle = '[data-testid="rewrite-dropdown-toggle"]';
+  private rewriteWithTags = '[data-testid="rewrite-with-tags"]';
+  private editWithTags = '[data-testid="edit-with-tags"]';
 
   constructor(page: Page) {
     super(page);
@@ -194,5 +199,53 @@ export class ResultsPage extends BasePage {
       }
       throw new Error('Timeout waiting for explanation content to appear');
     });
+  }
+
+  // Error handling methods
+  async getErrorMessage(): Promise<string | null> {
+    const errorElement = this.page.locator(this.errorMessage);
+    if (await errorElement.isVisible()) {
+      return await errorElement.innerText();
+    }
+    return null;
+  }
+
+  async waitForError(timeout = 30000) {
+    await this.page.waitForSelector(this.errorMessage, { timeout, state: 'visible' });
+  }
+
+  async isErrorVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.errorMessage);
+  }
+
+  // Rewrite/Regeneration methods
+  async clickRewriteButton() {
+    await this.page.click(this.rewriteButton);
+  }
+
+  async isRewriteButtonVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.rewriteButton);
+  }
+
+  async isRewriteButtonEnabled(): Promise<boolean> {
+    const button = this.page.locator(this.rewriteButton);
+    if (!(await button.isVisible())) return false;
+    return !(await button.isDisabled());
+  }
+
+  async openRewriteDropdown() {
+    await this.page.click(this.rewriteDropdownToggle);
+  }
+
+  async isRewriteDropdownVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.rewriteWithTags);
+  }
+
+  async clickRewriteWithTags() {
+    await this.page.click(this.rewriteWithTags);
+  }
+
+  async clickEditWithTags() {
+    await this.page.click(this.editWithTags);
   }
 }

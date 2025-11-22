@@ -79,340 +79,374 @@
   },
   "suites": [
     {
-      "title": "specs/04-content-viewing/tags.spec.ts",
-      "file": "specs/04-content-viewing/tags.spec.ts",
+      "title": "specs/02-search-generate/regenerate.spec.ts",
+      "file": "specs/02-search-generate/regenerate.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Tag Management",
-          "file": "specs/04-content-viewing/tags.spec.ts",
-          "line": 4,
+          "title": "Regeneration Flow",
+          "file": "specs/02-search-generate/regenerate.spec.ts",
+          "line": 10,
           "column": 6,
-          "specs": [
+          "specs": [],
+          "suites": [
             {
-              "title": "should display existing tags on explanation",
-              "ok": true,
-              "tags": [],
-              "tests": [
+              "title": "Rewrite Button",
+              "file": "specs/02-search-generate/regenerate.spec.ts",
+              "line": 11,
+              "column": 8,
+              "specs": [
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should show rewrite button after content loads",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 26091,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:33:33.526Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 21826,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:41:45.200Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9a90287d0feeac884504-8d42e996a725b08b99d4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 20,
-              "column": 7
-            },
-            {
-              "title": "should show tag management buttons when tags are modified",
-              "ok": true,
-              "tags": [],
-              "tests": [
+                  "id": "e994307b225edfd3385e-e7a4347696f766e937a2",
+                  "file": "specs/02-search-generate/regenerate.spec.ts",
+                  "line": 12,
+                  "column": 9
+                },
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should open dropdown and show rewrite options",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 20445,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:34:00.353Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 8906,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:08.414Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9a90287d0feeac884504-c3400b4423f3c57472b4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 44,
-              "column": 7
-            },
-            {
-              "title": "should handle tag input field interaction",
-              "ok": true,
-              "tags": [],
-              "tests": [
+                  "id": "e994307b225edfd3385e-ff8122b7ac0ca6d9ac28",
+                  "file": "specs/02-search-generate/regenerate.spec.ts",
+                  "line": 43,
+                  "column": 9
+                },
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should show content with title after loading from library",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 6731,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:34:20.846Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 12203,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:17.353Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
-                }
-              ],
-              "id": "9a90287d0feeac884504-0cc1c05602c7c312447f",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 82,
-              "column": 7
-            },
-            {
-              "title": "should preserve tag state after page refresh",
-              "ok": true,
-              "tags": [],
-              "tests": [
+                  "id": "e994307b225edfd3385e-d1d455e2e3217e42796d",
+                  "file": "specs/02-search-generate/regenerate.spec.ts",
+                  "line": 70,
+                  "column": 9
+                },
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should have functional rewrite button after content loads",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 29174,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:34:27.589Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 9982,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:29.587Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
+                  "id": "e994307b225edfd3385e-01e414b7ee9b3f55cc15",
+                  "file": "specs/02-search-generate/regenerate.spec.ts",
+                  "line": 97,
+                  "column": 9
                 }
-              ],
-              "id": "9a90287d0feeac884504-4e21db7cb10320909cc4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 108,
-              "column": 7
+              ]
             }
           ]
         }
       ]
     },
     {
-      "title": "specs/04-content-viewing/viewing.spec.ts",
-      "file": "specs/04-content-viewing/viewing.spec.ts",
+      "title": "specs/05-edge-cases/errors.spec.ts",
+      "file": "specs/05-edge-cases/errors.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Content Viewing",
-          "file": "specs/04-content-viewing/viewing.spec.ts",
-          "line": 4,
+          "title": "Error Handling",
+          "file": "specs/05-edge-cases/errors.spec.ts",
+          "line": 16,
           "column": 6,
-          "specs": [
+          "specs": [],
+          "suites": [
             {
-              "title": "should load existing explanation by ID from URL",
-              "ok": true,
-              "tags": [],
-              "tests": [
+              "title": "API Errors",
+              "file": "specs/05-edge-cases/errors.spec.ts",
+              "line": 17,
+              "column": 8,
+              "specs": [
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should not display content when API returns 500",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 7116,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:34:56.803Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 6505,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:39.673Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
+                  "id": "93ba63ac2f2ae08ec75b-a3993f2071f2def7e05f",
+                  "file": "specs/05-edge-cases/errors.spec.ts",
+                  "line": 18,
+                  "column": 9
+                },
+                {
+                  "title": "should display error message for stream errors",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 4596,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:46.203Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "93ba63ac2f2ae08ec75b-a83f014864631d846525",
+                  "file": "specs/05-edge-cases/errors.spec.ts",
+                  "line": 35,
+                  "column": 9
                 }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-92011ac7b0c336d5b4ea",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 20,
-              "column": 7
+              ]
             },
             {
-              "title": "should display explanation title",
-              "ok": true,
-              "tags": [],
-              "tests": [
+              "title": "Invalid URL Parameters",
+              "file": "specs/05-edge-cases/errors.spec.ts",
+              "line": 56,
+              "column": 8,
+              "specs": [
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should handle invalid explanation_id in URL gracefully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 7460,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:35:03.932Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 5854,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:50.827Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
+                  "id": "93ba63ac2f2ae08ec75b-0ff98f7c57cbcfe59592",
+                  "file": "specs/05-edge-cases/errors.spec.ts",
+                  "line": 57,
+                  "column": 9
+                },
+                {
+                  "title": "should handle missing query parameter",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 8045,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:42:56.724Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "93ba63ac2f2ae08ec75b-2fc0a8a44fb3d2e2bef5",
+                  "file": "specs/05-edge-cases/errors.spec.ts",
+                  "line": 74,
+                  "column": 9
                 }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-7da13e003dd0fc69aa88",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 54,
-              "column": 7
+              ]
             },
             {
-              "title": "should display tags for explanation",
-              "ok": true,
-              "tags": [],
-              "tests": [
+              "title": "Error Recovery",
+              "file": "specs/05-edge-cases/errors.spec.ts",
+              "line": 89,
+              "column": 8,
+              "specs": [
                 {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
+                  "title": "should recover from error state on new query",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
                     {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 17147,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:35:11.408Z",
+                      "timeout": 30000,
                       "annotations": [],
-                      "attachments": []
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 10680,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-11-22T21:43:04.810Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
                     }
                   ],
-                  "status": "expected"
+                  "id": "93ba63ac2f2ae08ec75b-449b8f9edc9c52137627",
+                  "file": "specs/05-edge-cases/errors.spec.ts",
+                  "line": 90,
+                  "column": 9
                 }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-db06cb18fc3e820ce165",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 80,
-              "column": 7
-            },
-            {
-              "title": "should show save button state correctly",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 7630,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:35:28.570Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-744e04773c9bb9f9d367",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 105,
-              "column": 7
-            },
-            {
-              "title": "should preserve explanation ID in URL",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 0,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 6479,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-11-22T20:35:36.217Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-06d066fb72697b022a37",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 127,
-              "column": 7
+              ]
             }
           ]
         }
@@ -421,8 +455,8 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-11-22T20:33:29.045Z",
-    "duration": 133811.853,
+    "startTime": "2025-11-22T21:41:34.585Z",
+    "duration": 101462.451,
     "expected": 9,
     "skipped": 0,
     "unexpected": 0,

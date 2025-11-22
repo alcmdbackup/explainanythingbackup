@@ -5,9 +5,9 @@
 **Goal:** Validate critical user journeys end-to-end to ensure application reliability and prevent regressions
 **Timeline:** 2-3 weeks (10-12 days of focused work)
 **Priority:** Medium (optional enhancement, but high value for regression prevention)
-**Current Status:** ✅ **Phase 5 Complete** - Content Viewing & Tags tests passing (9/9)
+**Current Status:** ✅ **Phase 6 Complete** - Regeneration & Error Cases tests passing (9/9)
 **Target:** 52-66 E2E tests covering 7 critical user journeys
-**Current Tests:** 43 tests total (3 smoke + 9 auth + 11 search/generate + 11 library + 9 content viewing/tags)
+**Current Tests:** 52 tests total (3 smoke + 9 auth + 15 search/generate + 11 library + 9 content viewing/tags + 5 errors)
 
 ---
 
@@ -179,8 +179,54 @@ After streaming completes, the page redirects to `/results?explanation_id=xxx` a
 1. **Empty Library**: Tests skip gracefully when user has no saved explanations
 2. **Infrastructure**: Dev server may get overwhelmed after multiple sequential tests (intermittent network errors)
 
-### ❌ Phase 6: Regeneration & Error Cases (NOT STARTED)
-**Estimated:** 4-5 hours | 8-10 tests
+### ✅ Phase 6: Regeneration & Error Cases (COMPLETE - Nov 22, 2025)
+**Duration:** ~3 hours
+**Status:** 9/9 tests passing (100%)
+
+**Files Created:**
+1. `specs/02-search-generate/regenerate.spec.ts` - 4 regeneration tests
+2. `specs/05-edge-cases/errors.spec.ts` - 5 error handling tests
+
+**Components Updated with data-testid:**
+- ✅ `src/app/results/page.tsx` - Added 5 attributes:
+  - `error-message` - Error message display
+  - `rewrite-button` - Main rewrite button
+  - `rewrite-dropdown-toggle` - Dropdown toggle for rewrite options
+  - `rewrite-with-tags` - Rewrite with tags option
+  - `edit-with-tags` - Edit with tags option
+
+**ResultsPage POM Enhanced:**
+- ✅ Added error handling methods: `getErrorMessage()`, `waitForError()`, `isErrorVisible()`
+- ✅ Added rewrite methods: `clickRewriteButton()`, `isRewriteButtonVisible()`, `isRewriteButtonEnabled()`
+- ✅ Added dropdown methods: `openRewriteDropdown()`, `isRewriteDropdownVisible()`, `clickRewriteWithTags()`, `clickEditWithTags()`
+
+**UserLibraryPage POM Enhanced:**
+- ✅ Added `waitForTableToLoad()` - Wait for library table to populate
+- ✅ Added `clickViewOnRow()` - Click view link on specific row
+
+**API Mocks Added:**
+- ✅ `mockReturnExplanationValidationError()` - 400 validation error
+- ✅ `mockReturnExplanationTimeout()` - Simulates network timeout
+- ✅ `mockReturnExplanationStreamError()` - SSE stream error mid-stream
+
+**Regeneration Tests (4 tests - all passing):**
+1. ✅ `should show rewrite button after content loads` - PASSES
+2. ✅ `should open dropdown and show rewrite options` - PASSES
+3. ✅ `should show content with title after loading from library` - PASSES
+4. ✅ `should have functional rewrite button after content loads` - PASSES
+
+**Error Handling Tests (5 tests - all passing):**
+1. ✅ `should not display content when API returns 500` - PASSES
+2. ✅ `should display error message for stream errors` - PASSES
+3. ✅ `should handle invalid explanation_id in URL gracefully` - PASSES
+4. ✅ `should handle missing query parameter` - PASSES
+5. ✅ `should recover from error state on new query` - PASSES
+
+**Key Learnings:**
+1. App handles errors via SSE stream 'error' events, not HTTP status codes
+2. Rewrite button only visible when `!isTagsModified() && !isPageLoading`
+3. Navigation from library to results requires explicit URL wait before content check
+4. Library table rows share `data-testid="explanation-title"` with results page title
 
 ### ❌ Phase 7: CI/CD Integration & Polish (NOT STARTED)
 **Estimated:** 4-5 hours
@@ -243,9 +289,11 @@ src/__tests__/e2e/
 │   │   └── search-generate.spec.ts
 │   ├── 03-library/            # 11 library tests (11 passing) ✅
 │   │   └── library.spec.ts
-│   ├── 04-content-viewing/    # 5 tests (in progress) 🔄
-│   │   └── viewing.spec.ts
-│   ├── 05-edge-cases/         # (placeholder - not started)
+│   ├── 04-content-viewing/    # 9 tests (all passing) ✅
+│   │   ├── viewing.spec.ts
+│   │   └── tags.spec.ts
+│   ├── 05-edge-cases/         # 5 tests (all passing) ✅
+│   │   └── errors.spec.ts
 │   └── smoke.spec.ts          # 3 basic smoke tests ✅
 ├── setup/                     # Global setup/teardown
 │   ├── global-setup.ts        # Pre-test setup
@@ -830,37 +878,32 @@ npx playwright test src/__tests__/e2e/specs/02-search-generate/ --workers=1 --pr
 
 ## Summary
 
-**Phase 4 COMPLETE** - Library Management tests passing:
+**Phase 6 COMPLETE** - Regeneration & Error Cases tests passing:
 - Playwright configuration using port 3002
 - Directory structure in `src/__tests__/e2e/`
 - **5 POMs implemented**: Login, Search, Base, Results, UserLibrary
 - API mock infrastructure: `helpers/api-mocks.ts`
-- **34 tests total**: 3 smoke + 9 auth + 11 search/generate + 11 library
-- **28 passing, 3 skipped, 3 in progress**
+- **52 tests total**: 3 smoke + 9 auth + 15 search/generate + 11 library + 9 content viewing + 5 errors
+- **49 passing, 3 skipped**
 - NPM scripts configured
 - Auth fixtures with correct password (`Password1!`)
 - Test credentials: `abecha@gmail.com / Password1!`
 
-**Key Learnings from Phase 4:**
-1. Supabase client-side auth can cause slow/hanging page loads
-2. Robust wait strategies (30s timeout) needed for real database operations
-3. Tests should gracefully skip when backend is slow or data is empty
-4. Page Object Models provide excellent abstraction for complex pages
+**Key Learnings from Phase 6:**
+1. App handles errors via SSE stream 'error' events, not HTTP status codes
+2. Rewrite button only visible when `!isTagsModified() && !isPageLoading`
+3. Navigation from library to results requires explicit URL wait before content check
+4. Library table rows share `data-testid="explanation-title"` with results page title
 
 **Remaining Architectural Constraints:**
 - 3 tests skipped total: logout (server action issue), tag/save button (DB dependency)
 - Library tests depend on user having saved explanations (skip if empty)
-- Content viewing tests being developed
 
 **Current Test Statistics:**
-- **Total Tests:** 34 (+ 5 in progress)
-- **Passing:** 28 tests (82%)
-- **Skipped:** 3 tests (9%)
-- **In Progress:** 5 tests (Phase 5)
-- **Execution Time:** ~5-6 minutes total for all tests
+- **Total Tests:** 52
+- **Passing:** 49 tests (94%)
+- **Skipped:** 3 tests (6%)
+- **Execution Time:** ~8-10 minutes total for all tests
 
 **Next Steps:**
-1. Complete Phase 5: Validate content viewing tests (5 written, need to run)
-2. Add tag management tests (4-5 tests)
-3. Implement Phase 6: Error cases and edge cases
-4. Phase 7: CI/CD GitHub Actions workflow
+1. Phase 7: CI/CD GitHub Actions workflow integration
