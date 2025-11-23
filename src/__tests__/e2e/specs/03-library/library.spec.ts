@@ -17,11 +17,11 @@ test.describe('User Library Management', () => {
     // Navigate without waiting
     await authenticatedPage.goto('/userlibrary');
 
-    // Should show loading indicator
-    const hasLoadingIndicator = await authenticatedPage.locator('[data-testid="library-loading"]').isVisible().catch(() => false);
+    // Should show loading indicator (it's OK if loading is too fast to catch)
+    await authenticatedPage.locator('[data-testid="library-loading"]').isVisible().catch(() => false);
 
-    // It's OK if loading is too fast to catch OR if it shows
-    expect(true).toBe(true); // This test passes if we reach here
+    // This test passes if we reach here - loading may be too fast to catch
+    expect(true).toBe(true);
   });
 
   test('should display user library page after authentication', async ({ authenticatedPage }) => {

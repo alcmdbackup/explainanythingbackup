@@ -22,7 +22,8 @@ export const test = base.extend<{
     const hasAuthCookie = cookies.some((c) => c.name.includes('supabase') || c.name.startsWith('sb-'));
     expect(hasAuthCookie).toBe(true);
 
-    // Provide the authenticated page to the test
+    // Provide the authenticated page to the test (use is Playwright fixture, not React hook)
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
   },
 });

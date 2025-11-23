@@ -1,6 +1,4 @@
-import { FullConfig } from '@playwright/test';
-
-async function globalSetup(config: FullConfig) {
+async function globalSetup() {
   console.log('🚀 E2E Global Setup: Starting...');
 
   // Verify environment variables are set

@@ -1,6 +1,4 @@
-import { FullConfig } from '@playwright/test';
-
-async function globalTeardown(config: FullConfig) {
+async function globalTeardown() {
   console.log('🧹 E2E Global Teardown: Starting...');
 
   // Cleanup tasks can be added here:
