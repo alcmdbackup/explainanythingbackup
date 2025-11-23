@@ -71,6 +71,7 @@ export default function Navigation({
                         </Link>
                         <button
                             onClick={() => signOut()}
+                            data-testid="logout-button"
                             className="text-gray-700 hover:text-red-700 dark:text-gray-300 dark:hover:text-red-400 text-base font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-red-600 focus:ring-offset-2 rounded"
                         >
                             Logout

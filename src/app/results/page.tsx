@@ -41,6 +41,7 @@ function ResultsPageContent() {
     const [isSaving, setIsSaving] = useState(false);
     const [showMatches, setShowMatches] = useState(false);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
+    const [streamCompleted, setStreamCompleted] = useState(false);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
 
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
@@ -361,8 +362,9 @@ function ResultsPageContent() {
                         if (data.type === 'complete' && data.result) {
                             logger.debug('Client received complete', { hasResult: !!data.result }, FILE_DEBUG);
                             finalResult = data.result;
+                            setStreamCompleted(true); // Mark stream as completed for E2E testing
                             //setIsStreaming(false);
-                            //wait for page reload to set this to false. This will prevent the flashing of the action buttons. 
+                            //wait for page reload to set this to false. This will prevent the flashing of the action buttons.
                             break;
                         }
                     } catch (parseError) {
@@ -840,7 +842,7 @@ function ResultsPageContent() {
 
             {/* Progress Bar */}
             {isPageLoading && (
-                <div className="w-full bg-gray-200 dark:bg-gray-700">
+                <div data-testid="loading-indicator" className="w-full bg-gray-200 dark:bg-gray-700">
                     <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
                 </div>
             )}
@@ -850,7 +852,7 @@ function ResultsPageContent() {
                     {/* Main Content Area */}
                     <div className="flex-1 px-4 py-8">
                         {error && (
-                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
+                            <div data-testid="error-message" className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
                                 {error}
                             </div>
                         )}
@@ -970,7 +972,7 @@ function ResultsPageContent() {
                                 {explanationTitle && !isPageLoading && (
                                     <div className="mb-4">
                                         <div className="flex items-center justify-between min-h-[2.5rem]">
-                                            <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
+                                            <h1 data-testid="explanation-title" className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
                                                 {explanationTitle}
                                             </h1>
                                             {matches && matches.length > 0 && (
@@ -995,6 +997,7 @@ function ResultsPageContent() {
                                                 <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
                                                     <button
                                                         type="button"
+                                                        data-testid="rewrite-button"
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={async () => {
                                                             // Main rewrite button - regenerate the article
@@ -1026,6 +1029,7 @@ function ResultsPageContent() {
                                                     </button>
                                                     <button
                                                         type="button"
+                                                        data-testid="rewrite-dropdown-toggle"
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={() => {
                                                             if (tagState.mode === 'normal' && tagState.showRegenerateDropdown) {
@@ -1047,6 +1051,7 @@ function ResultsPageContent() {
                                                     <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
                                                         <div className="py-1">
                                                             <button
+                                                                data-testid="rewrite-with-tags"
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={async () => {
                                                                     await initializeTempTagsForRewriteWithTags();
@@ -1056,6 +1061,7 @@ function ResultsPageContent() {
                                                                 Rewrite with tags
                                                             </button>
                                                             <button
+                                                                data-testid="edit-with-tags"
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={() => {
                                                                     dispatchTagAction({ type: 'ENTER_EDIT_MODE' });
@@ -1072,6 +1078,7 @@ function ResultsPageContent() {
                                         <button
                                             onClick={handleSave}
                                             disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming}
+                                            data-testid="save-to-library"
                                             className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
                                         >
                                             <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
@@ -1182,7 +1189,8 @@ function ResultsPageContent() {
                                             background: rgba(156, 163, 175, 0.9);
                                         }
                                     `}</style>
-                                    <div className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                    <div data-testid="explanation-content" className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                        {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex items-center justify-center py-12">
                                                 <div className="flex space-x-1">

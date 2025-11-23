@@ -32,9 +32,9 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
 
 // Access global mocks from jest.integration-setup.js
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const PineconeMock = require('@pinecone-database/pinecone');
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const OpenAIMock = require('openai').default;
 
 // Get mock functions from global mocks

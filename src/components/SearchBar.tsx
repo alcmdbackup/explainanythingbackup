@@ -65,9 +65,10 @@ export default function SearchBar({
                 <InputComponent
                     value={prompt}
                     onChange={handlePromptChange}
+                    data-testid="search-input"
                     className={`flex-1 bg-transparent border-0 focus:outline-none focus:ring-0 resize-none dark:text-white placeholder-gray-500 dark:placeholder-gray-400 ${
-                        isHomeVariant 
-                            ? 'px-4 py-2.5 rounded-l-full text-base' 
+                        isHomeVariant
+                            ? 'px-4 py-2.5 rounded-l-full text-base'
                             : 'px-3 py-1.5 rounded-l-lg text-sm'
                     }`}
                     placeholder={placeholder}
@@ -77,10 +78,11 @@ export default function SearchBar({
                 />
                 <button
                     type="submit"
-                    disabled={disabled}
+                    disabled={disabled || !prompt.trim()}
+                    data-testid="search-submit"
                     className={`text-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 bg-blue-600 hover:bg-blue-700 ${
-                        isHomeVariant 
-                            ? 'px-6 py-2.5 rounded-r-full text-base' 
+                        isHomeVariant
+                            ? 'px-6 py-2.5 rounded-r-full text-base'
                             : 'px-3 py-1.5 rounded-r-lg text-sm'
                     }`}
                 >

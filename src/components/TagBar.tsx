@@ -566,8 +566,9 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                     return (
                                         <div key={tag.id} className="relative">
                                                                                 <span
+                                        data-testid="tag-item"
                                         className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer ${
-                                            tag.tag_active_current 
+                                            tag.tag_active_current
                                                 ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50'
                                                 : 'bg-gray-100 text-gray-500 dark:bg-gray-800/50 dark:text-gray-400 border-gray-200 dark:border-gray-700/50 hover:bg-gray-200 dark:hover:bg-gray-700/50 line-through opacity-75'
                                         }`}
@@ -576,6 +577,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                     >
                                         {tag.tag_name}
                                         <button
+                                            data-testid={`tag-remove-${index}`}
                                             onClick={(e) => {
                                                 e.stopPropagation(); // Prevent dropdown from closing
                                                 if (tag.tag_active_current) {
@@ -674,6 +676,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                 <div className="relative inline-flex items-center">
                                     <form onSubmit={handleAddTagSubmit} className="inline-flex items-center">
                                     <input
+                                        data-testid="tag-add-input"
                                         ref={addTagInputRef}
                                         type="text"
                                         value={newTagName}
@@ -691,6 +694,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                     ) : (
                                         <>
                                             <button
+                                                data-testid="tag-add-button"
                                                 type="submit"
                                                 className="ml-1 px-2 py-0.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded-full transition-colors duration-200"
                                             >
@@ -747,10 +751,11 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                         {/* Action buttons - much smaller and right-aligned */}
                         <div className="flex space-x-2">
                             <button
+                                data-testid="tag-apply-button"
                                 onClick={handleApplyRouter}
                                 disabled={!explanationId}
                                 className={`px-2 py-1 text-xs font-medium rounded transition-colors duration-200 ${
-                                    explanationId 
+                                    explanationId
                                         ? 'text-white bg-green-600 hover:bg-green-700 dark:bg-green-500 dark:hover:bg-green-600 cursor-pointer'
                                         : 'text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 cursor-not-allowed opacity-50'
                                 }`}
@@ -758,6 +763,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                 Apply
                             </button>
                             <button
+                                data-testid="tag-reset-button"
                                 onClick={handleReset}
                                 className="px-2 py-1 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600 rounded transition-colors duration-200"
                             >
@@ -845,6 +851,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             return (
                                 <div key={tag.id} className="relative">
                                     <span
+                                        data-testid="tag-item"
                                         className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors duration-200 cursor-pointer bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300 border-blue-200 dark:border-blue-800/50 hover:bg-blue-200 dark:hover:bg-blue-900/50"
                                         title={tag.tag_description}
                                         onClick={() => handleSimpleTagClick(tag)}
@@ -941,6 +948,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                         <div className="relative inline-flex items-center">
                             <form onSubmit={handleAddTagSubmit} className="inline-flex items-center">
                             <input
+                                data-testid="tag-add-input"
                                 ref={addTagInputRef}
                                 type="text"
                                 value={newTagName}
