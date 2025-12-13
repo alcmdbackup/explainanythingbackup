@@ -2,7 +2,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import UserLibraryPage from './page';
 import { getUserLibraryExplanationsAction } from '@/actions/actions';
 import { supabase_browser } from '@/lib/supabase';
-import { logger } from '@/lib/server_utilities';
+import { logger } from '@/lib/client_utilities';
 import { ExplanationStatus, type UserSavedExplanationType } from '@/lib/schemas/schemas';
 
 // Mock the dependencies
@@ -18,7 +18,7 @@ jest.mock('@/lib/supabase', () => ({
   },
 }));
 
-jest.mock('@/lib/server_utilities', () => ({
+jest.mock('@/lib/client_utilities', () => ({
   logger: {
     error: jest.fn(),
   },

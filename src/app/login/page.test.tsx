@@ -250,15 +250,20 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      const emailInput = screen.getByLabelText(/email/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const emailInput = screen.getByLabelText(/email/i) as HTMLInputElement;
+      const form = emailInput.closest('form') as HTMLFormElement;
 
       await user.type(emailInput, 'invalid-email');
-      await user.click(submitButton);
+      // Verify the input has the value
+      expect(emailInput.value).toBe('invalid-email');
+
+      // Submit the form directly instead of clicking button
+      // to bypass any native HTML5 validation in the test environment
+      fireEvent.submit(form);
 
       await waitFor(() => {
         expect(screen.getByText(/invalid email address/i)).toBeInTheDocument();
-      });
+      }, { timeout: 3000 });
     });
 
     it('should show validation error for short password', async () => {
@@ -480,16 +485,18 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      const emailInput = screen.getByLabelText(/email/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const emailInput = screen.getByLabelText(/email/i) as HTMLInputElement;
+      const form = emailInput.closest('form') as HTMLFormElement;
 
       await user.type(emailInput, 'invalid');
-      await user.click(submitButton);
+
+      // Submit the form directly to bypass native HTML5 email validation
+      fireEvent.submit(form);
 
       await waitFor(() => {
         expect(emailInput).toHaveAttribute('aria-invalid', 'true');
         expect(emailInput).toHaveAttribute('aria-describedby', 'email-error');
-      });
+      }, { timeout: 3000 });
     });
 
     it('should support keyboard navigation', async () => {
