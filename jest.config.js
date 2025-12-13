@@ -56,6 +56,8 @@ const config = {
     '/.next/',
     '/out/',
     '/public/',
+    'src/__tests__/e2e/',
+    'src/__tests__/integration/',
   ],
 
   // Verbose output

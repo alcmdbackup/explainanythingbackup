@@ -13,8 +13,11 @@ import { logger } from '@/lib/client_utilities';
 jest.mock('@/actions/actions');
 jest.mock('@/lib/client_utilities');
 jest.mock('./clientPassRequestId', () => ({
-    clientPassRequestId: () => ({
-        withRequestId: (data: unknown) => data
+    useClientPassRequestId: () => ({
+        withRequestId: <T>(data?: T) => ({
+            ...(data || {}),
+            __requestId: { requestId: 'test-request-id', userId: 'test-user' }
+        })
     })
 }));
 
@@ -157,8 +160,10 @@ describe('useExplanationLoader', () => {
                 await result.current.loadExplanation(123, false, 'user-123');
             });
 
-            // Verify explanation was loaded
-            expect(mockGetExplanationByIdAction).toHaveBeenCalledWith({ id: 123 });
+            // Verify explanation was loaded (with __requestId from withRequestId wrapper)
+            expect(mockGetExplanationByIdAction).toHaveBeenCalledWith(
+                expect.objectContaining({ id: 123 })
+            );
             expect(result.current.explanationId).toBe(123);
             expect(result.current.explanationTitle).toBe('Test Explanation');
             expect(result.current.content).toBe('This is test content');
@@ -173,17 +178,19 @@ describe('useExplanationLoader', () => {
             );
             expect(onTagsLoad).toHaveBeenCalledWith(mockTags);
 
-            // Verify user saved status was checked
-            expect(mockIsExplanationSavedByUserAction).toHaveBeenCalledWith({
-                explanationid: 123,
-                userid: 'user-123'
-            });
+            // Verify user saved status was checked (with __requestId)
+            expect(mockIsExplanationSavedByUserAction).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    explanationid: 123,
+                    userid: 'user-123'
+                })
+            );
             expect(result.current.userSaved).toBe(true);
 
-            // Verify vector was loaded
-            expect(mockLoadFromPineconeUsingExplanationIdAction).toHaveBeenCalledWith({
-                explanationId: 123
-            });
+            // Verify vector was loaded (with __requestId)
+            expect(mockLoadFromPineconeUsingExplanationIdAction).toHaveBeenCalledWith(
+                expect.objectContaining({ explanationId: 123 })
+            );
             expect(result.current.explanationVector).toEqual(mockVector);
 
             // Verify loading state

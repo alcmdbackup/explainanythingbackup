@@ -1,7 +1,7 @@
 {
   "config": {
-    "configFile": "/Users/abel/Documents/explainanything-base/worktree_15_0/playwright.config.ts",
-    "rootDir": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e",
+    "configFile": "/Users/abel/Documents/explainanything-base/explainanything-feature0/playwright.config.ts",
+    "rootDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
     "forbidOnly": false,
     "fullyParallel": true,
     "globalSetup": null,
@@ -10,9 +10,7 @@
     "grep": {},
     "grepInvert": null,
     "maxFailures": 0,
-    "metadata": {
-      "actualWorkers": 1
-    },
+    "metadata": {},
     "preserveOutput": "always",
     "reporter": [
       [
@@ -33,15 +31,13 @@
     "quiet": false,
     "projects": [
       {
-        "outputDir": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results",
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
         "repeatEach": 1,
         "retries": 0,
-        "metadata": {
-          "actualWorkers": 1
-        },
+        "metadata": {},
         "id": "chromium",
         "name": "chromium",
-        "testDir": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
@@ -49,15 +45,13 @@
         "timeout": 30000
       },
       {
-        "outputDir": "/Users/abel/Documents/explainanything-base/worktree_15_0/test-results",
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
         "repeatEach": 1,
         "retries": 0,
-        "metadata": {
-          "actualWorkers": 1
-        },
+        "metadata": {},
         "id": "firefox",
         "name": "firefox",
-        "testDir": "/Users/abel/Documents/explainanything-base/worktree_15_0/src/__tests__/e2e",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
         "testIgnore": [],
         "testMatch": [
           "**/*.@(spec|test).?(c|m)[jt]s?(x)"
@@ -69,7 +63,7 @@
     "updateSnapshots": "missing",
     "updateSourceMethod": "patch",
     "version": "1.56.1",
-    "workers": 1,
+    "workers": 4,
     "webServer": {
       "command": "npm run dev",
       "url": "http://localhost:3002",
@@ -77,387 +71,17 @@
       "timeout": 120000
     }
   },
-  "suites": [
+  "suites": [],
+  "errors": [
     {
-      "title": "specs/02-search-generate/regenerate.spec.ts",
-      "file": "specs/02-search-generate/regenerate.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Regeneration Flow",
-          "file": "specs/02-search-generate/regenerate.spec.ts",
-          "line": 10,
-          "column": 6,
-          "specs": [],
-          "suites": [
-            {
-              "title": "Rewrite Button",
-              "file": "specs/02-search-generate/regenerate.spec.ts",
-              "line": 11,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should show rewrite button after content loads",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 21826,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:41:45.200Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-e7a4347696f766e937a2",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 12,
-                  "column": 9
-                },
-                {
-                  "title": "should open dropdown and show rewrite options",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 8906,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:08.414Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-ff8122b7ac0ca6d9ac28",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 43,
-                  "column": 9
-                },
-                {
-                  "title": "should show content with title after loading from library",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 12203,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:17.353Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-d1d455e2e3217e42796d",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 70,
-                  "column": 9
-                },
-                {
-                  "title": "should have functional rewrite button after content loads",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 9982,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:29.587Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-01e414b7ee9b3f55cc15",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 97,
-                  "column": 9
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/05-edge-cases/errors.spec.ts",
-      "file": "specs/05-edge-cases/errors.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Error Handling",
-          "file": "specs/05-edge-cases/errors.spec.ts",
-          "line": 16,
-          "column": 6,
-          "specs": [],
-          "suites": [
-            {
-              "title": "API Errors",
-              "file": "specs/05-edge-cases/errors.spec.ts",
-              "line": 17,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should not display content when API returns 500",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 6505,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:39.673Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-a3993f2071f2def7e05f",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 18,
-                  "column": 9
-                },
-                {
-                  "title": "should display error message for stream errors",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 4596,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:46.203Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-a83f014864631d846525",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 35,
-                  "column": 9
-                }
-              ]
-            },
-            {
-              "title": "Invalid URL Parameters",
-              "file": "specs/05-edge-cases/errors.spec.ts",
-              "line": 56,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should handle invalid explanation_id in URL gracefully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 5854,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:50.827Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-0ff98f7c57cbcfe59592",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 57,
-                  "column": 9
-                },
-                {
-                  "title": "should handle missing query parameter",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 8045,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:42:56.724Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-2fc0a8a44fb3d2e2bef5",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 74,
-                  "column": 9
-                }
-              ]
-            },
-            {
-              "title": "Error Recovery",
-              "file": "specs/05-edge-cases/errors.spec.ts",
-              "line": 89,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should recover from error state on new query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 0,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 10680,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-11-22T21:43:04.810Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-449b8f9edc9c52137627",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 90,
-                  "column": 9
-                }
-              ]
-            }
-          ]
-        }
-      ]
+      "message": "Error: Timed out waiting 120000ms from config.webServer.",
+      "stack": "Error: Timed out waiting 120000ms from config.webServer."
     }
   ],
-  "errors": [],
   "stats": {
-    "startTime": "2025-11-22T21:41:34.585Z",
-    "duration": 101462.451,
-    "expected": 9,
+    "startTime": "2025-12-13T20:58:29.539Z",
+    "duration": 120354.81800000001,
+    "expected": 0,
     "skipped": 0,
     "unexpected": 0,
     "flaky": 0

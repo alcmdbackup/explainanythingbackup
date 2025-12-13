@@ -1,33 +1,36 @@
 {
-  "numStartups": 12,
+  "numStartups": 21,
   "installMethod": "unknown",
   "autoUpdates": true,
   "hasSeenTasksHint": true,
   "tipsHistory": {
     "enter-to-steer-in-relatime": 8,
     "new-user-warmup": 7,
-    "memory-command": 2,
-    "plan-mode-for-complex-tasks": 2,
+    "memory-command": 19,
+    "plan-mode-for-complex-tasks": 19,
     "terminal-setup": 2,
     "shift-enter-setup": 2,
     "theme-command": 2,
     "status-line": 2,
     "stickers-command": 2,
-    "# for memory": 8,
-    "paste-images-mac": 8,
-    "double-esc-code-restore": 2,
-    "continue": 2,
-    "shift-tab": 2,
-    "tab-toggle-thinking": 2,
-    "prompt-queue": 8,
+    "# for memory": 20,
+    "paste-images-mac": 20,
+    "double-esc-code-restore": 15,
+    "continue": 15,
+    "shift-tab": 15,
+    "tab-toggle-thinking": 15,
+    "prompt-queue": 15,
     "todo-list": 3,
-    "shift-enter": 6,
-    "install-github-app": 6,
-    "drag-and-drop-images": 7,
+    "shift-enter": 17,
+    "install-github-app": 17,
+    "drag-and-drop-images": 20,
     "image-paste": 7,
-    "ultrathink-keyword": 7,
-    "custom-agents": 7
+    "ultrathink-keyword": 19,
+    "custom-agents": 7,
+    "permissions": 17,
+    "custom-commands": 17
   },
+  "promptQueueUseCount": 6,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false
@@ -57,18 +60,8 @@
         "vectorsim.ts"
       ],
       "exampleFilesGeneratedAt": 1763043771190,
-      "lastCost": 0.005412999999999999,
-      "lastAPIDuration": 5216,
-      "lastToolDuration": 0,
-      "lastDuration": 24665,
-      "lastLinesAdded": 0,
-      "lastLinesRemoved": 0,
-      "lastTotalInputTokens": 1861,
-      "lastTotalOutputTokens": 230,
-      "lastTotalCacheCreationInputTokens": 0,
-      "lastTotalCacheReadInputTokens": 0,
       "lastTotalWebSearchRequests": 0,
-      "lastSessionId": "f37a1665-54c1-469a-9e40-483ccdbaecc7"
+      "hasCompletedProjectOnboarding": true
     },
     "/Users/abel/Documents/explainanything-base/explainanything-feature0": {
       "allowedTools": [],
@@ -81,26 +74,48 @@
       "hasClaudeMdExternalIncludesApproved": false,
       "hasClaudeMdExternalIncludesWarningShown": false,
       "exampleFiles": [
+        "actions.ts",
         "vectorsim.ts",
-        "metrics.ts",
-        "server.ts",
-        "page.tsx",
-        "actions.ts"
+        "explanation-generation.integration.test.ts",
+        "tag-management.integration.test.ts",
+        "llm-responses.ts"
       ],
-      "exampleFilesGeneratedAt": 1763043924115,
+      "exampleFilesGeneratedAt": 1765598209058,
       "lastTotalWebSearchRequests": 0,
       "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_15_1": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "actions.ts",
+        "vectorsim.ts",
+        "integration_testing.md",
+        "page.tsx",
+        "llm-responses.ts"
+      ],
+      "exampleFilesGeneratedAt": 1763211752527,
+      "hasCompletedProjectOnboarding": true,
+      "lastCost": 3.788263149999999,
+      "lastAPIDuration": 1036699,
+      "lastToolDuration": 1834682,
+      "lastDuration": 192881438,
+      "lastLinesAdded": 1688,
+      "lastLinesRemoved": 17,
+      "lastTotalInputTokens": 95648,
+      "lastTotalOutputTokens": 48215,
+      "lastTotalCacheCreationInputTokens": 504249,
+      "lastTotalCacheReadInputTokens": 4606505,
+      "lastTotalWebSearchRequests": 1,
+      "lastSessionId": "cb915042-628c-4068-9964-6e0c824d6e31"
     }
-  },
-  "oauthAccount": {
-    "accountUuid": "b862fcca-c4e0-44e8-9bef-34f21fb96fde",
-    "emailAddress": "abel@minddojo.org",
-    "organizationUuid": "a970a125-105a-4d54-9eca-a8b3848565de",
-    "displayName": "A",
-    "organizationBillingType": "stripe_subscription",
-    "organizationRole": "admin",
-    "workspaceRole": null,
-    "organizationName": "abel@minddojo.org's Organization"
   },
   "claudeCodeFirstTokenDate": "2025-09-19T14:21:05.398913Z",
   "appleTerminalSetupInProgress": false,
@@ -114,10 +129,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1763211168921
+      "timestamp": 1765658021556
     }
   },
-  "lastPlanModeUse": 1763211187587,
+  "lastPlanModeUse": 1765657882051,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -172,5 +187,16 @@
       "url": "https://www.shadcn.io/api/mcp"
     }
   },
-  "hasUsedBackslashReturn": true
+  "hasUsedBackslashReturn": true,
+  "oauthAccount": {
+    "accountUuid": "b862fcca-c4e0-44e8-9bef-34f21fb96fde",
+    "emailAddress": "abel@minddojo.org",
+    "organizationUuid": "a970a125-105a-4d54-9eca-a8b3848565de",
+    "displayName": "A",
+    "organizationBillingType": "stripe_subscription",
+    "organizationRole": "admin",
+    "workspaceRole": null,
+    "organizationName": "abel@minddojo.org's Organization"
+  },
+  "anonymousId": "claudecode.v1.49b6d887-0dd7-4f48-9f08-0246e9c12592"
 }

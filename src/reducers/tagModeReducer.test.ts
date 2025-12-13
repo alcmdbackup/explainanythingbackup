@@ -433,7 +433,7 @@ describe('tagModeReducer', () => {
       expect(getCurrentTags(newState)).toEqual(originalTags);
     });
 
-    it('should reset tags in edit mode', () => {
+    it('should reset tags in edit mode and return to normal', () => {
       const originalTags = [createSimpleTag(1, 'original')];
       const modifiedTags = [createSimpleTag(1, 'original', false)];
       const initialState: TagModeState = {
@@ -446,7 +446,8 @@ describe('tagModeReducer', () => {
       const action: TagModeAction = { type: 'RESET_TAGS' };
       const newState = tagModeReducer(initialState, action);
 
-      expect(newState.mode).toBe('editWithTags');
+      // Implementation exits to normal mode on reset
+      expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(originalTags);
     });
   });

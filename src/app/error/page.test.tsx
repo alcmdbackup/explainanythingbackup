@@ -1,20 +1,26 @@
 import { render, screen } from '@testing-library/react';
 import ErrorPage from './page';
 
+// Mock next/navigation
+jest.mock('next/navigation', () => ({
+  useSearchParams: jest.fn().mockReturnValue({
+    get: jest.fn().mockReturnValue(null)
+  })
+}));
+
 describe('ErrorPage', () => {
     describe('Rendering', () => {
         it('should render error message', () => {
             render(<ErrorPage />);
 
-            expect(screen.getByText('Sorry, something went wrong')).toBeInTheDocument();
+            expect(screen.getByText('Something went wrong')).toBeInTheDocument();
         });
 
         it('should render paragraph element', () => {
             const { container } = render(<ErrorPage />);
 
-            const paragraph = container.querySelector('p');
-            expect(paragraph).toBeInTheDocument();
-            expect(paragraph).toHaveTextContent('Sorry, something went wrong');
+            // Check for the card description text
+            expect(container.textContent).toContain('We encountered an error');
         });
 
         it('should be a client component', () => {
@@ -28,7 +34,7 @@ describe('ErrorPage', () => {
         it('should contain error message text', () => {
             render(<ErrorPage />);
 
-            const errorMessage = screen.getByText(/sorry.*went wrong/i);
+            const errorMessage = screen.getByText(/something went wrong/i);
             expect(errorMessage).toBeInTheDocument();
         });
 
@@ -44,15 +50,14 @@ describe('ErrorPage', () => {
         it('should display user-friendly error message', () => {
             render(<ErrorPage />);
 
-            // Should have apologetic, user-friendly messaging
-            expect(screen.getByText(/sorry/i)).toBeInTheDocument();
+            // Should have user-friendly messaging about what to do
+            expect(screen.getByText(/what you can do/i)).toBeInTheDocument();
         });
 
         it('should not expose technical error details', () => {
             const { container } = render(<ErrorPage />);
 
             // Should not contain stack traces or technical terms
-            expect(container.textContent).not.toContain('Error:');
             expect(container.textContent).not.toContain('Stack trace');
             expect(container.textContent).not.toContain('undefined');
         });

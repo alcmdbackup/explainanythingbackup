@@ -242,10 +242,10 @@ describe('findMatches Service', () => {
 
     it('should handle null topic_id in matches', async () => {
       // Arrange
-      const matchesWithoutTopicId: matchWithCurrentContentType[] = [{
+      const matchesWithNullTopicId: matchWithCurrentContentType[] = [{
         text: 'Match text',
         explanation_id: 1,
-        topic_id: 1,
+        topic_id: null as any, // Explicitly null topic_id
         current_title: 'Match',
         current_content: 'Content',
         ranking: { similarity: 0.95, diversity_score: null }
@@ -253,7 +253,7 @@ describe('findMatches Service', () => {
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
 
       // Act
-      const result = await findBestMatchFromList('test query', matchesWithoutTopicId, MatchMode.Normal, null, 'user123');
+      const result = await findBestMatchFromList('test query', matchesWithNullTopicId, MatchMode.Normal, null, 'user123');
 
       // Assert
       expect(result.topicId).toBeNull();

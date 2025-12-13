@@ -93,7 +93,7 @@ describe('Login Actions', () => {
     it('should revalidate path before redirecting', async () => {
       const formData = createMockFormData({
         email: 'user@test.com',
-        password: 'pass',
+        password: 'password123',  // Must be 8+ characters
       });
 
       await expect(login(formData)).rejects.toThrow('NEXT_REDIRECT: /');
@@ -104,7 +104,7 @@ describe('Login Actions', () => {
       expect(revalidateCall).toBeLessThan(redirectCall);
     });
 
-    it('should redirect to error page on invalid credentials', async () => {
+    it('should return friendly error on invalid credentials', async () => {
       const error = createSupabaseAuthError('invalid_credentials');
       mockSignInWithPassword.mockResolvedValue(error);
 
@@ -113,11 +113,19 @@ describe('Login Actions', () => {
         password: 'wrongpass',
       });
 
-      await expect(login(formData)).rejects.toThrow('NEXT_REDIRECT: /error');
+      // Implementation returns user-friendly error message
+      const result = await login(formData);
+      expect(result).toEqual({ error: 'Invalid email or password' });
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Login error:', error.error.message, error.error);
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[ERROR] Login failed',
+        expect.objectContaining({
+          email: 'wrong@example.com',
+          errorMessage: error.error.message
+        })
+      );
       expect(revalidatePath).not.toHaveBeenCalled();
-      expect(redirect).toHaveBeenCalledWith('/error');
+      expect(redirect).not.toHaveBeenCalled();
     });
 
     it('should handle missing email in FormData', async () => {
@@ -125,12 +133,10 @@ describe('Login Actions', () => {
         password: 'password123',
       });
 
-      await expect(login(formData)).rejects.toThrow('NEXT_REDIRECT');
-
-      expect(mockSignInWithPassword).toHaveBeenCalledWith({
-        email: null,
-        password: 'password123',
-      });
+      // Implementation returns validation error
+      const result = await login(formData);
+      expect(result).toEqual({ error: 'Invalid email or password format' });
+      expect(mockSignInWithPassword).not.toHaveBeenCalled(); // Fails validation before API call
     });
 
     it('should handle missing password in FormData', async () => {
@@ -138,12 +144,10 @@ describe('Login Actions', () => {
         email: 'test@example.com',
       });
 
-      await expect(login(formData)).rejects.toThrow('NEXT_REDIRECT');
-
-      expect(mockSignInWithPassword).toHaveBeenCalledWith({
-        email: 'test@example.com',
-        password: null,
-      });
+      // Implementation returns validation error
+      const result = await login(formData);
+      expect(result).toEqual({ error: 'Invalid email or password format' });
+      expect(mockSignInWithPassword).not.toHaveBeenCalled(); // Fails validation before API call
     });
 
     it('should handle empty string credentials', async () => {
@@ -152,12 +156,10 @@ describe('Login Actions', () => {
         password: '',
       });
 
-      await expect(login(formData)).rejects.toThrow('NEXT_REDIRECT');
-
-      expect(mockSignInWithPassword).toHaveBeenCalledWith({
-        email: '',
-        password: '',
-      });
+      // Implementation returns validation error
+      const result = await login(formData);
+      expect(result).toEqual({ error: 'Invalid email or password format' });
+      expect(mockSignInWithPassword).not.toHaveBeenCalled(); // Fails validation before API call
     });
 
     it('should handle network errors from Supabase', async () => {
@@ -168,7 +170,9 @@ describe('Login Actions', () => {
         password: 'password123',
       });
 
-      await expect(login(formData)).rejects.toThrow('Network error');
+      // Implementation catches errors and returns friendly message
+      const result = await login(formData);
+      expect(result).toEqual({ error: 'An unexpected error occurred. Please try again.' });
     });
 
     it('should handle special characters in credentials', async () => {
@@ -206,7 +210,7 @@ describe('Login Actions', () => {
     it('should revalidate path before redirecting', async () => {
       const formData = createMockFormData({
         email: 'new@test.com',
-        password: 'pass',
+        password: 'validpassword123',
       });
 
       await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /');
@@ -216,7 +220,7 @@ describe('Login Actions', () => {
       expect(revalidateCall).toBeLessThan(redirectCall);
     });
 
-    it('should redirect to error page on duplicate email', async () => {
+    it('should return friendly error on duplicate email', async () => {
       const error = createSupabaseAuthError('email_exists');
       mockSignUp.mockResolvedValue(error);
 
@@ -225,26 +229,43 @@ describe('Login Actions', () => {
         password: 'password123',
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /error');
+      // Implementation returns user-friendly message
+      const result = await signup(formData);
+      expect(result).toEqual({ error: 'An account with this email already exists' });
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Signup error:', error.error.message, error.error);
+      // Logger is called with structured data
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[ERROR] Signup failed',
+        expect.objectContaining({
+          email: 'existing@example.com',
+          errorMessage: error.error.message
+        })
+      );
       expect(revalidatePath).not.toHaveBeenCalled();
-      expect(redirect).toHaveBeenCalledWith('/error');
+      expect(redirect).not.toHaveBeenCalled();
     });
 
-    it('should redirect to error page on weak password', async () => {
-      const error = createSupabaseAuthError('weak_password');
-      mockSignUp.mockResolvedValue(error);
+    it('should return friendly error on weak password from API', async () => {
+      // Mock with lowercase 'password' to match implementation's includes('password') check
+      mockSignUp.mockResolvedValue({
+        data: null,
+        error: { message: 'password is too weak', status: 400, name: 'AuthError' }
+      });
 
       const formData = createMockFormData({
         email: 'user@example.com',
-        password: '123',
+        password: 'weakpassword123', // 8+ chars to pass local validation, but API returns weak password error
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /error');
+      // Implementation returns user-friendly message for password errors
+      const result = await signup(formData);
+
+      // Verify the mock was actually called
+      expect(mockSignUp).toHaveBeenCalled();
+      expect(result).toEqual({ error: 'Password does not meet requirements' });
 
       expect(consoleErrorSpy).toHaveBeenCalled();
-      expect(redirect).toHaveBeenCalledWith('/error');
+      expect(redirect).not.toHaveBeenCalled();
     });
 
     it('should handle missing email in FormData', async () => {
@@ -252,12 +273,10 @@ describe('Login Actions', () => {
         password: 'password123',
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT');
-
-      expect(mockSignUp).toHaveBeenCalledWith({
-        email: null,
-        password: 'password123',
-      });
+      // Implementation returns validation error, doesn't throw
+      const result = await signup(formData);
+      expect(result).toEqual({ error: 'Invalid email or password format' });
+      expect(mockSignUp).not.toHaveBeenCalled(); // Fails validation before API call
     });
 
     it('should handle missing password in FormData', async () => {
@@ -265,27 +284,24 @@ describe('Login Actions', () => {
         email: 'new@example.com',
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT');
-
-      expect(mockSignUp).toHaveBeenCalledWith({
-        email: 'new@example.com',
-        password: null,
-      });
+      // Implementation returns validation error, doesn't throw
+      const result = await signup(formData);
+      expect(result).toEqual({ error: 'Invalid email or password format' });
+      expect(mockSignUp).not.toHaveBeenCalled(); // Fails validation before API call
     });
 
     it('should handle invalid email format', async () => {
-      const error = createSupabaseAuthError('invalid_credentials');
-      mockSignUp.mockResolvedValue(error);
-
       const formData = createMockFormData({
         email: 'notanemail',
         password: 'password123',
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /error');
+      // Implementation returns validation error for invalid email
+      const result = await signup(formData);
+      expect(result).toEqual({ error: 'Invalid email or password format' });
     });
 
-    it('should handle network errors', async () => {
+    it('should handle network errors by returning friendly message', async () => {
       mockSignUp.mockRejectedValue(new Error('Network error'));
 
       const formData = createMockFormData({
@@ -293,7 +309,9 @@ describe('Login Actions', () => {
         password: 'password123',
       });
 
-      await expect(signup(formData)).rejects.toThrow('Network error');
+      // Implementation catches errors and returns user-friendly message
+      const result = await signup(formData);
+      expect(result).toEqual({ error: 'An unexpected error occurred. Please try again.' });
     });
   });
 
@@ -320,7 +338,13 @@ describe('Login Actions', () => {
 
       await expect(signOut()).rejects.toThrow('NEXT_REDIRECT: /error');
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Signout error:', error.error.message, error.error);
+      // Implementation uses logger.error with structured data
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        '[ERROR] Signout failed',
+        expect.objectContaining({
+          errorMessage: error.error.message
+        })
+      );
       expect(revalidatePath).not.toHaveBeenCalled();
       expect(redirect).toHaveBeenCalledWith('/error');
     });
@@ -335,10 +359,12 @@ describe('Login Actions', () => {
       expect(redirect).toHaveBeenCalledWith('/');
     });
 
-    it('should handle network errors', async () => {
+    it('should handle network errors by redirecting to error page', async () => {
       mockSignOut.mockRejectedValue(new Error('Network error'));
 
-      await expect(signOut()).rejects.toThrow('Network error');
+      // Implementation catches errors and redirects to /error
+      await expect(signOut()).rejects.toThrow('NEXT_REDIRECT: /error');
+      expect(redirect).toHaveBeenCalledWith('/error');
     });
 
     it('should clear session by revalidating layout', async () => {

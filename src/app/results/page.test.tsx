@@ -42,9 +42,12 @@ jest.mock('@/hooks/useUserAuth', () => ({
 
 // Mock RequestId context
 jest.mock('@/hooks/clientPassRequestId', () => ({
-  clientPassRequestId: jest.fn(() => ({
-    withRequestId: (data: any) => data,
-  })),
+  useClientPassRequestId: () => ({
+    withRequestId: <T,>(data?: T) => ({
+      ...(data || {}),
+      __requestId: { requestId: 'test-request-id', userId: 'test-user' }
+    })
+  }),
 }));
 
 // Mock server actions

@@ -9,12 +9,13 @@ import {
   incrementExplanationViews,
   incrementExplanationSaves
 } from './metrics';
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { UserExplanationEventsType, ExplanationMetricsType } from '@/lib/schemas/schemas';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServerClient: jest.fn()
+  createSupabaseServerClient: jest.fn(),
+  createSupabaseServiceClient: jest.fn()
 }));
 
 type MockSupabaseClient = {
@@ -47,6 +48,7 @@ describe('Metrics Service', () => {
     };
 
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
   });
 
   afterEach(() => {
@@ -435,9 +437,9 @@ describe('Metrics Service', () => {
 
       // Assert - should be ordered as [1, 2(null), 3]
       expect(result).toHaveLength(3);
-      expect(result[0]?.explanation_id).toBe(1);
+      expect(result[0]?.explanationid).toBe(1);
       expect(result[1]).toBeNull();
-      expect(result[2]?.explanation_id).toBe(3);
+      expect(result[2]?.explanationid).toBe(3);
     });
 
     it('should throw error when query fails', async () => {
