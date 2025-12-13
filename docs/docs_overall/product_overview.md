@@ -41,5 +41,5 @@
 8. Aggregate metrics automatically consolidate performance data for insights and for future use in ranking explanations
 
 ## Technical Documentation
-- **Aggregate Metrics System**: Comprehensive documentation available in `src/documentation/AGGREGATE_METRICS_README.md`
-- **Tag System**: Detailed documentation available in `src/documentation/tag_system.md`
+- **Aggregate Metrics System**: Comprehensive documentation available in `docs/docs_overall/aggregate_metrics_readme.md`
+- **Tag System**: Detailed documentation available in `docs/docs_overall/tag_system.md`
