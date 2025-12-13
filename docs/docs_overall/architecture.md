@@ -85,7 +85,7 @@
 - **PostgreSQL stored procedures** for efficient batch calculations
 - **Trigger-based updates**: Automatic metric refresh on events
 - Background processing doesn't block UX
-- **Detailed documentation**: See `src/documentation/AGGREGATE_METRICS_README.md`
+- **Detailed documentation**: See `docs/docs_overall/aggregate_metrics_readme.md`
 
 ### Tag System Architecture
 - **Dual Tag Types**: Simple tags (individual) and preset tag collections (mutually exclusive groups)
@@ -96,7 +96,7 @@
   - Parallel execution during content generation
 - **Validation Logic**: Prevents conflicting tags within preset collections
 - **Service Layer**: Dedicated services for tag operations (`tags.ts`, `explanationTags.ts`, `tagEvaluation.ts`)
-- **Detailed documentation**: See `src/documentation/tag_system.md`
+- **Detailed documentation**: See `docs/docs_overall/tag_system.md`
 
 ## Directory Structure
 
@@ -119,7 +119,7 @@ src/
 ├── reducers/            # State management (useReducer)
 ├── editorFiles/         # Lexical editor + AI editing features
 ├── scripts/             # Database migration SQL files
-├── documentation/       # Architecture & system docs
+├── ../docs/             # Architecture & system docs (moved outside src/)
 └── testing/             # Test utilities & mocks
 ```
 

@@ -1,20 +1,20 @@
 'use client';
 
-import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '../../editorFiles/lexicalEditor/LexicalEditor';
+import LexicalEditor, { LexicalEditorRef, EditModeToggle } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '../../editorFiles/actions/actions';
-import { getExplanationByIdAction, getAISuggestionSessionsAction, loadAISuggestionSessionAction } from '../../actions/actions';
-import { logger } from '../../lib/client_utilities';
-import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
-import { preprocessCriticMarkup } from '../../editorFiles/lexicalEditor/importExportUtils';
+import { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction, getTestingPipelineRecordsByStepAction, updateTestingPipelineRecordSetNameAction } from '@/editorFiles/actions/actions';
+import { getExplanationByIdAction, getAISuggestionSessionsAction, loadAISuggestionSessionAction } from '@/actions/actions';
+import { logger } from '@/lib/client_utilities';
+import { RenderCriticMarkupFromMDAstDiff } from '@/editorFiles/markdownASTdiff/markdownASTdiff';
+import { preprocessCriticMarkup } from '@/editorFiles/lexicalEditor/importExportUtils';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import {
     mergeAISuggestionOutputAction,
     validateAISuggestionOutputAction,
     getAndApplyAISuggestionsAction
-} from '../../editorFiles/actions/actions';
+} from '@/editorFiles/actions/actions';
 
 export const dynamic = 'force-dynamic';
 
