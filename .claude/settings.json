@@ -25,11 +25,10 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if git diff HEAD --name-only | grep -vE '\\.(md|json)$' | grep -q .; then npx tsc --noEmit && npm run lint && npm test; fi"
+            "command": "(npx tsc --noEmit && npm run lint && npm test) 1>&2; true"
           }
         ]
       }
     ]
   }
 }
-

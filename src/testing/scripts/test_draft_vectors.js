@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const { Pinecone } = require('@pinecone-database/pinecone');
 
 // Initialize Pinecone client
