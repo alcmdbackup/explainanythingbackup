@@ -11,7 +11,7 @@ export default defineConfig({
     ['json', { outputFile: 'test-results/results.json' }],
   ],
   use: {
-    baseURL: 'http://localhost:3002',
+    baseURL: 'http://localhost:3008',
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -27,8 +27,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3002',
+    command: 'npm run dev -- -p 3008',
+    url: 'http://localhost:3008',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },

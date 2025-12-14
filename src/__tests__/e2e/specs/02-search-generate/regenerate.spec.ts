@@ -27,7 +27,7 @@ test.describe('Regeneration Flow', () => {
       await libraryPage.clickViewOnRow(0);
 
       // Wait for navigation to results page
-      await page.waitForURL(/\/results/, { timeout: 15000 });
+      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
 
       // Wait for content to load on results page
       await resultsPage.waitForAnyContent(30000);
@@ -55,7 +55,7 @@ test.describe('Regeneration Flow', () => {
       await libraryPage.clickViewOnRow(0);
 
       // Wait for navigation to results page
-      await page.waitForURL(/\/results/, { timeout: 15000 });
+      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(30000);
       await page.waitForTimeout(1000);
 
@@ -82,7 +82,7 @@ test.describe('Regeneration Flow', () => {
       await libraryPage.clickViewOnRow(0);
 
       // Wait for navigation to results page
-      await page.waitForURL(/\/results/, { timeout: 15000 });
+      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(30000);
       await page.waitForTimeout(1000);
 
@@ -109,7 +109,7 @@ test.describe('Regeneration Flow', () => {
       await libraryPage.clickViewOnRow(0);
 
       // Wait for navigation to results page
-      await page.waitForURL(/\/results/, { timeout: 15000 });
+      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(30000);
       await page.waitForTimeout(1000);
 
