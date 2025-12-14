@@ -9,6 +9,7 @@ import { loginSchema } from './validation';
 
 type AuthResult = {
   error?: string;
+  success?: boolean;
 };
 
 export async function login(formData: FormData): Promise<AuthResult | never> {
@@ -119,7 +120,7 @@ export async function signup(formData: FormData): Promise<AuthResult | never> {
     logger.info('User signed up successfully', { email });
 
     revalidatePath('/', 'layout');
-    redirect('/');
+    return { success: true };
   } catch (error) {
     unstable_rethrow(error);
     logger.error('Unexpected error during signup', {

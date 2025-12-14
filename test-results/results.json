@@ -1,0 +1,878 @@
+{
+  "config": {
+    "configFile": "/Users/abel/Documents/explainanything-base/explainanything-feature0/playwright.config.ts",
+    "rootDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 4
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 4
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.56.1",
+    "workers": 4,
+    "webServer": {
+      "command": "npm run dev -- -p 3008",
+      "url": "http://localhost:3008",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "specs/01-auth/auth.spec.ts",
+      "file": "specs/01-auth/auth.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Authentication Flow",
+          "file": "specs/01-auth/auth.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [],
+          "suites": [
+            {
+              "title": "Login",
+              "file": "specs/01-auth/auth.spec.ts",
+              "line": 5,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should login with valid credentials",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 7610,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:29.106Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-057bbf0f4dc75ddd4e1c",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 6,
+                  "column": 9
+                },
+                {
+                  "title": "should show error with invalid credentials",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 3163,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:29.143Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-4f951049365185fd15d4",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 22,
+                  "column": 9
+                },
+                {
+                  "title": "should redirect unauthenticated user from protected route",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 2,
+                          "parallelIndex": 2,
+                          "status": "passed",
+                          "duration": 1955,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:29.109Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-88a5d18572f6fe2b3943",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 41,
+                  "column": 9
+                },
+                {
+                  "title": "should login with valid credentials",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 4,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 6645,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:41.599Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-1b2d7ac27f111fbff275",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 6,
+                  "column": 9
+                },
+                {
+                  "title": "should show error with invalid credentials",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 6,
+                          "parallelIndex": 3,
+                          "status": "failed",
+                          "duration": 25123,
+                          "error": {
+                            "message": "TimeoutError: page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"login-error\"]') to be visible\u001b[22m\n",
+                            "stack": "TimeoutError: page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"login-error\"]') to be visible\u001b[22m\n\n    at /Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts:29:18",
+                            "location": {
+                              "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
+                              "column": 18,
+                              "line": 29
+                            },
+                            "snippet": "  27 |\n  28 |       // Wait for error message\n> 29 |       await page.waitForSelector('[data-testid=\"login-error\"]', { timeout: 5000 });\n     |                  ^\n  30 |\n  31 |       // Verify error is shown\n  32 |       expect(await loginPage.isErrorVisible()).toBe(true);"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
+                                "column": 18,
+                                "line": 29
+                              },
+                              "message": "TimeoutError: page.waitForSelector: Timeout 5000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"login-error\"]') to be visible\u001b[22m\n\n\n  27 |\n  28 |       // Wait for error message\n> 29 |       await page.waitForSelector('[data-testid=\"login-error\"]', { timeout: 5000 });\n     |                  ^\n  30 |\n  31 |       // Verify error is shown\n  32 |       expect(await loginPage.isErrorVisible()).toBe(true);\n    at /Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts:29:18"
+                            }
+                          ],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:42.022Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-d0d51-or-with-invalid-credentials-firefox/test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-d0d51-or-with-invalid-credentials-firefox/video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-d0d51-or-with-invalid-credentials-firefox/error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
+                            "column": 18,
+                            "line": 29
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-e58a3274400e706bd265",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 22,
+                  "column": 9
+                },
+                {
+                  "title": "should redirect unauthenticated user from protected route",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 5,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 5682,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:42.116Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-a5a91d3861a665c62df5",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 41,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Session Management",
+              "file": "specs/01-auth/auth.spec.ts",
+              "line": 51,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should persist session after page refresh",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 3,
+                          "parallelIndex": 3,
+                          "status": "passed",
+                          "duration": 8340,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:29.138Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-ad88b2cef9726ce55d7f",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 52,
+                  "column": 9
+                },
+                {
+                  "title": "should access protected route when authenticated",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 2,
+                          "parallelIndex": 2,
+                          "status": "passed",
+                          "duration": 12035,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:31.891Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-5621083678ae64c8222f",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 69,
+                  "column": 9
+                },
+                {
+                  "title": "should logout successfully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
+                            "line": 81,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:33.074Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-4e46da67850f28f248a1",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 81,
+                  "column": 10
+                },
+                {
+                  "title": "should persist session after page refresh",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 7,
+                          "parallelIndex": 2,
+                          "status": "failed",
+                          "duration": 26325,
+                          "error": {
+                            "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"/\" until \"load\"\n============================================================",
+                            "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"/\" until \"load\"\n============================================================\n    at Object.authenticatedPage (/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts:18:16)",
+                            "location": {
+                              "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts",
+                              "column": 16,
+                              "line": 18
+                            },
+                            "snippet": "\u001b[90m   at \u001b[39mfixtures/auth.ts:18\n\n  16 |\n  17 |     // Wait for redirect after login\n> 18 |     await page.waitForURL('/', { timeout: 10000 });\n     |                ^\n  19 |\n  20 |     // Verify session cookie exists (Supabase uses 'sb-' prefix)\n  21 |     const cookies = await page.context().cookies();"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts",
+                                "column": 16,
+                                "line": 18
+                              },
+                              "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"/\" until \"load\"\n============================================================\n\n   at fixtures/auth.ts:18\n\n  16 |\n  17 |     // Wait for redirect after login\n> 18 |     await page.waitForURL('/', { timeout: 10000 });\n     |                ^\n  19 |\n  20 |     // Verify session cookie exists (Supabase uses 'sb-' prefix)\n  21 |     const cookies = await page.context().cookies();\n    at Object.authenticatedPage (/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts:18:16)"
+                            }
+                          ],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:44.711Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-79c3a--session-after-page-refresh-firefox/video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-79c3a--session-after-page-refresh-firefox/error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts",
+                            "column": 16,
+                            "line": 18
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-4f4c4c473ddf4990dcde",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 52,
+                  "column": 9
+                },
+                {
+                  "title": "should access protected route when authenticated",
+                  "ok": false,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 5,
+                          "parallelIndex": 1,
+                          "status": "failed",
+                          "duration": 20715,
+                          "error": {
+                            "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"/\" until \"load\"\n============================================================",
+                            "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"/\" until \"load\"\n============================================================\n    at Object.authenticatedPage (/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts:18:16)",
+                            "location": {
+                              "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts",
+                              "column": 16,
+                              "line": 18
+                            },
+                            "snippet": "\u001b[90m   at \u001b[39mfixtures/auth.ts:18\n\n  16 |\n  17 |     // Wait for redirect after login\n> 18 |     await page.waitForURL('/', { timeout: 10000 });\n     |                ^\n  19 |\n  20 |     // Verify session cookie exists (Supabase uses 'sb-' prefix)\n  21 |     const cookies = await page.context().cookies();"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts",
+                                "column": 16,
+                                "line": 18
+                              },
+                              "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation to \"/\" until \"load\"\n============================================================\n\n   at fixtures/auth.ts:18\n\n  16 |\n  17 |     // Wait for redirect after login\n> 18 |     await page.waitForURL('/', { timeout: 10000 });\n     |                ^\n  19 |\n  20 |     // Verify session cookie exists (Supabase uses 'sb-' prefix)\n  21 |     const cookies = await page.context().cookies();\n    at Object.authenticatedPage (/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts:18:16)"
+                            }
+                          ],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:51.799Z",
+                          "annotations": [],
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-c8ffa-ed-route-when-authenticated-firefox/test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-c8ffa-ed-route-when-authenticated-firefox/video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-01-auth-auth-Authent-c8ffa-ed-route-when-authenticated-firefox/error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/fixtures/auth.ts",
+                            "column": 16,
+                            "line": 18
+                          }
+                        }
+                      ],
+                      "status": "unexpected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-b058d5f22bba2931b14b",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 69,
+                  "column": 9
+                },
+                {
+                  "title": "should logout successfully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [
+                        {
+                          "type": "skip",
+                          "location": {
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
+                            "line": 81,
+                            "column": 10
+                          }
+                        }
+                      ],
+                      "expectedStatus": "skipped",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": -1,
+                          "parallelIndex": -1,
+                          "status": "skipped",
+                          "duration": 0,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:52.269Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-28a8d070071c4b6861e6",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 81,
+                  "column": 10
+                }
+              ]
+            },
+            {
+              "title": "Edge Cases",
+              "file": "specs/01-auth/auth.spec.ts",
+              "line": 102,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should redirect to home when accessing login while authenticated",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 1,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 7804,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:33.075Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-afcf87efc9f8fcf6b45b",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 103,
+                  "column": 9
+                },
+                {
+                  "title": "should handle empty email submission",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 0,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 2475,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:37.546Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-047e493eb6c998861a43",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 123,
+                  "column": 9
+                },
+                {
+                  "title": "should handle empty password submission",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium",
+                      "projectName": "chromium",
+                      "results": [
+                        {
+                          "workerIndex": 3,
+                          "parallelIndex": 3,
+                          "status": "passed",
+                          "duration": 2112,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:38.256Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-ef994466ccb9ece524ce",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 136,
+                  "column": 9
+                },
+                {
+                  "title": "should redirect to home when accessing login while authenticated",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 4,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 26875,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:58:52.272Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-581ad30e5f84305eca7d",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 103,
+                  "column": 9
+                },
+                {
+                  "title": "should handle empty email submission",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 9,
+                          "parallelIndex": 2,
+                          "status": "passed",
+                          "duration": 4600,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:59:18.015Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-e15170ad3deec95d3092",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 123,
+                  "column": 9
+                },
+                {
+                  "title": "should handle empty password submission",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox",
+                      "projectName": "firefox",
+                      "results": [
+                        {
+                          "workerIndex": 8,
+                          "parallelIndex": 1,
+                          "status": "passed",
+                          "duration": 4911,
+                          "errors": [],
+                          "stdout": [],
+                          "stderr": [],
+                          "retry": 0,
+                          "startTime": "2025-12-14T20:59:18.022Z",
+                          "annotations": [],
+                          "attachments": []
+                        }
+                      ],
+                      "status": "expected"
+                    }
+                  ],
+                  "id": "44d28f779dc4b8b84b4c-8b4fa1d2f3c4a3e7995d",
+                  "file": "specs/01-auth/auth.spec.ts",
+                  "line": 136,
+                  "column": 9
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-12-14T20:58:19.913Z",
+    "duration": 66456.62,
+    "expected": 13,
+    "skipped": 2,
+    "unexpected": 3,
+    "flaky": 0
+  }
+}

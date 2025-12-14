@@ -1,5 +1,5 @@
 {
-  "numStartups": 29,
+  "numStartups": 32,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
@@ -14,8 +14,8 @@
     "theme-command": 23,
     "status-line": 27,
     "stickers-command": 24,
-    "# for memory": 20,
-    "paste-images-mac": 20,
+    "# for memory": 30,
+    "paste-images-mac": 30,
     "double-esc-code-restore": 25,
     "continue": 25,
     "shift-tab": 25,
@@ -24,7 +24,7 @@
     "todo-list": 24,
     "shift-enter": 28,
     "install-github-app": 28,
-    "drag-and-drop-images": 20,
+    "drag-and-drop-images": 30,
     "image-paste": 27,
     "ultrathink-keyword": 29,
     "custom-agents": 24,
@@ -34,9 +34,9 @@
     "rename-conversation": 23,
     "colorterm-truecolor": 24,
     "config-thinking-mode": 24,
-    "guest-passes": 28
+    "guest-passes": 31
   },
-  "promptQueueUseCount": 7,
+  "promptQueueUseCount": 10,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false,
@@ -119,36 +119,36 @@
         "version": null,
         "packageManager": null
       },
-      "lastCost": 14.86561800000001,
-      "lastAPIDuration": 1660032,
-      "lastAPIDurationWithoutRetries": 1659791,
-      "lastToolDuration": 623823,
-      "lastDuration": 5538668,
-      "lastLinesAdded": 642,
-      "lastLinesRemoved": 281,
-      "lastTotalInputTokens": 228154,
-      "lastTotalOutputTokens": 69264,
-      "lastTotalCacheCreationInputTokens": 549818,
-      "lastTotalCacheReadInputTokens": 20724411,
+      "lastCost": 0.6003274999999999,
+      "lastAPIDuration": 90895,
+      "lastAPIDurationWithoutRetries": 90887,
+      "lastToolDuration": 2643,
+      "lastDuration": 271105,
+      "lastLinesAdded": 0,
+      "lastLinesRemoved": 0,
+      "lastTotalInputTokens": 16676,
+      "lastTotalOutputTokens": 3296,
+      "lastTotalCacheCreationInputTokens": 51220,
+      "lastTotalCacheReadInputTokens": 359317,
       "lastModelUsage": {
         "claude-haiku-4-5-20251001": {
-          "inputTokens": 203343,
-          "outputTokens": 14298,
-          "cacheReadInputTokens": 820395,
-          "cacheCreationInputTokens": 75566,
+          "inputTokens": 14654,
+          "outputTokens": 331,
+          "cacheReadInputTokens": 0,
+          "cacheCreationInputTokens": 0,
           "webSearchRequests": 0,
-          "costUSD": 0.4513300000000002
+          "costUSD": 0.016309
         },
         "claude-opus-4-5-20251101": {
-          "inputTokens": 24811,
-          "outputTokens": 54966,
-          "cacheReadInputTokens": 19904016,
-          "cacheCreationInputTokens": 474252,
+          "inputTokens": 2022,
+          "outputTokens": 2965,
+          "cacheReadInputTokens": 359317,
+          "cacheCreationInputTokens": 51220,
           "webSearchRequests": 0,
-          "costUSD": 14.414288000000004
+          "costUSD": 0.5840184999999999
         }
       },
-      "lastSessionId": "b6b2088b-6b7e-446d-a5bc-cb798f86199f"
+      "lastSessionId": "bfeaddec-14c0-4c4b-88b0-f5003880e3da"
     },
     "/Users/abel/Documents/explainanything-base/worktree_15_1": {
       "allowedTools": [],
@@ -239,6 +239,33 @@
         }
       },
       "lastSessionId": "e22b4622-ab38-4c49-976e-14f8a5e19460"
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_17_0": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "ResultsPage.ts",
+        "explanation-generation.integration.test.ts",
+        "page.tsx",
+        "TagBar.tsx",
+        "SearchBar.tsx"
+      ],
+      "exampleFilesGeneratedAt": 1765675019548,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
     }
   },
   "claudeCodeFirstTokenDate": "2025-09-19T14:21:05.398913Z",
@@ -253,10 +280,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1765663956041
+      "timestamp": 1765744511269
     }
   },
-  "lastPlanModeUse": 1765662885173,
+  "lastPlanModeUse": 1765685115508,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -320,13 +347,15 @@
     "organizationBillingType": "stripe_subscription",
     "organizationRole": "admin",
     "workspaceRole": null,
-    "organizationName": "abel@minddojo.org's Organization"
+    "organizationName": "abel@minddojo.org's Organization",
+    "hasExtraUsageEnabled": false
   },
   "anonymousId": "claudecode.v1.49b6d887-0dd7-4f48-9f08-0246e9c12592",
   "autoUpdatesProtectedForNative": true,
   "opus45MigrationComplete": true,
   "githubRepoPaths": {
     "alcmd15492/explainanything": [
+      "/Users/abel/Documents/explainanything-base/worktree_17_0",
       "/Users/abel/Documents/explainanything-base/worktree_16_0",
       "/Users/abel/Documents/explainanything-base/explainanything-feature0"
     ]
@@ -339,7 +368,7 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/7COV20SfyA"
       },
-      "timestamp": 1765663955112
+      "timestamp": 1765744510687
     }
   },
   "passesUpsellSeenCount": 4,
