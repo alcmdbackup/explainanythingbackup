@@ -28,6 +28,7 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSignup, setIsSignup] = useState(false);
+  const [signupSuccess, setSignupSuccess] = useState(false);
 
   const {
     register,
@@ -49,6 +50,7 @@ export default function LoginPage() {
   const onSubmit = async (data: LoginInput) => {
     setIsLoading(true);
     setFormError(null);
+    setSignupSuccess(false);
 
     try {
       const formData = new FormData();
@@ -60,6 +62,8 @@ export default function LoginPage() {
 
       if (result?.error) {
         setFormError(result.error);
+      } else if (result?.success) {
+        setSignupSuccess(true);
       }
     } catch {
       setFormError('An unexpected error occurred. Please try again.');
@@ -90,6 +94,15 @@ export default function LoginPage() {
                 className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
               >
                 {formError}
+              </div>
+            )}
+
+            {signupSuccess && (
+              <div
+                data-testid="signup-success"
+                className="rounded-md bg-green-100 p-3 text-sm text-green-800 dark:bg-green-900/30 dark:text-green-400"
+              >
+                Check your email for a confirmation link to complete your signup.
               </div>
             )}
 

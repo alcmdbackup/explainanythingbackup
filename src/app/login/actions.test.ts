@@ -191,33 +191,33 @@ describe('Login Actions', () => {
   });
 
   describe('signup', () => {
-    it('should sign up with valid credentials and redirect to root', async () => {
+    it('should sign up with valid credentials and return success', async () => {
       const formData = createMockFormData({
         email: 'newuser@example.com',
         password: 'securepass123',
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /');
+      const result = await signup(formData);
 
+      expect(result).toEqual({ success: true });
       expect(mockSignUp).toHaveBeenCalledWith({
         email: 'newuser@example.com',
         password: 'securepass123',
       });
       expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
-      expect(redirect).toHaveBeenCalledWith('/');
+      expect(redirect).not.toHaveBeenCalled();
     });
 
-    it('should revalidate path before redirecting', async () => {
+    it('should revalidate path on successful signup', async () => {
       const formData = createMockFormData({
         email: 'new@test.com',
         password: 'validpassword123',
       });
 
-      await expect(signup(formData)).rejects.toThrow('NEXT_REDIRECT: /');
+      const result = await signup(formData);
 
-      const revalidateCall = (revalidatePath as jest.Mock<any, any>).mock.invocationCallOrder[0];
-      const redirectCall = (redirect as unknown as jest.Mock<any, any>).mock.invocationCallOrder[0];
-      expect(revalidateCall).toBeLessThan(redirectCall);
+      expect(result).toEqual({ success: true });
+      expect(revalidatePath).toHaveBeenCalledWith('/', 'layout');
     });
 
     it('should return friendly error on duplicate email', async () => {

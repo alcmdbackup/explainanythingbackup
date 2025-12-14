@@ -336,6 +336,33 @@ describe('LoginPage', () => {
       });
     });
 
+    it('should display success message after successful signup', async () => {
+      const user = userEvent.setup();
+      (signup as jest.Mock).mockResolvedValue({ success: true });
+
+      render(<LoginPage />);
+
+      const signupToggle = screen.getByRole('button', {
+        name: /don't have an account/i,
+      });
+      await user.click(signupToggle);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /^sign up$/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('signup-success')).toBeInTheDocument();
+        expect(
+          screen.getByText(/check your email for a confirmation link/i)
+        ).toBeInTheDocument();
+      });
+    });
+
     it('should include rememberMe in form data when checked', async () => {
       const user = userEvent.setup();
       render(<LoginPage />);
