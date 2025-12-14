@@ -20,7 +20,7 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
-      - run: npx tsc --noEmit
+      - run: npx tsc --noEmit --project tsconfig.ci.json
 
   lint:
     name: Lint
