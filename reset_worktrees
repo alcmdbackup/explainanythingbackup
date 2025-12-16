@@ -129,8 +129,8 @@ for i in 0 1; do
     # Delete branch if it already exists
     git branch -D "$BRANCH_NAME" 2>/dev/null || true
 
-    # Create new worktree based on current branch
-    git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "$CURRENT_BRANCH"
+    # Create new worktree based on remote main branch
+    git worktree add -b "$BRANCH_NAME" "$WORKTREE_PATH" "origin/main"
 
     echo -e "${GREEN}Created: $WORKTREE_PATH${NC}"
 
