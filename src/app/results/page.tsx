@@ -1214,7 +1214,7 @@ function ResultsPageContent() {
                                                 onContentChange={handleEditorContentChange}
                                             />
                                         ) : (
-                                            <pre className="whitespace-pre-wrap text-sm text-gray-700 dark:text-gray-300 leading-relaxed font-mono">
+                                            <pre className="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-300 leading-relaxed font-mono">
                                                 {formattedExplanation}
                                             </pre>
                                         )}

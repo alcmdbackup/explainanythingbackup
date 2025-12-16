@@ -10,14 +10,12 @@ import { supabase_browser } from '@/lib/supabase';
 export default function UserLibraryPage() {
     const [userExplanations, setUserExplanations] = useState<UserSavedExplanationType[]>([]);
     const [error, setError] = useState<string | null>(null);
-    const [loading, setLoading] = useState<boolean>(true);
 
     useEffect(() => {
         loadUserExplanations();
     }, []);
 
     const loadUserExplanations = async () => {
-        setLoading(true);
         try {
             // Fetch user id from supabase
             const { data: userData, error: userError } = await supabase_browser.auth.getUser();
@@ -32,19 +30,12 @@ export default function UserLibraryPage() {
             logger.error('Failed to load user library explanations:', { error: errorMessage });
             setError(errorMessage);
         }
-        setLoading(false);
     };
 
     return (
-        loading ? (
-            <div data-testid="library-loading" className="flex justify-center items-center min-h-screen">
-                <span className="text-lg text-gray-700 dark:text-gray-200">Loading your library...</span>
-            </div>
-        ) : (
-            <ExplanationsTablePage
-                explanations={userExplanations.map(e => ({ ...e, dateSaved: e.saved_timestamp }))}
-                error={error}
-            />
-        )
+        <ExplanationsTablePage
+            explanations={userExplanations.map(e => ({ ...e, dateSaved: e.saved_timestamp }))}
+            error={error}
+        />
     );
 } 

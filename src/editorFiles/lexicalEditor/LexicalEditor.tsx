@@ -52,7 +52,7 @@ import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 
 // Theme configuration for the editor - matching results page styling
 const theme = {
-  paragraph: 'mt-1 mb-4 text-gray-700 dark:text-gray-300 leading-relaxed',
+  paragraph: 'mt-1 mb-4 text-gray-900 dark:text-gray-300 leading-relaxed',
   heading: {
     h1: 'text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight',
     h2: 'text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight',
@@ -67,14 +67,14 @@ const theme = {
     underline: 'underline',
   },
   list: {
-    ul: 'my-4 space-y-2 list-disc list-inside text-gray-700 dark:text-gray-300',
-    ol: 'my-4 space-y-2 list-decimal list-inside text-gray-700 dark:text-gray-300',
+    ul: 'my-4 space-y-2 list-disc list-inside text-gray-900 dark:text-gray-300',
+    ol: 'my-4 space-y-2 list-decimal list-inside text-gray-900 dark:text-gray-300',
     listitem: 'my-1 leading-relaxed',
   },
   link: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors',
   code: 'bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200',
   codeblock: 'bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4',
-  quote: 'border-l-4 border-blue-500 pl-4 my-4 italic text-gray-600 dark:text-gray-400',
+  quote: 'border-l-4 border-blue-500 pl-4 my-4 italic text-gray-800 dark:text-gray-400',
 };
 
 // Error handler function

@@ -512,20 +512,17 @@ describe('ExplanationsTablePage', () => {
   // ========================================================================
 
   describe('Empty State', () => {
-    it('should render empty table when no explanations', () => {
+    it('should show empty state message when no explanations', () => {
       render(<ExplanationsTablePage explanations={[]} error={null} />);
 
-      expect(screen.getByRole('table')).toBeInTheDocument();
-      const tbody = screen.getByRole('table').querySelector('tbody');
-      expect(tbody?.children).toHaveLength(0);
+      expect(screen.getByText('You do not have any items in your library.')).toBeInTheDocument();
+      expect(screen.getByText('Save some to get started.')).toBeInTheDocument();
     });
 
-    it('should show table headers even with empty data', () => {
+    it('should not show table when no explanations', () => {
       render(<ExplanationsTablePage explanations={[]} error={null} />);
 
-      expect(screen.getByText('Title')).toBeInTheDocument();
-      expect(screen.getByText('Content')).toBeInTheDocument();
-      expect(screen.getByText('Date Created')).toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
     });
   });
 

@@ -95,7 +95,13 @@ export default function ExplanationsTablePage({
                 )}
                 {/* Subtle divider for aesthetics */}
                 <div className="h-px bg-gradient-to-r from-transparent via-gray-300/50 to-transparent dark:via-gray-600/50 my-6"></div>
-                {/* Table layout for explanations */}
+                {explanations.length === 0 ? (
+                    <div className="text-center py-16 text-gray-500 dark:text-gray-400">
+                        <p>You do not have any items in your library.</p>
+                        <p className="mt-2">Save some to get started.</p>
+                    </div>
+                ) : (
+                /* Table layout for explanations */
                 <div className="overflow-x-auto rounded-lg shadow border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 max-h-[70vh]">
                     <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                         <thead className="bg-gradient-to-r from-blue-600 to-blue-400 dark:from-blue-800 dark:to-blue-700 text-white border-b-2 border-blue-400 shadow-md sticky top-0 z-10">
@@ -157,6 +163,7 @@ export default function ExplanationsTablePage({
                         </tbody>
                     </table>
                 </div>
+                )}
             </main>
         </div>
     );
