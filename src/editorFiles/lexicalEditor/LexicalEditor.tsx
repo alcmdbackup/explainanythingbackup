@@ -50,16 +50,16 @@ import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 
 
 
-// Theme configuration for the editor - matching results page styling
+// Theme configuration for the editor - colors handled by CSS variables in globals.css
 const theme = {
-  paragraph: 'mt-1 mb-4 text-gray-900 dark:text-gray-300 leading-relaxed',
+  paragraph: 'mt-1 mb-4 leading-relaxed',
   heading: {
-    h1: 'text-3xl font-bold text-gray-900 dark:text-white mb-4 mt-0 leading-tight',
-    h2: 'text-2xl font-semibold text-gray-800 dark:text-gray-100 mb-3 mt-6 leading-tight',
-    h3: 'text-xl font-medium text-gray-800 dark:text-gray-100 mb-2 mt-5 leading-tight',
-    h4: 'text-lg font-medium text-gray-800 dark:text-gray-100 mb-2 mt-4 leading-tight',
-    h5: 'text-base font-medium text-gray-800 dark:text-gray-100 mb-1 mt-3 leading-tight',
-    h6: 'text-sm font-medium text-gray-800 dark:text-gray-100 mb-1 mt-2 leading-tight',
+    h1: 'text-3xl font-bold mb-4 mt-0 leading-tight',
+    h2: 'text-2xl font-semibold mb-3 mt-6 leading-tight',
+    h3: 'text-xl font-medium mb-2 mt-5 leading-tight',
+    h4: 'text-lg font-medium mb-2 mt-4 leading-tight',
+    h5: 'text-base font-medium mb-1 mt-3 leading-tight',
+    h6: 'text-sm font-medium mb-1 mt-2 leading-tight',
   },
   text: {
     bold: 'font-bold',
@@ -67,14 +67,14 @@ const theme = {
     underline: 'underline',
   },
   list: {
-    ul: 'my-4 space-y-2 list-disc list-inside text-gray-900 dark:text-gray-300',
-    ol: 'my-4 space-y-2 list-decimal list-inside text-gray-900 dark:text-gray-300',
+    ul: 'my-4 space-y-2 list-disc list-inside',
+    ol: 'my-4 space-y-2 list-decimal list-inside',
     listitem: 'my-1 leading-relaxed',
   },
-  link: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline cursor-pointer transition-colors',
-  code: 'bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-sm font-mono text-gray-800 dark:text-gray-200',
-  codeblock: 'bg-gray-100 dark:bg-gray-700 p-4 rounded-lg overflow-x-auto my-4',
-  quote: 'border-l-4 border-blue-500 pl-4 my-4 italic text-gray-800 dark:text-gray-400',
+  link: 'underline cursor-pointer transition-colors',
+  code: 'px-1.5 py-0.5 rounded text-sm font-mono',
+  codeblock: 'bg-surface-code p-4 rounded-lg overflow-x-auto my-4',
+  quote: 'border-l-4 border-accent-blue pl-4 my-4 italic',
 };
 
 // Error handler function
@@ -477,15 +477,15 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`lexical-editor min-h-[200px] p-4 text-gray-900 dark:text-white prose dark:prose-invert max-w-none ${
+                className={`lexical-editor min-h-[200px] p-4 text-text-primary prose dark:prose-invert max-w-none ${
                   internalEditMode
-                    ? "border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700"
+                    ? "border border-border-strong rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-surface-primary"
                     : "border-none bg-transparent focus:outline-none lexical-display-mode"
                 }`}
               />
             }
             placeholder={
-              <div className="absolute top-4 left-4 text-gray-400 dark:text-gray-500 pointer-events-none">
+              <div className="absolute top-4 left-4 text-text-muted pointer-events-none">
                 {placeholder}
               </div>
             }
@@ -495,15 +495,15 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           <PlainTextPlugin
             contentEditable={
               <ContentEditable
-                className={`lexical-editor min-h-[200px] p-4 text-gray-900 dark:text-white font-mono text-sm ${
+                className={`lexical-editor min-h-[200px] p-4 text-text-primary font-mono text-sm ${
                   internalEditMode
-                    ? "border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700"
+                    ? "border border-border-strong rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-surface-primary"
                     : "border-none bg-transparent focus:outline-none lexical-display-mode"
                 }`}
               />
             }
             placeholder={
-              <div className="absolute top-4 left-4 text-gray-400 dark:text-gray-500 pointer-events-none">
+              <div className="absolute top-4 left-4 text-text-muted pointer-events-none">
                 {placeholder}
               </div>
             }
