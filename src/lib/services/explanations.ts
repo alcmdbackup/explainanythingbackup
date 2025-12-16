@@ -100,6 +100,7 @@ export async function getRecentExplanations(
   const query = supabase
     .from('explanations')
     .select()
+    .eq('status', 'published')
     .order(orderBy, { ascending: order === 'asc' })
     .range(offset, offset + limit - 1);
 
