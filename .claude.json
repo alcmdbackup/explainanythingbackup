@@ -1,5 +1,5 @@
 {
-  "numStartups": 32,
+  "numStartups": 38,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
@@ -7,7 +7,7 @@
   "tipsHistory": {
     "enter-to-steer-in-relatime": 28,
     "new-user-warmup": 7,
-    "memory-command": 19,
+    "memory-command": 34,
     "plan-mode-for-complex-tasks": 19,
     "terminal-setup": 2,
     "shift-enter-setup": 2,
@@ -16,27 +16,28 @@
     "stickers-command": 24,
     "# for memory": 30,
     "paste-images-mac": 30,
-    "double-esc-code-restore": 25,
-    "continue": 25,
-    "shift-tab": 25,
+    "double-esc-code-restore": 35,
+    "continue": 35,
+    "shift-tab": 35,
     "tab-toggle-thinking": 26,
     "prompt-queue": 15,
     "todo-list": 24,
-    "shift-enter": 28,
-    "install-github-app": 28,
+    "shift-enter": 38,
+    "install-github-app": 38,
     "drag-and-drop-images": 30,
     "image-paste": 27,
     "ultrathink-keyword": 29,
     "custom-agents": 24,
-    "permissions": 28,
-    "custom-commands": 17,
-    "default-permission-mode-config": 23,
-    "rename-conversation": 23,
+    "permissions": 38,
+    "custom-commands": 32,
+    "default-permission-mode-config": 33,
+    "rename-conversation": 38,
     "colorterm-truecolor": 24,
-    "config-thinking-mode": 24,
-    "guest-passes": 31
+    "config-thinking-mode": 34,
+    "guest-passes": 37,
+    "frontend-design-plugin": 37
   },
-  "promptQueueUseCount": 10,
+  "promptQueueUseCount": 12,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false,
@@ -266,6 +267,60 @@
         "packageManager": null
       },
       "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_18_0": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "ResultsPage.ts",
+        "page.tsx",
+        "explanation-generation.integration.test.ts",
+        "vector-matching.integration.test.ts",
+        "search-generate.spec.ts"
+      ],
+      "exampleFilesGeneratedAt": 1765745688879,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_18_1": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "playwright.config.ts",
+        "ResultsPage.ts",
+        "page.tsx",
+        "explanation-generation.integration.test.ts",
+        "search-generate.spec.ts"
+      ],
+      "exampleFilesGeneratedAt": 1765746884735,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
     }
   },
   "claudeCodeFirstTokenDate": "2025-09-19T14:21:05.398913Z",
@@ -280,10 +335,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1765744511269
+      "timestamp": 1765863413008
     }
   },
-  "lastPlanModeUse": 1765685115508,
+  "lastPlanModeUse": 1765866035468,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -355,6 +410,8 @@
   "opus45MigrationComplete": true,
   "githubRepoPaths": {
     "alcmd15492/explainanything": [
+      "/Users/abel/Documents/explainanything-base/worktree_18_1",
+      "/Users/abel/Documents/explainanything-base/worktree_18_0",
       "/Users/abel/Documents/explainanything-base/worktree_17_0",
       "/Users/abel/Documents/explainanything-base/worktree_16_0",
       "/Users/abel/Documents/explainanything-base/explainanything-feature0"
@@ -368,7 +425,7 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/7COV20SfyA"
       },
-      "timestamp": 1765744510687
+      "timestamp": 1765863412546
     }
   },
   "passesUpsellSeenCount": 4,
@@ -377,5 +434,8 @@
   },
   "officialMarketplaceAutoInstallAttempted": true,
   "officialMarketplaceAutoInstalled": false,
-  "officialMarketplaceAutoInstallFailReason": "unknown"
+  "officialMarketplaceAutoInstallFailReason": "unknown",
+  "feedbackSurveyState": {
+    "lastShownTime": 1765863289309
+  }
 }
