@@ -55,115 +55,115 @@
 
 /* Headings */
 .lexical-editor h1 {
-  font-size: 1.875rem !important;
-  line-height: 2.25rem !important;
-  font-weight: 700 !important;
-  margin-bottom: 1rem !important;
-  margin-top: 1.5rem !important;
-  color: rgb(17 24 39) !important;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  margin-bottom: 1rem;
+  margin-top: 1.5rem;
+  color: var(--text-primary);
 }
 
 .lexical-editor h2 {
-  font-size: 1.5rem !important;
-  line-height: 2rem !important;
-  font-weight: 700 !important;
-  margin-bottom: 0.75rem !important;
-  margin-top: 1.25rem !important;
-  color: rgb(17 24 39) !important;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  margin-top: 1.25rem;
+  color: var(--text-primary);
 }
 
 .lexical-editor h3 {
-  font-size: 1.25rem !important;
-  line-height: 1.75rem !important;
-  font-weight: 700 !important;
-  margin-bottom: 0.5rem !important;
-  margin-top: 1rem !important;
-  color: rgb(17 24 39) !important;
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  margin-top: 1rem;
+  color: var(--text-primary);
 }
 
 .lexical-editor h4 {
-  font-size: 1.125rem !important;
-  line-height: 1.75rem !important;
-  font-weight: 700 !important;
-  margin-bottom: 0.5rem !important;
-  margin-top: 0.75rem !important;
-  color: rgb(17 24 39) !important;
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+  margin-top: 0.75rem;
+  color: var(--text-primary);
 }
 
 .lexical-editor h5 {
-  font-size: 1rem !important;
-  line-height: 1.5rem !important;
-  font-weight: 700 !important;
-  margin-bottom: 0.25rem !important;
-  margin-top: 0.5rem !important;
-  color: rgb(17 24 39) !important;
+  font-size: 1rem;
+  line-height: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  margin-top: 0.5rem;
+  color: var(--text-primary);
 }
 
 .lexical-editor h6 {
-  font-size: 0.875rem !important;
-  line-height: 1.25rem !important;
-  font-weight: 700 !important;
-  margin-bottom: 0.25rem !important;
-  margin-top: 0.5rem !important;
-  color: rgb(17 24 39) !important;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  margin-top: 0.5rem;
+  color: var(--text-primary);
 }
 
 /* Paragraphs */
 .lexical-editor p {
-  margin-top: 0.25rem !important;
-  margin-bottom: 1rem !important;
-  color: rgb(17 24 39) !important; /* gray-900 */
-  line-height: 1.625 !important;
+  margin-top: 0.25rem;
+  margin-bottom: 1rem;
+  color: var(--text-secondary);
+  line-height: 1.625;
 }
 
 /* Block elements */
 .lexical-editor blockquote {
-  border-left: 4px solid rgb(59 130 246) !important; /* blue-500 */
-  padding-left: 1rem !important;
-  font-style: italic !important;
-  margin: 1rem 0 !important;
-  color: rgb(75 85 99) !important; /* gray-600 */
+  border-left: 4px solid var(--accent-blue);
+  padding-left: 1rem;
+  font-style: italic;
+  margin: 1rem 0;
+  color: var(--text-muted);
 }
 
 .lexical-editor ul {
-  list-style-type: disc !important;
-  list-style-position: inside !important;
-  margin: 1rem 0 !important;
-  padding-left: 0 !important;
-  color: rgb(55 65 81) !important;
+  list-style-type: disc;
+  list-style-position: inside;
+  margin: 1rem 0;
+  padding-left: 0;
+  color: var(--text-secondary);
 }
 
 .lexical-editor ol {
-  list-style-type: decimal !important;
-  list-style-position: inside !important;
-  margin: 1rem 0 !important;
-  padding-left: 0 !important;
-  color: rgb(55 65 81) !important;
+  list-style-type: decimal;
+  list-style-position: inside;
+  margin: 1rem 0;
+  padding-left: 0;
+  color: var(--text-secondary);
 }
 
 .lexical-editor li {
-  margin: 0.25rem 0 !important;
-  line-height: 1.625 !important;
+  margin: 0.25rem 0;
+  line-height: 1.625;
 }
 
 .lexical-editor code {
-  background-color: rgb(243 244 246) !important;
-  padding: 0.125rem 0.25rem !important;
-  border-radius: 0.25rem !important;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace !important;
-  font-size: 0.875rem !important;
+  background-color: var(--surface-code);
+  padding: 0.125rem 0.25rem;
+  border-radius: 0.25rem;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.875rem;
 }
 
 /* Links - matching results page styling */
 .lexical-editor a {
-  color: rgb(37 99 235) !important; /* blue-600 */
-  text-decoration: underline !important;
-  cursor: pointer !important;
-  transition: colors 0.2s ease-in-out !important;
+  color: var(--link);
+  text-decoration: underline;
+  cursor: pointer;
+  transition: colors 0.2s ease-in-out;
 }
 
 .lexical-editor a:hover {
-  color: rgb(29 78 216) !important; /* blue-800 */
+  color: var(--link-hover);
 }
 
 /* ==========================================================================
@@ -264,52 +264,10 @@
 }
 
 /* ==========================================================================
-   DARK MODE STYLES
+   DARK MODE DIFF TAG STYLES
    ========================================================================== */
 
 @media (prefers-color-scheme: dark) {
-  /* Base variables */
-
-  /* Lexical editor headings */
-  .lexical-editor h1,
-  .lexical-editor h2,
-  .lexical-editor h3,
-  .lexical-editor h4,
-  .lexical-editor h5,
-  .lexical-editor h6 {
-    color: rgb(255 255 255) !important;
-  }
-
-  /* Paragraphs - dark mode */
-  .lexical-editor p {
-    color: rgb(209 213 219) !important; /* gray-300 */
-  }
-
-  /* Lists - dark mode */
-  .lexical-editor ul,
-  .lexical-editor ol {
-    color: rgb(209 213 219) !important; /* gray-300 */
-  }
-
-  /* Lexical editor block elements */
-  .lexical-editor blockquote {
-    border-left-color: rgb(59 130 246) !important; /* blue-500 */
-    color: rgb(156 163 175) !important; /* gray-400 */
-  }
-
-  .lexical-editor code {
-    background-color: rgb(31 41 55) !important;
-  }
-
-  /* Links - dark mode */
-  .lexical-editor a {
-    color: rgb(96 165 250) !important; /* blue-400 */
-  }
-
-  .lexical-editor a:hover {
-    color: rgb(147 197 253) !important; /* blue-300 */
-  }
-
   /* Diff tag base styles */
   .diff-tag-insert {
     background-color: #14532d; /* green-900 */
@@ -334,7 +292,6 @@
   }
 
   /* Diff tag update styling for direct children (headings and paragraphs) */
-  /* First child gets red styling (before/old content) */
   .diff-tag-update > .mb-1:first-child,
   .diff-tag-update > h1:first-child,
   .diff-tag-update > h2:first-child,
@@ -342,13 +299,12 @@
   .diff-tag-update > h4:first-child,
   .diff-tag-update > h5:first-child,
   .diff-tag-update > h6:first-child {
-    border-left: 6px solid #ef4444 !important; /* red-500 */
-    padding-left: 12px !important;
-    color: #fca5a5 !important; /* red-300 */
-    background-color: transparent !important;
+    border-left: 6px solid #ef4444;
+    padding-left: 12px;
+    color: #fca5a5;
+    background-color: transparent;
   }
 
-  /* Second child gets green styling (after/new content) */
   .diff-tag-update > .mb-1:nth-child(2),
   .diff-tag-update > h1:nth-child(2),
   .diff-tag-update > h2:nth-child(2),
@@ -356,10 +312,10 @@
   .diff-tag-update > h4:nth-child(2),
   .diff-tag-update > h5:nth-child(2),
   .diff-tag-update > h6:nth-child(2) {
-    border-left: 6px solid #22c55e !important; /* green-500 */
-    padding-left: 12px !important;
-    color: #86efac !important; /* green-300 */
-    background-color: transparent !important;
+    border-left: 6px solid #22c55e;
+    padding-left: 12px;
+    color: #86efac;
+    background-color: transparent;
   }
 
   /* Diff tag headings */
@@ -369,9 +325,9 @@
   .diff-tag-insert .lexical-editor-h4,
   .diff-tag-insert .lexical-editor-h5,
   .diff-tag-insert .lexical-editor-h6 {
-    border-left: 6px solid #22c55e !important; /* green-500 */
-    padding-left: 12px !important;
-    color: #86efac !important; /* green-300 */
+    border-left: 6px solid #22c55e;
+    padding-left: 12px;
+    color: #86efac;
   }
 
   .diff-tag-delete .lexical-editor-h1,
@@ -380,25 +336,25 @@
   .diff-tag-delete .lexical-editor-h4,
   .diff-tag-delete .lexical-editor-h5,
   .diff-tag-delete .lexical-editor-h6 {
-    border-left: 6px solid #ef4444 !important; /* red-500 */
-    padding-left: 12px !important;
-    color: #fca5a5 !important; /* red-300 */
-    text-decoration: none !important;
+    border-left: 6px solid #ef4444;
+    padding-left: 12px;
+    color: #fca5a5;
+    text-decoration: none;
   }
 
   /* Diff tag paragraphs */
   .diff-tag-insert .mb-1 {
-    border-left: 6px solid #22c55e !important; /* green-500 */
-    padding-left: 12px !important;
-    color: #86efac !important; /* green-300 */
-    background-color: transparent !important;
+    border-left: 6px solid #22c55e;
+    padding-left: 12px;
+    color: #86efac;
+    background-color: transparent;
   }
 
   .diff-tag-delete .mb-1 {
-    border-left: 6px solid #ef4444 !important; /* red-500 */
-    padding-left: 12px !important;
-    color: #fca5a5 !important; /* red-300 */
-    background-color: transparent !important;
+    border-left: 6px solid #ef4444;
+    padding-left: 12px;
+    color: #fca5a5;
+    background-color: transparent;
   }
 }
 
@@ -406,6 +362,27 @@
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
+
+  /* Semantic text colors */
+  --text-primary: rgb(17 24 39);      /* gray-900 - headings, important text */
+  --text-secondary: rgb(55 65 81);    /* gray-700 - body text */
+  --text-muted: rgb(107 114 128);     /* gray-500 - timestamps, hints */
+  --text-on-primary: rgb(255 255 255);
+
+  /* Semantic surface colors */
+  --surface-primary: rgb(255 255 255);
+  --surface-secondary: rgb(249 250 251); /* gray-50 */
+  --surface-elevated: rgb(255 255 255);
+  --surface-code: rgb(243 244 246);   /* gray-100 */
+
+  /* Semantic border colors */
+  --border-default: rgb(229 231 235); /* gray-200 */
+  --border-strong: rgb(209 213 219);  /* gray-300 */
+
+  /* Interactive colors */
+  --link: rgb(37 99 235);             /* blue-600 */
+  --link-hover: rgb(29 78 216);       /* blue-700 */
+  --accent-blue: rgb(59 130 246);     /* blue-500 */
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -440,6 +417,27 @@
 .dark {
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
+
+  /* Semantic text colors - dark mode */
+  --text-primary: rgb(255 255 255);
+  --text-secondary: rgb(209 213 219); /* gray-300 */
+  --text-muted: rgb(156 163 175);     /* gray-400 */
+  --text-on-primary: rgb(17 24 39);
+
+  /* Semantic surface colors - dark mode */
+  --surface-primary: rgb(17 24 39);   /* gray-900 */
+  --surface-secondary: rgb(31 41 55); /* gray-800 */
+  --surface-elevated: rgb(55 65 81);  /* gray-700 */
+  --surface-code: rgb(31 41 55);      /* gray-800 */
+
+  /* Semantic border colors - dark mode */
+  --border-default: rgb(75 85 99);    /* gray-600 */
+  --border-strong: rgb(107 114 128);  /* gray-500 */
+
+  /* Interactive colors - dark mode */
+  --link: rgb(96 165 250);            /* blue-400 */
+  --link-hover: rgb(147 197 253);     /* blue-300 */
+  --accent-blue: rgb(59 130 246);     /* blue-500 */
   --card: oklch(0.205 0 0);
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.205 0 0);
