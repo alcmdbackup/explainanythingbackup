@@ -45,11 +45,23 @@ export default function SearchBar({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         if (!prompt.trim() || disabled) return;
-        
+
         if (onSearch) {
             onSearch(prompt);
         } else {
             router.push(`/results?q=${encodeURIComponent(prompt)}`);
+        }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (!prompt.trim() || disabled) return;
+            if (onSearch) {
+                onSearch(prompt);
+            } else {
+                router.push(`/results?q=${encodeURIComponent(prompt)}`);
+            }
         }
     };
 
@@ -65,6 +77,7 @@ export default function SearchBar({
                 <InputComponent
                     value={prompt}
                     onChange={handlePromptChange}
+                    onKeyDown={isHomeVariant ? handleKeyDown : undefined}
                     data-testid="search-input"
                     className={`flex-1 bg-transparent border-0 focus:outline-none focus:ring-0 resize-none dark:text-white placeholder-gray-500 dark:placeholder-gray-400 ${
                         isHomeVariant

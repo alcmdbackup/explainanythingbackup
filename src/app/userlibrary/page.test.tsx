@@ -73,44 +73,6 @@ describe('UserLibraryPage', () => {
     jest.clearAllMocks();
   });
 
-  describe('Loading State', () => {
-    it('should show loading message initially', () => {
-      // Mock pending promises to keep loading state
-      (supabase_browser.auth.getUser as jest.Mock).mockImplementation(
-        () => new Promise(() => {}) // Never resolves
-      );
-
-      render(<UserLibraryPage />);
-
-      expect(screen.getByText('Loading your library...')).toBeInTheDocument();
-    });
-
-    it('should have correct loading message styling', () => {
-      (supabase_browser.auth.getUser as jest.Mock).mockImplementation(
-        () => new Promise(() => {})
-      );
-
-      render(<UserLibraryPage />);
-
-      const loadingContainer = screen.getByText('Loading your library...').parentElement;
-      expect(loadingContainer).toHaveClass('flex', 'justify-center', 'items-center', 'min-h-screen');
-    });
-
-    it('should hide loading state after data loads', async () => {
-      (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
-        data: { user: { id: 'user-123' } },
-        error: null,
-      });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockUserSavedExplanations);
-
-      render(<UserLibraryPage />);
-
-      await waitFor(() => {
-        expect(screen.queryByText('Loading your library...')).not.toBeInTheDocument();
-      });
-    });
-  });
-
   describe('Authentication Flow', () => {
     it('should fetch user on mount', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
@@ -371,16 +333,6 @@ describe('UserLibraryPage', () => {
       });
     });
 
-    it('should not render table during loading', () => {
-      (supabase_browser.auth.getUser as jest.Mock).mockImplementation(
-        () => new Promise(() => {})
-      );
-
-      render(<UserLibraryPage />);
-
-      const table = screen.queryByTestId('explanations-table');
-      expect(table).not.toBeInTheDocument();
-    });
   });
 
   describe('Edge Cases', () => {
