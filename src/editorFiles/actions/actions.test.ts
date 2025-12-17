@@ -66,13 +66,14 @@ describe('generateAISuggestionsAction', () => {
   it('should successfully generate AI suggestions with valid text', async () => {
     const mockPrompt = 'Test prompt for improvement';
     const mockResponse = JSON.stringify({ edits: ['Improved text', '... existing text ...'] });
+    const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue(mockPrompt);
     (callOpenAIModel as jest.Mock).mockResolvedValue(mockResponse);
 
-    const result = await generateAISuggestionsAction('Original text', 'user-123');
+    const result = await generateAISuggestionsAction('Original text', 'user-123', userPrompt);
 
-    expect(createAISuggestionPrompt).toHaveBeenCalledWith('Original text');
+    expect(createAISuggestionPrompt).toHaveBeenCalledWith('Original text', userPrompt);
     expect(callOpenAIModel).toHaveBeenCalledWith(
       mockPrompt,
       'editor_ai_suggestions',
@@ -93,12 +94,13 @@ describe('generateAISuggestionsAction', () => {
   it('should handle OpenAI API errors gracefully', async () => {
     const mockError = new Error('OpenAI API rate limit exceeded');
     const mockErrorResponse = { message: 'API Error', code: 'RATE_LIMIT' };
+    const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue('Test prompt');
     (callOpenAIModel as jest.Mock).mockRejectedValue(mockError);
     (handleError as jest.Mock).mockReturnValue(mockErrorResponse);
 
-    const result = await generateAISuggestionsAction('Test text', 'user-123');
+    const result = await generateAISuggestionsAction('Test text', 'user-123', userPrompt);
 
     expect(result).toEqual({
       success: false,
@@ -115,12 +117,13 @@ describe('generateAISuggestionsAction', () => {
   it('should return proper error structure on failure', async () => {
     const mockError = new Error('Network error');
     const mockErrorResponse = { message: 'Network error', code: 'NETWORK_ERROR' };
+    const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue('Test prompt');
     (callOpenAIModel as jest.Mock).mockRejectedValue(mockError);
     (handleError as jest.Mock).mockReturnValue(mockErrorResponse);
 
-    const result = await generateAISuggestionsAction('Test', 'user-123');
+    const result = await generateAISuggestionsAction('Test', 'user-123', userPrompt);
 
     expect(result.success).toBe(false);
     expect(result.data).toBeNull();
@@ -130,11 +133,12 @@ describe('generateAISuggestionsAction', () => {
   it('should log debug information during execution', async () => {
     const mockPrompt = 'Test prompt';
     const mockResponse = '{"edits": ["test"]}';
+    const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue(mockPrompt);
     (callOpenAIModel as jest.Mock).mockResolvedValue(mockResponse);
 
-    await generateAISuggestionsAction('Test text', 'user-123');
+    await generateAISuggestionsAction('Test text', 'user-123', userPrompt);
 
     expect(logger.debug).toHaveBeenCalledWith(
       'AI Suggestion Request',

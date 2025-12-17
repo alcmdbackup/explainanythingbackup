@@ -971,14 +971,15 @@ export const loadFromPineconeUsingExplanationIdAction = serverReadRequestId(_loa
 const _generateAISuggestionsAction = withLogging(
     async function generateAISuggestionsAction(
         currentText: string,
-        userid: string
+        userid: string,
+        userPrompt: string
     ): Promise<{
         success: boolean;
         data: string | null;
         error: ErrorResponse | null;
     }> {
         try {
-            const prompt = createAISuggestionPrompt(currentText);
+            const prompt = createAISuggestionPrompt(currentText, userPrompt);
 
             logger.debug('AI Suggestion Request', {
                 textLength: currentText.length,

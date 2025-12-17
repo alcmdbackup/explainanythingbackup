@@ -507,7 +507,8 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             // Use the existing action to get AI suggestions
             const result = await generateAISuggestionsAction(
                 currentContent,
-                'test-user'
+                'test-user',
+                'Improve the overall quality of this content'  // Default prompt for debug page
             );
 
             if (result.success && result.data) {

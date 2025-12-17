@@ -48,8 +48,11 @@ export type AISuggestionOutput = z.infer<typeof aiSuggestionSchema>;
  * • Used by: AI suggestion generation with structured output validation
  * • Calls: N/A (prompt generation only)
  */
-export function createAISuggestionPrompt(currentText: string): string {
-  return `Make significant edits to the article below to improve its quality.
+export function createAISuggestionPrompt(currentText: string, userPrompt: string): string {
+  return `Apply the following edit instruction to the article below:
+"${userPrompt}"
+
+Only make edits relevant to this instruction. Do not make other improvements.
 
 <output_format>
 You must respond with a JSON object containing an "edits" array.
@@ -84,7 +87,7 @@ Or ending with marker:
 - Alternate between content and "... existing text ..." markers
 - You can end with either edited content or "... existing text ..." marker
 - Preserve markdown formatting in your edits
-- Make substantial improvements to content quality, clarity, and structure
+- Only make edits that fulfill the user's instruction above
 - Each edit should be a complete, coherent section
 </rules>
 
@@ -207,7 +210,7 @@ export async function runAISuggestionsPipeline(
   console.log('📦 PIPELINE: Imports loaded successfully');
 
   console.log('🤖 PIPELINE STEP 1: Generating AI suggestions...');
-  const suggestionsResult = await generateAISuggestionsAction(currentContent, userId);
+  const suggestionsResult = await generateAISuggestionsAction(currentContent, userId, sessionData?.user_prompt ?? '');
   console.log('🤖 PIPELINE STEP 1 RESULT:', {
     success: suggestionsResult.success,
     hasData: !!suggestionsResult.data,
@@ -446,18 +449,19 @@ export async function getAndApplyAISuggestions(
 /**
  * Handles getting AI suggestions for text improvement
  * @param currentText - The current text content
- * @param improvementType - The type of improvement requested
+ * @param userPrompt - The user's edit instruction
  * @param callOpenAIModel - Function to call the OpenAI model
  * @param logger - Logger utility for debugging
  * @returns Promise that resolves to the AI suggestion response
  */
 export async function getAISuggestions(
-    currentText: string, 
+    currentText: string,
+    userPrompt: string,
     callOpenAIModel: (prompt: string, call_source: string, userid: string, model: string, streaming: boolean, setText: ((text: string) => void) | null) => Promise<string>,
     logger: any
 ): Promise<string> {
     try {
-        const prompt = createAISuggestionPrompt(currentText);
+        const prompt = createAISuggestionPrompt(currentText, userPrompt);
         
         logger.debug('AI Suggestion Request', {
             textLength: currentText.length,

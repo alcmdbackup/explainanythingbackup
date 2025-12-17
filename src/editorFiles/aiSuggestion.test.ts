@@ -122,15 +122,17 @@ describe('aiSuggestionSchema - Validation Rules', () => {
 // ============= Prompt Generation Tests =============
 
 describe('createAISuggestionPrompt - Prompt Generation', () => {
+  const defaultUserPrompt = 'Improve the content';
+
   it('should include current text in prompt', () => {
     const text = 'This is the original content';
-    const prompt = createAISuggestionPrompt(text);
+    const prompt = createAISuggestionPrompt(text, defaultUserPrompt);
 
     expect(prompt).toContain(text);
   });
 
   it('should include output format instructions', () => {
-    const prompt = createAISuggestionPrompt('test content');
+    const prompt = createAISuggestionPrompt('test content', defaultUserPrompt);
 
     expect(prompt).toContain('<output_format>');
     expect(prompt).toContain('JSON object');
@@ -138,21 +140,21 @@ describe('createAISuggestionPrompt - Prompt Generation', () => {
   });
 
   it('should include rules section', () => {
-    const prompt = createAISuggestionPrompt('test content');
+    const prompt = createAISuggestionPrompt('test content', defaultUserPrompt);
 
     expect(prompt).toContain('<rules>');
     expect(prompt).toContain('... existing text ...');
   });
 
   it('should include example', () => {
-    const prompt = createAISuggestionPrompt('test content');
+    const prompt = createAISuggestionPrompt('test content', defaultUserPrompt);
 
     expect(prompt).toContain('Example:');
     expect(prompt).toContain('"edits"');
   });
 
   it('should handle empty content', () => {
-    const prompt = createAISuggestionPrompt('');
+    const prompt = createAISuggestionPrompt('', defaultUserPrompt);
 
     expect(prompt).toBeTruthy();
     expect(prompt.length).toBeGreaterThan(100); // Should have template text
@@ -160,21 +162,21 @@ describe('createAISuggestionPrompt - Prompt Generation', () => {
 
   it('should handle multiline content', () => {
     const text = 'Line 1\nLine 2\nLine 3';
-    const prompt = createAISuggestionPrompt(text);
+    const prompt = createAISuggestionPrompt(text, defaultUserPrompt);
 
     expect(prompt).toContain(text);
   });
 
   it('should handle special characters in content', () => {
     const text = 'Content with "quotes" and <tags>';
-    const prompt = createAISuggestionPrompt(text);
+    const prompt = createAISuggestionPrompt(text, defaultUserPrompt);
 
     expect(prompt).toContain(text);
   });
 
   it('should maintain consistent prompt structure', () => {
-    const prompt1 = createAISuggestionPrompt('content 1');
-    const prompt2 = createAISuggestionPrompt('content 2');
+    const prompt1 = createAISuggestionPrompt('content 1', defaultUserPrompt);
+    const prompt2 = createAISuggestionPrompt('content 2', defaultUserPrompt);
 
     // Both should have same structure, different content
     expect(prompt1).toContain('<output_format>');
@@ -425,9 +427,11 @@ describe('validateAISuggestionOutput - Validation Function', () => {
 // ============= Edge Cases & Error Handling =============
 
 describe('aiSuggestion - Edge Cases', () => {
+  const defaultUserPrompt = 'Improve the content';
+
   it('should handle very long content in prompts', () => {
     const longContent = 'A'.repeat(10000);
-    const prompt = createAISuggestionPrompt(longContent);
+    const prompt = createAISuggestionPrompt(longContent, defaultUserPrompt);
 
     expect(prompt).toContain(longContent);
     expect(prompt.length).toBeGreaterThan(10000);
@@ -435,7 +439,7 @@ describe('aiSuggestion - Edge Cases', () => {
 
   it('should handle unicode characters in content', () => {
     const unicode = '你好世界 🌍 Здравствуй мир';
-    const prompt = createAISuggestionPrompt(unicode);
+    const prompt = createAISuggestionPrompt(unicode, defaultUserPrompt);
 
     expect(prompt).toContain(unicode);
   });
@@ -453,7 +457,7 @@ describe('aiSuggestion - Edge Cases', () => {
 
   it('should handle code blocks in content', () => {
     const codeContent = '```javascript\nconst x = 1;\n```';
-    const prompt = createAISuggestionPrompt(codeContent);
+    const prompt = createAISuggestionPrompt(codeContent, defaultUserPrompt);
 
     expect(prompt).toContain(codeContent);
   });
@@ -474,10 +478,12 @@ describe('aiSuggestion - Edge Cases', () => {
 // ============= Integration-Style Tests =============
 
 describe('aiSuggestion - Workflow Simulation', () => {
+  const defaultUserPrompt = 'Improve the content';
+
   it('should complete full validation workflow', () => {
     // 1. Create prompt
     const content = 'Original content here';
-    const prompt = createAISuggestionPrompt(content);
+    const prompt = createAISuggestionPrompt(content, defaultUserPrompt);
     expect(prompt).toContain(content);
 
     // 2. Simulate AI response

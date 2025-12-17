@@ -234,7 +234,7 @@ export default function AISuggestionsPanel({
             <p className="text-sm text-green-700 dark:text-green-300 mt-1">
               Your content has been updated with AI suggestions.
             </p>
-            {lastResult.session_id && sessionData && (
+            {process.env.NODE_ENV === 'development' && lastResult.session_id && sessionData && (
               <div className="mt-3">
                 <a
                   href={`/editorTest?explanation_id=${sessionData.explanation_id}&session_id=${lastResult.session_id}`}
