@@ -119,8 +119,8 @@ COUNTER=$((COUNTER + 1))
 # Save new counter
 echo "$COUNTER" > "$COUNTER_FILE"
 
-# Create two worktrees in parent directory
-for i in 0 1; do
+# Create five worktrees in parent directory
+for i in 0 1 2 3 4; do
     BRANCH_NAME="git_worktree_${COUNTER}_${i}"
     WORKTREE_PATH="$PARENT_DIR/worktree_${COUNTER}_${i}"
 
