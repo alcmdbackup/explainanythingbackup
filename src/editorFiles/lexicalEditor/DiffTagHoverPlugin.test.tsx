@@ -284,7 +284,7 @@ describe('DiffTagHoverPlugin - Hover State', () => {
 
     mockEditor.getElementByKey.mockReturnValue(mockElement);
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
 
     const { container } = render(<DiffTagHoverPlugin />);
 
@@ -328,7 +328,7 @@ describe('DiffTagHoverPlugin - Accept Handler', () => {
     const mockNode = createMockNode('ins', [child1, child2]);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
 
     // Note: Full testing requires setting up hover state first,
     // which is complex in this test environment.
@@ -341,7 +341,7 @@ describe('DiffTagHoverPlugin - Accept Handler', () => {
     const mockNode = createMockNode('del', []);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeBlock as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeBlock as unknown as jest.Mock).mockReturnValue(true);
 
     expect(mockNode.__tag).toBe('del');
     expect(mockNode.remove).toBeDefined();
@@ -353,8 +353,8 @@ describe('DiffTagHoverPlugin - Accept Handler', () => {
     const mockNode = createMockNode('update', [child1, child2]);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
-    ($isDiffUpdateContainerInline as jest.Mock).mockReturnValue(false);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
+    ($isDiffUpdateContainerInline as unknown as jest.Mock).mockReturnValue(false);
 
     expect(mockNode.__tag).toBe('update');
     expect(mockNode.getChildren()).toHaveLength(2);
@@ -368,8 +368,8 @@ describe('DiffTagHoverPlugin - Accept Handler', () => {
     const mockNode = createMockNode('update', [createMockChildNode(), containerChild]);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
-    ($isDiffUpdateContainerInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
+    ($isDiffUpdateContainerInline as unknown as jest.Mock).mockReturnValue(true);
 
     expect(mockNode.__tag).toBe('update');
     expect(containerChild.getChildren()).toHaveLength(1);
@@ -396,7 +396,7 @@ describe('DiffTagHoverPlugin - Reject Handler', () => {
     const mockNode = createMockNode('ins', []);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
 
     expect(mockNode.__tag).toBe('ins');
     expect(mockNode.remove).toBeDefined();
@@ -408,7 +408,7 @@ describe('DiffTagHoverPlugin - Reject Handler', () => {
     const mockNode = createMockNode('del', [child1, child2]);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeBlock as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeBlock as unknown as jest.Mock).mockReturnValue(true);
 
     expect(mockNode.__tag).toBe('del');
     expect(mockNode.getChildren()).toHaveLength(2);
@@ -420,8 +420,8 @@ describe('DiffTagHoverPlugin - Reject Handler', () => {
     const mockNode = createMockNode('update', [child1, child2]);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
-    ($isDiffUpdateContainerInline as jest.Mock).mockReturnValue(false);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
+    ($isDiffUpdateContainerInline as unknown as jest.Mock).mockReturnValue(false);
 
     expect(mockNode.__tag).toBe('update');
     expect(mockNode.getChildren()).toHaveLength(2);
@@ -435,8 +435,8 @@ describe('DiffTagHoverPlugin - Reject Handler', () => {
     const mockNode = createMockNode('update', [containerChild, createMockChildNode()]);
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
-    ($isDiffUpdateContainerInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
+    ($isDiffUpdateContainerInline as unknown as jest.Mock).mockReturnValue(true);
 
     expect(mockNode.__tag).toBe('update');
     expect(containerChild.getChildren()).toHaveLength(1);
@@ -465,7 +465,7 @@ describe('DiffTagHoverPlugin - Close Handler', () => {
 
     mockEditor.getElementByKey.mockReturnValue(mockElement);
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
 
     render(<DiffTagHoverPlugin />);
 
@@ -532,7 +532,7 @@ describe('DiffTagHoverPlugin - Edge Cases', () => {
     const mockNode = createMockNode('update', [createMockChildNode()]); // Only 1 child
 
     ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as jest.Mock).mockReturnValue(true);
+    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
 
     // Should handle gracefully without crashing
     expect(mockNode.getChildren()).toHaveLength(1);

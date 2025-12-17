@@ -4,7 +4,7 @@
  */
 
 export const mockCookieStore = {
-  getAll: jest.fn(() => []),
+  getAll: jest.fn(() => [] as Array<{ name: string; value: string }>),
   get: jest.fn(),
   set: jest.fn(),
   delete: jest.fn(),

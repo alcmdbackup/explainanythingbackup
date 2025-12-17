@@ -480,7 +480,7 @@ describe('automaticServerLoggingBase', () => {
 
     describe('Synchronous function handling', () => {
       it('should execute synchronous functions normally', () => {
-        const fn = jest.fn(() => 'result');
+        const fn = jest.fn((..._args: unknown[]) => 'result');
         const wrapped = withLogging(fn, 'testFn');
 
         const result = wrapped('arg1');
@@ -1107,12 +1107,10 @@ describe('automaticServerLoggingBase', () => {
     });
 
     afterEach(() => {
-      // @ts-expect-error - Restoring global.window after testing
       global.window = originalWindow;
     });
 
     it('should not initialize on client-side', () => {
-      // @ts-expect-error - Setting global.window for client-side test
       global.window = {} as any;
 
       initializeAutoLogging();

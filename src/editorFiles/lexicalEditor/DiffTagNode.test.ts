@@ -404,8 +404,8 @@ describe('DiffTagNodeInline - DOM Operations', () => {
       const node = $createDiffTagNodeInline('ins');
       const exported = node.exportDOM();
 
-      expect(exported.element?.tagName).toBe('INS');
-      expect(exported.element?.className).toBe('diff-tag-insert');
+      expect((exported.element as HTMLElement)?.tagName).toBe('INS');
+      expect((exported.element as HTMLElement)?.className).toBe('diff-tag-insert');
     });
   });
 
@@ -414,7 +414,7 @@ describe('DiffTagNodeInline - DOM Operations', () => {
       const node = $createDiffTagNodeInline('del');
       const exported = node.exportDOM();
 
-      expect(exported.element?.tagName).toBe('DEL');
+      expect((exported.element as HTMLElement)?.tagName).toBe('DEL');
     });
   });
 
@@ -423,8 +423,8 @@ describe('DiffTagNodeInline - DOM Operations', () => {
       const node = $createDiffTagNodeInline('update');
       const exported = node.exportDOM();
 
-      expect(exported.element?.tagName).toBe('SPAN');
-      expect(exported.element?.className).toBe('diff-tag-update');
+      expect((exported.element as HTMLElement)?.tagName).toBe('SPAN');
+      expect((exported.element as HTMLElement)?.className).toBe('diff-tag-update');
     });
   });
 });
@@ -670,8 +670,8 @@ describe('DiffUpdateContainerInline - DOM Operations', () => {
       const node = $createDiffUpdateContainerInline('before');
       const exported = node.exportDOM();
 
-      expect(exported.element?.tagName).toBe('SPAN');
-      expect(exported.element?.className).toBe('diff-update-container-before');
+      expect((exported.element as HTMLElement)?.tagName).toBe('SPAN');
+      expect((exported.element as HTMLElement)?.className).toBe('diff-update-container-before');
     });
   });
 
@@ -680,7 +680,7 @@ describe('DiffUpdateContainerInline - DOM Operations', () => {
       const node = $createDiffUpdateContainerInline('after');
       const exported = node.exportDOM();
 
-      expect(exported.element?.className).toBe('diff-update-container-after');
+      expect((exported.element as HTMLElement)?.className).toBe('diff-update-container-after');
     });
   });
 });
@@ -727,7 +727,7 @@ describe('DiffTagNode - Editor Integration', () => {
 
       const diffNode = paragraph.getFirstChild();
       expect($isDiffTagNodeInline(diffNode)).toBe(true);
-      if (diffNode) {
+      if ($isDiffTagNodeInline(diffNode)) {
         expect(diffNode.getChildrenSize()).toBe(2);
       }
     });

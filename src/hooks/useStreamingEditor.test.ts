@@ -87,7 +87,7 @@ describe('useStreamingEditor', () => {
             );
 
             // Attach mock editor
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             // Mark as mounted
             act(() => {
@@ -130,7 +130,7 @@ describe('useStreamingEditor', () => {
             );
 
             // Attach mock editor
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             // Mark as mounted
             act(() => {
@@ -199,7 +199,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -246,7 +246,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -280,7 +280,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -369,7 +369,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -416,7 +416,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -451,7 +451,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             mockEditorRef.setEditMode.mockClear();
 
@@ -477,7 +477,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.runAllTimers();
@@ -507,7 +507,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.runAllTimers();
@@ -539,7 +539,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -574,7 +574,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             // Rapid toggles
             rerender({ content: 'test', isEditMode: false, isStreaming: true });
@@ -602,7 +602,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -650,7 +650,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             // Mount
             act(() => {
@@ -786,7 +786,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -815,7 +815,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -848,7 +848,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);
@@ -881,7 +881,7 @@ describe('useStreamingEditor', () => {
                 }
             );
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             // Rapid mode switches
             rerender({ content: 'test', isEditMode: true, isStreaming: false });
@@ -914,7 +914,7 @@ describe('useStreamingEditor', () => {
                 throw new Error('Editor error');
             });
 
-            result.current.editorRef.current = mockEditorRef;
+            (result.current.editorRef as { current: typeof mockEditorRef }).current = mockEditorRef;
 
             act(() => {
                 jest.advanceTimersByTime(0);

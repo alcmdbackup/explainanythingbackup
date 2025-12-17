@@ -65,6 +65,7 @@ jest.mock('openai', () => {
 
 // Import update function after mocking
 import { updateExplanationAndTopic } from '@/actions/actions';
+import { ExplanationStatus } from '@/lib/schemas/schemas';
 
 describe('Explanation Update Integration Tests', () => {
   let supabase: SupabaseClient;
@@ -208,7 +209,7 @@ This test validates that updating content triggers the full embedding regenerati
 
     it('should update status only without regenerating embeddings', async () => {
       // Arrange
-      const newStatus = 'draft';
+      const newStatus = ExplanationStatus.Draft;
 
       // Act
       const result = await updateExplanationAndTopic({

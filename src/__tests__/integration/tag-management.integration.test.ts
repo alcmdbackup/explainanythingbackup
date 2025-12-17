@@ -151,7 +151,9 @@ describe('Tag Management Integration Tests', () => {
       const tags = await getTagsForExplanation(explanation.id);
 
       expect(tags).toHaveLength(1);
-      expect(tags[0].tag_name).toContain('django');
+      // Type narrowing for union type - simple tag has tag_name directly
+      const firstTag = tags[0];
+      expect('tag_name' in firstTag && firstTag.tag_name).toContain('django');
     });
   });
 

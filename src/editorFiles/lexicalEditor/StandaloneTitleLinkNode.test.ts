@@ -3,7 +3,7 @@
  * Tests custom link node for standalone title functionality
  */
 
-import { createEditor, LexicalEditor, $getRoot, $createParagraphNode } from 'lexical';
+import { createEditor, LexicalEditor, $getRoot, $createParagraphNode, $isParagraphNode } from 'lexical';
 import { LinkNode } from '@lexical/link';
 import {
   StandaloneTitleLinkNode,
@@ -84,7 +84,7 @@ beforeAll(() => {
 
 afterAll(() => {
   // Restore original values
-  window.location = originalLocation;
+  (window as any).location = originalLocation;
   window.open = originalOpen;
 });
 
@@ -312,7 +312,7 @@ describe('StandaloneTitleLinkNode - Editor Integration', () => {
     const url = await editorRead(editor, () => {
       const root = $getRoot();
       const paragraph = root.getFirstChild();
-      if (paragraph) {
+      if ($isParagraphNode(paragraph)) {
         const link = paragraph.getFirstChild();
         if ($isStandaloneTitleLinkNode(link)) {
           return link.getURL();

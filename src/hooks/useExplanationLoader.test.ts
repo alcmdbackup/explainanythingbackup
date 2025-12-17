@@ -300,7 +300,8 @@ describe('useExplanationLoader', () => {
             const onTagsLoad = jest.fn();
             mockGetTagsForExplanationAction.mockResolvedValue({
                 success: false,
-                error: { message: 'Failed to fetch tags' }
+                data: null,
+                error: { code: 'DATABASE_ERROR', message: 'Failed to fetch tags' }
             });
 
             const { result } = renderHook(() => useExplanationLoader({
@@ -314,14 +315,15 @@ describe('useExplanationLoader', () => {
             // Should call onTagsLoad with empty array
             expect(onTagsLoad).toHaveBeenCalledWith([]);
             expect(logger.error).toHaveBeenCalledWith('Failed to fetch tags for explanation:', {
-                error: { message: 'Failed to fetch tags' }
+                error: { code: 'DATABASE_ERROR', message: 'Failed to fetch tags' }
             });
         });
 
         it('should handle missing vector gracefully', async () => {
             mockLoadFromPineconeUsingExplanationIdAction.mockResolvedValue({
                 success: true,
-                data: null
+                data: null,
+                error: null
             });
 
             const { result } = renderHook(() => useExplanationLoader());
@@ -337,7 +339,8 @@ describe('useExplanationLoader', () => {
         it('should handle vector loading errors', async () => {
             mockLoadFromPineconeUsingExplanationIdAction.mockResolvedValue({
                 success: false,
-                error: { message: 'Vector not found' }
+                data: null,
+                error: { code: 'NOT_FOUND', message: 'Vector not found' }
             });
 
             const { result } = renderHook(() => useExplanationLoader());
@@ -359,7 +362,8 @@ describe('useExplanationLoader', () => {
             };
             mockLoadFromPineconeUsingExplanationIdAction.mockResolvedValue({
                 success: true,
-                data: legacyVector as any
+                data: legacyVector as any,
+                error: null
             });
 
             const { result } = renderHook(() => useExplanationLoader());
@@ -439,6 +443,7 @@ describe('useExplanationLoader', () => {
 
             const mockMatches = [{
                 explanation_id: 456,
+                topic_id: 1,
                 current_title: 'Match',
                 current_content: 'Content',
                 text: 'Text',

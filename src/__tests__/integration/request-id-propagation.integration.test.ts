@@ -115,7 +115,7 @@ describe('Request ID Propagation Integration Tests', () => {
       let capturedRequestId: string | undefined;
       let capturedUserId: string | undefined;
 
-      const testFn = async () => {
+      const testFn = async (_payload?: unknown) => {
         capturedRequestId = RequestIdContext.getRequestId();
         capturedUserId = RequestIdContext.getUserId();
         return 'ok';
@@ -156,7 +156,7 @@ describe('Request ID Propagation Integration Tests', () => {
         capturedIds.push(`level2-after-${RequestIdContext.getRequestId()}`);
       };
 
-      const testFn = async () => {
+      const testFn = async (_payload?: unknown) => {
         capturedIds.push(`level1-${RequestIdContext.getRequestId()}`);
         await middleFn();
         capturedIds.push(`level1-after-${RequestIdContext.getRequestId()}`);
@@ -189,7 +189,7 @@ describe('Request ID Propagation Integration Tests', () => {
         __requestId: { requestId: testRequestId, userId: testUserId },
       };
 
-      const testFn = async () => {
+      const testFn = async (_payload?: unknown) => {
         logger.info('Starting operation', { step: 1 });
         logger.debug('Processing data', { step: 2 }, true); // debug=true to enable debug logging
         logger.info('Operation complete', { step: 3 });

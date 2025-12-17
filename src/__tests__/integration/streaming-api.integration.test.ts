@@ -66,7 +66,7 @@ describe('Streaming API Integration Tests', () => {
           _userid: string,
           _model: string,
           _streaming: boolean,
-          callback: (text: string) => void
+          callback: ((text: string) => void) | null
         ) => {
           // Simulate streaming chunks
           const chunks = [
@@ -78,12 +78,12 @@ describe('Streaming API Integration Tests', () => {
           ];
 
           for (const chunk of chunks) {
-            callback(chunk);
+            callback?.(chunk);
             // Small delay to simulate real streaming
             await new Promise((resolve) => setTimeout(resolve, 10));
           }
 
-          return { success: true };
+          return 'Hello, this is a test response';
         }
       );
 
@@ -125,11 +125,11 @@ describe('Streaming API Integration Tests', () => {
       });
 
       // Verify completion signal
-      const completionMessage = messages.find((msg: any) => msg.isComplete);
+      const completionMessage = messages.find((msg: any) => msg.isComplete) as { text: string; isComplete: boolean } | undefined;
       expect(completionMessage).toBeDefined();
       expect(completionMessage).toHaveProperty('text');
-      expect(completionMessage.isComplete).toBe(true);
-      expect(completionMessage.text).toBe('Hello, this is a test response');
+      expect(completionMessage!.isComplete).toBe(true);
+      expect(completionMessage!.text).toBe('Hello, this is a test response');
     });
 
     it('should handle long streaming content correctly', async () => {
@@ -143,7 +143,7 @@ describe('Streaming API Integration Tests', () => {
           _userid: string,
           _model: string,
           _streaming: boolean,
-          callback: (text: string) => void
+          callback: ((text: string) => void) | null
         ) => {
           // Simulate streaming the full explanation content in chunks
           const chunkSize = 50;
@@ -151,11 +151,11 @@ describe('Streaming API Integration Tests', () => {
 
           for (let i = 0; i < fullExplanationContent.length; i += chunkSize) {
             accumulated += fullExplanationContent.slice(i, i + chunkSize);
-            callback(accumulated);
+            callback?.(accumulated);
             await new Promise((resolve) => setTimeout(resolve, 5));
           }
 
-          return { success: true };
+          return accumulated;
         }
       );
 
@@ -175,10 +175,10 @@ describe('Streaming API Integration Tests', () => {
       const chunks = await collectStreamData(response.body!);
       const messages = parseSSEMessages(chunks);
 
-      const completionMessage = messages.find((msg: any) => msg.isComplete);
+      const completionMessage = messages.find((msg: any) => msg.isComplete) as { text: string; isComplete: boolean } | undefined;
       expect(completionMessage).toBeDefined();
-      expect(completionMessage.text.length).toBeGreaterThan(100);
-      expect(completionMessage.text).toContain('Quantum Entanglement');
+      expect(completionMessage!.text.length).toBeGreaterThan(100);
+      expect(completionMessage!.text).toContain('Quantum Entanglement');
     });
   });
 
@@ -210,10 +210,10 @@ describe('Streaming API Integration Tests', () => {
       const messages = parseSSEMessages(chunks);
 
       // Verify error message
-      const errorMessage = messages.find((msg: any) => msg.error);
+      const errorMessage = messages.find((msg: any) => msg.error) as { error: string; isComplete: boolean } | undefined;
       expect(errorMessage).toBeDefined();
-      expect(errorMessage.error).toContain('OpenAI API error');
-      expect(errorMessage.isComplete).toBe(true);
+      expect(errorMessage!.error).toContain('OpenAI API error');
+      expect(errorMessage!.isComplete).toBe(true);
     });
 
     it('should handle missing required fields', async () => {
@@ -264,10 +264,10 @@ describe('Streaming API Integration Tests', () => {
           _userid: string,
           _model: string,
           _streaming: boolean,
-          callback: (text: string) => void
+          callback: ((text: string) => void) | null
         ) => {
-          callback('Test response');
-          return { success: true };
+          callback?.('Test response');
+          return 'Test response';
         }
       );
 

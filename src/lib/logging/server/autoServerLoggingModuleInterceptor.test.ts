@@ -21,7 +21,7 @@ describe('autoServerLoggingModuleInterceptor', () => {
       return wrapped as any;
     });
 
-    mockShouldSkipAutoLogging.mockImplementation((fn: any, name: string, context: string) => {
+    mockShouldSkipAutoLogging.mockImplementation((fn: any, name: string, context?: 'module' | 'runtime') => {
       // Skip framework code
       if (name.includes('node_modules')) return true;
       if (name.includes('react') && !name.startsWith('@/')) return true;
@@ -61,9 +61,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -84,9 +84,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === 'react') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -99,9 +99,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request.includes('node_modules')) return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -116,9 +116,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const defaultFn = jest.fn();
       const mockExports = { default: defaultFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -136,9 +136,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const fn2 = jest.fn();
       const mockExports = { func1: fn1, func2: fn2 };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -155,9 +155,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
         object: {},
       };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -175,9 +175,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
         nonFunc: 'value',
       };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -191,9 +191,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
     it('should handle empty exports', () => {
       const mockExports = {};
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -208,9 +208,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -234,64 +234,64 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
       Module._load('@/lib/test', null, false);
 
-      const config = mockWithLogging.mock.calls[0][2];
-      expect(config.logOutputs).toBe(false);
+      const config = mockWithLogging.mock.calls[0]?.[2];
+      expect(config!.logOutputs).toBe(false);
     });
 
     it('should enable input logging', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
       Module._load('@/lib/test', null, false);
 
-      const config = mockWithLogging.mock.calls[0][2];
-      expect(config.logInputs).toBe(true);
+      const config = mockWithLogging.mock.calls[0]?.[2];
+      expect(config!.logInputs).toBe(true);
     });
 
     it('should limit input length', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
       Module._load('@/lib/test', null, false);
 
-      const config = mockWithLogging.mock.calls[0][2];
-      expect(config.maxInputLength).toBe(200);
+      const config = mockWithLogging.mock.calls[0]?.[2];
+      expect(config!.maxInputLength).toBe(200);
     });
 
     it('should include sensitive field filtering', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
       Module._load('@/lib/test', null, false);
 
-      const config = mockWithLogging.mock.calls[0][2];
-      expect(config.sensitiveFields).toEqual(['password', 'apiKey', 'token', 'secret']);
+      const config = mockWithLogging.mock.calls[0]?.[2];
+      expect(config!.sensitiveFields).toEqual(['password', 'apiKey', 'token', 'secret']);
     });
   });
 
@@ -300,9 +300,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -327,9 +327,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();
@@ -342,9 +342,9 @@ describe('autoServerLoggingModuleInterceptor', () => {
       const testFn = jest.fn();
       const mockExports = { testFunc: testFn };
 
-      Module._load = jest.fn((request: string) => {
+      Module._load = jest.fn((request: string, ...args: unknown[]) => {
         if (request === '@/lib/test') return mockExports;
-        return originalModuleLoad.apply(this, arguments);
+        return originalModuleLoad(request, ...args);
       });
 
       setupServerModuleInterception();

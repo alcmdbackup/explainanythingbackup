@@ -27,15 +27,22 @@ export const createMockLogConfig = (overrides: Partial<LogConfig> = {}): LogConf
 
 /**
  * Creates a mock TracingConfig for testing
+ * Note: TracingConfig uses literal types from `as const`, so we need a more relaxed type for overrides
  */
-export const createMockTracingConfig = (overrides: Partial<TracingConfig> = {}): TracingConfig => ({
+export const createMockTracingConfig = (overrides: {
+  enabled?: boolean;
+  tracerName?: 'app' | 'llm' | 'db' | 'vector';
+  includeInputs?: boolean;
+  includeOutputs?: boolean;
+  customAttributes?: Record<string, string | number>;
+} = {}): TracingConfig => ({
   enabled: true,
   tracerName: 'app',
   includeInputs: false,
   includeOutputs: false,
   customAttributes: {},
   ...overrides,
-});
+} as TracingConfig);
 
 // ============================================================================
 // Logger Mock Factory
@@ -110,7 +117,7 @@ export const createTestFunction = (
 /**
  * Creates a synchronous function that succeeds
  */
-export const createSyncSuccessFunction = (name = 'testFunction', returnValue = 'success') =>
+export const createSyncSuccessFunction = (name = 'testFunction', returnValue: unknown = 'success') =>
   createTestFunction(name, 'success', returnValue);
 
 /**
@@ -122,7 +129,7 @@ export const createSyncErrorFunction = (name = 'testFunction') =>
 /**
  * Creates an async function that resolves
  */
-export const createAsyncSuccessFunction = (name = 'testFunction', returnValue = 'async success') =>
+export const createAsyncSuccessFunction = (name = 'testFunction', returnValue: unknown = 'async success') =>
   createTestFunction(name, 'async-success', returnValue);
 
 /**
