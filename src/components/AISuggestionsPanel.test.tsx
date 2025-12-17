@@ -704,6 +704,24 @@ describe('AISuggestionsPanel', () => {
   // ========================================================================
 
   describe('Success Message & Debug Link', () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    beforeEach(() => {
+      Object.defineProperty(process.env, 'NODE_ENV', {
+        value: 'development',
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(process.env, 'NODE_ENV', {
+        value: originalNodeEnv,
+        writable: true,
+        configurable: true,
+      });
+    });
+
     it('should display debug link when session data and session_id provided', async () => {
       const sessionData = createMockSessionData({
         explanation_id: 123,

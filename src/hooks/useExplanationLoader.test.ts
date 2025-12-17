@@ -351,7 +351,7 @@ describe('useExplanationLoader', () => {
 
             expect(result.current.explanationVector).toBeNull();
             expect(logger.error).toHaveBeenCalledWith('Failed to load explanation vector:', {
-                error: { message: 'Vector not found' },
+                error: { code: 'NOT_FOUND', message: 'Vector not found' },
                 explanationId: 123
             });
         });

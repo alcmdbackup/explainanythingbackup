@@ -410,6 +410,7 @@ describe('Metrics Service', () => {
 
     it('should maintain order of input IDs', async () => {
       // Arrange - return results in different order
+      // Note: DB column is 'explanationid' but schema type uses 'explanation_id'
       const mockMetrics: any[] = [
         {
           explanationid: 3,
@@ -436,10 +437,11 @@ describe('Metrics Service', () => {
       const result = await getMultipleExplanationMetrics([1, 2, 3]);
 
       // Assert - should be ordered as [1, 2(null), 3]
+      // Cast to any since DB returns 'explanationid' but type says 'explanation_id'
       expect(result).toHaveLength(3);
-      expect(result[0]?.explanation_id).toBe(1);
+      expect((result[0] as any)?.explanationid).toBe(1);
       expect(result[1]).toBeNull();
-      expect(result[2]?.explanation_id).toBe(3);
+      expect((result[2] as any)?.explanationid).toBe(3);
     });
 
     it('should throw error when query fails', async () => {
