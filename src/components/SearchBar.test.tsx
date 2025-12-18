@@ -41,40 +41,38 @@ describe('SearchBar', () => {
       expect(textarea.tagName).toBe('TEXTAREA');
     });
 
-    it('should apply rounded-book styling for home variant', () => {
+    it('should apply rounded-none styling for home variant', () => {
       render(<SearchBar variant="home" />);
-      const form = screen.getByRole('textbox').closest('form');
-      const container = form?.querySelector('.rounded-book');
-      expect(container).toBeInTheDocument();
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveClass('rounded-none');
     });
 
-    it('should apply rounded-page styling for nav variant', () => {
+    it('should apply rounded-full styling for nav variant', () => {
       render(<SearchBar variant="nav" />);
-      const form = screen.getByRole('textbox').closest('form');
-      const container = form?.querySelector('.rounded-page');
-      expect(container).toBeInTheDocument();
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveClass('rounded-full');
     });
 
-    it('should display "Explore" button text for home variant', () => {
+    it('should display "Search" button text for home variant', () => {
       render(<SearchBar variant="home" />);
-      expect(screen.getByRole('button', { name: /explore/i })).toBeInTheDocument();
-    });
-
-    it('should display "Search" button text for nav variant', () => {
-      render(<SearchBar variant="nav" />);
       expect(screen.getByRole('button', { name: /^search$/i })).toBeInTheDocument();
+    });
+
+    it('should not have button for nav variant', () => {
+      render(<SearchBar variant="nav" />);
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
     });
 
     it('should apply larger sizing classes for home variant', () => {
       render(<SearchBar variant="home" />);
       const input = screen.getByRole('textbox');
-      expect(input).toHaveClass('px-4');
+      expect(input).toHaveClass('px-6', 'py-4', 'text-lg');
     });
 
     it('should apply smaller sizing classes for nav variant', () => {
       render(<SearchBar variant="nav" />);
       const input = screen.getByRole('textbox');
-      expect(input).toHaveClass('px-3');
+      expect(input).toHaveClass('px-4', 'py-2', 'text-sm');
     });
   });
 
@@ -308,9 +306,9 @@ describe('SearchBar', () => {
       expect(mockPush).not.toHaveBeenCalled();
     });
 
-    it('should support form submission via Enter key', async () => {
+    it('should support form submission via Enter key in home variant', async () => {
       const user = userEvent.setup();
-      render(<SearchBar variant="nav" />);
+      render(<SearchBar variant="home" />);
 
       const input = screen.getByRole('textbox');
       await user.type(input, 'Test query{Enter}');
@@ -336,9 +334,10 @@ describe('SearchBar', () => {
       expect(button).toBeDisabled();
     });
 
-    it('should display "Searching..." when disabled', () => {
+    it('should display loading dots when disabled', () => {
       render(<SearchBar disabled={true} />);
-      expect(screen.getByRole('button', { name: /searching\.\.\./i })).toBeInTheDocument();
+      const button = screen.getByRole('button');
+      expect(button.querySelector('.atlas-loading-dots')).toBeInTheDocument();
     });
 
     it('should prevent submission when disabled', async () => {
@@ -361,7 +360,7 @@ describe('SearchBar', () => {
     it('should apply disabled opacity styles to button', () => {
       render(<SearchBar disabled={true} />);
       const button = screen.getByRole('button');
-      expect(button).toHaveClass('disabled:opacity-50');
+      expect(button).toHaveClass('disabled:opacity-40');
     });
 
     it('should enable input and button when disabled=false', () => {
@@ -385,7 +384,7 @@ describe('SearchBar', () => {
 
     it('should use default placeholder when not provided', () => {
       render(<SearchBar />);
-      expect(screen.getByPlaceholderText('Search any topic...')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Learn about any topic')).toBeInTheDocument();
     });
 
     it('should handle empty placeholder', () => {
@@ -412,17 +411,16 @@ describe('SearchBar', () => {
       expect(input).toBeInTheDocument();
     });
 
-    it('should have focus-within styling on container', () => {
+    it('should have transition styling on input', () => {
       render(<SearchBar />);
-      const form = screen.getByRole('textbox').closest('form');
-      const container = form?.querySelector('div');
-      expect(container).toHaveClass('transition-all', 'duration-200');
+      const input = screen.getByRole('textbox');
+      expect(input).toHaveClass('transition-colors', 'duration-200');
     });
 
-    it('should apply transition classes', () => {
+    it('should apply atlas-button class to submit button', () => {
       render(<SearchBar />);
-      const container = screen.getByRole('textbox').parentElement;
-      expect(container).toHaveClass('transition-all', 'duration-200');
+      const button = screen.getByRole('button');
+      expect(button).toHaveClass('atlas-button');
     });
   });
 
@@ -441,10 +439,10 @@ describe('SearchBar', () => {
       expect(screen.getByRole('button')).toBeInTheDocument();
     });
 
-    it('should support keyboard submission with Enter', async () => {
+    it('should support keyboard submission with Enter in home variant', async () => {
       const user = userEvent.setup();
       const mockOnSearch = jest.fn();
-      render(<SearchBar variant="nav" onSearch={mockOnSearch} />);
+      render(<SearchBar variant="home" onSearch={mockOnSearch} />);
 
       const input = screen.getByRole('textbox');
       await user.type(input, 'Test{Enter}');
@@ -452,16 +450,10 @@ describe('SearchBar', () => {
       expect(mockOnSearch).toHaveBeenCalledWith('Test');
     });
 
-    it('should have focus outline removal with ring replacement', () => {
+    it('should have focus outline removal', () => {
       render(<SearchBar />);
       const input = screen.getByRole('textbox');
-      expect(input).toHaveClass('focus:outline-none', 'focus:ring-0');
-    });
-
-    it('should have focus ring on submit button', () => {
-      render(<SearchBar />);
-      const button = screen.getByRole('button');
-      expect(button).toHaveClass('focus:outline-none', 'focus-visible:ring-2');
+      expect(input).toHaveClass('focus:outline-none');
     });
   });
 

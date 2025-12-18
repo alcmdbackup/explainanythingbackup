@@ -28,8 +28,7 @@ describe('Home', () => {
         it('should render the home page', () => {
             render(<Home />);
 
-            expect(screen.getByText('Explain')).toBeInTheDocument();
-            expect(screen.getByText('Anything')).toBeInTheDocument();
+            expect(screen.getByText('Explain Anything')).toBeInTheDocument();
         });
 
         it('should render Navigation component', () => {
@@ -51,7 +50,7 @@ describe('Home', () => {
 
             const heading = screen.getByRole('heading', { level: 1 });
             expect(heading).toBeInTheDocument();
-            expect(heading).toHaveClass('text-5xl');
+            expect(heading).toHaveClass('atlas-display');
         });
     });
 
@@ -84,7 +83,7 @@ describe('Home', () => {
             render(<Home />);
 
             const searchBar = screen.getByTestId('search-bar');
-            expect(searchBar).toHaveAttribute('data-placeholder', 'What would you like to understand?');
+            expect(searchBar).toHaveAttribute('data-placeholder', 'What would you like to learn?');
         });
 
         it('should pass maxLength to SearchBar', () => {
@@ -124,7 +123,7 @@ describe('Home', () => {
             const { container } = render(<Home />);
 
             const main = container.querySelector('main');
-            expect(main).toHaveClass('container', 'mx-auto', 'px-4', 'max-w-2xl');
+            expect(main).toHaveClass('container', 'mx-auto', 'px-8', 'max-w-2xl');
         });
 
         it('should center heading text', () => {
@@ -136,7 +135,7 @@ describe('Home', () => {
     });
 
     describe('Styling', () => {
-        it('should apply Midnight Scholar theme background', () => {
+        it('should apply theme background', () => {
             const { container } = render(<Home />);
 
             // Check for CSS variable-based background class
@@ -151,20 +150,25 @@ describe('Home', () => {
             expect(mainContainer).toHaveClass('flex', 'flex-col');
         });
 
-        it('should style heading appropriately', () => {
+        it('should style heading with atlas-display', () => {
             render(<Home />);
 
             const heading = screen.getByRole('heading', { level: 1 });
-            expect(heading).toHaveClass('text-5xl', 'font-display', 'font-bold', 'tracking-tight');
+            expect(heading).toHaveClass('atlas-display');
         });
     });
 
     describe('Content', () => {
-        it('should display "Explain" and "Anything" in main heading', () => {
+        it('should display "Explain Anything" in main heading', () => {
             render(<Home />);
 
-            expect(screen.getByText('Explain')).toBeInTheDocument();
-            expect(screen.getByText('Anything')).toBeInTheDocument();
+            expect(screen.getByText('Explain Anything')).toBeInTheDocument();
+        });
+
+        it('should display subtitle', () => {
+            render(<Home />);
+
+            expect(screen.getByText('Learn about any topic, simply explained')).toBeInTheDocument();
         });
 
         it('should have only one h1 heading', () => {
@@ -181,15 +185,6 @@ describe('Home', () => {
             const main = container.querySelector('main');
             expect(main).toBeInTheDocument();
         });
-
-        it('should render suggested topics', () => {
-            render(<Home />);
-
-            expect(screen.getByText('Quantum Physics')).toBeInTheDocument();
-            expect(screen.getByText('Machine Learning')).toBeInTheDocument();
-            expect(screen.getByText('Philosophy')).toBeInTheDocument();
-            expect(screen.getByText('Economics')).toBeInTheDocument();
-        });
     });
 
     describe('Accessibility', () => {
@@ -197,8 +192,7 @@ describe('Home', () => {
             render(<Home />);
 
             const heading = screen.getByRole('heading', { level: 1 });
-            expect(heading).toContainHTML('Explain');
-            expect(heading).toContainHTML('Anything');
+            expect(heading).toHaveTextContent('Explain Anything');
         });
 
         it('should have semantic main element', () => {
@@ -238,7 +232,7 @@ describe('Home', () => {
         });
 
         it('should have proper width constraints on SearchBar container', () => {
-            const { container } = render(<Home />);
+            render(<Home />);
 
             const searchBarParent = screen.getByTestId('search-bar').parentElement;
             expect(searchBarParent).toHaveClass('w-full');
