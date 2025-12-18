@@ -14,26 +14,25 @@ interface SearchBarProps {
 }
 
 /**
- * Reusable search bar component with two variants:
- * - home: Large centered search for the home page
- * - nav: Compact search for navigation bars
- * 
- * Handles form submission and navigation to results page
- * Supports controlled input with external value management
+ * The Atlas SearchBar - Minimal, elegant search input
+ *
+ * - home: Large centered search with prominent styling
+ * - nav: Compact pill-shaped search for navigation
+ *
+ * Clean borders, subtle focus states, accent blue highlights
  */
-export default function SearchBar({ 
-    variant = 'home', 
+export default function SearchBar({
+    variant = 'home',
     placeholder = 'Learn about any topic',
     maxLength = 150,
     className = '',
     initialValue = '',
     onSearch,
-    disabled = false //not all pages have a React state to attach to this
+    disabled = false
 }: SearchBarProps) {
     const [prompt, setPrompt] = useState(initialValue);
     const router = useRouter();
 
-    // Update internal state when initialValue changes (for controlled input)
     useEffect(() => {
         setPrompt(initialValue);
     }, [initialValue]);
@@ -69,39 +68,56 @@ export default function SearchBar({
     const InputComponent = isHomeVariant ? 'textarea' : 'input';
     const inputProps = isHomeVariant ? { rows: 1 } : {};
 
+    if (isHomeVariant) {
+        // Home variant - Large, prominent search
+        return (
+            <form onSubmit={handleSubmit} className={`w-full max-w-2xl mx-auto ${className}`}>
+                <div className="relative group">
+                    <InputComponent
+                        value={prompt}
+                        onChange={handlePromptChange}
+                        onKeyDown={handleKeyDown}
+                        data-testid="search-input"
+                        className="w-full bg-[var(--surface-primary)] dark:bg-[var(--surface-primary)] border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-6 py-4 text-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-body resize-none rounded-none"
+                        placeholder={placeholder}
+                        maxLength={maxLength}
+                        disabled={disabled}
+                        {...inputProps}
+                    />
+                    <button
+                        type="submit"
+                        disabled={disabled || !prompt.trim()}
+                        data-testid="search-submit"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 atlas-button disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                        {disabled ? (
+                            <span className="atlas-loading-dots">
+                                <span className="atlas-loading-dot"></span>
+                                <span className="atlas-loading-dot"></span>
+                                <span className="atlas-loading-dot"></span>
+                            </span>
+                        ) : 'Search'}
+                    </button>
+                </div>
+            </form>
+        );
+    }
+
+    // Nav variant - Compact pill search
     return (
         <form onSubmit={handleSubmit} className={`w-full ${className}`}>
-            <div className={`flex items-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 shadow-sm focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-blue-600 dark:focus-within:ring-blue-500 dark:focus-within:border-blue-500 transition-all duration-200 ${
-                isHomeVariant ? 'rounded-full' : 'rounded-lg'
-            }`}>
-                <InputComponent
+            <div className="flex items-center">
+                <input
+                    type="text"
                     value={prompt}
                     onChange={handlePromptChange}
-                    onKeyDown={isHomeVariant ? handleKeyDown : undefined}
                     data-testid="search-input"
-                    className={`flex-1 bg-transparent border-0 focus:outline-none focus:ring-0 resize-none dark:text-white placeholder-gray-500 dark:placeholder-gray-400 ${
-                        isHomeVariant
-                            ? 'px-4 py-2.5 rounded-l-full text-base'
-                            : 'px-3 py-1.5 rounded-l-lg text-sm'
-                    }`}
+                    className="w-full bg-transparent border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-ui rounded-full"
                     placeholder={placeholder}
                     maxLength={maxLength}
                     disabled={disabled}
-                    {...inputProps}
                 />
-                <button
-                    type="submit"
-                    disabled={disabled || !prompt.trim()}
-                    data-testid="search-submit"
-                    className={`text-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 bg-blue-600 hover:bg-blue-700 ${
-                        isHomeVariant
-                            ? 'px-6 py-2.5 rounded-r-full text-base'
-                            : 'px-3 py-1.5 rounded-r-lg text-sm'
-                    }`}
-                >
-                    {disabled ? 'Searching...' : isHomeVariant ? 'Search Topic' : 'Search'}
-                </button>
             </div>
         </form>
     );
-} 
+}

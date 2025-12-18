@@ -2,18 +2,24 @@
 
 @custom-variant dark (&:is(.dark *));
 @plugin "@tailwindcss/typography";
-
 @plugin "tailwindcss-animate";
 
 /* ==========================================================================
-   BASE STYLES & VARIABLES
+   MIDNIGHT SCHOLAR DESIGN SYSTEM
+   A sophisticated, contemplative design inspired by private studies and libraries
    ========================================================================== */
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* Font family definitions for Tailwind v4 */
+  --font-family-sans: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-family-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+  --font-family-mono: var(--font-jetbrains), ui-monospace, monospace;
+  /* Custom Midnight Scholar fonts */
+  --font-family-display: var(--font-playfair), ui-serif, Georgia, serif;
+  --font-family-body: var(--font-source-serif), ui-serif, Georgia, serif;
+  --font-family-ui: var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -50,159 +56,475 @@
 }
 
 /* ==========================================================================
+   LIGHT MODE - DAY STUDY
+   Warm cream tones, like reading by natural light in a sunlit study
+   ========================================================================== */
+
+:root {
+  --radius: 0.5rem;
+
+  /* Core backgrounds */
+  --background: #faf7f2;
+  --foreground: #1a1a2e;
+
+  /* Semantic text colors - Day Study */
+  --text-primary: #1a1a2e;       /* Deep ink */
+  --text-secondary: #4a4a5a;     /* Soft charcoal */
+  --text-muted: #8a8a9a;         /* Pencil gray */
+  --text-on-primary: #faf7f2;
+
+  /* Semantic surface colors - Day Study */
+  --surface-primary: #faf7f2;    /* Warm cream */
+  --surface-secondary: #ffffff;  /* Pure white cards */
+  --surface-elevated: #f5f0e6;   /* Aged paper */
+  --surface-code: #f0ebe0;       /* Slightly darker for code */
+
+  /* Semantic border colors - Day Study */
+  --border-default: #e8e4dc;     /* Parchment edge */
+  --border-strong: #d4cfc4;      /* Shadow line */
+
+  /* Accent colors - Gold & Copper */
+  --accent-gold: #d4a853;        /* Warm gold */
+  --accent-copper: #b87333;      /* Burnished copper */
+
+  /* Interactive colors */
+  --link: #b87333;               /* Copper for links */
+  --link-hover: #d4a853;         /* Gold on hover */
+
+  /* Component tokens */
+  --card: #ffffff;
+  --card-foreground: #1a1a2e;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a2e;
+  --primary: #d4a853;
+  --primary-foreground: #1a1a2e;
+  --secondary: #f5f0e6;
+  --secondary-foreground: #4a4a5a;
+  --muted: #f5f0e6;
+  --muted-foreground: #8a8a9a;
+  --accent: #f5f0e6;
+  --accent-foreground: #1a1a2e;
+  --destructive: #c45d3a;
+  --border: #e8e4dc;
+  --input: #e8e4dc;
+  --ring: #d4a853;
+
+  /* Chart colors - warm palette */
+  --chart-1: #d4a853;
+  --chart-2: #b87333;
+  --chart-3: #8b6914;
+  --chart-4: #c45d3a;
+  --chart-5: #6b4423;
+
+  /* Sidebar */
+  --sidebar: #f5f0e6;
+  --sidebar-foreground: #1a1a2e;
+  --sidebar-primary: #d4a853;
+  --sidebar-primary-foreground: #1a1a2e;
+  --sidebar-accent: #e8e4dc;
+  --sidebar-accent-foreground: #1a1a2e;
+  --sidebar-border: #e8e4dc;
+  --sidebar-ring: #d4a853;
+}
+
+/* ==========================================================================
+   DARK MODE - NIGHT STUDY
+   Deep navy tones, like reading by lamplight in a private study at midnight
+   ========================================================================== */
+
+.dark {
+  --background: #0a1628;
+  --foreground: #f5f0e6;
+
+  /* Semantic text colors - Night Study */
+  --text-primary: #f5f0e6;       /* Candlelit cream */
+  --text-secondary: #c9c4b8;     /* Aged parchment */
+  --text-muted: #8a8577;         /* Dusty tome */
+  --text-on-primary: #0a1628;
+
+  /* Semantic surface colors - Night Study */
+  --surface-primary: #0a1628;    /* Midnight navy */
+  --surface-secondary: #121f36;  /* Dark mahogany */
+  --surface-elevated: #1a2a47;   /* Shadowed wood */
+  --surface-code: #1a2a47;       /* Same as elevated */
+
+  /* Semantic border colors - Night Study */
+  --border-default: #2a3a57;     /* Shelf shadow */
+  --border-strong: #3a4a67;      /* Panel edge */
+
+  /* Accent colors - Lamplight */
+  --accent-gold: #f0c674;        /* Lamplight gold */
+  --accent-copper: #d4a853;      /* Brass fitting */
+
+  /* Interactive colors */
+  --link: #f0c674;               /* Lamplight for links */
+  --link-hover: #fff1c9;         /* Brighter on hover */
+
+  /* Component tokens */
+  --card: #121f36;
+  --card-foreground: #f5f0e6;
+  --popover: #121f36;
+  --popover-foreground: #f5f0e6;
+  --primary: #f0c674;
+  --primary-foreground: #0a1628;
+  --secondary: #1a2a47;
+  --secondary-foreground: #c9c4b8;
+  --muted: #1a2a47;
+  --muted-foreground: #8a8577;
+  --accent: #1a2a47;
+  --accent-foreground: #f5f0e6;
+  --destructive: #e06c4a;
+  --border: #2a3a57;
+  --input: #2a3a57;
+  --ring: #f0c674;
+
+  /* Chart colors - lamplight palette */
+  --chart-1: #f0c674;
+  --chart-2: #d4a853;
+  --chart-3: #b87333;
+  --chart-4: #e06c4a;
+  --chart-5: #8b6914;
+
+  /* Sidebar */
+  --sidebar: #121f36;
+  --sidebar-foreground: #f5f0e6;
+  --sidebar-primary: #f0c674;
+  --sidebar-primary-foreground: #0a1628;
+  --sidebar-accent: #1a2a47;
+  --sidebar-accent-foreground: #f5f0e6;
+  --sidebar-border: #2a3a57;
+  --sidebar-ring: #f0c674;
+}
+
+/* ==========================================================================
+   BASE STYLES
+   ========================================================================== */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-source-serif), ui-serif, Georgia, serif;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Selection styling */
+  ::selection {
+    background-color: var(--accent-gold);
+    color: var(--text-on-primary);
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: var(--surface-elevated);
+    border-radius: 5px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border-radius: 5px;
+    border: 2px solid var(--surface-elevated);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-copper);
+  }
+}
+
+/* ==========================================================================
+   PAPER TEXTURE OVERLAY
+   Subtle grain effect for content areas
+   ========================================================================== */
+
+.paper-texture {
+  position: relative;
+}
+
+.paper-texture::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  border-radius: inherit;
+}
+
+/* ==========================================================================
+   DECORATIVE FLOURISHES
+   ========================================================================== */
+
+.flourish-divider {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin: 2rem 0;
+}
+
+.flourish-divider::before,
+.flourish-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+}
+
+.flourish-divider::before {
+  background: linear-gradient(90deg, transparent, var(--accent-gold));
+}
+
+.flourish-divider::after {
+  background: linear-gradient(90deg, var(--accent-gold), transparent);
+}
+
+/* Gold underline animation */
+.gold-underline {
+  position: relative;
+  display: inline-block;
+}
+
+.gold-underline::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-gold), var(--accent-copper));
+  transition: width 0.3s ease-out;
+}
+
+.gold-underline:hover::after {
+  width: 100%;
+}
+
+/* Double-line flourish underline for titles */
+.title-flourish {
+  position: relative;
+  padding-bottom: 1rem;
+}
+
+.title-flourish::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background:
+    linear-gradient(90deg, transparent 0%, var(--accent-gold) 20%, var(--accent-gold) 80%, transparent 100%),
+    linear-gradient(90deg, transparent 10%, var(--accent-copper) 30%, var(--accent-copper) 70%, transparent 90%);
+  background-size: 100% 2px;
+  background-position: 0 0, 0 3px;
+  background-repeat: no-repeat;
+}
+
+/* ==========================================================================
    LEXICAL EDITOR MARKDOWN STYLING
    ========================================================================== */
 
+.lexical-editor {
+  font-family: var(--font-source-serif), Georgia, serif;
+}
+
 /* Headings */
 .lexical-editor h1 {
-  font-size: 1.875rem;
-  line-height: 2.25rem;
+  font-family: var(--font-playfair), Georgia, serif;
+  font-size: 2.25rem;
+  line-height: 2.5rem;
   font-weight: 700;
+  margin-bottom: 1.5rem;
+  margin-top: 2rem;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.lexical-editor h2 {
+  font-family: var(--font-playfair), Georgia, serif;
+  font-size: 1.75rem;
+  line-height: 2.25rem;
+  font-weight: 600;
   margin-bottom: 1rem;
+  margin-top: 1.75rem;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.lexical-editor h3 {
+  font-family: var(--font-playfair), Georgia, serif;
+  font-size: 1.375rem;
+  line-height: 1.875rem;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
   margin-top: 1.5rem;
   color: var(--text-primary);
 }
 
-.lexical-editor h2 {
-  font-size: 1.5rem;
-  line-height: 2rem;
-  font-weight: 700;
-  margin-bottom: 0.75rem;
-  margin-top: 1.25rem;
-  color: var(--text-primary);
-}
-
-.lexical-editor h3 {
-  font-size: 1.25rem;
-  line-height: 1.75rem;
-  font-weight: 700;
-  margin-bottom: 0.5rem;
-  margin-top: 1rem;
-  color: var(--text-primary);
-}
-
 .lexical-editor h4 {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
   font-size: 1.125rem;
   line-height: 1.75rem;
-  font-weight: 700;
+  font-weight: 600;
   margin-bottom: 0.5rem;
-  margin-top: 0.75rem;
+  margin-top: 1.25rem;
   color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.lexical-editor h5 {
+.lexical-editor h5,
+.lexical-editor h6 {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
   font-size: 1rem;
   line-height: 1.5rem;
-  font-weight: 700;
+  font-weight: 600;
   margin-bottom: 0.25rem;
-  margin-top: 0.5rem;
-  color: var(--text-primary);
-}
-
-.lexical-editor h6 {
-  font-size: 0.875rem;
-  line-height: 1.25rem;
-  font-weight: 700;
-  margin-bottom: 0.25rem;
-  margin-top: 0.5rem;
-  color: var(--text-primary);
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
 /* Paragraphs */
 .lexical-editor p {
-  margin-top: 0.25rem;
-  margin-bottom: 1rem;
+  margin-top: 0.5rem;
+  margin-bottom: 1.25rem;
   color: var(--text-secondary);
-  line-height: 1.625;
+  line-height: 1.75;
+  font-size: 1.0625rem;
 }
 
 /* Block elements */
 .lexical-editor blockquote {
-  border-left: 4px solid var(--accent-blue);
-  padding-left: 1rem;
+  border-left: 4px solid var(--accent-gold);
+  padding-left: 1.5rem;
   font-style: italic;
-  margin: 1rem 0;
+  margin: 1.5rem 0;
   color: var(--text-muted);
+  background: var(--surface-elevated);
+  padding: 1rem 1.5rem;
+  border-radius: 0 0.5rem 0.5rem 0;
 }
 
 .lexical-editor ul {
   list-style-type: disc;
-  list-style-position: inside;
-  margin: 1rem 0;
-  padding-left: 0;
+  list-style-position: outside;
+  margin: 1.25rem 0;
+  padding-left: 1.5rem;
   color: var(--text-secondary);
 }
 
 .lexical-editor ol {
   list-style-type: decimal;
-  list-style-position: inside;
-  margin: 1rem 0;
-  padding-left: 0;
+  list-style-position: outside;
+  margin: 1.25rem 0;
+  padding-left: 1.5rem;
   color: var(--text-secondary);
 }
 
 .lexical-editor li {
-  margin: 0.25rem 0;
-  line-height: 1.625;
+  margin: 0.5rem 0;
+  line-height: 1.75;
+  padding-left: 0.5rem;
+}
+
+.lexical-editor li::marker {
+  color: var(--accent-gold);
 }
 
 .lexical-editor code {
   background-color: var(--surface-code);
-  padding: 0.125rem 0.25rem;
+  padding: 0.2rem 0.4rem;
   border-radius: 0.25rem;
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace;
+  font-family: var(--font-jetbrains), monospace;
   font-size: 0.875rem;
+  color: var(--accent-copper);
+  border: 1px solid var(--border-default);
 }
 
-/* Links - matching results page styling */
+.lexical-editor pre {
+  background-color: var(--surface-elevated);
+  padding: 1.25rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  border: 1px solid var(--border-default);
+}
+
+.lexical-editor pre code {
+  background: transparent;
+  padding: 0;
+  border: none;
+  color: var(--text-primary);
+}
+
+/* Links - gold accent styling */
 .lexical-editor a {
   color: var(--link);
-  text-decoration: underline;
-  cursor: pointer;
-  transition: colors 0.2s ease-in-out;
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: all 0.2s ease-in-out;
 }
 
 .lexical-editor a:hover {
   color: var(--link-hover);
+  border-bottom-color: var(--link-hover);
+}
+
+/* Horizontal rule */
+.lexical-editor hr {
+  border: none;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+  margin: 2rem 0;
 }
 
 /* ==========================================================================
-   DIFF TAG NODE STYLING
+   DIFF TAG NODE STYLING - MIDNIGHT SCHOLAR PALETTE
    ========================================================================== */
 
-/* Base diff tag styles */
+/* Insert tags - Gold/success styling */
 .diff-tag-insert {
-  /*background-color: #dcfce7; /* green-100 */
-  color: #166534; /* green-800 */
+  color: #166534;
   text-decoration: none;
-  /*white-space: pre-wrap;*/
 }
 
+.dark .diff-tag-insert {
+  color: #86efac;
+}
+
+/* Delete tags - Copper/warning styling */
 .diff-tag-delete {
-  /*background-color: #fee2e2; /* red-100 */
-  color: #991b1b; /* red-800 */
+  color: #991b1b;
   text-decoration: none;
-  /*white-space: pre-wrap;*/
 }
 
+.dark .diff-tag-delete {
+  color: #fca5a5;
+}
+
+/* Update diff styling */
 .diff-tag-update {
   display: inline;
-  /*border-radius: 0.25rem;*/
-  /*padding: 0.25rem;*/
-  /*white-space: pre-wrap;*/
 }
 
-/* Update diff children */
 .diff-tag-update > *:first-child {
-  background-color: #fed7aa; /* orange-200 */
+  background-color: rgba(180, 115, 51, 0.2);
 }
 
 .diff-tag-update > *:nth-child(2) {
-  background-color: #bfdbfe; /* blue-200 */
+  background-color: rgba(212, 168, 83, 0.2);
 }
 
-/* Update diff styling for direct children (headings and paragraphs) */
-/* First child gets red styling (before/old content) */
+/* Update diff styling for direct children */
 .diff-tag-update > .mb-1:first-child,
 .diff-tag-update > h1:first-child,
 .diff-tag-update > h2:first-child,
@@ -210,13 +532,12 @@
 .diff-tag-update > h4:first-child,
 .diff-tag-update > h5:first-child,
 .diff-tag-update > h6:first-child {
-  border-left: 6px solid #dc2626 !important; /* red-600 */
+  border-left: 6px solid var(--accent-copper) !important;
   padding-left: 12px !important;
-  color: #991b1b !important; /* red-800 */
+  color: var(--accent-copper) !important;
   background-color: transparent !important;
 }
 
-/* Second child gets green styling (after/new content) */
 .diff-tag-update > .mb-1:nth-child(2),
 .diff-tag-update > h1:nth-child(2),
 .diff-tag-update > h2:nth-child(2),
@@ -224,13 +545,13 @@
 .diff-tag-update > h4:nth-child(2),
 .diff-tag-update > h5:nth-child(2),
 .diff-tag-update > h6:nth-child(2) {
-  border-left: 6px solid #16a34a !important; /* green-600 */
+  border-left: 6px solid var(--accent-gold) !important;
   padding-left: 12px !important;
-  color: #166534 !important; /* green-800 */
+  color: var(--accent-gold) !important;
   background-color: transparent !important;
 }
 
-/* Diff tag spacing - ensure space after text children */
+/* Diff tag spacing */
 .diff-tag-insert::after,
 .diff-tag-delete::after,
 .diff-tag-update::after {
@@ -246,9 +567,9 @@
 .diff-tag-insert .lexical-editor-h4,
 .diff-tag-insert .lexical-editor-h5,
 .diff-tag-insert .lexical-editor-h6 {
-  border-left: 6px solid #16a34a !important; /* green-600 */
+  border-left: 6px solid var(--accent-gold) !important;
   padding-left: 12px !important;
-  color: #166534 !important; /* green-800 */
+  color: var(--accent-gold) !important;
 }
 
 .diff-tag-delete .lexical-editor-h1,
@@ -257,223 +578,369 @@
 .diff-tag-delete .lexical-editor-h4,
 .diff-tag-delete .lexical-editor-h5,
 .diff-tag-delete .lexical-editor-h6 {
-  border-left: 6px solid #dc2626 !important; /* red-600 */
+  border-left: 6px solid var(--accent-copper) !important;
   padding-left: 12px !important;
-  color: #991b1b !important; /* red-800 */
+  color: var(--accent-copper) !important;
   text-decoration: none !important;
 }
 
 /* ==========================================================================
-   DARK MODE DIFF TAG STYLES
+   QUILL WRITING ANIMATION
+   Custom loading indicator for streaming content
    ========================================================================== */
 
-@media (prefers-color-scheme: dark) {
-  /* Diff tag base styles */
-  .diff-tag-insert {
-    background-color: #14532d; /* green-900 */
-    color: #86efac; /* green-300 */
-  }
+.quill-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
 
-  .diff-tag-delete {
-    background-color: #7f1d1d; /* red-900 */
-    color: #fca5a5; /* red-300 */
-    text-decoration: none;
-  }
+.quill-loader svg {
+  width: 24px;
+  height: 24px;
+  color: var(--accent-gold);
+  animation: quillWrite 1.5s ease-in-out infinite;
+}
 
-  /* Diff tag update children */
-  .diff-tag-update > *:first-child {
-    background-color: #9a3412; /* orange-800 */
-    color: #fed7aa; /* orange-200 */
+@keyframes quillWrite {
+  0%, 100% {
+    transform: rotate(-5deg) translateX(0);
   }
-
-  .diff-tag-update > *:nth-child(2) {
-    background-color: #1e3a8a; /* blue-800 */
-    color: #bfdbfe; /* blue-200 */
-  }
-
-  /* Diff tag update styling for direct children (headings and paragraphs) */
-  .diff-tag-update > .mb-1:first-child,
-  .diff-tag-update > h1:first-child,
-  .diff-tag-update > h2:first-child,
-  .diff-tag-update > h3:first-child,
-  .diff-tag-update > h4:first-child,
-  .diff-tag-update > h5:first-child,
-  .diff-tag-update > h6:first-child {
-    border-left: 6px solid #ef4444;
-    padding-left: 12px;
-    color: #fca5a5;
-    background-color: transparent;
-  }
-
-  .diff-tag-update > .mb-1:nth-child(2),
-  .diff-tag-update > h1:nth-child(2),
-  .diff-tag-update > h2:nth-child(2),
-  .diff-tag-update > h3:nth-child(2),
-  .diff-tag-update > h4:nth-child(2),
-  .diff-tag-update > h5:nth-child(2),
-  .diff-tag-update > h6:nth-child(2) {
-    border-left: 6px solid #22c55e;
-    padding-left: 12px;
-    color: #86efac;
-    background-color: transparent;
-  }
-
-  /* Diff tag headings */
-  .diff-tag-insert .lexical-editor-h1,
-  .diff-tag-insert .lexical-editor-h2,
-  .diff-tag-insert .lexical-editor-h3,
-  .diff-tag-insert .lexical-editor-h4,
-  .diff-tag-insert .lexical-editor-h5,
-  .diff-tag-insert .lexical-editor-h6 {
-    border-left: 6px solid #22c55e;
-    padding-left: 12px;
-    color: #86efac;
-  }
-
-  .diff-tag-delete .lexical-editor-h1,
-  .diff-tag-delete .lexical-editor-h2,
-  .diff-tag-delete .lexical-editor-h3,
-  .diff-tag-delete .lexical-editor-h4,
-  .diff-tag-delete .lexical-editor-h5,
-  .diff-tag-delete .lexical-editor-h6 {
-    border-left: 6px solid #ef4444;
-    padding-left: 12px;
-    color: #fca5a5;
-    text-decoration: none;
-  }
-
-  /* Diff tag paragraphs */
-  .diff-tag-insert .mb-1 {
-    border-left: 6px solid #22c55e;
-    padding-left: 12px;
-    color: #86efac;
-    background-color: transparent;
-  }
-
-  .diff-tag-delete .mb-1 {
-    border-left: 6px solid #ef4444;
-    padding-left: 12px;
-    color: #fca5a5;
-    background-color: transparent;
+  50% {
+    transform: rotate(5deg) translateX(4px);
   }
 }
 
-:root {
-  --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-
-  /* Semantic text colors */
-  --text-primary: rgb(17 24 39);      /* gray-900 - headings, important text */
-  --text-secondary: rgb(55 65 81);    /* gray-700 - body text */
-  --text-muted: rgb(107 114 128);     /* gray-500 - timestamps, hints */
-  --text-on-primary: rgb(255 255 255);
-
-  /* Semantic surface colors */
-  --surface-primary: rgb(255 255 255);
-  --surface-secondary: rgb(249 250 251); /* gray-50 */
-  --surface-elevated: rgb(255 255 255);
-  --surface-code: rgb(243 244 246);   /* gray-100 */
-
-  /* Semantic border colors */
-  --border-default: rgb(229 231 235); /* gray-200 */
-  --border-strong: rgb(209 213 219);  /* gray-300 */
-
-  /* Interactive colors */
-  --link: rgb(37 99 235);             /* blue-600 */
-  --link-hover: rgb(29 78 216);       /* blue-700 */
-  --accent-blue: rgb(59 130 246);     /* blue-500 */
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+/* Ink dots loader (alternative) */
+.ink-dots {
+  display: flex;
+  gap: 0.25rem;
 }
 
-.dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-
-  /* Semantic text colors - dark mode */
-  --text-primary: rgb(255 255 255);
-  --text-secondary: rgb(209 213 219); /* gray-300 */
-  --text-muted: rgb(156 163 175);     /* gray-400 */
-  --text-on-primary: rgb(17 24 39);
-
-  /* Semantic surface colors - dark mode */
-  --surface-primary: rgb(17 24 39);   /* gray-900 */
-  --surface-secondary: rgb(31 41 55); /* gray-800 */
-  --surface-elevated: rgb(55 65 81);  /* gray-700 */
-  --surface-code: rgb(31 41 55);      /* gray-800 */
-
-  /* Semantic border colors - dark mode */
-  --border-default: rgb(75 85 99);    /* gray-600 */
-  --border-strong: rgb(107 114 128);  /* gray-500 */
-
-  /* Interactive colors - dark mode */
-  --link: rgb(96 165 250);            /* blue-400 */
-  --link-hover: rgb(147 197 253);     /* blue-300 */
-  --accent-blue: rgb(59 130 246);     /* blue-500 */
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+.ink-dots span {
+  width: 6px;
+  height: 6px;
+  background: var(--accent-gold);
+  border-radius: 50%;
+  animation: inkDrop 1.4s ease-in-out infinite both;
 }
 
-@layer base {
-  * {
-    @apply border-border outline-ring/50;
+.ink-dots span:nth-child(1) { animation-delay: -0.32s; }
+.ink-dots span:nth-child(2) { animation-delay: -0.16s; }
+.ink-dots span:nth-child(3) { animation-delay: 0s; }
+
+@keyframes inkDrop {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.5;
   }
-  body {
-    @apply bg-background text-foreground;
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ==========================================================================
+   BOOKMARK TAG STYLING
+   Tags styled as elegant bookmarks
+   ========================================================================== */
+
+.bookmark-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.375rem 0.75rem 0.375rem 1rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--accent-gold);
+  border-radius: 0 0.375rem 0.375rem 0;
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  transition: all 0.2s ease-out;
+  cursor: pointer;
+}
+
+.bookmark-tag:hover {
+  background: var(--surface-secondary);
+  border-left-color: var(--accent-copper);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(180, 115, 51, 0.15);
+}
+
+.bookmark-tag.active {
+  background: var(--accent-gold);
+  color: var(--text-on-primary);
+  border-color: var(--accent-gold);
+}
+
+/* ==========================================================================
+   CARD STYLING
+   Book-page inspired cards with warm shadows
+   ========================================================================== */
+
+.scholar-card {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  box-shadow:
+    0 1px 3px rgba(180, 115, 51, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transition: all 0.2s ease-out;
+}
+
+.scholar-card:hover {
+  box-shadow:
+    0 4px 12px rgba(180, 115, 51, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px);
+}
+
+.dark .scholar-card {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dark .scholar-card:hover {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ==========================================================================
+   BUTTON STYLING
+   Elegant, scholarly buttons with gold accents
+   ========================================================================== */
+
+.scholar-btn {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  font-weight: 500;
+  border-radius: 0.375rem;
+  transition: all 0.2s ease-out;
+  cursor: pointer;
+}
+
+.scholar-btn-primary {
+  background: linear-gradient(135deg, var(--accent-gold) 0%, var(--accent-copper) 100%);
+  color: var(--text-on-primary);
+  border: none;
+  box-shadow: 0 2px 4px rgba(180, 115, 51, 0.3);
+}
+
+.scholar-btn-primary:hover {
+  background: linear-gradient(135deg, var(--accent-copper) 0%, var(--accent-gold) 100%);
+  box-shadow: 0 4px 8px rgba(180, 115, 51, 0.4);
+  transform: translateY(-1px);
+}
+
+.scholar-btn-primary:active {
+  transform: translateY(0);
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.scholar-btn-secondary {
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+}
+
+.scholar-btn-secondary:hover {
+  background: var(--surface-elevated);
+  border-color: var(--accent-gold);
+}
+
+.scholar-btn-ghost {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+
+.scholar-btn-ghost:hover {
+  background: var(--surface-elevated);
+  color: var(--accent-gold);
+}
+
+/* ==========================================================================
+   INPUT STYLING
+   Ink-well inspired form inputs
+   ========================================================================== */
+
+.scholar-input {
+  font-family: var(--font-source-serif), Georgia, serif;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 0.375rem;
+  padding: 0.625rem 1rem;
+  color: var(--text-primary);
+  transition: all 0.2s ease-out;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.scholar-input:focus {
+  outline: none;
+  border-color: var(--accent-gold);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.05),
+    0 0 0 3px rgba(212, 168, 83, 0.2);
+}
+
+.scholar-input::placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ==========================================================================
+   NAVIGATION STYLING
+   Library header aesthetic
+   ========================================================================== */
+
+.scholar-nav {
+  background: var(--surface-secondary);
+  border-bottom: 1px solid var(--border-default);
+  position: relative;
+}
+
+.scholar-nav::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent-gold), transparent);
+}
+
+.scholar-nav-link {
+  font-family: var(--font-dm-sans), system-ui, sans-serif;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: all 0.2s ease-out;
+  position: relative;
+}
+
+.scholar-nav-link::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 0;
+  height: 2px;
+  background: var(--accent-gold);
+  transition: width 0.3s ease-out;
+}
+
+.scholar-nav-link:hover {
+  color: var(--accent-gold);
+}
+
+.scholar-nav-link:hover::after {
+  width: 100%;
+}
+
+/* ==========================================================================
+   UTILITY CLASSES
+   ========================================================================== */
+
+/* Gold text accent */
+.text-gold {
+  color: var(--accent-gold);
+}
+
+.text-copper {
+  color: var(--accent-copper);
+}
+
+/* Gold border accent */
+.border-gold {
+  border-color: var(--accent-gold);
+}
+
+/* Warm shadow utilities */
+.shadow-warm {
+  box-shadow: 0 1px 3px 0 rgba(180, 115, 51, 0.1), 0 1px 2px -1px rgba(180, 115, 51, 0.1);
+}
+
+.shadow-warm-lg {
+  box-shadow: 0 10px 15px -3px rgba(180, 115, 51, 0.1), 0 4px 6px -4px rgba(180, 115, 51, 0.1);
+}
+
+/* Page shadow (inner) */
+.shadow-page {
+  box-shadow: inset 0 2px 4px 0 rgba(180, 115, 51, 0.06);
+}
+
+/* Focus gold ring */
+.focus-gold:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(212, 168, 83, 0.3);
+}
+
+/* Transition utilities */
+.transition-scholar {
+  transition: all 0.2s ease-out;
+}
+
+/* ==========================================================================
+   ATLAS TYPOGRAPHY UTILITIES
+   Clean, elegant typography for minimal design
+   ========================================================================== */
+
+.atlas-display {
+  font-family: var(--font-playfair), 'Cormorant Garamond', Georgia, serif;
+  font-weight: 500;
+  font-size: 3.5rem;
+  line-height: 1.15;
+  color: var(--text-primary);
+  letter-spacing: 0.01em;
+}
+
+.atlas-ui {
+  font-family: var(--font-dm-sans), 'Outfit', system-ui, sans-serif;
+  font-weight: 400;
+  font-size: 0.875rem;
+  letter-spacing: 0.02em;
+}
+
+.atlas-body {
+  font-family: var(--font-source-serif), 'Crimson Pro', Georgia, serif;
+  font-weight: 400;
+  font-size: 1.0625rem;
+  line-height: 1.9;
+  color: var(--text-secondary);
+}
+
+/* Atlas button solid style */
+.atlas-button {
+  font-family: var(--font-dm-sans), 'Outfit', system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  padding: 10px 20px;
+  background: linear-gradient(to bottom right, var(--accent-gold), var(--accent-copper));
+  border: none;
+  color: var(--text-on-primary);
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  cursor: pointer;
+  box-shadow: 0 1px 3px 0 rgba(180, 115, 51, 0.1), 0 1px 2px -1px rgba(180, 115, 51, 0.1);
+}
+
+.atlas-button:hover {
+  box-shadow: 0 4px 6px -1px rgba(180, 115, 51, 0.2), 0 2px 4px -2px rgba(180, 115, 51, 0.1);
+  transform: translateY(-1px);
+}
+
+/* Atlas animations */
+.atlas-animate-fade-up {
+  animation: atlasFadeUp 0.5s ease-out forwards;
+  opacity: 0;
+}
+
+@keyframes atlasFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }

@@ -50,31 +50,31 @@ import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 
 
 
-// Theme configuration for the editor - colors handled by CSS variables in globals.css
+// Theme configuration for the editor - Midnight Scholar styling
 const theme = {
-  paragraph: 'mt-1 mb-4 leading-relaxed',
+  paragraph: 'mt-1 mb-4 leading-relaxed font-serif text-[var(--text-primary)]',
   heading: {
-    h1: 'text-3xl font-bold mb-4 mt-0 leading-tight',
-    h2: 'text-2xl font-semibold mb-3 mt-6 leading-tight',
-    h3: 'text-xl font-medium mb-2 mt-5 leading-tight',
-    h4: 'text-lg font-medium mb-2 mt-4 leading-tight',
-    h5: 'text-base font-medium mb-1 mt-3 leading-tight',
-    h6: 'text-sm font-medium mb-1 mt-2 leading-tight',
+    h1: 'text-3xl font-display font-bold mb-4 mt-0 leading-tight text-[var(--text-primary)]',
+    h2: 'text-2xl font-display font-semibold mb-3 mt-6 leading-tight text-[var(--text-primary)]',
+    h3: 'text-xl font-display font-medium mb-2 mt-5 leading-tight text-[var(--text-primary)]',
+    h4: 'text-lg font-display font-medium mb-2 mt-4 leading-tight text-[var(--text-primary)]',
+    h5: 'text-base font-display font-medium mb-1 mt-3 leading-tight text-[var(--text-primary)]',
+    h6: 'text-sm font-display font-medium mb-1 mt-2 leading-tight text-[var(--text-primary)]',
   },
   text: {
     bold: 'font-bold',
     italic: 'italic',
-    underline: 'underline',
+    underline: 'underline decoration-[var(--accent-gold)]',
   },
   list: {
-    ul: 'my-4 space-y-2 list-disc list-inside',
-    ol: 'my-4 space-y-2 list-decimal list-inside',
-    listitem: 'my-1 leading-relaxed',
+    ul: 'my-4 space-y-2 list-disc list-inside font-serif',
+    ol: 'my-4 space-y-2 list-decimal list-inside font-serif',
+    listitem: 'my-1 leading-relaxed marker:text-[var(--accent-gold)]',
   },
-  link: 'underline cursor-pointer transition-colors',
-  code: 'px-1.5 py-0.5 rounded text-sm font-mono',
-  codeblock: 'bg-surface-code p-4 rounded-lg overflow-x-auto my-4',
-  quote: 'border-l-4 border-accent-blue pl-4 my-4 italic',
+  link: 'text-[var(--accent-gold)] underline cursor-pointer transition-colors hover:text-[var(--accent-copper)]',
+  code: 'px-1.5 py-0.5 rounded-page text-sm font-mono bg-[var(--surface-elevated)] text-[var(--text-secondary)]',
+  codeblock: 'bg-[var(--surface-elevated)] p-4 rounded-book overflow-x-auto my-4 border border-[var(--border-default)] font-mono text-sm',
+  quote: 'border-l-4 border-[var(--accent-gold)] pl-4 my-4 italic font-serif text-[var(--text-secondary)] bg-[var(--surface-elevated)]/50 py-2 rounded-r-page',
 };
 
 // Error handler function
@@ -172,17 +172,17 @@ function DisplayModePlugin({ isEditMode }: { isEditMode: boolean }) {
   return null;
 }
 
-// Component to display editor state as JSON
+// Component to display editor state as JSON - Midnight Scholar styling
 function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
   return (
     <div className="mt-4">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+      <h3 className="text-sm font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
         Editor State (JSON)
       </h3>
       <textarea
         value={editorStateJson}
         readOnly
-        className="w-full h-64 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-white font-mono text-sm resize-none"
+        className="w-full h-64 p-3 border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] text-[var(--text-secondary)] font-mono text-sm resize-none shadow-page"
         placeholder="Editor state will appear here..."
       />
     </div>
@@ -477,15 +477,15 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           <RichTextPlugin
             contentEditable={
               <ContentEditable
-                className={`lexical-editor min-h-[200px] p-4 text-text-primary prose dark:prose-invert max-w-none ${
+                className={`lexical-editor min-h-[200px] p-4 text-[var(--text-primary)] prose max-w-none ${
                   internalEditMode
-                    ? "border border-border-strong rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-surface-primary"
+                    ? "border border-[var(--border-default)] rounded-book focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] bg-[var(--surface-secondary)] shadow-page"
                     : "border-none bg-transparent focus:outline-none lexical-display-mode"
                 }`}
               />
             }
             placeholder={
-              <div className="absolute top-4 left-4 text-text-muted pointer-events-none">
+              <div className="absolute top-4 left-4 text-[var(--text-muted)] font-serif italic pointer-events-none">
                 {placeholder}
               </div>
             }
@@ -495,15 +495,15 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           <PlainTextPlugin
             contentEditable={
               <ContentEditable
-                className={`lexical-editor min-h-[200px] p-4 text-text-primary font-mono text-sm ${
+                className={`lexical-editor min-h-[200px] p-4 text-[var(--text-secondary)] font-mono text-sm ${
                   internalEditMode
-                    ? "border border-border-strong rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-surface-primary"
+                    ? "border border-[var(--border-default)] rounded-book focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] bg-[var(--surface-secondary)] shadow-page"
                     : "border-none bg-transparent focus:outline-none lexical-display-mode"
                 }`}
               />
             }
             placeholder={
-              <div className="absolute top-4 left-4 text-text-muted pointer-events-none">
+              <div className="absolute top-4 left-4 text-[var(--text-muted)] font-mono pointer-events-none">
                 {placeholder}
               </div>
             }
@@ -556,28 +556,23 @@ function MarkdownShortcutsPlugin({ isEnabled }: { isEnabled: boolean }) {
 
 /**
  * TreeView plugin for debugging and visualizing editor state
- * 
- * • Provides visual representation of the editor's node tree structure
- * • Includes time travel functionality to navigate through editor history
- * • Uses TreeView component from @lexical/react/LexicalTreeView
- * • Styled with Tailwind classes for consistent appearance
- * • Used by: LexicalEditor for debugging and development purposes
+ * Midnight Scholar styling
  */
 function TreeViewPlugin() {
   const [editor] = useLexicalComposerContext();
-  
+
   return (
     <div className="mt-4">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+      <h3 className="text-sm font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
         Editor Tree View
       </h3>
       <TreeView
-        viewClassName="tree-view-output max-h-96 overflow-auto border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 p-4 font-mono text-sm"
-        treeTypeButtonClassName="debug-treetype-button px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
-        timeTravelPanelClassName="debug-timetravel-panel mt-4 p-3 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700"
-        timeTravelButtonClassName="debug-timetravel-button px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 transition-colors"
-        timeTravelPanelSliderClassName="debug-timetravel-panel-slider w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-lg appearance-none cursor-pointer"
-        timeTravelPanelButtonClassName="debug-timetravel-panel-button px-2 py-1 text-xs bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 rounded hover:bg-gray-300 dark:hover:bg-gray-500 transition-colors"
+        viewClassName="tree-view-output max-h-96 overflow-auto border border-[var(--border-default)] rounded-book bg-[var(--surface-elevated)] p-4 font-mono text-sm text-[var(--text-secondary)]"
+        treeTypeButtonClassName="debug-treetype-button px-3 py-1 bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] rounded-page hover:shadow-warm transition-all"
+        timeTravelPanelClassName="debug-timetravel-panel mt-4 p-3 border border-[var(--border-default)] rounded-book bg-[var(--surface-secondary)]"
+        timeTravelButtonClassName="debug-timetravel-button px-3 py-1 bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] rounded-page hover:shadow-warm transition-all"
+        timeTravelPanelSliderClassName="debug-timetravel-panel-slider w-full h-2 bg-[var(--surface-elevated)] rounded-lg appearance-none cursor-pointer accent-[var(--accent-gold)]"
+        timeTravelPanelButtonClassName="debug-timetravel-panel-button px-2 py-1 text-xs bg-[var(--surface-elevated)] text-[var(--text-secondary)] rounded-page hover:bg-[var(--accent-gold)]/10 hover:text-[var(--accent-gold)] transition-colors"
         editor={editor}
       />
     </div>
@@ -586,19 +581,19 @@ function TreeViewPlugin() {
 
 
 
-// Edit mode toggle component
+// Edit mode toggle component - Midnight Scholar styling
 export function EditModeToggle({ isEditMode, onToggle }: { isEditMode: boolean; onToggle: () => void }) {
   return (
     <button
       onClick={onToggle}
-      className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm bg-white hover:bg-gray-50 focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600"
+      className="inline-flex items-center px-4 py-2 border border-[var(--border-default)] rounded-page shadow-warm bg-[var(--surface-secondary)] hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] text-[var(--text-secondary)] font-sans text-sm font-medium transition-all duration-200 focus:ring-2 focus:ring-[var(--accent-gold)]/30"
     >
       {isEditMode ? (
         <>
           <svg className="-ml-1 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          Done Editing
+          Done
         </>
       ) : (
         <>

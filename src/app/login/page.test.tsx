@@ -28,9 +28,10 @@ describe('LoginPage', () => {
     it('should render login form with card', () => {
       render(<LoginPage />);
 
-      expect(screen.getByText('Welcome back')).toBeInTheDocument();
+      // Title and submit button both say "Enter the Library"
+      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
       expect(
-        screen.getByText('Enter your email and password to login')
+        screen.getByText('Welcome back, scholar')
       ).toBeInTheDocument();
     });
 
@@ -52,10 +53,10 @@ describe('LoginPage', () => {
       expect(passwordInput).toHaveAttribute('id', 'password');
     });
 
-    it('should render log in button', () => {
+    it('should render enter the library button', () => {
       render(<LoginPage />);
 
-      const loginButton = screen.getByRole('button', { name: /^log in$/i });
+      const loginButton = screen.getByRole('button', { name: /enter the library/i });
       expect(loginButton).toBeInTheDocument();
     });
 
@@ -63,7 +64,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupButton = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       expect(signupButton).toBeInTheDocument();
     });
@@ -173,7 +174,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       await user.click(signupToggle);
 
@@ -198,7 +199,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       await user.click(signupToggle);
 
@@ -214,16 +215,17 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      expect(screen.getByText('Welcome back')).toBeInTheDocument();
+      // Verify we start in login mode
+      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
 
       const signupToggle = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       await user.click(signupToggle);
 
-      expect(screen.getByText('Create an account')).toBeInTheDocument();
+      expect(screen.getByText('Join the Library')).toBeInTheDocument();
       expect(
-        screen.getByText('Enter your email to create your account')
+        screen.getByText('Create your scholarly account')
       ).toBeInTheDocument();
     });
 
@@ -232,16 +234,16 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       await user.click(signupToggle);
 
       const loginToggle = screen.getByRole('button', {
-        name: /already have an account/i,
+        name: /already a member\? enter/i,
       });
       await user.click(loginToggle);
 
-      expect(screen.getByText('Welcome back')).toBeInTheDocument();
+      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
     });
   });
 
@@ -271,7 +273,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
 
       await user.type(passwordInput, 'short');
       await user.click(submitButton);
@@ -287,7 +289,7 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
       await user.click(submitButton);
 
       await waitFor(() => {
@@ -303,7 +305,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -319,13 +321,13 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       await user.click(signupToggle);
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^sign up$/i });
+      const submitButton = screen.getByRole('button', { name: /create account/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -343,13 +345,13 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /don't have an account/i,
+        name: /new here\? join us/i,
       });
       await user.click(signupToggle);
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^sign up$/i });
+      const submitButton = screen.getByRole('button', { name: /create account/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -372,7 +374,7 @@ describe('LoginPage', () => {
       const rememberMeCheckbox = screen.getByRole('checkbox', {
         name: /remember me/i,
       });
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -398,14 +400,14 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
       await user.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/logging in/i)).toBeInTheDocument();
+        expect(screen.getByText(/entering/i)).toBeInTheDocument();
       });
     });
 
@@ -422,7 +424,7 @@ describe('LoginPage', () => {
         /^password$/i
       ) as HTMLInputElement;
       const submitButton = screen.getByRole('button', {
-        name: /^log in$/i,
+        name: /enter the library/i,
       }) as HTMLButtonElement;
 
       await user.type(emailInput, 'test@example.com');
@@ -448,7 +450,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'wrongpassword');
@@ -471,7 +473,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /^log in$/i });
+      const submitButton = screen.getByRole('button', { name: /enter the library/i });
 
       // First submission with error
       await user.type(emailInput, 'test@example.com');
@@ -530,6 +532,7 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
+      await user.tab(); // Header link (ExplainAnything logo)
       await user.tab(); // Email input
       expect(screen.getByLabelText(/email/i)).toHaveFocus();
 

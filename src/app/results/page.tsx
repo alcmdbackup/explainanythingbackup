@@ -827,12 +827,12 @@ function ResultsPageContent() {
     }, []);
 
     return (
-        <div className="h-screen bg-gray-50 dark:bg-gray-900 flex flex-col">
+        <div className="h-screen bg-[var(--surface-primary)] flex flex-col">
             {/* Top Navigation Bar */}
-            <Navigation 
+            <Navigation
                 showSearchBar={true}
                 searchBarProps={{
-                    placeholder: "Search any topic...",
+                    placeholder: "Search the archives...",
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
@@ -840,10 +840,10 @@ function ResultsPageContent() {
                 }}
             />
 
-            {/* Progress Bar */}
+            {/* Progress Bar - Gold accent */}
             {isPageLoading && (
-                <div data-testid="loading-indicator" className="w-full bg-gray-200 dark:bg-gray-700">
-                    <div className="h-1 bg-blue-600 animate-pulse" style={{ width: '100%' }}></div>
+                <div data-testid="loading-indicator" className="w-full bg-[var(--surface-elevated)]">
+                    <div className="h-1 bg-gradient-to-r from-[var(--accent-gold)] to-[var(--accent-copper)] animate-pulse" style={{ width: '100%' }}></div>
                 </div>
             )}
 
@@ -852,23 +852,23 @@ function ResultsPageContent() {
                     {/* Main Content Area */}
                     <div className="flex-1 px-4 py-8">
                         {error && (
-                            <div data-testid="error-message" className="max-w-2xl mx-auto mb-8 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-md shadow-sm">
-                                {error}
+                            <div data-testid="error-message" className="max-w-2xl mx-auto mb-8 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] text-[var(--destructive)] rounded-r-page shadow-warm">
+                                <span className="font-serif">{error}</span>
                             </div>
                         )}
 
                         {/* Draft/Edit Status Banner */}
                         {(explanationStatus === ExplanationStatus.Draft || (explanationStatus === ExplanationStatus.Published && hasUnsavedChanges)) && (
-                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 text-yellow-700 dark:text-yellow-300 rounded-md shadow-sm">
+                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-copper)] border border-[var(--border-default)] rounded-r-page shadow-warm">
                                 <div className="flex items-center">
                                     <div className="ml-3">
-                                        <p className="text-sm font-medium">
+                                        <p className="text-sm font-sans font-medium text-[var(--accent-copper)]">
                                             {explanationStatus === ExplanationStatus.Published && hasUnsavedChanges
-                                                ? '✏️ Editing published article'
-                                                : '📝 This is a draft article'
+                                                ? 'Editing Published Manuscript'
+                                                : 'Draft Manuscript'
                                             }
                                         </p>
-                                        <p className="text-xs mt-1">
+                                        <p className="text-xs font-serif text-[var(--text-muted)] mt-1">
                                             {explanationStatus === ExplanationStatus.Published && hasUnsavedChanges
                                                 ? 'Changes will create a new published version when published'
                                                 : 'Click "Publish Changes" to publish this draft'
@@ -908,56 +908,54 @@ function ResultsPageContent() {
                                     }
                                 `}</style>
                                 <div className="mt-2">
-                                    <div className="mb-4">
+                                    <div className="mb-6">
                                         <div className="flex items-center justify-between">
-                                            <h1 className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
-                                                All Matches
+                                            <h1 className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
+                                                Related Manuscripts
                                             </h1>
                                             <button
                                                 onClick={() => setShowMatches(false)}
-                                                className="text-base text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
+                                                className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
                                             >
-                                                ← Back
+                                                ← Return to manuscript
                                             </button>
                                         </div>
-                                        <div className="mt-4 border-b-2 border-gray-300 dark:border-gray-600"></div>
+                                        <div className="title-flourish mt-4"></div>
                                     </div>
-                                    <div className="space-y-4 border border-gray-200 dark:border-gray-700 rounded-lg p-4 bg-white dark:bg-gray-800 shadow-sm dark:shadow-lg dark:shadow-black/20">
+                                    <div className="space-y-4 border border-[var(--border-default)] rounded-book p-4 bg-[var(--surface-secondary)] shadow-warm">
                                         {matches && matches.length > 0 ? (
                                             matches.map((match, index) => (
-                                                <div 
+                                                <div
                                                     key={index}
-                                                    className="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm hover:shadow-md transition-all duration-200 border border-gray-100 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600"
+                                                    className="p-4 bg-[var(--surface-elevated)] rounded-page shadow-page hover:shadow-warm transition-all duration-200 border border-[var(--border-default)] hover:-translate-y-0.5 cursor-pointer"
+                                                    onClick={() => loadExplanation(match.explanation_id, false, userid)}
                                                 >
                                                     <div className="mb-2 flex items-center justify-between">
                                                         <div className="flex items-center gap-4">
-                                                            <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">
-                                                                Similarity: {(match.ranking.similarity * 100).toFixed(1)}%
+                                                            <span className="text-xs font-sans font-medium px-2 py-1 bg-[var(--accent-gold)]/10 text-[var(--accent-gold)] rounded-page">
+                                                                {(match.ranking.similarity * 100).toFixed(0)}% match
                                                             </span>
                                                             {match.ranking.diversity_score !== null && (
-                                                                <span className="text-sm font-semibold text-green-600 dark:text-green-400">
-                                                                    Diversity: {(match.ranking.diversity_score * 100).toFixed(1)}%
+                                                                <span className="text-xs font-sans font-medium px-2 py-1 bg-[var(--accent-copper)]/10 text-[var(--accent-copper)] rounded-page">
+                                                                    {(match.ranking.diversity_score * 100).toFixed(0)}% unique
                                                                 </span>
                                                             )}
                                                         </div>
-                                                        <button
-                                                            onClick={() => loadExplanation(match.explanation_id, false, userid)}
-                                                            className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 rounded"
-                                                        >
+                                                        <span className="text-xs font-sans text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors">
                                                             View →
-                                                        </button>
+                                                        </span>
                                                     </div>
-                                                    <h3 className="font-medium text-gray-900 dark:text-white mb-2">
+                                                    <h3 className="font-display font-semibold text-[var(--text-primary)] mb-2">
                                                         {match.current_title || match.text}
                                                     </h3>
-                                                    <p className="text-gray-600 dark:text-gray-400 text-sm line-clamp-3">
+                                                    <p className="font-serif text-[var(--text-secondary)] text-sm line-clamp-3">
                                                         {match.current_content || match.text}
                                                     </p>
                                                 </div>
                                             ))
                                         ) : (
-                                            <p className="text-gray-500 dark:text-gray-400 text-center italic">
-                                                No matches available yet. Generate an explanation to see related matches.
+                                            <p className="font-serif text-[var(--text-muted)] text-center italic py-8">
+                                                No related manuscripts found. Generate an explanation to discover connections.
                                             </p>
                                         )}
                                     </div>
@@ -970,45 +968,41 @@ function ResultsPageContent() {
                             <div className="h-full flex flex-col">
                                 {/* Explanation Title with View All Matches Link */}
                                 {explanationTitle && !isPageLoading && (
-                                    <div className="mb-4">
+                                    <div className="mb-6">
                                         <div className="flex items-center justify-between min-h-[2.5rem]">
-                                            <h1 data-testid="explanation-title" className="text-4xl font-bold text-gray-900 dark:text-white leading-tight">
+                                            <h1 data-testid="explanation-title" className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
                                                 {explanationTitle}
                                             </h1>
                                             {matches && matches.length > 0 && (
                                                 <button
                                                     onClick={() => setShowMatches(true)}
-                                                    className="text-base text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium transition-colors"
+                                                    className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
                                                 >
-                                                    View all matches ({matches.length})
+                                                    View related ({matches.length})
                                                 </button>
                                             )}
                                         </div>
-                                        <div className="mt-4 border-b-2 border-gray-300 dark:border-gray-600"></div>
+                                        <div className="title-flourish mt-4"></div>
                                     </div>
                                 )}
 
                                 {!isTagsModified(tagState) && !isPageLoading && (
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-2">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
                                     {/* Action buttons - left side */}
-                                    <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+                                    <div className="flex flex-wrap gap-2">
                                         {(explanationTitle || content) && (
                                             <div className="relative inline-flex" ref={regenerateDropdownRef}>
-                                                <div className="inline-flex items-center rounded-lg bg-blue-600 shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none">
+                                                <div className="inline-flex items-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9 leading-none">
                                                     <button
                                                         type="button"
                                                         data-testid="rewrite-button"
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={async () => {
-                                                            // Main rewrite button - regenerate the article
-                                                            // Use prompt if available, otherwise use explanation title
                                                             const userInput = prompt.trim() || explanationTitle;
                                                             if (!userInput) {
                                                                 dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
                                                                 return;
                                                             }
-                                                            
-                                                            // Add debug logging for rewrite operation
                                                             logger.debug('Rewrite button clicked', {
                                                                 userInput,
                                                                 explanationId,
@@ -1020,12 +1014,11 @@ function ResultsPageContent() {
                                                                 } : null,
                                                                 userInputType: UserInputType.Rewrite
                                                             }, FILE_DEBUG);
-                                                            
                                                             await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                         }}
-                                                        className="px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors rounded-l-lg disabled:cursor-not-allowed disabled:opacity-50"
+                                                        className="px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
-                                                        <span className="leading-none">Rewrite</span>
+                                                        Rewrite
                                                     </button>
                                                     <button
                                                         type="button"
@@ -1033,14 +1026,12 @@ function ResultsPageContent() {
                                                         disabled={isPageLoading || isStreaming}
                                                         onClick={() => {
                                                             if (tagState.mode === 'normal' && tagState.showRegenerateDropdown) {
-                                                                // Close dropdown and reset to normal
                                                                 dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
                                                             } else {
-                                                                // Toggle dropdown
                                                                 dispatchTagAction({ type: 'TOGGLE_DROPDOWN' });
                                                             }
                                                         }}
-                                                        className="px-2 py-2.5 text-white hover:bg-blue-700 transition-colors rounded-r-lg border-l border-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                                        className="px-2 py-2 text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-r-page border-l border-[var(--text-on-primary)]/20 disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
                                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1048,7 +1039,7 @@ function ResultsPageContent() {
                                                     </button>
                                                 </div>
                                                 {tagState.mode === 'normal' && tagState.showRegenerateDropdown && (
-                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-blue-600 rounded-md shadow-lg border border-blue-500 z-10">
+                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
                                                         <div className="py-1">
                                                             <button
                                                                 data-testid="rewrite-with-tags"
@@ -1056,9 +1047,9 @@ function ResultsPageContent() {
                                                                 onClick={async () => {
                                                                     await initializeTempTagsForRewriteWithTags();
                                                                 }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Rewrite with tags
+                                                                Rewrite with bookmarks
                                                             </button>
                                                             <button
                                                                 data-testid="edit-with-tags"
@@ -1066,9 +1057,9 @@ function ResultsPageContent() {
                                                                 onClick={() => {
                                                                     dispatchTagAction({ type: 'ENTER_EDIT_MODE' });
                                                                 }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Edit with tags
+                                                                Edit with bookmarks
                                                             </button>
                                                         </div>
                                                     </div>
@@ -1079,44 +1070,38 @@ function ResultsPageContent() {
                                             onClick={handleSave}
                                             disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming}
                                             data-testid="save-to-library"
-                                            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            <span className="leading-none">{isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}</span>
+                                            {isSaving ? 'Saving...' : userSaved ? 'Saved ✓' : 'Save'}
                                         </button>
-                                        {/* Save/Publish Changes Button - shown when there are unsaved changes OR when viewing/editing a draft */}
                                         {(hasUnsavedChanges || explanationStatus === ExplanationStatus.Draft) && (
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
                                                 disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
-                                                className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition-all duration-200 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 h-10 leading-none"
+                                                className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
-                                                <span className="leading-none">
-                                                    {isSavingChanges
-                                                        ? 'Publishing...'
-                                                        : 'Publish Changes'
-                                                    }
-                                                </span>
+                                                {isSavingChanges ? 'Publishing...' : 'Publish'}
                                             </button>
                                         )}
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
                                             disabled={isStreaming}
-                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            <span className="leading-none">{isMarkdownMode ? 'Show Plain Text' : 'Show Markdown'}</span>
+                                            {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
                                         <button
                                             onClick={handleEditModeToggle}
                                             disabled={isStreaming}
-                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            <span className="leading-none">{isEditMode ? 'Done Editing' : 'Edit'}</span>
+                                            {isEditMode ? 'Done' : 'Edit'}
                                         </button>
                                     </div>
-                                    
+
                                     {/* Mode dropdown - right side */}
                                     <div className="flex items-center gap-2">
-                                        <label htmlFor="mode-select" className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                                        <label htmlFor="mode-select" className="text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                             Mode:
                                         </label>
                                         <select
@@ -1126,7 +1111,7 @@ function ResultsPageContent() {
                                                 setMode(e.target.value as MatchMode);
                                             }}
                                             disabled={isStreaming}
-                                            className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-5 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600 h-10 leading-none"
+                                            className="rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-3 py-1.5 text-sm font-sans text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             <option value={MatchMode.Normal}>Normal</option>
                                             <option value={MatchMode.SkipMatch}>Skip Match</option>
@@ -1189,15 +1174,12 @@ function ResultsPageContent() {
                                             background: rgba(156, 163, 175, 0.9);
                                         }
                                     `}</style>
-                                    <div data-testid="explanation-content" className="pt-2 pb-6 px-6 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-lg border border-white/20 dark:border-gray-700/50 dark:shadow-xl dark:shadow-black/30">
+                                    <div data-testid="explanation-content" className="scholar-card p-6">
                                         {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
-                                            <div className="flex items-center justify-center py-12">
-                                                <div className="flex space-x-1">
-                                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                                                    <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
-                                                </div>
+                                            <div className="flex flex-col items-center justify-center py-12 gap-4">
+                                                <div className="ink-dots"></div>
+                                                <p className="text-sm font-serif italic text-[var(--text-muted)]">The scholar is composing...</p>
                                             </div>
                                         ) : isMarkdownMode ? (
                                             <LexicalEditor
@@ -1214,7 +1196,7 @@ function ResultsPageContent() {
                                                 onContentChange={handleEditorContentChange}
                                             />
                                         ) : (
-                                            <pre className="whitespace-pre-wrap text-sm text-gray-900 dark:text-gray-300 leading-relaxed font-mono">
+                                            <pre className="whitespace-pre-wrap text-sm font-mono text-[var(--text-secondary)] leading-relaxed">
                                                 {formattedExplanation}
                                             </pre>
                                         )}
@@ -1272,13 +1254,12 @@ function ResultsPageContent() {
 
 export default function ResultsPage() {
     return (
-        <Suspense fallback={<div className="h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center">
-            <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+        <Suspense fallback={
+            <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
+                <div className="ink-dots"></div>
+                <p className="text-sm font-serif italic text-[var(--text-muted)]">Opening the archives...</p>
             </div>
-        </div>}>
+        }>
             <ResultsPageContent />
         </Suspense>
     );

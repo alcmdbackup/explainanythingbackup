@@ -46,7 +46,9 @@ describe('Navigation', () => {
 
     it('should render "Explain Anything" heading', () => {
       render(<Navigation />);
-      expect(screen.getByText('Explain Anything')).toBeInTheDocument();
+      // Heading now has "Explain" and "Anything" in separate spans
+      expect(screen.getByText('Explain')).toBeInTheDocument();
+      expect(screen.getByText('Anything')).toBeInTheDocument();
     });
 
     it('should render all navigation links', () => {
@@ -95,7 +97,7 @@ describe('Navigation', () => {
 
     it('should use default placeholder when not provided', () => {
       render(<Navigation showSearchBar={true} />);
-      expect(screen.getByText('Search any topic...')).toBeInTheDocument();
+      expect(screen.getByText('Search the archives...')).toBeInTheDocument();
     });
 
     it('should forward searchBarProps to SearchBar component', () => {
@@ -144,7 +146,8 @@ describe('Navigation', () => {
     it('should apply consistent styling classes to all navigation links', () => {
       render(<Navigation />);
       const homeLink = screen.getByText('Home').closest('a');
-      expect(homeLink).toHaveClass('text-gray-700', 'hover:text-blue-700');
+      // Uses CSS variable based styling
+      expect(homeLink).toHaveClass('scholar-nav-link', 'text-[var(--text-secondary)]');
     });
   });
 
@@ -189,29 +192,30 @@ describe('Navigation', () => {
   // Styling and Dark Mode Tests
   // ========================================================================
 
-  describe('Styling and Dark Mode', () => {
-    it('should apply dark mode classes to navigation bar', () => {
+  describe('Styling and Theme', () => {
+    it('should apply theme styling to navigation bar', () => {
       render(<Navigation />);
       const nav = screen.getByRole('navigation');
-      expect(nav).toHaveClass('bg-white', 'dark:bg-gray-800');
+      // Uses CSS variable based styling for light/dark mode support
+      expect(nav).toHaveClass('bg-[var(--surface-secondary)]');
     });
 
-    it('should apply dark mode classes to heading', () => {
+    it('should apply theme styling to heading', () => {
       render(<Navigation />);
-      const heading = screen.getByText('Explain Anything');
-      expect(heading).toHaveClass('text-gray-900', 'dark:text-white');
+      const heading = screen.getByRole('heading', { level: 1 });
+      expect(heading).toHaveClass('text-[var(--text-primary)]');
     });
 
     it('should have border styling', () => {
       render(<Navigation />);
       const nav = screen.getByRole('navigation');
-      expect(nav).toHaveClass('border-b', 'border-gray-200', 'dark:border-gray-700');
+      expect(nav).toHaveClass('border-b', 'border-[var(--border-default)]');
     });
 
     it('should apply transition classes to logout button', () => {
       render(<Navigation />);
       const logoutButton = screen.getByRole('button', { name: /logout/i });
-      expect(logoutButton).toHaveClass('transition-colors');
+      expect(logoutButton).toHaveClass('transition-all');
     });
   });
 
@@ -235,13 +239,13 @@ describe('Navigation', () => {
     it('should have focus ring classes for accessibility', () => {
       render(<Navigation />);
       const homeLink = screen.getByText('Home').closest('a');
-      expect(homeLink).toHaveClass('focus:outline-none', 'focus:ring-2');
+      expect(homeLink).toHaveClass('focus:outline-none', 'focus-visible:ring-2');
     });
 
     it('should have focus ring on logout button', () => {
       render(<Navigation />);
       const logoutButton = screen.getByRole('button', { name: /logout/i });
-      expect(logoutButton).toHaveClass('focus:outline-none', 'focus:ring-2');
+      expect(logoutButton).toHaveClass('focus:outline-none', 'focus-visible:ring-2');
     });
 
     it('should support keyboard navigation for all links', () => {
@@ -300,7 +304,8 @@ describe('Navigation', () => {
     it('should render correctly with all props omitted', () => {
       render(<Navigation />);
       expect(screen.getByRole('navigation')).toBeInTheDocument();
-      expect(screen.getByText('Explain Anything')).toBeInTheDocument();
+      expect(screen.getByText('Explain')).toBeInTheDocument();
+      expect(screen.getByText('Anything')).toBeInTheDocument();
       expect(screen.getByTestId('search-bar')).toBeInTheDocument();
     });
   });

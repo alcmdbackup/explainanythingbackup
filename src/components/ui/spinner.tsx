@@ -9,15 +9,15 @@ import { cn } from '@/lib/utils';
 type SpinnerVariantProps = Omit<SpinnerProps, 'variant'>;
 
 const Default = ({ className, ...props }: SpinnerVariantProps) => (
-  <LoaderIcon className={cn('animate-spin', className)} {...props} />
+  <LoaderIcon className={cn('animate-spin text-[var(--accent-gold)]', className)} {...props} />
 );
 
 const Circle = ({ className, ...props }: SpinnerVariantProps) => (
-  <LoaderCircleIcon className={cn('animate-spin', className)} {...props} />
+  <LoaderCircleIcon className={cn('animate-spin text-[var(--accent-gold)]', className)} {...props} />
 );
 
 const Pinwheel = ({ className, ...props }: SpinnerVariantProps) => (
-  <LoaderPinwheelIcon className={cn('animate-spin', className)} {...props} />
+  <LoaderPinwheelIcon className={cn('animate-spin text-[var(--accent-gold)]', className)} {...props} />
 );
 
 const CircleFilled = ({
@@ -28,26 +28,27 @@ const CircleFilled = ({
   <div className="relative" style={{ width: size, height: size }}>
     <div className="absolute inset-0 rotate-180">
       <LoaderCircleIcon
-        className={cn('animate-spin', className, 'text-foreground opacity-20')}
+        className={cn('animate-spin', className, 'text-[var(--accent-copper)] opacity-30')}
         size={size}
         {...props}
       />
     </div>
     <LoaderCircleIcon
-      className={cn('relative animate-spin', className)}
+      className={cn('relative animate-spin text-[var(--accent-gold)]', className)}
       size={size}
       {...props}
     />
   </div>
 );
 
-const Ellipsis = ({ size = 24, ...props }: SpinnerVariantProps) => {
+const Ellipsis = ({ size = 24, className, ...props }: SpinnerVariantProps) => {
   return (
     <svg
       height={size}
       viewBox="0 0 24 24"
       width={size}
       xmlns="http://www.w3.org/2000/svg"
+      className={cn('text-[var(--accent-gold)]', className)}
       {...props}
     >
       <title>Loading...</title>
@@ -87,13 +88,14 @@ const Ellipsis = ({ size = 24, ...props }: SpinnerVariantProps) => {
   );
 };
 
-const Ring = ({ size = 24, ...props }: SpinnerVariantProps) => (
+const Ring = ({ size = 24, className, ...props }: SpinnerVariantProps) => (
   <svg
     height={size}
     stroke="currentColor"
     viewBox="0 0 44 44"
     width={size}
     xmlns="http://www.w3.org/2000/svg"
+    className={cn('text-[var(--accent-gold)]', className)}
     {...props}
   >
     <title>Loading...</title>
@@ -146,12 +148,13 @@ const Ring = ({ size = 24, ...props }: SpinnerVariantProps) => (
   </svg>
 );
 
-const Bars = ({ size = 24, ...props }: SpinnerVariantProps) => (
+const Bars = ({ size = 24, className, ...props }: SpinnerVariantProps) => (
   <svg
     height={size}
     viewBox="0 0 24 24"
     width={size}
     xmlns="http://www.w3.org/2000/svg"
+    className={cn('text-[var(--accent-gold)]', className)}
     {...props}
   >
     <title>Loading...</title>
@@ -205,13 +208,14 @@ const Bars = ({ size = 24, ...props }: SpinnerVariantProps) => (
   </svg>
 );
 
-const Infinite = ({ size = 24, ...props }: SpinnerVariantProps) => (
+const Infinite = ({ size = 24, className, ...props }: SpinnerVariantProps) => (
   <svg
     height={size}
     preserveAspectRatio="xMidYMid"
     viewBox="0 0 100 100"
     width={size}
     xmlns="http://www.w3.org/2000/svg"
+    className={cn('text-[var(--accent-gold)]', className)}
     {...props}
   >
     <title>Loading...</title>
@@ -238,6 +242,55 @@ const Infinite = ({ size = 24, ...props }: SpinnerVariantProps) => (
   </svg>
 );
 
+// Quill writing animation - Midnight Scholar themed
+const Quill = ({ size = 24, className, ...props }: SpinnerVariantProps) => (
+  <svg
+    height={size}
+    viewBox="0 0 24 24"
+    width={size}
+    xmlns="http://www.w3.org/2000/svg"
+    className={cn('text-[var(--accent-gold)]', className)}
+    {...props}
+  >
+    <title>Writing...</title>
+    <style>{`
+      .quill-pen {
+        animation: quill-write 1.5s ease-in-out infinite;
+        transform-origin: 12px 20px;
+      }
+      @keyframes quill-write {
+        0%, 100% {
+          transform: rotate(-5deg) translateX(0);
+        }
+        50% {
+          transform: rotate(5deg) translateX(2px);
+        }
+      }
+    `}</style>
+    <g className="quill-pen" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 19l7-7 3 3-7 7-3-3z" />
+      <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18" />
+      <path d="M2 2l7.586 7.586" />
+      <circle cx="11" cy="11" r="2" fill="currentColor" />
+    </g>
+  </svg>
+);
+
+// Ink dots - elegant alternative loader
+const InkDots = ({ size = 24, className }: SpinnerVariantProps) => {
+  const numSize = typeof size === 'string' ? parseInt(size, 10) : size;
+  return (
+    <div
+      className={cn('ink-dots', className)}
+      style={{ width: numSize, height: numSize / 4 }}
+    >
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+};
+
 export type SpinnerProps = LucideProps & {
   variant?:
     | 'default'
@@ -247,7 +300,9 @@ export type SpinnerProps = LucideProps & {
     | 'ellipsis'
     | 'ring'
     | 'bars'
-    | 'infinite';
+    | 'infinite'
+    | 'quill'
+    | 'ink-dots';
 };
 
 export const Spinner = ({ variant, ...props }: SpinnerProps) => {
@@ -266,6 +321,10 @@ export const Spinner = ({ variant, ...props }: SpinnerProps) => {
       return <Bars {...props} />;
     case 'infinite':
       return <Infinite {...props} />;
+    case 'quill':
+      return <Quill {...props} />;
+    case 'ink-dots':
+      return <InkDots {...props} />;
     default:
       return <Default {...props} />;
   }

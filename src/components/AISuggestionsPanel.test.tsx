@@ -37,21 +37,21 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps({ isVisible: true });
       render(<AISuggestionsPanel {...props} />);
 
-      expect(screen.getByText('AI Suggestions')).toBeInTheDocument();
+      expect(screen.getByText('Marginalia')).toBeInTheDocument();
     });
 
     it('should not render when isVisible is false', () => {
       const props = createMockAISuggestionsPanelProps({ isVisible: false });
       render(<AISuggestionsPanel {...props} />);
 
-      expect(screen.queryByText('AI Suggestions')).not.toBeInTheDocument();
+      expect(screen.queryByText('Marginalia')).not.toBeInTheDocument();
     });
 
     it('should render panel header with title', () => {
       const props = createMockAISuggestionsPanelProps();
       render(<AISuggestionsPanel {...props} />);
 
-      expect(screen.getByRole('heading', { name: 'AI Suggestions' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Marginalia' })).toBeInTheDocument();
     });
 
     it('should render close button when onClose provided', () => {
@@ -75,7 +75,7 @@ describe('AISuggestionsPanel', () => {
       render(<AISuggestionsPanel {...props} />);
 
       expect(screen.getByLabelText(/what would you like to improve/i)).toBeInTheDocument();
-      expect(screen.getByPlaceholderText(/describe what you'd like to improve/i)).toBeInTheDocument();
+      expect(screen.getByPlaceholderText(/describe your desired changes/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /get ai suggestions/i })).toBeInTheDocument();
     });
 
@@ -85,15 +85,16 @@ describe('AISuggestionsPanel', () => {
 
       expect(screen.getByText(/describe the improvements you'd like to see/i)).toBeInTheDocument();
       expect(screen.getByText(/ai will analyze and enhance your content/i)).toBeInTheDocument();
-      expect(screen.getByText(/changes will be applied directly to the editor/i)).toBeInTheDocument();
+      expect(screen.getByText(/changes will be applied directly to your manuscript/i)).toBeInTheDocument();
     });
 
-    it('should apply dark mode styling classes', () => {
+    it('should apply theme styling classes', () => {
       const props = createMockAISuggestionsPanelProps();
       const { container } = render(<AISuggestionsPanel {...props} />);
 
       const panelDiv = container.firstChild as HTMLElement;
-      expect(panelDiv).toHaveClass('dark:bg-gray-800');
+      // CSS variable based styling supports both light/dark modes
+      expect(panelDiv).toHaveClass('bg-[var(--surface-secondary)]');
     });
   });
 
@@ -116,7 +117,7 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps();
       render(<AISuggestionsPanel {...props} />);
 
-      const textarea = screen.getByPlaceholderText(/describe what you'd like to improve/i);
+      const textarea = screen.getByPlaceholderText(/describe your desired changes/i);
       expect(textarea).toBeInTheDocument();
     });
 
@@ -267,7 +268,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: /generating/i })).toBeInTheDocument();
+        expect(screen.getByRole('button', { name: /composing/i })).toBeInTheDocument();
       });
     });
   });
@@ -424,8 +425,8 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
-        expect(screen.getByText(/your content has been updated with ai suggestions/i)).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
+        expect(screen.getByText(/Your manuscript has been updated with scholarly suggestions/i)).toBeInTheDocument();
       });
     });
 
@@ -445,12 +446,12 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
       // Button should show normal text again
       expect(screen.getByRole('button', { name: /get ai suggestions/i })).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /generating/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /composing/i })).not.toBeInTheDocument();
     });
   });
 
@@ -536,7 +537,7 @@ describe('AISuggestionsPanel', () => {
 
       // Button should be enabled again
       expect(button).not.toBeDisabled();
-      expect(screen.queryByRole('button', { name: /generating/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /composing/i })).not.toBeInTheDocument();
     });
 
     it('should handle network errors gracefully', async () => {
@@ -623,7 +624,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Processing AI Suggestions')).toBeInTheDocument();
+        expect(screen.getByText('The Scholar is Writing...')).toBeInTheDocument();
       });
     });
 
@@ -671,7 +672,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        const spinner = document.querySelector('.animate-spin');
+        const spinner = document.querySelector('.quill-pen');
         expect(spinner).toBeInTheDocument();
       });
     });
@@ -692,10 +693,10 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
-      expect(screen.queryByText('Processing AI Suggestions')).not.toBeInTheDocument();
+      expect(screen.queryByText('The Scholar is Writing...')).not.toBeInTheDocument();
     });
   });
 
@@ -773,7 +774,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
       expect(screen.queryByRole('link', { name: /debug in editortest/i })).not.toBeInTheDocument();
@@ -799,7 +800,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
       expect(screen.queryByRole('link', { name: /debug in editortest/i })).not.toBeInTheDocument();
@@ -820,7 +821,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
       // Clear and submit again
@@ -830,12 +831,12 @@ describe('AISuggestionsPanel', () => {
 
       // Success message should disappear during loading
       await waitFor(() => {
-        expect(screen.queryByText('Suggestions Applied')).not.toBeInTheDocument();
+        expect(screen.queryByText('Revisions Applied')).not.toBeInTheDocument();
       });
 
       // Then reappear after completion
       await waitFor(() => {
-        expect(screen.getByText('Suggestions Applied')).toBeInTheDocument();
+        expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
     });
   });

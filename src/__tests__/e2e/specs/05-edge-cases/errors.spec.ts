@@ -100,9 +100,9 @@ test.describe('Error Handling', () => {
       await page.unrouteAll();
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
-      // Submit new query using the search bar
+      // Submit new query using the search bar (nav variant uses Enter key, no submit button)
       await page.fill('[data-testid="search-input"]', 'successful query');
-      await page.click('[data-testid="search-submit"]');
+      await page.locator('[data-testid="search-input"]').press('Enter');
 
       // Wait for content to load
       await resultsPage.waitForAnyContent(30000);
