@@ -44,7 +44,7 @@ test.describe('User Library Management', () => {
     const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
     if (hasTable) {
       const pageTitle = await libraryPage.getPageTitle();
-      expect(pageTitle).toContain('Explanations');
+      expect(pageTitle).toContain('My Library');
     } else {
       // Error state - still valid behavior
       const hasError = await libraryPage.hasError();
@@ -64,7 +64,7 @@ test.describe('User Library Management', () => {
 
     // Check for sortable headers
     const titleHeader = authenticatedPage.locator('th:has-text("Title")');
-    const dateHeader = authenticatedPage.locator('th:has-text("Date Created")');
+    const dateHeader = authenticatedPage.locator('th:has-text("Created")');
 
     expect(await titleHeader.isVisible()).toBe(true);
     expect(await dateHeader.isVisible()).toBe(true);
@@ -103,7 +103,7 @@ test.describe('User Library Management', () => {
     await libraryPage.clickSortByDate();
 
     // Check that sort indicator appears
-    const dateHeader = authenticatedPage.locator('th:has-text("Date Created")');
+    const dateHeader = authenticatedPage.locator('th:has-text("Created")');
     const hasSortIndicator = await dateHeader.locator('svg').isVisible();
     expect(hasSortIndicator).toBe(true);
   });
@@ -138,8 +138,8 @@ test.describe('User Library Management', () => {
       return;
     }
 
-    // Date Saved column should be visible in user library
-    const hasDateSavedHeader = await authenticatedPage.locator('th:has-text("Date Saved")').isVisible();
+    // Saved column should be visible in user library
+    const hasDateSavedHeader = await authenticatedPage.locator('th:has-text("Saved")').isVisible();
     expect(hasDateSavedHeader).toBe(true);
   });
 
@@ -167,12 +167,10 @@ test.describe('User Library Management', () => {
       return;
     }
 
-    // Use the search bar in the navigation
+    // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');
     await searchInput.fill('quantum');
-
-    const searchButton = authenticatedPage.locator('[data-testid="search-submit"]');
-    await searchButton.click();
+    await searchInput.press('Enter');
 
     // Should navigate to results page
     await authenticatedPage.waitForURL(/\/results\?q=/, { timeout: 10000 });

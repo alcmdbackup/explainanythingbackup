@@ -82,12 +82,12 @@ export class UserLibraryPage extends BasePage {
   }
 
   async clickSortByDate() {
-    await this.page.locator('th:has-text("Date Created")').click();
+    await this.page.locator('th:has-text("Created")').click();
   }
 
   async getSortIndicator() {
     const titleHeader = this.page.locator('th:has-text("Title")');
-    const dateHeader = this.page.locator('th:has-text("Date Created")');
+    const dateHeader = this.page.locator('th:has-text("Created")');
 
     const titleHasAscending = await titleHeader.locator('svg.w-4.h-4').isVisible().catch(() => false);
     const dateHasAscending = await dateHeader.locator('svg.w-4.h-4').isVisible().catch(() => false);
@@ -112,7 +112,7 @@ export class UserLibraryPage extends BasePage {
 
   async searchFromLibrary(query: string) {
     await this.page.locator('[data-testid="search-input"]').fill(query);
-    await this.page.locator('[data-testid="search-submit"]').click();
+    await this.page.locator('[data-testid="search-input"]').press('Enter');
   }
 
   async waitForTableToLoad(timeout: number = 30000): Promise<boolean> {

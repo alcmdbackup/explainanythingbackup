@@ -31,7 +31,14 @@ export class SearchPage extends BasePage {
   }
 
   async clickSearch() {
-    await this.page.click(this.searchButton);
+    // Check if submit button exists (home variant has it, nav variant doesn't)
+    const buttonExists = await this.page.locator(this.searchButton).isVisible().catch(() => false);
+    if (buttonExists) {
+      await this.page.click(this.searchButton);
+    } else {
+      // Nav variant uses Enter key to submit
+      await this.page.locator(this.searchInput).press('Enter');
+    }
   }
 
   async getQueryValue() {
