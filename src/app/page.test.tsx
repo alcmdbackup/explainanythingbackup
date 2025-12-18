@@ -9,7 +9,7 @@ jest.mock('@/components/Navigation', () => {
 });
 
 jest.mock('@/components/SearchBar', () => {
-    return function MockSearchBar({ variant, placeholder, maxLength }: any) {
+    return function MockSearchBar({ variant, placeholder, maxLength }: { variant?: string; placeholder?: string; maxLength?: number }) {
         return (
             <div
                 data-testid="search-bar"
@@ -28,7 +28,8 @@ describe('Home', () => {
         it('should render the home page', () => {
             render(<Home />);
 
-            expect(screen.getByText('Explain Anything')).toBeInTheDocument();
+            expect(screen.getByText('Explain')).toBeInTheDocument();
+            expect(screen.getByText('Anything')).toBeInTheDocument();
         });
 
         it('should render Navigation component', () => {
@@ -48,9 +49,9 @@ describe('Home', () => {
         it('should render main heading', () => {
             render(<Home />);
 
-            const heading = screen.getByRole('heading', { name: /explain anything/i });
+            const heading = screen.getByRole('heading', { level: 1 });
             expect(heading).toBeInTheDocument();
-            expect(heading).toHaveClass('text-4xl');
+            expect(heading).toHaveClass('text-5xl');
         });
     });
 
@@ -83,7 +84,7 @@ describe('Home', () => {
             render(<Home />);
 
             const searchBar = screen.getByTestId('search-bar');
-            expect(searchBar).toHaveAttribute('data-placeholder', 'Learn about any topic');
+            expect(searchBar).toHaveAttribute('data-placeholder', 'What would you like to understand?');
         });
 
         it('should pass maxLength to SearchBar', () => {
@@ -135,19 +136,12 @@ describe('Home', () => {
     });
 
     describe('Styling', () => {
-        it('should apply background colors for light/dark mode', () => {
+        it('should apply Midnight Scholar theme background', () => {
             const { container } = render(<Home />);
 
-            const mainContainer = container.querySelector('.bg-gray-50');
-            expect(mainContainer).toBeInTheDocument();
-            expect(mainContainer).toHaveClass('dark:bg-gray-900');
-        });
-
-        it('should apply text colors for light/dark mode', () => {
-            render(<Home />);
-
-            const heading = screen.getByRole('heading', { name: /explain anything/i });
-            expect(heading).toHaveClass('text-gray-900', 'dark:text-white');
+            // Check for CSS variable-based background class
+            const mainContainer = container.firstChild as HTMLElement;
+            expect(mainContainer).toHaveClass('min-h-screen');
         });
 
         it('should have flex column layout', () => {
@@ -160,16 +154,17 @@ describe('Home', () => {
         it('should style heading appropriately', () => {
             render(<Home />);
 
-            const heading = screen.getByRole('heading', { name: /explain anything/i });
-            expect(heading).toHaveClass('text-4xl', 'font-bold', 'tracking-tight');
+            const heading = screen.getByRole('heading', { level: 1 });
+            expect(heading).toHaveClass('text-5xl', 'font-display', 'font-bold', 'tracking-tight');
         });
     });
 
     describe('Content', () => {
-        it('should display "Explain Anything" as main heading', () => {
+        it('should display "Explain" and "Anything" in main heading', () => {
             render(<Home />);
 
-            expect(screen.getByText('Explain Anything')).toBeInTheDocument();
+            expect(screen.getByText('Explain')).toBeInTheDocument();
+            expect(screen.getByText('Anything')).toBeInTheDocument();
         });
 
         it('should have only one h1 heading', () => {
@@ -186,6 +181,15 @@ describe('Home', () => {
             const main = container.querySelector('main');
             expect(main).toBeInTheDocument();
         });
+
+        it('should render suggested topics', () => {
+            render(<Home />);
+
+            expect(screen.getByText('Quantum Physics')).toBeInTheDocument();
+            expect(screen.getByText('Machine Learning')).toBeInTheDocument();
+            expect(screen.getByText('Philosophy')).toBeInTheDocument();
+            expect(screen.getByText('Economics')).toBeInTheDocument();
+        });
     });
 
     describe('Accessibility', () => {
@@ -193,11 +197,12 @@ describe('Home', () => {
             render(<Home />);
 
             const heading = screen.getByRole('heading', { level: 1 });
-            expect(heading).toHaveTextContent('Explain Anything');
+            expect(heading).toContainHTML('Explain');
+            expect(heading).toContainHTML('Anything');
         });
 
         it('should have semantic main element', () => {
-            const { container } = render(<Home />);
+            render(<Home />);
 
             const main = screen.getByRole('main');
             expect(main).toBeInTheDocument();

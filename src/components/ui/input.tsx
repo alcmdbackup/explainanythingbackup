@@ -8,7 +8,24 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
       <input
         type={type}
         className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+          // Base styles - ink-well inspired
+          "flex h-10 w-full rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-4 py-2.5",
+          // Typography
+          "font-body text-base text-[var(--text-primary)]",
+          // Shadow for depth
+          "shadow-page",
+          // Transitions
+          "transition-all duration-200",
+          // File input styling
+          "file:border-0 file:bg-transparent file:text-sm file:font-ui file:font-medium file:text-[var(--text-primary)]",
+          // Placeholder - italic scholarly style
+          "placeholder:text-[var(--text-muted)] placeholder:italic",
+          // Focus - gold ring
+          "focus-visible:outline-none focus-visible:border-[var(--accent-gold)] focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)]/20 focus-visible:shadow-gold-glow",
+          // Disabled state
+          "disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-[var(--surface-elevated)]",
+          // Responsive text size
+          "md:text-sm",
           className
         )}
         ref={ref}

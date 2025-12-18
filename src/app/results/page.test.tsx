@@ -199,8 +199,8 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
     it('should apply correct page structure', () => {
       const { container } = render(<ResultsPage />);
 
-      // Verify main container exists with correct classes
-      expect(container.querySelector('.dark\\:bg-gray-900')).toBeInTheDocument();
+      // Verify main container exists with correct classes (uses CSS variable-based theming)
+      expect(container.querySelector('.bg-\\[var\\(--surface-primary\\)\\]')).toBeInTheDocument();
     });
   });
 

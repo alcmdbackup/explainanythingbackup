@@ -36,6 +36,7 @@ export default function UserLibraryPage() {
         <ExplanationsTablePage
             explanations={userExplanations.map(e => ({ ...e, dateSaved: e.saved_timestamp }))}
             error={error}
+            pageTitle="My Library"
         />
     );
 } 

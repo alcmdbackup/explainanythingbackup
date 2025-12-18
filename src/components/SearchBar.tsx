@@ -15,20 +15,23 @@ interface SearchBarProps {
 
 /**
  * Reusable search bar component with two variants:
- * - home: Large centered search for the home page
- * - nav: Compact search for navigation bars
- * 
- * Handles form submission and navigation to results page
- * Supports controlled input with external value management
+ * - home: Large centered search for the home page (catalog card style)
+ * - nav: Compact search for navigation bars (inline style)
+ *
+ * Midnight Scholar theme:
+ * - Book-edge rounded corners
+ * - Gold focus ring and border
+ * - Italic serif placeholder
+ * - Warm shadows
  */
-export default function SearchBar({ 
-    variant = 'home', 
-    placeholder = 'Learn about any topic',
+export default function SearchBar({
+    variant = 'home',
+    placeholder = 'Search any topic...',
     maxLength = 150,
     className = '',
     initialValue = '',
     onSearch,
-    disabled = false //not all pages have a React state to attach to this
+    disabled = false
 }: SearchBarProps) {
     const [prompt, setPrompt] = useState(initialValue);
     const router = useRouter();
@@ -71,37 +74,93 @@ export default function SearchBar({
 
     return (
         <form onSubmit={handleSubmit} className={`w-full ${className}`}>
-            <div className={`flex items-center bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 shadow-sm focus-within:ring-2 focus-within:ring-blue-600 focus-within:border-blue-600 dark:focus-within:ring-blue-500 dark:focus-within:border-blue-500 transition-all duration-200 ${
-                isHomeVariant ? 'rounded-full' : 'rounded-lg'
-            }`}>
+            <div className={`
+                flex items-center
+                bg-[var(--surface-secondary)]
+                border border-[var(--border-default)]
+                shadow-warm
+                transition-all duration-200
+                focus-within:border-[var(--accent-gold)]
+                focus-within:shadow-gold-glow
+                focus-within:ring-2 focus-within:ring-[var(--accent-gold)]/20
+                ${isHomeVariant
+                    ? 'rounded-book'
+                    : 'rounded-page'
+                }
+            `}>
+                {/* Magnifying glass icon */}
+                <div className={`flex-shrink-0 text-[var(--text-muted)] ${isHomeVariant ? 'pl-5' : 'pl-3'}`}>
+                    <svg
+                        className={`${isHomeVariant ? 'w-5 h-5' : 'w-4 h-4'}`}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                    >
+                        <circle cx="11" cy="11" r="8" />
+                        <path d="m21 21-4.35-4.35" />
+                    </svg>
+                </div>
+
                 <InputComponent
                     value={prompt}
                     onChange={handlePromptChange}
                     onKeyDown={isHomeVariant ? handleKeyDown : undefined}
                     data-testid="search-input"
-                    className={`flex-1 bg-transparent border-0 focus:outline-none focus:ring-0 resize-none dark:text-white placeholder-gray-500 dark:placeholder-gray-400 ${
-                        isHomeVariant
-                            ? 'px-4 py-2.5 rounded-l-full text-base'
-                            : 'px-3 py-1.5 rounded-l-lg text-sm'
-                    }`}
+                    className={`
+                        flex-1 bg-transparent border-0
+                        focus:outline-none focus:ring-0
+                        resize-none
+                        font-body
+                        text-[var(--text-primary)]
+                        placeholder:text-[var(--text-muted)]
+                        placeholder:italic
+                        disabled:opacity-50
+                        ${isHomeVariant
+                            ? 'px-4 py-3.5 text-base'
+                            : 'px-3 py-2 text-sm'
+                        }
+                    `}
                     placeholder={placeholder}
                     maxLength={maxLength}
                     disabled={disabled}
                     {...inputProps}
                 />
+
                 <button
                     type="submit"
                     disabled={disabled || !prompt.trim()}
                     data-testid="search-submit"
-                    className={`text-white focus:outline-none focus:ring-2 focus:ring-blue-600 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 bg-blue-600 hover:bg-blue-700 ${
-                        isHomeVariant
-                            ? 'px-6 py-2.5 rounded-r-full text-base'
-                            : 'px-3 py-1.5 rounded-r-lg text-sm'
-                    }`}
+                    className={`
+                        font-ui font-medium
+                        text-[var(--text-on-primary)]
+                        bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)]
+                        focus:outline-none
+                        focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                        transition-all duration-200
+                        hover:shadow-warm-md
+                        hover:-translate-y-px
+                        active:translate-y-0
+                        ${isHomeVariant
+                            ? 'px-6 py-3.5 rounded-r-book text-base'
+                            : 'px-4 py-2 rounded-r-page text-sm'
+                        }
+                    `}
                 >
-                    {disabled ? 'Searching...' : isHomeVariant ? 'Search Topic' : 'Search'}
+                    {disabled ? (
+                        <span className="flex items-center gap-2">
+                            <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                            </svg>
+                            Searching...
+                        </span>
+                    ) : (
+                        isHomeVariant ? 'Explore' : 'Search'
+                    )}
                 </button>
             </div>
         </form>
     );
-} 
+}

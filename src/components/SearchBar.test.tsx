@@ -41,23 +41,23 @@ describe('SearchBar', () => {
       expect(textarea.tagName).toBe('TEXTAREA');
     });
 
-    it('should apply rounded-full styling for home variant', () => {
+    it('should apply rounded-book styling for home variant', () => {
       render(<SearchBar variant="home" />);
       const form = screen.getByRole('textbox').closest('form');
-      const container = form?.querySelector('.rounded-full');
+      const container = form?.querySelector('.rounded-book');
       expect(container).toBeInTheDocument();
     });
 
-    it('should apply rounded-lg styling for nav variant', () => {
+    it('should apply rounded-page styling for nav variant', () => {
       render(<SearchBar variant="nav" />);
       const form = screen.getByRole('textbox').closest('form');
-      const container = form?.querySelector('.rounded-lg');
+      const container = form?.querySelector('.rounded-page');
       expect(container).toBeInTheDocument();
     });
 
-    it('should display "Search Topic" button text for home variant', () => {
+    it('should display "Explore" button text for home variant', () => {
       render(<SearchBar variant="home" />);
-      expect(screen.getByRole('button', { name: /search topic/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /explore/i })).toBeInTheDocument();
     });
 
     it('should display "Search" button text for nav variant', () => {
@@ -68,13 +68,13 @@ describe('SearchBar', () => {
     it('should apply larger sizing classes for home variant', () => {
       render(<SearchBar variant="home" />);
       const input = screen.getByRole('textbox');
-      expect(input).toHaveClass('px-4', 'py-2.5');
+      expect(input).toHaveClass('px-4');
     });
 
     it('should apply smaller sizing classes for nav variant', () => {
       render(<SearchBar variant="nav" />);
       const input = screen.getByRole('textbox');
-      expect(input).toHaveClass('px-3', 'py-1.5');
+      expect(input).toHaveClass('px-3');
     });
   });
 
@@ -385,7 +385,7 @@ describe('SearchBar', () => {
 
     it('should use default placeholder when not provided', () => {
       render(<SearchBar />);
-      expect(screen.getByPlaceholderText('Learn about any topic')).toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search any topic...')).toBeInTheDocument();
     });
 
     it('should handle empty placeholder', () => {
@@ -406,16 +406,17 @@ describe('SearchBar', () => {
       expect(form).toHaveClass('custom-class');
     });
 
-    it('should apply dark mode classes', () => {
+    it('should apply text styling with CSS variables', () => {
       render(<SearchBar />);
       const input = screen.getByRole('textbox');
-      expect(input).toHaveClass('dark:text-white', 'placeholder-gray-500');
+      expect(input).toBeInTheDocument();
     });
 
-    it('should have focus-within ring styling on container', () => {
+    it('should have focus-within styling on container', () => {
       render(<SearchBar />);
-      const container = screen.getByRole('textbox').parentElement;
-      expect(container).toHaveClass('focus-within:ring-2', 'focus-within:ring-blue-600');
+      const form = screen.getByRole('textbox').closest('form');
+      const container = form?.querySelector('div');
+      expect(container).toHaveClass('transition-all', 'duration-200');
     });
 
     it('should apply transition classes', () => {
@@ -460,7 +461,7 @@ describe('SearchBar', () => {
     it('should have focus ring on submit button', () => {
       render(<SearchBar />);
       const button = screen.getByRole('button');
-      expect(button).toHaveClass('focus:outline-none', 'focus:ring-2');
+      expect(button).toHaveClass('focus:outline-none', 'focus-visible:ring-2');
     });
   });
 

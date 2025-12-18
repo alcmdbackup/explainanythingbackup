@@ -23,6 +23,10 @@ import { Spinner } from '@/components/ui/spinner';
 import { login, signup } from './actions';
 import { loginSchema, type LoginInput } from './validation';
 
+/**
+ * Login Page - Library Entry
+ * Midnight Scholar theme - Elegant authentication experience
+ */
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -73,162 +77,193 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-background to-muted p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1">
-          <CardTitle className="text-2xl font-bold">
-            {isSignup ? 'Create an account' : 'Welcome back'}
-          </CardTitle>
-          <CardDescription>
-            {isSignup
-              ? 'Enter your email to create your account'
-              : 'Enter your email and password to login'}
-          </CardDescription>
-        </CardHeader>
+    <div className="flex min-h-screen items-center justify-center bg-[var(--surface-primary)] p-4 relative">
+      {/* Decorative background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[var(--accent-gold)]/5 rounded-full blur-3xl"></div>
+        <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-[var(--accent-copper)]/5 rounded-full blur-3xl"></div>
+      </div>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
-            {formError && (
-              <div
-                data-testid="login-error"
-                className="rounded-md bg-destructive/10 p-3 text-sm text-destructive"
-              >
-                {formError}
-              </div>
-            )}
+      <div className="relative z-10 w-full max-w-md">
+        {/* Header flourish */}
+        <div className="text-center mb-6">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="h-px w-8 bg-gradient-to-r from-transparent to-[var(--accent-gold)]"></div>
+            <svg
+              className="w-8 h-8 text-[var(--accent-gold)]"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+            >
+              <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+            <div className="h-px w-8 bg-gradient-to-l from-transparent to-[var(--accent-gold)]"></div>
+          </div>
+          <Link href="/" className="inline-block">
+            <h1 className="text-2xl font-display font-bold text-[var(--text-primary)] tracking-tight">
+              <span className="text-[var(--accent-gold)]">Explain</span>
+              <span>Anything</span>
+            </h1>
+          </Link>
+        </div>
 
-            {signupSuccess && (
-              <div
-                data-testid="signup-success"
-                className="rounded-md bg-green-100 p-3 text-sm text-green-800 dark:bg-green-900/30 dark:text-green-400"
-              >
-                Check your email for a confirmation link to complete your signup.
-              </div>
-            )}
+        <Card className="scholar-card">
+          <CardHeader className="space-y-1 text-center">
+            <CardTitle className="text-xl font-display">
+              {isSignup ? 'Join the Library' : 'Enter the Library'}
+            </CardTitle>
+            <CardDescription className="font-serif italic">
+              {isSignup
+                ? 'Create your scholarly account'
+                : 'Welcome back, scholar'}
+            </CardDescription>
+          </CardHeader>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                data-testid="login-email"
-                type="email"
-                placeholder="name@example.com"
-                disabled={isLoading}
-                {...register('email')}
-                aria-invalid={!!errors.email}
-                aria-describedby={errors.email ? 'email-error' : undefined}
-              />
-              {errors.email && (
-                <p id="email-error" className="text-sm text-destructive">
-                  {errors.email.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Input
-                  id="password"
-                  data-testid="login-password"
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  disabled={isLoading}
-                  {...register('password')}
-                  aria-invalid={!!errors.password}
-                  aria-describedby={errors.password ? 'password-error' : undefined}
-                  className="pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  disabled={isLoading}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+          <form onSubmit={handleSubmit(onSubmit)}>
+            <CardContent className="space-y-4">
+              {formError && (
+                <div
+                  data-testid="login-error"
+                  className="p-3 text-sm bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)] font-serif"
                 >
-                  {showPassword ? (
-                    <EyeOff className="h-4 w-4" />
-                  ) : (
-                    <Eye className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
-              {errors.password && (
-                <p id="password-error" className="text-sm text-destructive">
-                  {errors.password.message}
-                </p>
-              )}
-            </div>
-
-            {!isSignup && (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="rememberMe"
-                    checked={rememberMe}
-                    onCheckedChange={(checked) =>
-                      setValue('rememberMe', checked as boolean)
-                    }
-                    disabled={isLoading}
-                  />
-                  <Label
-                    htmlFor="rememberMe"
-                    className="text-sm font-normal cursor-pointer"
-                  >
-                    Remember me
-                  </Label>
+                  {formError}
                 </div>
-
-                <Link
-                  href="/forgot-password"
-                  className="text-sm text-muted-foreground hover:text-foreground underline-offset-4 hover:underline"
-                  tabIndex={isLoading ? -1 : 0}
-                >
-                  Forgot password?
-                </Link>
-              </div>
-            )}
-          </CardContent>
-
-          <CardFooter className="flex flex-col space-y-4">
-            <Button
-              type="submit"
-              data-testid="login-submit"
-              className="w-full"
-              disabled={isLoading}
-            >
-              {isLoading ? (
-                <>
-                  <Spinner variant="circle" size={16} className="mr-2" />
-                  {isSignup ? 'Creating account...' : 'Logging in...'}
-                </>
-              ) : (
-                <>{isSignup ? 'Sign up' : 'Log in'}</>
               )}
-            </Button>
 
-            <div className="relative w-full">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">or</span>
-              </div>
-            </div>
+              {signupSuccess && (
+                <div
+                  data-testid="signup-success"
+                  className="p-3 text-sm bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page text-[var(--accent-gold)] font-serif"
+                >
+                  Check your email for a confirmation link to complete your registration.
+                </div>
+              )}
 
-            <Button
-              type="button"
-              variant="outline"
-              data-testid="signup-toggle"
-              className="w-full"
-              onClick={() => setIsSignup(!isSignup)}
-              disabled={isLoading}
-            >
-              {isSignup ? 'Already have an account? Log in' : "Don't have an account? Sign up"}
-            </Button>
-          </CardFooter>
-        </form>
-      </Card>
+              <div className="space-y-2">
+                <Label htmlFor="email" className="font-sans">Email</Label>
+                <Input
+                  id="email"
+                  data-testid="login-email"
+                  type="email"
+                  placeholder="scholar@example.com"
+                  disabled={isLoading}
+                  {...register('email')}
+                  aria-invalid={!!errors.email}
+                  aria-describedby={errors.email ? 'email-error' : undefined}
+                />
+                {errors.email && (
+                  <p id="email-error" className="text-sm text-[var(--destructive)] font-sans">
+                    {errors.email.message}
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password" className="font-sans">Password</Label>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    data-testid="login-password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    disabled={isLoading}
+                    {...register('password')}
+                    aria-invalid={!!errors.password}
+                    aria-describedby={errors.password ? 'password-error' : undefined}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
+                    disabled={isLoading}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
+                {errors.password && (
+                  <p id="password-error" className="text-sm text-[var(--destructive)] font-sans">
+                    {errors.password.message}
+                  </p>
+                )}
+              </div>
+
+              {!isSignup && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Checkbox
+                      id="rememberMe"
+                      checked={rememberMe}
+                      onCheckedChange={(checked) =>
+                        setValue('rememberMe', checked as boolean)
+                      }
+                      disabled={isLoading}
+                    />
+                    <Label
+                      htmlFor="rememberMe"
+                      className="text-sm font-sans font-normal cursor-pointer text-[var(--text-secondary)]"
+                    >
+                      Remember me
+                    </Label>
+                  </div>
+
+                  <Link
+                    href="/forgot-password"
+                    className="text-sm font-sans text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors gold-underline"
+                    tabIndex={isLoading ? -1 : 0}
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              )}
+            </CardContent>
+
+            <CardFooter className="flex flex-col space-y-4">
+              <Button
+                type="submit"
+                data-testid="login-submit"
+                className="w-full"
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <>
+                    <Spinner variant="quill" size={16} className="mr-2" />
+                    {isSignup ? 'Creating account...' : 'Entering...'}
+                  </>
+                ) : (
+                  <>{isSignup ? 'Create Account' : 'Enter the Library'}</>
+                )}
+              </Button>
+
+              <div className="relative w-full">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t border-[var(--border-default)]" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-[var(--surface-secondary)] px-2 text-[var(--text-muted)] font-sans">or</span>
+                </div>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                data-testid="signup-toggle"
+                className="w-full"
+                onClick={() => setIsSignup(!isSignup)}
+                disabled={isLoading}
+              >
+                {isSignup ? 'Already a member? Enter' : 'New here? Join us'}
+              </Button>
+            </CardFooter>
+          </form>
+        </Card>
+      </div>
     </div>
   );
 }

@@ -8,22 +8,14 @@ import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
 import Navigation from '@/components/Navigation';
 
 /**
- * ExplanationsTablePage component
- * - Renders the navigation bar and search bar (optional, default true)
- * - Renders a sortable table of explanations with title, content preview, and date
- * - Handles sorting by title or date, ascending/descending
- * - Navigates to explanation details on View link click
- * - Receives explanations and error as props from parent
- * - Uses stripTitleFromContent to show content preview without title
- *
- * Used by: ExplanationsPage, other pages that need a full explanations table with navigation
- * Calls: Navigation, SearchBar, formatUserFriendlyDate
+ * ExplanationsTablePage component - Library Catalog
+ * Midnight Scholar theme - Elegant table display for browsing explanations
  */
 export default function ExplanationsTablePage({
     explanations,
     error,
     showNavigation = true,
-    pageTitle = 'All Explanations',
+    pageTitle = 'The Archives',
 }: {
     explanations: (ExplanationFullDbType & { dateSaved?: string })[];
     error: string | null;
@@ -66,16 +58,15 @@ export default function ExplanationsTablePage({
         }
     };
 
-    // Determine if any explanation has dateSaved
     const hasDateSaved = explanations.some(e => e.dateSaved);
 
     return (
-        <div className="min-h-screen bg-white dark:bg-gray-900">
+        <div className="min-h-screen bg-[var(--surface-primary)]">
             {showNavigation && (
                 <Navigation
                     showSearchBar={true}
                     searchBarProps={{
-                        placeholder: 'Search any topic...',
+                        placeholder: 'Search the archives...',
                         maxLength: 100,
                         onSearch: (query: string) => {
                             if (!query.trim()) return;
@@ -84,87 +75,132 @@ export default function ExplanationsTablePage({
                     }}
                 />
             )}
-            <main className="container mx-auto px-4 py-8">
-                <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">
-                    {pageTitle}
-                </h1>
+            <main className="container mx-auto px-4 py-8 max-w-6xl">
+                {/* Page Header */}
+                <div className="mb-8">
+                    <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
+                        {pageTitle}
+                    </h1>
+                    <div className="title-flourish mt-4"></div>
+                </div>
+
                 {error && (
-                    <div className="mb-6 p-4 bg-red-100 text-red-700 rounded-md">
-                        {error}
+                    <div className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
+                        <span className="font-serif">{error}</span>
                     </div>
                 )}
-                {/* Subtle divider for aesthetics */}
-                <div className="h-px bg-gradient-to-r from-transparent via-gray-300/50 to-transparent dark:via-gray-600/50 my-6"></div>
+
                 {explanations.length === 0 ? (
-                    <div className="text-center py-16 text-gray-500 dark:text-gray-400">
-                        <p>You do not have any items in your library.</p>
-                        <p className="mt-2">Save some to get started.</p>
+                    <div className="text-center py-16 scholar-card">
+                        <svg
+                            className="w-16 h-16 mx-auto mb-4 text-[var(--accent-gold)]/50"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1"
+                        >
+                            <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                        <p className="font-serif text-[var(--text-muted)] italic text-lg">Your library awaits its first manuscript.</p>
+                        <p className="font-sans text-sm text-[var(--text-muted)] mt-2">Save explanations to build your personal collection.</p>
+                        <Link
+                            href="/"
+                            className="inline-flex items-center mt-6 px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-page shadow-warm hover:shadow-warm-md transition-all duration-200"
+                        >
+                            Begin Exploring
+                        </Link>
                     </div>
                 ) : (
-                /* Table layout for explanations */
-                <div className="overflow-x-auto rounded-lg shadow border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 max-h-[70vh]">
-                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                        <thead className="bg-gradient-to-r from-blue-600 to-blue-400 dark:from-blue-800 dark:to-blue-700 text-white border-b-2 border-blue-400 shadow-md sticky top-0 z-10">
-                            <tr>
-                                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider cursor-pointer select-none" onClick={() => handleSort('title')}>
-                                    Title
-                                    {sortBy === 'title' && (
-                                        sortOrder === 'asc' ? <ArrowUpIcon className="inline w-4 h-4 ml-1" /> : <ArrowDownIcon className="inline w-4 h-4 ml-1" />
-                                    )}
-                                </th>
-                                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">Content</th>
-                                <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider cursor-pointer select-none" onClick={() => handleSort('date')}>
-                                    Date Created
-                                    {sortBy === 'date' && (
-                                        sortOrder === 'asc' ? <ArrowUpIcon className="inline w-4 h-4 ml-1" /> : <ArrowDownIcon className="inline w-4 h-4 ml-1" />
-                                    )}
-                                </th>
-                                {hasDateSaved && (
-                                    <th className="px-6 py-4 text-left text-xs font-bold uppercase tracking-wider">
-                                        Date Saved
-                                    </th>
-                                )}
-                                <th className="px-6 py-4"></th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                            {getSortedExplanations().map((explanation) => (
-                                <tr
-                                    key={explanation.id}
-                                    data-testid="explanation-row"
-                                    className="odd:bg-gray-50 even:bg-white dark:odd:bg-gray-800 dark:even:bg-gray-900 hover:bg-blue-100 dark:hover:bg-blue-800 transition-colors"
-                                >
-                                    <td data-testid="explanation-title" className="px-6 py-4 whitespace-nowrap font-medium text-gray-900 dark:text-white">
-                                        {explanation.explanation_title}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-gray-600 dark:text-gray-400 max-w-xs truncate">
-                                        {stripTitleFromContent(explanation.content)}
-                                    </td>
-                                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                        {formatUserFriendlyDate(explanation.timestamp)}
-                                    </td>
-                                    {hasDateSaved && (
-                                        <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                            {explanation.dateSaved
-                                                ? formatUserFriendlyDate(explanation.dateSaved)
-                                                : '-'}
-                                        </td>
-                                    )}
-                                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                                        <Link
-                                            href={`/results?explanation_id=${explanation.id}`}
-                                            className="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
+                    <div className="scholar-card overflow-hidden">
+                        <div className="overflow-x-auto max-h-[70vh]">
+                            <table className="min-w-full">
+                                <thead className="bg-[var(--surface-elevated)] border-b-2 border-[var(--accent-gold)]/30 sticky top-0 z-10">
+                                    <tr>
+                                        <th
+                                            className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--accent-copper)] transition-colors"
+                                            onClick={() => handleSort('title')}
                                         >
-                                            View
-                                        </Link>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
+                                            <span className="flex items-center gap-1">
+                                                Title
+                                                {sortBy === 'title' && (
+                                                    sortOrder === 'asc' ? <ArrowUpIcon className="w-3 h-3" /> : <ArrowDownIcon className="w-3 h-3" />
+                                                )}
+                                            </span>
+                                        </th>
+                                        <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                                            Preview
+                                        </th>
+                                        <th
+                                            className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--accent-copper)] transition-colors"
+                                            onClick={() => handleSort('date')}
+                                        >
+                                            <span className="flex items-center gap-1">
+                                                Created
+                                                {sortBy === 'date' && (
+                                                    sortOrder === 'asc' ? <ArrowUpIcon className="w-3 h-3" /> : <ArrowDownIcon className="w-3 h-3" />
+                                                )}
+                                            </span>
+                                        </th>
+                                        {hasDateSaved && (
+                                            <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                                                Saved
+                                            </th>
+                                        )}
+                                        <th className="px-6 py-4"></th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-[var(--border-default)]">
+                                    {getSortedExplanations().map((explanation, index) => (
+                                        <tr
+                                            key={explanation.id}
+                                            data-testid="explanation-row"
+                                            className={`
+                                                ${index % 2 === 0 ? 'bg-[var(--surface-secondary)]' : 'bg-[var(--surface-elevated)]/50'}
+                                                hover:bg-[var(--accent-gold)]/5 transition-colors cursor-pointer
+                                            `}
+                                            onClick={() => window.location.href = `/results?explanation_id=${explanation.id}`}
+                                        >
+                                            <td data-testid="explanation-title" className="px-6 py-4 whitespace-nowrap">
+                                                <span className="font-display font-medium text-[var(--text-primary)]">
+                                                    {explanation.explanation_title}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap max-w-xs">
+                                                <span className="font-serif text-sm text-[var(--text-secondary)] truncate block">
+                                                    {stripTitleFromContent(explanation.content)}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 whitespace-nowrap">
+                                                <span className="text-sm font-sans text-[var(--text-muted)]">
+                                                    {formatUserFriendlyDate(explanation.timestamp)}
+                                                </span>
+                                            </td>
+                                            {hasDateSaved && (
+                                                <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap">
+                                                    <span className="text-sm font-sans text-[var(--text-muted)]">
+                                                        {explanation.dateSaved
+                                                            ? formatUserFriendlyDate(explanation.dateSaved)
+                                                            : '—'}
+                                                    </span>
+                                                </td>
+                                            )}
+                                            <td className="px-6 py-4 whitespace-nowrap text-right">
+                                                <Link
+                                                    href={`/results?explanation_id=${explanation.id}`}
+                                                    className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] transition-colors gold-underline"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    View →
+                                                </Link>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 )}
             </main>
         </div>
     );
-} 
+}

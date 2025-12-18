@@ -102,14 +102,14 @@ describe('ExplanationsTablePage', () => {
 
     it('should use default pageTitle when not provided', () => {
       render(<ExplanationsTablePage explanations={[]} error={null} />);
-      expect(screen.getByText('All Explanations')).toBeInTheDocument();
+      expect(screen.getByText('The Archives')).toBeInTheDocument();
     });
 
     it('should render table headers', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
       expect(screen.getByText('Title')).toBeInTheDocument();
-      expect(screen.getByText('Content')).toBeInTheDocument();
-      expect(screen.getByText('Date Created')).toBeInTheDocument();
+      expect(screen.getByText('Preview')).toBeInTheDocument();
+      expect(screen.getByText('Created')).toBeInTheDocument();
     });
 
     it('should render explanation titles', () => {
@@ -121,7 +121,7 @@ describe('ExplanationsTablePage', () => {
 
     it('should render View links for each explanation', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
-      const viewLinks = screen.getAllByText('View');
+      const viewLinks = screen.getAllByText(/View →/);
       expect(viewLinks).toHaveLength(3);
     });
   });
@@ -214,7 +214,7 @@ describe('ExplanationsTablePage', () => {
       const user = userEvent.setup();
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
       await user.click(dateHeader);
 
       const rows = screen.getAllByRole('row').slice(1);
@@ -226,7 +226,7 @@ describe('ExplanationsTablePage', () => {
       const user = userEvent.setup();
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
       await user.click(dateHeader); // asc
       await user.click(dateHeader); // desc
 
@@ -238,7 +238,7 @@ describe('ExplanationsTablePage', () => {
     it('should display down arrow when sorting date descending (default)', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
       expect(within(dateHeader).getByTestId('arrow-down-icon')).toBeInTheDocument();
     });
 
@@ -246,7 +246,7 @@ describe('ExplanationsTablePage', () => {
       const user = userEvent.setup();
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
       await user.click(dateHeader);
 
       expect(within(dateHeader).getByTestId('arrow-up-icon')).toBeInTheDocument();
@@ -262,7 +262,7 @@ describe('ExplanationsTablePage', () => {
       const user = userEvent.setup();
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
 
       // Initially desc, click for asc
       await user.click(dateHeader);
@@ -277,7 +277,7 @@ describe('ExplanationsTablePage', () => {
       const user = userEvent.setup();
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
       const titleHeader = screen.getByText('Title').closest('th')!;
 
       // Date starts desc, switch to title
@@ -291,7 +291,7 @@ describe('ExplanationsTablePage', () => {
       const user = userEvent.setup();
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const dateHeader = screen.getByText('Date Created').closest('th')!;
+      const dateHeader = screen.getByText('Created').closest('th')!;
       const titleHeader = screen.getByText('Title').closest('th')!;
 
       // Date has arrow initially
@@ -361,7 +361,10 @@ describe('ExplanationsTablePage', () => {
       render(<ExplanationsTablePage explanations={explanations} error={null} />);
 
       const contentCell = screen.getByText(/Long content/).closest('td');
-      expect(contentCell).toHaveClass('truncate', 'max-w-xs');
+      expect(contentCell).toHaveClass('max-w-xs');
+      // Truncation is applied to the inner span
+      const contentSpan = screen.getByText(/Long content/);
+      expect(contentSpan).toHaveClass('truncate', 'block');
     });
   });
 
@@ -411,13 +414,13 @@ describe('ExplanationsTablePage', () => {
       ];
       render(<ExplanationsTablePage explanations={explanations} error={null} />);
 
-      expect(screen.getByText('Date Saved')).toBeInTheDocument();
+      expect(screen.getByText('Saved')).toBeInTheDocument();
     });
 
     it('should hide Date Saved column when data lacks dateSaved', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      expect(screen.queryByText('Date Saved')).not.toBeInTheDocument();
+      expect(screen.queryByText('Saved')).not.toBeInTheDocument();
     });
 
     it('should display dateSaved value when present', () => {
@@ -436,7 +439,7 @@ describe('ExplanationsTablePage', () => {
       ];
       render(<ExplanationsTablePage explanations={explanations} error={null} />);
 
-      expect(screen.getByText('-')).toBeInTheDocument();
+      expect(screen.getByText('—')).toBeInTheDocument();
     });
   });
 
@@ -451,14 +454,14 @@ describe('ExplanationsTablePage', () => {
       ];
       render(<ExplanationsTablePage explanations={explanations} error={null} />);
 
-      const link = screen.getByText('View').closest('a');
+      const link = screen.getByText(/View →/).closest('a');
       expect(link).toHaveAttribute('href', '/results?explanation_id=123');
     });
 
     it('should include explanation_id in URL for all explanations', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const links = screen.getAllByText('View').map(el => el.closest('a'));
+      const links = screen.getAllByText(/View →/).map(el => el.closest('a'));
       // Default sort is date descending, so order is 3, 2, 1
       expect(links[0]).toHaveAttribute('href', '/results?explanation_id=3');
       expect(links[1]).toHaveAttribute('href', '/results?explanation_id=2');
@@ -468,7 +471,7 @@ describe('ExplanationsTablePage', () => {
     it('should make View link clickable', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const link = screen.getAllByText('View')[0].closest('a');
+      const link = screen.getAllByText(/View →/)[0].closest('a');
       expect(link).toBeInTheDocument();
       expect(link?.tagName).toBe('A');
     });
@@ -488,8 +491,10 @@ describe('ExplanationsTablePage', () => {
     it('should style error message with red background', () => {
       render(<ExplanationsTablePage explanations={[]} error="Error occurred" />);
 
-      const errorDiv = screen.getByText('Error occurred');
-      expect(errorDiv).toHaveClass('mb-6', 'p-4', 'bg-red-100', 'text-red-700');
+      const errorSpan = screen.getByText('Error occurred');
+      const errorDiv = errorSpan.closest('div');
+      expect(errorDiv).toHaveClass('mb-6', 'p-4', 'border-l-4');
+      expect(errorSpan).toHaveClass('font-serif');
     });
 
     it('should show table even when error exists', () => {
@@ -502,7 +507,8 @@ describe('ExplanationsTablePage', () => {
     it('should not display error div when error is null', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const errorDiv = document.querySelector('.bg-red-100');
+      // When no error, the error div with border-l-4 should not exist
+      const errorDiv = document.querySelector('.border-l-4.border-l-\\[var\\(--destructive\\)\\]');
       expect(errorDiv).not.toBeInTheDocument();
     });
   });
@@ -515,8 +521,8 @@ describe('ExplanationsTablePage', () => {
     it('should show empty state message when no explanations', () => {
       render(<ExplanationsTablePage explanations={[]} error={null} />);
 
-      expect(screen.getByText('You do not have any items in your library.')).toBeInTheDocument();
-      expect(screen.getByText('Save some to get started.')).toBeInTheDocument();
+      expect(screen.getByText('Your library awaits its first manuscript.')).toBeInTheDocument();
+      expect(screen.getByText('Save explanations to build your personal collection.')).toBeInTheDocument();
     });
 
     it('should not show table when no explanations', () => {
@@ -548,7 +554,7 @@ describe('ExplanationsTablePage', () => {
     it('should support keyboard navigation for links', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const links = screen.getAllByText('View').map(el => el.closest('a'));
+      const links = screen.getAllByText(/View →/).map(el => el.closest('a'));
       links.forEach(link => {
         expect(link).toBeInTheDocument();
       });
@@ -558,7 +564,7 @@ describe('ExplanationsTablePage', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
       const titleHeader = screen.getByText('Title').closest('th');
-      const dateHeader = screen.getByText('Date Created').closest('th');
+      const dateHeader = screen.getByText('Created').closest('th');
 
       expect(titleHeader).toHaveClass('cursor-pointer');
       expect(dateHeader).toHaveClass('cursor-pointer');
@@ -567,7 +573,7 @@ describe('ExplanationsTablePage', () => {
     it('should not have cursor pointer on non-sortable headers', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
-      const contentHeader = screen.getByText('Content').closest('th');
+      const contentHeader = screen.getByText('Preview').closest('th');
       expect(contentHeader).not.toHaveClass('cursor-pointer');
     });
   });
@@ -581,7 +587,8 @@ describe('ExplanationsTablePage', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
       const main = document.querySelector('main');
-      expect(main?.parentElement).toHaveClass('dark:bg-gray-900');
+      // Uses CSS variable-based theming instead of dark: prefix classes
+      expect(main?.parentElement).toHaveClass('bg-[var(--surface-primary)]');
     });
 
     it('should have sticky table header', () => {
@@ -595,14 +602,16 @@ describe('ExplanationsTablePage', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
       const row = screen.getAllByRole('row')[1]; // First data row
-      expect(row).toHaveClass('hover:bg-blue-100');
+      // Uses CSS variable gold accent hover effect
+      expect(row).toHaveClass('transition-colors', 'cursor-pointer');
     });
 
     it('should apply gradient to header', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
       const thead = screen.getByRole('table').querySelector('thead');
-      expect(thead).toHaveClass('bg-gradient-to-r', 'from-blue-600');
+      // Uses CSS variable-based elevated surface with gold accent
+      expect(thead).toHaveClass('bg-[var(--surface-elevated)]');
     });
   });
 });
