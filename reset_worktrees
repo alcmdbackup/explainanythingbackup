@@ -83,21 +83,13 @@ fi
 # Step 2: Update main directory from remote
 echo -e "\n${BLUE}Step 2: Updating main directory from remote...${NC}"
 
-# Get current branch name
-CURRENT_BRANCH=$(git branch --show-current)
-
-if [ -z "$CURRENT_BRANCH" ]; then
-    # Detached HEAD state, try to use default branch
-    CURRENT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
-fi
-
-echo "Current branch: $CURRENT_BRANCH"
-
 # Fetch latest from remote
 git fetch origin
 
-# Pull latest changes
-git pull origin "$CURRENT_BRANCH"
+# Reset to latest main from remote
+echo "Resetting to origin/main..."
+git checkout main
+git reset --hard origin/main
 
 echo -e "${GREEN}Main directory updated${NC}"
 
