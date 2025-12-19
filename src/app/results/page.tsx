@@ -669,18 +669,20 @@ function ResultsPageContent() {
             } else {
                 // Handle userQueryId parameter
                 if (urlUserQueryId) {
-                    const newUserQueryIdFromUrl = parseInt(urlUserQueryId);
-                    
-                    // Load user query data
-                    await loadUserQuery(newUserQueryIdFromUrl);
+                    const newUserQueryIdFromUrl = parseInt(urlUserQueryId, 10);
+
+                    // Load user query data (only if valid number)
+                    if (!isNaN(newUserQueryIdFromUrl)) {
+                        await loadUserQuery(newUserQueryIdFromUrl);
+                    }
                 }
                 
                 // Only load explanation if it's different from the currently loaded one
                 if (urlExplanationId) {
-                    const newExplanationIdFromUrl = parseInt(urlExplanationId);
+                    const newExplanationIdFromUrl = parseInt(urlExplanationId, 10);
 
-                    // Prevent loop: only load if this is a different explanation than currently loaded
-                    if (newExplanationIdFromUrl !== explanationId) {
+                    // Prevent loop: only load if this is a valid number and different from currently loaded
+                    if (!isNaN(newExplanationIdFromUrl) && newExplanationIdFromUrl !== explanationId) {
                         await loadExplanation(newExplanationIdFromUrl, true, effectiveUserid);
 
                         // Track explanation loaded event (only for authenticated users)
