@@ -8,7 +8,8 @@ export type ThemePalette =
   | 'oxford-blue'
   | 'sepia-chronicle'
   | 'monastery-green'
-  | 'prussian-ink';
+  | 'prussian-ink'
+  | 'coral-harbor';
 
 export type ThemeMode = 'light' | 'dark';
 
@@ -32,6 +33,7 @@ export const THEME_PALETTES: { value: ThemePalette; label: string; description: 
   { value: 'sepia-chronicle', label: 'Sepia Chronicle', description: 'Burnt sienna & coffee' },
   { value: 'monastery-green', label: 'Monastery Green', description: 'Moss green & antique gold' },
   { value: 'prussian-ink', label: 'Prussian Ink', description: 'Prussian blue & cardinal red' },
+  { value: 'coral-harbor', label: 'Coral Harbor', description: 'Vibrant coral & carrot orange' },
 ];
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
