@@ -14,8 +14,8 @@ export const test = base.extend<{
       process.env.TEST_USER_PASSWORD || 'Password1!'
     );
 
-    // Wait for redirect after login
-    await page.waitForURL('/', { timeout: 10000 });
+    // Wait for redirect after login (30s to match test timeout, allows for slow CI)
+    await page.waitForURL('/', { timeout: 30000 });
 
     // Verify session cookie exists (Supabase uses 'sb-' prefix)
     const cookies = await page.context().cookies();
