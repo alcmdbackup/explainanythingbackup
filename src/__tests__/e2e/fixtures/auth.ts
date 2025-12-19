@@ -11,7 +11,7 @@ export const test = base.extend<{
     await loginPage.navigate();
     await loginPage.login(
       process.env.TEST_USER_EMAIL || 'abecha@gmail.com',
-      process.env.TEST_USER_PASSWORD || 'Password1!'
+      process.env.TEST_USER_PASSWORD || 'password'
     );
 
     // Wait for redirect after login (30s to match test timeout, allows for slow CI)
