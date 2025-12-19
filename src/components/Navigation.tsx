@@ -83,6 +83,12 @@ export default function Navigation({
                         >
                             All Explanations
                         </Link>
+                        <Link
+                            href="/settings"
+                            className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
+                        >
+                            Settings
+                        </Link>
                         <button
                             onClick={() => signOut()}
                             data-testid="logout-button"

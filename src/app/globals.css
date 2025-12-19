@@ -197,6 +197,511 @@
 }
 
 /* ==========================================================================
+   THEME: VENETIAN ARCHIVE
+   Rich Renaissance-era inspired palette - burgundy & hunter green
+   ========================================================================== */
+
+.theme-venetian-archive {
+  --background: #f8f5ef;
+  --foreground: #2d2a3d;
+  --text-primary: #2d2a3d;
+  --text-secondary: #4a4555;
+  --text-muted: #7a7585;
+  --text-on-primary: #f8f5ef;
+  --surface-primary: #f8f5ef;
+  --surface-secondary: #ffffff;
+  --surface-elevated: #f0ebe3;
+  --surface-code: #ebe5db;
+  --border-default: #e0d9cf;
+  --border-strong: #cfc6ba;
+  --accent-gold: #8b2942;
+  --accent-copper: #2d5a4a;
+  --link: #8b2942;
+  --link-hover: #a83350;
+  --card: #ffffff;
+  --card-foreground: #2d2a3d;
+  --popover: #ffffff;
+  --popover-foreground: #2d2a3d;
+  --primary: #8b2942;
+  --primary-foreground: #f8f5ef;
+  --secondary: #f0ebe3;
+  --secondary-foreground: #4a4555;
+  --muted: #f0ebe3;
+  --muted-foreground: #7a7585;
+  --accent: #f0ebe3;
+  --accent-foreground: #2d2a3d;
+  --destructive: #991b1b;
+  --border: #e0d9cf;
+  --input: #e0d9cf;
+  --ring: #8b2942;
+  --chart-1: #8b2942;
+  --chart-2: #2d5a4a;
+  --chart-3: #6b1f35;
+  --chart-4: #1f4235;
+  --chart-5: #4a3040;
+  --sidebar: #f0ebe3;
+  --sidebar-foreground: #2d2a3d;
+  --sidebar-primary: #8b2942;
+  --sidebar-primary-foreground: #f8f5ef;
+  --sidebar-accent: #e0d9cf;
+  --sidebar-accent-foreground: #2d2a3d;
+  --sidebar-border: #e0d9cf;
+  --sidebar-ring: #8b2942;
+}
+
+.theme-venetian-archive.dark {
+  --background: #1a1520;
+  --foreground: #ebe6dc;
+  --text-primary: #ebe6dc;
+  --text-secondary: #c5c0b6;
+  --text-muted: #8a857b;
+  --text-on-primary: #1a1520;
+  --surface-primary: #1a1520;
+  --surface-secondary: #251f2a;
+  --surface-elevated: #302838;
+  --surface-code: #302838;
+  --border-default: #3a3245;
+  --border-strong: #4a4255;
+  --accent-gold: #c75b7a;
+  --accent-copper: #4a8b73;
+  --link: #c75b7a;
+  --link-hover: #e07090;
+  --card: #251f2a;
+  --card-foreground: #ebe6dc;
+  --popover: #251f2a;
+  --popover-foreground: #ebe6dc;
+  --primary: #c75b7a;
+  --primary-foreground: #1a1520;
+  --secondary: #302838;
+  --secondary-foreground: #c5c0b6;
+  --muted: #302838;
+  --muted-foreground: #8a857b;
+  --accent: #302838;
+  --accent-foreground: #ebe6dc;
+  --destructive: #e06c6c;
+  --border: #3a3245;
+  --input: #3a3245;
+  --ring: #c75b7a;
+  --chart-1: #c75b7a;
+  --chart-2: #4a8b73;
+  --chart-3: #9a4560;
+  --chart-4: #3a6b58;
+  --chart-5: #7a4a60;
+  --sidebar: #251f2a;
+  --sidebar-foreground: #ebe6dc;
+  --sidebar-primary: #c75b7a;
+  --sidebar-primary-foreground: #1a1520;
+  --sidebar-accent: #302838;
+  --sidebar-accent-foreground: #ebe6dc;
+  --sidebar-border: #3a3245;
+  --sidebar-ring: #c75b7a;
+}
+
+/* ==========================================================================
+   THEME: OXFORD BLUE
+   Classic academic library aesthetic - teal & leather brown
+   ========================================================================== */
+
+.theme-oxford-blue {
+  --background: #f5f4f0;
+  --foreground: #1a1a1a;
+  --text-primary: #1a1a1a;
+  --text-secondary: #3d3d3d;
+  --text-muted: #6b6b6b;
+  --text-on-primary: #f5f4f0;
+  --surface-primary: #f5f4f0;
+  --surface-secondary: #ffffff;
+  --surface-elevated: #eae8e2;
+  --surface-code: #e3e1da;
+  --border-default: #d8d6cf;
+  --border-strong: #c5c3bb;
+  --accent-gold: #1b4965;
+  --accent-copper: #774936;
+  --link: #1b4965;
+  --link-hover: #256080;
+  --card: #ffffff;
+  --card-foreground: #1a1a1a;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a1a;
+  --primary: #1b4965;
+  --primary-foreground: #f5f4f0;
+  --secondary: #eae8e2;
+  --secondary-foreground: #3d3d3d;
+  --muted: #eae8e2;
+  --muted-foreground: #6b6b6b;
+  --accent: #eae8e2;
+  --accent-foreground: #1a1a1a;
+  --destructive: #9a3030;
+  --border: #d8d6cf;
+  --input: #d8d6cf;
+  --ring: #1b4965;
+  --chart-1: #1b4965;
+  --chart-2: #774936;
+  --chart-3: #2d6a8a;
+  --chart-4: #5a3828;
+  --chart-5: #3d5a4a;
+  --sidebar: #eae8e2;
+  --sidebar-foreground: #1a1a1a;
+  --sidebar-primary: #1b4965;
+  --sidebar-primary-foreground: #f5f4f0;
+  --sidebar-accent: #d8d6cf;
+  --sidebar-accent-foreground: #1a1a1a;
+  --sidebar-border: #d8d6cf;
+  --sidebar-ring: #1b4965;
+}
+
+.theme-oxford-blue.dark {
+  --background: #0d1b2a;
+  --foreground: #e0e0d8;
+  --text-primary: #e0e0d8;
+  --text-secondary: #b5b5ad;
+  --text-muted: #7a7a72;
+  --text-on-primary: #0d1b2a;
+  --surface-primary: #0d1b2a;
+  --surface-secondary: #152535;
+  --surface-elevated: #1b3145;
+  --surface-code: #1b3145;
+  --border-default: #2a4055;
+  --border-strong: #3a5065;
+  --accent-gold: #5fa8d3;
+  --accent-copper: #b08968;
+  --link: #5fa8d3;
+  --link-hover: #7fc0e8;
+  --card: #152535;
+  --card-foreground: #e0e0d8;
+  --popover: #152535;
+  --popover-foreground: #e0e0d8;
+  --primary: #5fa8d3;
+  --primary-foreground: #0d1b2a;
+  --secondary: #1b3145;
+  --secondary-foreground: #b5b5ad;
+  --muted: #1b3145;
+  --muted-foreground: #7a7a72;
+  --accent: #1b3145;
+  --accent-foreground: #e0e0d8;
+  --destructive: #e06c6c;
+  --border: #2a4055;
+  --input: #2a4055;
+  --ring: #5fa8d3;
+  --chart-1: #5fa8d3;
+  --chart-2: #b08968;
+  --chart-3: #7abce0;
+  --chart-4: #c9a07a;
+  --chart-5: #4a8b73;
+  --sidebar: #152535;
+  --sidebar-foreground: #e0e0d8;
+  --sidebar-primary: #5fa8d3;
+  --sidebar-primary-foreground: #0d1b2a;
+  --sidebar-accent: #1b3145;
+  --sidebar-accent-foreground: #e0e0d8;
+  --sidebar-border: #2a4055;
+  --sidebar-ring: #5fa8d3;
+}
+
+/* ==========================================================================
+   THEME: SEPIA CHRONICLE
+   Old photographs & aged documents - burnt sienna & coffee
+   ========================================================================== */
+
+.theme-sepia-chronicle {
+  --background: #faf6ed;
+  --foreground: #3d2b1f;
+  --text-primary: #3d2b1f;
+  --text-secondary: #5c4033;
+  --text-muted: #8b7355;
+  --text-on-primary: #faf6ed;
+  --surface-primary: #faf6ed;
+  --surface-secondary: #fff8ef;
+  --surface-elevated: #f0e6d3;
+  --surface-code: #e8dcc4;
+  --border-default: #ddd0bc;
+  --border-strong: #cfc0a8;
+  --accent-gold: #8b5a2b;
+  --accent-copper: #5c4033;
+  --link: #8b5a2b;
+  --link-hover: #a66b35;
+  --card: #fff8ef;
+  --card-foreground: #3d2b1f;
+  --popover: #fff8ef;
+  --popover-foreground: #3d2b1f;
+  --primary: #8b5a2b;
+  --primary-foreground: #faf6ed;
+  --secondary: #f0e6d3;
+  --secondary-foreground: #5c4033;
+  --muted: #f0e6d3;
+  --muted-foreground: #8b7355;
+  --accent: #f0e6d3;
+  --accent-foreground: #3d2b1f;
+  --destructive: #9a3030;
+  --border: #ddd0bc;
+  --input: #ddd0bc;
+  --ring: #8b5a2b;
+  --chart-1: #8b5a2b;
+  --chart-2: #5c4033;
+  --chart-3: #a66b35;
+  --chart-4: #4a3028;
+  --chart-5: #6b5040;
+  --sidebar: #f0e6d3;
+  --sidebar-foreground: #3d2b1f;
+  --sidebar-primary: #8b5a2b;
+  --sidebar-primary-foreground: #faf6ed;
+  --sidebar-accent: #ddd0bc;
+  --sidebar-accent-foreground: #3d2b1f;
+  --sidebar-border: #ddd0bc;
+  --sidebar-ring: #8b5a2b;
+}
+
+.theme-sepia-chronicle.dark {
+  --background: #1c1610;
+  --foreground: #e8dcc8;
+  --text-primary: #e8dcc8;
+  --text-secondary: #c5b8a4;
+  --text-muted: #8b7e6a;
+  --text-on-primary: #1c1610;
+  --surface-primary: #1c1610;
+  --surface-secondary: #28201a;
+  --surface-elevated: #352a22;
+  --surface-code: #352a22;
+  --border-default: #453a30;
+  --border-strong: #554a40;
+  --accent-gold: #d4a574;
+  --accent-copper: #8b7355;
+  --link: #d4a574;
+  --link-hover: #e8b888;
+  --card: #28201a;
+  --card-foreground: #e8dcc8;
+  --popover: #28201a;
+  --popover-foreground: #e8dcc8;
+  --primary: #d4a574;
+  --primary-foreground: #1c1610;
+  --secondary: #352a22;
+  --secondary-foreground: #c5b8a4;
+  --muted: #352a22;
+  --muted-foreground: #8b7e6a;
+  --accent: #352a22;
+  --accent-foreground: #e8dcc8;
+  --destructive: #e07060;
+  --border: #453a30;
+  --input: #453a30;
+  --ring: #d4a574;
+  --chart-1: #d4a574;
+  --chart-2: #8b7355;
+  --chart-3: #e8b888;
+  --chart-4: #a08060;
+  --chart-5: #c09060;
+  --sidebar: #28201a;
+  --sidebar-foreground: #e8dcc8;
+  --sidebar-primary: #d4a574;
+  --sidebar-primary-foreground: #1c1610;
+  --sidebar-accent: #352a22;
+  --sidebar-accent-foreground: #e8dcc8;
+  --sidebar-border: #453a30;
+  --sidebar-ring: #d4a574;
+}
+
+/* ==========================================================================
+   THEME: MONASTERY GREEN
+   Scriptoriums & herb gardens - moss green & antique gold
+   ========================================================================== */
+
+.theme-monastery-green {
+  --background: #f4f5ef;
+  --foreground: #2a3428;
+  --text-primary: #2a3428;
+  --text-secondary: #3d4a3a;
+  --text-muted: #6b7a68;
+  --text-on-primary: #f4f5ef;
+  --surface-primary: #f4f5ef;
+  --surface-secondary: #fafbf7;
+  --surface-elevated: #e4e8dc;
+  --surface-code: #dce0d4;
+  --border-default: #d0d8c8;
+  --border-strong: #bcc5b4;
+  --accent-gold: #4a6741;
+  --accent-copper: #8b6508;
+  --link: #4a6741;
+  --link-hover: #5c7a52;
+  --card: #fafbf7;
+  --card-foreground: #2a3428;
+  --popover: #fafbf7;
+  --popover-foreground: #2a3428;
+  --primary: #4a6741;
+  --primary-foreground: #f4f5ef;
+  --secondary: #e4e8dc;
+  --secondary-foreground: #3d4a3a;
+  --muted: #e4e8dc;
+  --muted-foreground: #6b7a68;
+  --accent: #e4e8dc;
+  --accent-foreground: #2a3428;
+  --destructive: #9a3030;
+  --border: #d0d8c8;
+  --input: #d0d8c8;
+  --ring: #4a6741;
+  --chart-1: #4a6741;
+  --chart-2: #8b6508;
+  --chart-3: #6b8860;
+  --chart-4: #a67a10;
+  --chart-5: #3a5032;
+  --sidebar: #e4e8dc;
+  --sidebar-foreground: #2a3428;
+  --sidebar-primary: #4a6741;
+  --sidebar-primary-foreground: #f4f5ef;
+  --sidebar-accent: #d0d8c8;
+  --sidebar-accent-foreground: #2a3428;
+  --sidebar-border: #d0d8c8;
+  --sidebar-ring: #4a6741;
+}
+
+.theme-monastery-green.dark {
+  --background: #0f1a14;
+  --foreground: #dde5d4;
+  --text-primary: #dde5d4;
+  --text-secondary: #b5c0ac;
+  --text-muted: #7a857a;
+  --text-on-primary: #0f1a14;
+  --surface-primary: #0f1a14;
+  --surface-secondary: #1a2820;
+  --surface-elevated: #25352a;
+  --surface-code: #25352a;
+  --border-default: #354538;
+  --border-strong: #455548;
+  --accent-gold: #7ba05b;
+  --accent-copper: #c9a227;
+  --link: #7ba05b;
+  --link-hover: #90b570;
+  --card: #1a2820;
+  --card-foreground: #dde5d4;
+  --popover: #1a2820;
+  --popover-foreground: #dde5d4;
+  --primary: #7ba05b;
+  --primary-foreground: #0f1a14;
+  --secondary: #25352a;
+  --secondary-foreground: #b5c0ac;
+  --muted: #25352a;
+  --muted-foreground: #7a857a;
+  --accent: #25352a;
+  --accent-foreground: #dde5d4;
+  --destructive: #e07060;
+  --border: #354538;
+  --input: #354538;
+  --ring: #7ba05b;
+  --chart-1: #7ba05b;
+  --chart-2: #c9a227;
+  --chart-3: #98c070;
+  --chart-4: #e0b830;
+  --chart-5: #5a8048;
+  --sidebar: #1a2820;
+  --sidebar-foreground: #dde5d4;
+  --sidebar-primary: #7ba05b;
+  --sidebar-primary-foreground: #0f1a14;
+  --sidebar-accent: #25352a;
+  --sidebar-accent-foreground: #dde5d4;
+  --sidebar-border: #354538;
+  --sidebar-ring: #7ba05b;
+}
+
+/* ==========================================================================
+   THEME: PRUSSIAN INK
+   Bold & dramatic - Prussian blue & cardinal red
+   ========================================================================== */
+
+.theme-prussian-ink {
+  --background: #fafafa;
+  --foreground: #1a1a2e;
+  --text-primary: #1a1a2e;
+  --text-secondary: #3a3a4e;
+  --text-muted: #6a6a7e;
+  --text-on-primary: #fafafa;
+  --surface-primary: #fafafa;
+  --surface-secondary: #ffffff;
+  --surface-elevated: #eef2f7;
+  --surface-code: #e5eaf0;
+  --border-default: #d8dce5;
+  --border-strong: #c5cad5;
+  --accent-gold: #003153;
+  --accent-copper: #c41e3a;
+  --link: #003153;
+  --link-hover: #004570;
+  --card: #ffffff;
+  --card-foreground: #1a1a2e;
+  --popover: #ffffff;
+  --popover-foreground: #1a1a2e;
+  --primary: #003153;
+  --primary-foreground: #fafafa;
+  --secondary: #eef2f7;
+  --secondary-foreground: #3a3a4e;
+  --muted: #eef2f7;
+  --muted-foreground: #6a6a7e;
+  --accent: #eef2f7;
+  --accent-foreground: #1a1a2e;
+  --destructive: #c41e3a;
+  --border: #d8dce5;
+  --input: #d8dce5;
+  --ring: #003153;
+  --chart-1: #003153;
+  --chart-2: #c41e3a;
+  --chart-3: #004a7a;
+  --chart-4: #9a1830;
+  --chart-5: #2a4a60;
+  --sidebar: #eef2f7;
+  --sidebar-foreground: #1a1a2e;
+  --sidebar-primary: #003153;
+  --sidebar-primary-foreground: #fafafa;
+  --sidebar-accent: #d8dce5;
+  --sidebar-accent-foreground: #1a1a2e;
+  --sidebar-border: #d8dce5;
+  --sidebar-ring: #003153;
+}
+
+.theme-prussian-ink.dark {
+  --background: #0a0f1a;
+  --foreground: #f0f0f0;
+  --text-primary: #f0f0f0;
+  --text-secondary: #c5c5c5;
+  --text-muted: #8a8a8a;
+  --text-on-primary: #0a0f1a;
+  --surface-primary: #0a0f1a;
+  --surface-secondary: #151d2e;
+  --surface-elevated: #1f2940;
+  --surface-code: #1f2940;
+  --border-default: #2a3550;
+  --border-strong: #3a4560;
+  --accent-gold: #4682b4;
+  --accent-copper: #e84a5f;
+  --link: #4682b4;
+  --link-hover: #5a9ac8;
+  --card: #151d2e;
+  --card-foreground: #f0f0f0;
+  --popover: #151d2e;
+  --popover-foreground: #f0f0f0;
+  --primary: #4682b4;
+  --primary-foreground: #0a0f1a;
+  --secondary: #1f2940;
+  --secondary-foreground: #c5c5c5;
+  --muted: #1f2940;
+  --muted-foreground: #8a8a8a;
+  --accent: #1f2940;
+  --accent-foreground: #f0f0f0;
+  --destructive: #e84a5f;
+  --border: #2a3550;
+  --input: #2a3550;
+  --ring: #4682b4;
+  --chart-1: #4682b4;
+  --chart-2: #e84a5f;
+  --chart-3: #5a9ac8;
+  --chart-4: #f06070;
+  --chart-5: #3a6590;
+  --sidebar: #151d2e;
+  --sidebar-foreground: #f0f0f0;
+  --sidebar-primary: #4682b4;
+  --sidebar-primary-foreground: #0a0f1a;
+  --sidebar-accent: #1f2940;
+  --sidebar-accent-foreground: #f0f0f0;
+  --sidebar-border: #2a3550;
+  --sidebar-ring: #4682b4;
+}
+
+/* ==========================================================================
    BASE STYLES
    ========================================================================== */
 
