@@ -37,7 +37,7 @@ export const THEME_PALETTES: { value: ThemePalette; label: string; description: 
 ];
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [palette, setPaletteState] = useState<ThemePalette>('midnight-scholar');
+  const [palette, setPaletteState] = useState<ThemePalette>('oxford-blue');
   const [mode, setModeState] = useState<ThemeMode>('light');
   const [mounted, setMounted] = useState(false);
 
