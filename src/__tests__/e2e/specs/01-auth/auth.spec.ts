@@ -2,51 +2,7 @@ import { test, expect } from '../../fixtures/auth';
 import { LoginPage } from '../../helpers/pages/LoginPage';
 
 test.describe('Authentication Flow', () => {
-  test.describe('Login', () => {
-    test('should login with valid credentials', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.navigate();
-
-      await loginPage.login(
-        process.env.TEST_USER_EMAIL || 'abecha@gmail.com',
-        process.env.TEST_USER_PASSWORD || 'password'
-      );
-
-      // Wait for redirect to home page
-      await page.waitForURL('/', { timeout: 10000 });
-
-      // Verify user is logged in
-      expect(await loginPage.isLoggedIn()).toBe(true);
-    });
-
-    test('should show error with invalid credentials', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.navigate();
-
-      await loginPage.login('invalid@email.com', 'wrongpassword');
-
-      // Wait for error message
-      await page.waitForSelector('[data-testid="login-error"]', { timeout: 5000 });
-
-      // Verify error is shown
-      expect(await loginPage.isErrorVisible()).toBe(true);
-
-      // Verify no redirect occurred
-      expect(page.url()).toContain('/login');
-
-      // Verify no session created
-      expect(await loginPage.isLoggedIn()).toBe(false);
-    });
-
-    test('should redirect unauthenticated user from protected route', async ({ page }) => {
-      // Try to access protected route without login
-      await page.goto('/userlibrary');
-
-      // Should redirect to login
-      await page.waitForURL(/\/login/, { timeout: 10000 });
-      expect(page.url()).toContain('/login');
-    });
-  });
+  // NOTE: Login tests moved to auth.unauth.spec.ts since they require unauthenticated state
 
   test.describe('Session Management', () => {
     test('should persist session after page refresh', async ({ authenticatedPage }) => {
@@ -120,30 +76,6 @@ test.describe('Authentication Flow', () => {
       }
     });
 
-    test('should handle empty email submission', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.navigate();
-
-      // Fill only password
-      await loginPage.fillPassword('password');
-      await loginPage.clickSubmit();
-
-      // Should show validation error or stay on login page
-      await page.waitForTimeout(1000);
-      expect(page.url()).toContain('/login');
-    });
-
-    test('should handle empty password submission', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.navigate();
-
-      // Fill only email
-      await loginPage.fillEmail('abecha@gmail.com');
-      await loginPage.clickSubmit();
-
-      // Should show validation error or stay on login page
-      await page.waitForTimeout(1000);
-      expect(page.url()).toContain('/login');
-    });
+    // NOTE: Empty field tests moved to auth.unauth.spec.ts
   });
 });

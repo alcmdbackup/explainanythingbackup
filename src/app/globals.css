@@ -1550,3 +1550,76 @@
     transform: translateY(0);
   }
 }
+
+/* ==========================================================================
+   TEXT REVEAL ANIMATIONS - Streaming Content Effects
+   Magical animations for text appearing during streaming
+   ========================================================================== */
+
+/* Blur to Focus - Text materializes from blurry to sharp */
+@keyframes textRevealBlur {
+  from {
+    filter: blur(8px);
+    opacity: 0.3;
+  }
+  to {
+    filter: blur(0);
+    opacity: 1;
+  }
+}
+
+.text-reveal-blur {
+  animation: textRevealBlur 0.6s ease-out forwards;
+}
+
+/* Fade + Slide Up - Words fade in while rising */
+@keyframes textRevealFade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.text-reveal-fade {
+  animation: textRevealFade 0.5s ease-out forwards;
+}
+
+/* Ink Spread - Text appears like spreading ink on parchment */
+@keyframes textRevealInk {
+  0% {
+    clip-path: inset(0 100% 0 0);
+    opacity: 0.7;
+  }
+  100% {
+    clip-path: inset(0 0 0 0);
+    opacity: 1;
+  }
+}
+
+.text-reveal-ink {
+  animation: textRevealInk 0.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Scramble - Base styling (actual scramble handled by JS) */
+.text-reveal-scramble {
+  /* Prevents layout shift during scramble */
+  display: block;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .text-reveal-blur,
+  .text-reveal-fade,
+  .text-reveal-ink,
+  .text-reveal-scramble {
+    animation: none !important;
+    opacity: 1 !important;
+    filter: none !important;
+    transform: none !important;
+    clip-path: none !important;
+  }
+}

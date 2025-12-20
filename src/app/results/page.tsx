@@ -27,6 +27,7 @@ import {
 } from '@/reducers/pageLifecycleReducer';
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
+import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -88,6 +89,9 @@ function ResultsPageContent() {
 
     // Initialize user authentication hook
     const { userid, fetchUserid } = useUserAuth();
+
+    // Text reveal animation settings
+    const { effect: textRevealEffect } = useTextRevealSettings();
 
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<LexicalEditorRef>(null); // For AI suggestions panel
@@ -1196,6 +1200,8 @@ function ResultsPageContent() {
                                                 showToolbar={true}
                                                 hideEditingUI={isStreaming}
                                                 onContentChange={handleEditorContentChange}
+                                                isStreaming={isStreaming}
+                                                textRevealEffect={textRevealEffect}
                                             />
                                         ) : (
                                             <pre className="whitespace-pre-wrap text-sm font-mono text-[var(--text-secondary)] leading-relaxed">

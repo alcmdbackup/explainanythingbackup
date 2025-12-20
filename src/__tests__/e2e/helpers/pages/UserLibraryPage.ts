@@ -23,10 +23,12 @@ export class UserLibraryPage extends BasePage {
   }
 
   async waitForContentOrError(timeout: number = 30000) {
-    // Wait for either the table to appear or an error to appear
+    // Wait for either the table, error, or empty state to appear
     await Promise.race([
       this.page.waitForSelector('table', { timeout }),
       this.page.waitForSelector('.bg-red-100', { timeout }), // Error state
+      this.page.waitForSelector('.scholar-card', { timeout }), // Empty state
+      this.page.waitForSelector('main h1', { timeout }), // Page loaded
     ]).catch(() => {
       // Timeout - page might still be loading
     });
