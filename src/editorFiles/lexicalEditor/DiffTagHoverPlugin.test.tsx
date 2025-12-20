@@ -16,18 +16,16 @@ jest.mock('@lexical/react/LexicalComposerContext', () => ({
   useLexicalComposerContext: jest.fn(),
 }));
 
-jest.mock('./DiffTagHoverControls', () => {
-  return function MockDiffTagHoverControls({ diffTagType, onAccept, onReject, onClose }: {
+jest.mock('./DiffTagInlineControls', () => {
+  return function MockDiffTagInlineControls({ diffTagType, onAccept, onReject }: {
     diffTagType: string;
     onAccept: () => void;
     onReject: () => void;
-    onClose: () => void;
   }) {
     return (
-      <div data-testid="hover-controls" data-diff-tag-type={diffTagType}>
+      <div data-testid="inline-controls" data-diff-tag-type={diffTagType}>
         <button onClick={onAccept}>Accept</button>
         <button onClick={onReject}>Reject</button>
-        <button onClick={onClose}>Close</button>
       </div>
     );
   };
@@ -55,12 +53,14 @@ import { $getNodeByKey } from 'lexical';
 const createMockEditor = () => {
   const mutationListeners: Map<unknown, (mutations: Map<string, string>) => void> = new Map();
   let readCallback: (() => void) | null = null;
+  const rootElement = document.createElement('div');
 
   return {
     registerMutationListener: jest.fn((nodeClass, callback) => {
       mutationListeners.set(nodeClass, callback);
       return jest.fn(); // return unsubscribe function
     }),
+    registerUpdateListener: jest.fn(() => jest.fn()), // return unsubscribe function
     getEditorState: jest.fn(() => ({
       read: jest.fn((fn) => {
         readCallback = fn;
@@ -69,7 +69,7 @@ const createMockEditor = () => {
       _nodeMap: new Map(),
     })),
     getElementByKey: jest.fn(),
-    getRootElement: jest.fn(() => document.createElement('div')),
+    getRootElement: jest.fn(() => rootElement),
     update: jest.fn((fn) => {
       fn();
     }),
@@ -79,6 +79,7 @@ const createMockEditor = () => {
         listener(mutations);
       }
     },
+    _rootElement: rootElement,
   };
 };
 
@@ -106,8 +107,8 @@ describe('DiffTagHoverPlugin - Initialization', () => {
 
   it('should render without crashing', () => {
     render(<DiffTagHoverPlugin />);
-    // Component renders without hover controls initially
-    expect(screen.queryByTestId('hover-controls')).not.toBeInTheDocument();
+    // Component renders without inline controls initially (no diff tags in DOM)
+    expect(screen.queryByTestId('inline-controls')).not.toBeInTheDocument();
   });
 
   it('should register mutation listener for DiffTagNodeInline', () => {
@@ -131,10 +132,12 @@ describe('DiffTagHoverPlugin - Initialization', () => {
   it('should cleanup listeners on unmount', () => {
     const unsubscribeInline = jest.fn();
     const unsubscribeBlock = jest.fn();
+    const unsubscribeUpdate = jest.fn();
 
     mockEditor.registerMutationListener
       .mockReturnValueOnce(unsubscribeInline)
       .mockReturnValueOnce(unsubscribeBlock);
+    mockEditor.registerUpdateListener.mockReturnValueOnce(unsubscribeUpdate);
 
     const { unmount } = render(<DiffTagHoverPlugin />);
 
@@ -142,6 +145,7 @@ describe('DiffTagHoverPlugin - Initialization', () => {
 
     expect(unsubscribeInline).toHaveBeenCalled();
     expect(unsubscribeBlock).toHaveBeenCalled();
+    expect(unsubscribeUpdate).toHaveBeenCalled();
   });
 });
 
@@ -163,9 +167,12 @@ describe('DiffTagHoverPlugin - Mutation Detection', () => {
     (console.log as jest.Mock).mockRestore();
   });
 
-  it('should process created mutations', () => {
-    const mockElement = document.createElement('span');
-    mockEditor.getElementByKey.mockReturnValue(mockElement);
+  it('should scan DOM for diff tags on mutation', async () => {
+    // Add a diff tag element to the root element
+    const diffElement = document.createElement('span');
+    diffElement.setAttribute('data-diff-key', 'node-1');
+    diffElement.setAttribute('data-diff-type', 'ins');
+    mockEditor._rootElement.appendChild(diffElement);
 
     render(<DiffTagHoverPlugin />);
 
@@ -178,13 +185,17 @@ describe('DiffTagHoverPlugin - Mutation Detection', () => {
       listener(mutations);
     }
 
-    // Verify getElementByKey was called
-    expect(mockEditor.getElementByKey).toHaveBeenCalledWith('node-1');
+    // Verify getRootElement was called to scan for diff tags
+    expect(mockEditor.getRootElement).toHaveBeenCalled();
+
+    mockEditor._rootElement.removeChild(diffElement);
   });
 
-  it('should process updated mutations', () => {
-    const mockElement = document.createElement('span');
-    mockEditor.getElementByKey.mockReturnValue(mockElement);
+  it('should handle mutations and update state', async () => {
+    const diffElement = document.createElement('span');
+    diffElement.setAttribute('data-diff-key', 'node-2');
+    diffElement.setAttribute('data-diff-type', 'del');
+    mockEditor._rootElement.appendChild(diffElement);
 
     render(<DiffTagHoverPlugin />);
 
@@ -196,10 +207,14 @@ describe('DiffTagHoverPlugin - Mutation Detection', () => {
       listener(mutations);
     }
 
-    expect(mockEditor.getElementByKey).toHaveBeenCalledWith('node-2');
+    await waitFor(() => {
+      expect(screen.queryByTestId('inline-controls')).toBeInTheDocument();
+    });
+
+    mockEditor._rootElement.removeChild(diffElement);
   });
 
-  it('should skip destroyed mutations', () => {
+  it('should handle destroyed mutations gracefully', () => {
     render(<DiffTagHoverPlugin />);
 
     const mutations = new Map([['node-3', 'destroyed']]);
@@ -210,15 +225,12 @@ describe('DiffTagHoverPlugin - Mutation Detection', () => {
       listener(mutations);
     }
 
-    // Should not add event listeners for destroyed mutations
-    // This is implicit - we'd need to check that addEventListener wasn't called,
-    // but since we're in a mock environment, we verify by checking no errors occur
-    expect(mockEditor.getEditorState).toHaveBeenCalled();
+    // Should not crash on destroyed mutations
+    expect(mockEditor.getRootElement).toHaveBeenCalled();
   });
 
-  it('should skip mutations with null element', () => {
-    mockEditor.getElementByKey.mockReturnValue(null);
-
+  it('should handle empty DOM gracefully', () => {
+    // Root element is empty
     render(<DiffTagHoverPlugin />);
 
     const mutations = new Map([['node-4', 'created']]);
@@ -229,36 +241,43 @@ describe('DiffTagHoverPlugin - Mutation Detection', () => {
       listener(mutations);
     }
 
-    // Should not throw error when element is null
-    expect(mockEditor.getElementByKey).toHaveBeenCalledWith('node-4');
+    // Should not throw error when no diff tags in DOM
+    expect(screen.queryByTestId('inline-controls')).not.toBeInTheDocument();
   });
 
-  it('should not register same element twice', () => {
-    const mockElement = document.createElement('span');
-    const addEventListenerSpy = jest.spyOn(mockElement, 'addEventListener');
-    mockEditor.getElementByKey.mockReturnValue(mockElement);
+  it('should track multiple diff tags', async () => {
+    // Add multiple diff tag elements
+    const diffElement1 = document.createElement('span');
+    diffElement1.setAttribute('data-diff-key', 'node-5');
+    diffElement1.setAttribute('data-diff-type', 'ins');
+    mockEditor._rootElement.appendChild(diffElement1);
+
+    const diffElement2 = document.createElement('span');
+    diffElement2.setAttribute('data-diff-key', 'node-6');
+    diffElement2.setAttribute('data-diff-type', 'del');
+    mockEditor._rootElement.appendChild(diffElement2);
 
     render(<DiffTagHoverPlugin />);
 
     const listenerCall = mockEditor.registerMutationListener.mock.calls[0];
     if (listenerCall) {
       const [, listener] = listenerCall;
-
-      // Call listener twice with same element
       listener(new Map([['node-5', 'created']]));
-      listener(new Map([['node-5', 'updated']]));
     }
 
-    // Should only add event listener once
-    expect(addEventListenerSpy).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      const controls = screen.queryAllByTestId('inline-controls');
+      expect(controls.length).toBe(2);
+    });
 
-    addEventListenerSpy.mockRestore();
+    mockEditor._rootElement.removeChild(diffElement1);
+    mockEditor._rootElement.removeChild(diffElement2);
   });
 });
 
-// ============= Hover State Management Tests =============
+// ============= Diff Tag Scanning Tests =============
 
-describe('DiffTagHoverPlugin - Hover State', () => {
+describe('DiffTagHoverPlugin - Diff Tag Scanning', () => {
   let mockEditor: ReturnType<typeof createMockEditor>;
 
   beforeEach(() => {
@@ -272,37 +291,34 @@ describe('DiffTagHoverPlugin - Hover State', () => {
     (console.log as jest.Mock).mockRestore();
   });
 
-  it('should not show controls initially', () => {
+  it('should not show controls initially when no diff tags in DOM', () => {
     render(<DiffTagHoverPlugin />);
 
-    expect(screen.queryByTestId('hover-controls')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('inline-controls')).not.toBeInTheDocument();
   });
 
-  it('should show controls when all hover state properties are set', async () => {
-    const mockElement = document.createElement('span');
-    const mockNode = createMockNode('ins');
+  it('should show controls for diff tags with data-diff-key attribute', async () => {
+    // Add a diff tag element to the root element
+    const diffElement = document.createElement('span');
+    diffElement.setAttribute('data-diff-key', 'node-1');
+    diffElement.setAttribute('data-diff-type', 'ins');
+    mockEditor._rootElement.appendChild(diffElement);
 
-    mockEditor.getElementByKey.mockReturnValue(mockElement);
-    ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
+    render(<DiffTagHoverPlugin />);
 
-    const { container } = render(<DiffTagHoverPlugin />);
-
-    // Trigger mutation
+    // Trigger mutation to cause scan
     const listenerCall = mockEditor.registerMutationListener.mock.calls[0];
     if (listenerCall) {
       const [, listener] = listenerCall;
       listener(new Map([['node-1', 'created']]));
 
-      // Simulate mouseenter
-      const event = new MouseEvent('mouseenter', { bubbles: true });
-      mockElement.dispatchEvent(event);
-
       // Wait for state update and re-render
       await waitFor(() => {
-        expect(screen.queryByTestId('hover-controls')).toBeInTheDocument();
+        expect(screen.queryByTestId('inline-controls')).toBeInTheDocument();
       });
     }
+
+    mockEditor._rootElement.removeChild(diffElement);
   });
 });
 
@@ -443,9 +459,9 @@ describe('DiffTagHoverPlugin - Reject Handler', () => {
   });
 });
 
-// ============= Close Handler Tests =============
+// ============= Controls Removal Tests =============
 
-describe('DiffTagHoverPlugin - Close Handler', () => {
+describe('DiffTagHoverPlugin - Controls Removal', () => {
   let mockEditor: ReturnType<typeof createMockEditor>;
 
   beforeEach(() => {
@@ -459,37 +475,35 @@ describe('DiffTagHoverPlugin - Close Handler', () => {
     (console.log as jest.Mock).mockRestore();
   });
 
-  it('should reset hover state on close', async () => {
-    const mockElement = document.createElement('span');
-    const mockNode = createMockNode('ins');
-
-    mockEditor.getElementByKey.mockReturnValue(mockElement);
-    ($getNodeByKey as jest.Mock).mockReturnValue(mockNode);
-    ($isDiffTagNodeInline as unknown as jest.Mock).mockReturnValue(true);
+  it('should remove controls when diff tag is removed from DOM', async () => {
+    // Add a diff tag element
+    const diffElement = document.createElement('span');
+    diffElement.setAttribute('data-diff-key', 'node-1');
+    diffElement.setAttribute('data-diff-type', 'ins');
+    mockEditor._rootElement.appendChild(diffElement);
 
     render(<DiffTagHoverPlugin />);
 
-    // Trigger mutation and mouseenter
+    // Trigger mutation to cause scan
     const listenerCall = mockEditor.registerMutationListener.mock.calls[0];
     if (listenerCall) {
       const [, listener] = listenerCall;
       listener(new Map([['node-1', 'created']]));
 
-      const event = new MouseEvent('mouseenter', { bubbles: true });
-      mockElement.dispatchEvent(event);
-
       // Wait for controls to appear
       await waitFor(() => {
-        expect(screen.queryByTestId('hover-controls')).toBeInTheDocument();
+        expect(screen.queryByTestId('inline-controls')).toBeInTheDocument();
       });
 
-      // Click close button
-      const closeButton = screen.getByText('Close');
-      closeButton.click();
+      // Remove the diff element from DOM
+      mockEditor._rootElement.removeChild(diffElement);
+
+      // Trigger another mutation/update scan
+      listener(new Map([['node-1', 'destroyed']]));
 
       // Wait for controls to disappear
       await waitFor(() => {
-        expect(screen.queryByTestId('hover-controls')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('inline-controls')).not.toBeInTheDocument();
       });
     }
   });
@@ -516,7 +530,7 @@ describe('DiffTagHoverPlugin - Edge Cases', () => {
 
     // Accept handler should return early if no nodeKey
     // This is tested implicitly by not crashing
-    expect(screen.queryByTestId('hover-controls')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('inline-controls')).not.toBeInTheDocument();
   });
 
   it('should handle node not found in editor', () => {
@@ -525,7 +539,7 @@ describe('DiffTagHoverPlugin - Edge Cases', () => {
     render(<DiffTagHoverPlugin />);
 
     // Should not crash when node is not found
-    expect(screen.queryByTestId('hover-controls')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('inline-controls')).not.toBeInTheDocument();
   });
 
   it('should handle update node with insufficient children', () => {

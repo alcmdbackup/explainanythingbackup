@@ -210,17 +210,21 @@ export class DiffTagNodeInline extends ElementNode {
       // For update nodes, create a span container with specific class for CSS targeting
       const element = document.createElement("span");
       element.className = "diff-tag-update";
-      
+      element.setAttribute("data-diff-key", this.__key);
+      element.setAttribute("data-diff-type", this.__tag);
+
       // Let Lexical handle rendering the children automatically
       return element;
     }
-    
+
     // For ins/del nodes, create element with background styling
     const element = document.createElement(this.__tag);
-    element.className = this.__tag === "ins" 
-      ? "diff-tag-insert" 
+    element.className = this.__tag === "ins"
+      ? "diff-tag-insert"
       : "diff-tag-delete";
-    
+    element.setAttribute("data-diff-key", this.__key);
+    element.setAttribute("data-diff-type", this.__tag);
+
     // Child nodes will be automatically rendered by Lexical's rendering system
     // The background styling will wrap around all child content
     return element;

@@ -1096,27 +1096,38 @@
 }
 
 /* ==========================================================================
-   DIFF TAG NODE STYLING - MIDNIGHT SCHOLAR PALETTE
+   DIFF TAG NODE STYLING - THEME-INDEPENDENT RED/GREEN COLORS
+   These colors are hardcoded and do NOT change with color themes.
    ========================================================================== */
 
-/* Insert tags - Gold/success styling */
+/* Insert tags - Green with background for visibility */
 .diff-tag-insert {
-  color: #166534;
+  color: #15803d;
+  background-color: rgba(34, 197, 94, 0.15);
+  border-radius: 2px;
+  padding: 0 2px;
   text-decoration: none;
 }
 
 .dark .diff-tag-insert {
-  color: #86efac;
+  color: #4ade80;
+  background-color: rgba(34, 197, 94, 0.2);
 }
 
-/* Delete tags - Copper/warning styling */
+/* Delete tags - Red with background and strikethrough */
 .diff-tag-delete {
-  color: #991b1b;
-  text-decoration: none;
+  color: #b91c1c;
+  background-color: rgba(239, 68, 68, 0.15);
+  border-radius: 2px;
+  padding: 0 2px;
+  text-decoration: line-through;
+  text-decoration-color: #b91c1c;
 }
 
 .dark .diff-tag-delete {
-  color: #fca5a5;
+  color: #f87171;
+  background-color: rgba(239, 68, 68, 0.2);
+  text-decoration-color: #f87171;
 }
 
 /* Update diff styling */
@@ -1124,15 +1135,32 @@
   display: inline;
 }
 
+/* First child = "before" text (being deleted) - RED */
 .diff-tag-update > *:first-child {
-  background-color: rgba(180, 115, 51, 0.2);
+  background-color: rgba(239, 68, 68, 0.15);
+  color: #b91c1c;
+  text-decoration: line-through;
+  text-decoration-color: #b91c1c;
 }
 
+/* Second child = "after" text (being added) - GREEN */
 .diff-tag-update > *:nth-child(2) {
-  background-color: rgba(212, 168, 83, 0.2);
+  background-color: rgba(34, 197, 94, 0.15);
+  color: #15803d;
 }
 
-/* Update diff styling for direct children */
+.dark .diff-tag-update > *:first-child {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  text-decoration-color: #f87171;
+}
+
+.dark .diff-tag-update > *:nth-child(2) {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+/* Update diff styling for direct children (headings) */
 .diff-tag-update > .mb-1:first-child,
 .diff-tag-update > h1:first-child,
 .diff-tag-update > h2:first-child,
@@ -1140,10 +1168,10 @@
 .diff-tag-update > h4:first-child,
 .diff-tag-update > h5:first-child,
 .diff-tag-update > h6:first-child {
-  border-left: 6px solid var(--accent-copper) !important;
+  border-left: 6px solid #b91c1c !important;
   padding-left: 12px !important;
-  color: var(--accent-copper) !important;
-  background-color: transparent !important;
+  color: #b91c1c !important;
+  background-color: rgba(239, 68, 68, 0.1) !important;
 }
 
 .diff-tag-update > .mb-1:nth-child(2),
@@ -1153,10 +1181,10 @@
 .diff-tag-update > h4:nth-child(2),
 .diff-tag-update > h5:nth-child(2),
 .diff-tag-update > h6:nth-child(2) {
-  border-left: 6px solid var(--accent-gold) !important;
+  border-left: 6px solid #15803d !important;
   padding-left: 12px !important;
-  color: var(--accent-gold) !important;
-  background-color: transparent !important;
+  color: #15803d !important;
+  background-color: rgba(34, 197, 94, 0.1) !important;
 }
 
 /* Diff tag spacing */
@@ -1168,16 +1196,26 @@
   white-space: normal;
 }
 
-/* Diff tag headings */
+/* Diff tag headings - GREEN for insert, RED for delete */
 .diff-tag-insert .lexical-editor-h1,
 .diff-tag-insert .lexical-editor-h2,
 .diff-tag-insert .lexical-editor-h3,
 .diff-tag-insert .lexical-editor-h4,
 .diff-tag-insert .lexical-editor-h5,
 .diff-tag-insert .lexical-editor-h6 {
-  border-left: 6px solid var(--accent-gold) !important;
+  border-left: 6px solid #15803d !important;
   padding-left: 12px !important;
-  color: var(--accent-gold) !important;
+  color: #15803d !important;
+}
+
+.dark .diff-tag-insert .lexical-editor-h1,
+.dark .diff-tag-insert .lexical-editor-h2,
+.dark .diff-tag-insert .lexical-editor-h3,
+.dark .diff-tag-insert .lexical-editor-h4,
+.dark .diff-tag-insert .lexical-editor-h5,
+.dark .diff-tag-insert .lexical-editor-h6 {
+  border-left: 6px solid #4ade80 !important;
+  color: #4ade80 !important;
 }
 
 .diff-tag-delete .lexical-editor-h1,
@@ -1186,10 +1224,109 @@
 .diff-tag-delete .lexical-editor-h4,
 .diff-tag-delete .lexical-editor-h5,
 .diff-tag-delete .lexical-editor-h6 {
-  border-left: 6px solid var(--accent-copper) !important;
+  border-left: 6px solid #b91c1c !important;
   padding-left: 12px !important;
-  color: var(--accent-copper) !important;
+  color: #b91c1c !important;
   text-decoration: none !important;
+}
+
+.dark .diff-tag-delete .lexical-editor-h1,
+.dark .diff-tag-delete .lexical-editor-h2,
+.dark .diff-tag-delete .lexical-editor-h3,
+.dark .diff-tag-delete .lexical-editor-h4,
+.dark .diff-tag-delete .lexical-editor-h5,
+.dark .diff-tag-delete .lexical-editor-h6 {
+  border-left: 6px solid #f87171 !important;
+  color: #f87171 !important;
+}
+
+/* Dark mode for update diff headings */
+.dark .diff-tag-update > .mb-1:first-child,
+.dark .diff-tag-update > h1:first-child,
+.dark .diff-tag-update > h2:first-child,
+.dark .diff-tag-update > h3:first-child,
+.dark .diff-tag-update > h4:first-child,
+.dark .diff-tag-update > h5:first-child,
+.dark .diff-tag-update > h6:first-child {
+  border-left: 6px solid #f87171 !important;
+  color: #f87171 !important;
+  background-color: rgba(239, 68, 68, 0.15) !important;
+}
+
+.dark .diff-tag-update > .mb-1:nth-child(2),
+.dark .diff-tag-update > h1:nth-child(2),
+.dark .diff-tag-update > h2:nth-child(2),
+.dark .diff-tag-update > h3:nth-child(2),
+.dark .diff-tag-update > h4:nth-child(2),
+.dark .diff-tag-update > h5:nth-child(2),
+.dark .diff-tag-update > h6:nth-child(2) {
+  border-left: 6px solid #4ade80 !important;
+  color: #4ade80 !important;
+  background-color: rgba(34, 197, 94, 0.15) !important;
+}
+
+/* Inline Accept/Reject Controls */
+.diff-tag-controls {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.diff-tag-controls button {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, background-color 0.15s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.diff-tag-controls button:hover {
+  opacity: 1;
+}
+
+.diff-tag-controls .diff-accept-btn {
+  background-color: rgba(34, 197, 94, 0.2);
+  color: #15803d;
+}
+
+.diff-tag-controls .diff-accept-btn:hover {
+  background-color: rgba(34, 197, 94, 0.4);
+}
+
+.diff-tag-controls .diff-reject-btn {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: #b91c1c;
+}
+
+.diff-tag-controls .diff-reject-btn:hover {
+  background-color: rgba(239, 68, 68, 0.4);
+}
+
+.dark .diff-tag-controls .diff-accept-btn {
+  background-color: rgba(34, 197, 94, 0.3);
+  color: #4ade80;
+}
+
+.dark .diff-tag-controls .diff-accept-btn:hover {
+  background-color: rgba(34, 197, 94, 0.5);
+}
+
+.dark .diff-tag-controls .diff-reject-btn {
+  background-color: rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.dark .diff-tag-controls .diff-reject-btn:hover {
+  background-color: rgba(239, 68, 68, 0.5);
 }
 
 /* ==========================================================================
