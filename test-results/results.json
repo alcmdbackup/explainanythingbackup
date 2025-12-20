@@ -1,7 +1,7 @@
 {
   "config": {
-    "configFile": "/Users/abel/Documents/explainanything-base/worktree_22_1/playwright.config.ts",
-    "rootDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e",
+    "configFile": "/Users/abel/Documents/explainanything-base/explainanything-feature0/playwright.config.ts",
+    "rootDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
     "forbidOnly": false,
     "fullyParallel": true,
     "globalSetup": null,
@@ -9,7 +9,7 @@
     "globalTimeout": 0,
     "grep": {},
     "grepInvert": null,
-    "maxFailures": 1,
+    "maxFailures": 0,
     "metadata": {
       "actualWorkers": 4
     },
@@ -33,7 +33,7 @@
     "quiet": false,
     "projects": [
       {
-        "outputDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/test-results",
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -41,7 +41,7 @@
         },
         "id": "setup",
         "name": "setup",
-        "testDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
         "testIgnore": [],
         "testMatch": [
           "/auth\\.setup\\.ts/"
@@ -49,7 +49,7 @@
         "timeout": 30000
       },
       {
-        "outputDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/test-results",
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -57,7 +57,7 @@
         },
         "id": "chromium",
         "name": "chromium",
-        "testDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
         "testIgnore": [
           "/auth\\.setup\\.ts/"
         ],
@@ -67,7 +67,7 @@
         "timeout": 30000
       },
       {
-        "outputDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/test-results",
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -75,7 +75,7 @@
         },
         "id": "chromium-unauth",
         "name": "chromium-unauth",
-        "testDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
         "testIgnore": [],
         "testMatch": [
           "/\\.unauth\\.spec\\.ts$/"
@@ -83,7 +83,7 @@
         "timeout": 30000
       },
       {
-        "outputDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/test-results",
+        "outputDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results",
         "repeatEach": 1,
         "retries": 0,
         "metadata": {
@@ -91,7 +91,7 @@
         },
         "id": "firefox",
         "name": "firefox",
-        "testDir": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e",
+        "testDir": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e",
         "testIgnore": [
           "/auth\\.setup\\.ts/"
         ],
@@ -136,12 +136,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 5749,
+                  "duration": 6757,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2025-12-20T02:44:39.154Z",
+                  "startTime": "2025-12-20T05:30:07.739Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -189,15 +189,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
+                          "workerIndex": 1,
                           "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 246,
+                          "duration": 398,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:46.714Z",
+                          "startTime": "2025-12-20T05:30:17.392Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -223,15 +223,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 5,
+                          "workerIndex": 2,
                           "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 7738,
+                          "duration": 9334,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:46.716Z",
+                          "startTime": "2025-12-20T05:30:17.371Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -255,7 +255,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
                             "line": 37,
                             "column": 10
                           }
@@ -274,7 +274,7 @@
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:46.323Z",
+                          "startTime": "2025-12-20T05:30:16.230Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -283,117 +283,6 @@
                     }
                   ],
                   "id": "44d28f779dc4b8b84b4c-4e46da67850f28f248a1",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 37,
-                  "column": 10
-                },
-                {
-                  "title": "should persist session after page refresh",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 1791,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:30.814Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-4f4c4c473ddf4990dcde",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 8,
-                  "column": 9
-                },
-                {
-                  "title": "should access protected route when authenticated",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 2982,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:30.840Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-b058d5f22bba2931b14b",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 25,
-                  "column": 9
-                },
-                {
-                  "title": "should logout successfully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
-                            "line": 37,
-                            "column": 10
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": -1,
-                          "parallelIndex": -1,
-                          "status": "skipped",
-                          "duration": 0,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:34.500Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-28a8d070071c4b6861e6",
                   "file": "specs/01-auth/auth.spec.ts",
                   "line": 37,
                   "column": 10
@@ -419,15 +308,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 6,
+                          "workerIndex": 3,
                           "parallelIndex": 3,
                           "status": "passed",
-                          "duration": 3490,
+                          "duration": 3302,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:46.720Z",
+                          "startTime": "2025-12-20T05:30:17.637Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -436,40 +325,6 @@
                     }
                   ],
                   "id": "44d28f779dc4b8b84b4c-afcf87efc9f8fcf6b45b",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 59,
-                  "column": 9
-                },
-                {
-                  "title": "should redirect to home when accessing login while authenticated",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 4133,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:34.509Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-581ad30e5f84305eca7d",
                   "file": "specs/01-auth/auth.spec.ts",
                   "line": 59,
                   "column": 9
@@ -511,7 +366,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                             "line": 22,
                             "column": 14
                           }
@@ -522,20 +377,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
+                          "workerIndex": 4,
                           "parallelIndex": 2,
                           "status": "skipped",
-                          "duration": 7766,
+                          "duration": 9357,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:46.745Z",
+                          "startTime": "2025-12-20T05:30:17.315Z",
                           "annotations": [
                             {
                               "type": "skip",
                               "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                                 "line": 22,
                                 "column": 14
                               }
@@ -563,7 +418,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                             "line": 51,
                             "column": 14
                           }
@@ -574,20 +429,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
+                          "workerIndex": 1,
                           "parallelIndex": 0,
                           "status": "skipped",
-                          "duration": 7442,
+                          "duration": 9042,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:47.194Z",
+                          "startTime": "2025-12-20T05:30:18.312Z",
                           "annotations": [
                             {
                               "type": "skip",
                               "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                                 "line": 51,
                                 "column": 14
                               }
@@ -615,7 +470,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                             "line": 78,
                             "column": 14
                           }
@@ -626,20 +481,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 6,
+                          "workerIndex": 3,
                           "parallelIndex": 3,
                           "status": "skipped",
-                          "duration": 3982,
+                          "duration": 5162,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:50.494Z",
+                          "startTime": "2025-12-20T05:30:21.449Z",
                           "annotations": [
                             {
                               "type": "skip",
                               "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                                 "line": 78,
                                 "column": 14
                               }
@@ -667,7 +522,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                             "line": 105,
                             "column": 14
                           }
@@ -678,20 +533,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 6,
+                          "workerIndex": 3,
                           "parallelIndex": 3,
                           "status": "skipped",
-                          "duration": 1201,
+                          "duration": 1484,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:54.500Z",
+                          "startTime": "2025-12-20T05:30:26.649Z",
                           "annotations": [
                             {
                               "type": "skip",
                               "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
                                 "line": 105,
                                 "column": 14
                               }
@@ -704,214 +559,6 @@
                     }
                   ],
                   "id": "e994307b225edfd3385e-01e414b7ee9b3f55cc15",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 97,
-                  "column": 9
-                },
-                {
-                  "title": "should show rewrite button after content loads",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 22,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "skipped",
-                          "duration": 2085,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:35.920Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 22,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-4c648f4354cdb7fb96f8",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 12,
-                  "column": 9
-                },
-                {
-                  "title": "should open dropdown and show rewrite options",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 51,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "skipped",
-                          "duration": 1728,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:38.025Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 51,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-940c7bba1f06f1d671d6",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 43,
-                  "column": 9
-                },
-                {
-                  "title": "should show content with title after loading from library",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 78,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "skipped",
-                          "duration": 1834,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:38.687Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 78,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-91ca405d7a6997e80c18",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 70,
-                  "column": 9
-                },
-                {
-                  "title": "should have functional rewrite button after content loads",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 105,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "skipped",
-                          "duration": 2259,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:39.772Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 105,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-efc868b865c826256bf8",
                   "file": "specs/02-search-generate/regenerate.spec.ts",
                   "line": 97,
                   "column": 9
@@ -944,7 +591,7 @@
               "specs": [
                 {
                   "title": "should submit query from home page and redirect to results",
-                  "ok": true,
+                  "ok": false,
                   "tags": [],
                   "tests": [
                     {
@@ -956,19 +603,59 @@
                       "results": [
                         {
                           "workerIndex": 4,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 7583,
-                          "errors": [],
+                          "parallelIndex": 2,
+                          "status": "failed",
+                          "duration": 12960,
+                          "error": {
+                            "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
+                            "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n    at /Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:24:18",
+                            "location": {
+                              "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                              "column": 18,
+                              "line": 24
+                            },
+                            "snippet": "  22 |\n  23 |       // Verify redirect to results page with query param\n> 24 |       await page.waitForURL(/\\/results\\?q=/, { timeout: 10000 });\n     |                  ^\n  25 |       const query = await resultsPage.getQueryFromUrl();\n  26 |       expect(query).toContain('quantum entanglement');\n  27 |     });"
+                          },
+                          "errors": [
+                            {
+                              "location": {
+                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                                "column": 18,
+                                "line": 24
+                              },
+                              "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n\n  22 |\n  23 |       // Verify redirect to results page with query param\n> 24 |       await page.waitForURL(/\\/results\\?q=/, { timeout: 10000 });\n     |                  ^\n  25 |       const query = await resultsPage.getQueryFromUrl();\n  26 |       expect(query).toContain('quantum entanglement');\n  27 |     });\n    at /Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:24:18"
+                            }
+                          ],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:54.726Z",
+                          "startTime": "2025-12-20T05:30:27.261Z",
                           "annotations": [],
-                          "attachments": []
+                          "attachments": [
+                            {
+                              "name": "screenshot",
+                              "contentType": "image/png",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/test-failed-1.png"
+                            },
+                            {
+                              "name": "video",
+                              "contentType": "video/webm",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/video.webm"
+                            },
+                            {
+                              "name": "error-context",
+                              "contentType": "text/markdown",
+                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/error-context.md"
+                            }
+                          ],
+                          "errorLocation": {
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                            "column": 18,
+                            "line": 24
+                          }
                         }
                       ],
-                      "status": "expected"
+                      "status": "unexpected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-676816568170fd40a2e7",
@@ -989,15 +676,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 5,
+                          "workerIndex": 2,
                           "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 1927,
+                          "duration": 2888,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:54.727Z",
+                          "startTime": "2025-12-20T05:30:27.262Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1023,15 +710,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
-                          "parallelIndex": 2,
+                          "workerIndex": 1,
+                          "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 10496,
+                          "duration": 16463,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:54.769Z",
+                          "startTime": "2025-12-20T05:30:27.421Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1040,108 +727,6 @@
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-3c6c801c5c742e545e30",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 43,
-                  "column": 9
-                },
-                {
-                  "title": "should submit query from home page and redirect to results",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 4492,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:40.552Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-db1ee3497921066915dc",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 13,
-                  "column": 9
-                },
-                {
-                  "title": "should not submit empty query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 2794,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:42.058Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-0b87e4c97ca81459e877",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 29,
-                  "column": 9
-                },
-                {
-                  "title": "should allow search from results page",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 5087,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:44.880Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-e326dcd8c08025d7136c",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
                   "line": 43,
                   "column": 9
@@ -1167,15 +752,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 6,
+                          "workerIndex": 3,
                           "parallelIndex": 3,
                           "status": "passed",
-                          "duration": 8500,
+                          "duration": 15395,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:55.719Z",
+                          "startTime": "2025-12-20T05:30:28.180Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1201,15 +786,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 5,
+                          "workerIndex": 2,
                           "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 7797,
+                          "duration": 12976,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:44:56.673Z",
+                          "startTime": "2025-12-20T05:30:30.182Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1235,15 +820,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
-                          "parallelIndex": 0,
+                          "workerIndex": 5,
+                          "parallelIndex": 2,
                           "status": "passed",
-                          "duration": 3283,
+                          "duration": 5126,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:02.356Z",
+                          "startTime": "2025-12-20T05:30:43.079Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1267,7 +852,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
                             "line": 113,
                             "column": 10
                           }
@@ -1286,7 +871,7 @@
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:04.236Z",
+                          "startTime": "2025-12-20T05:30:43.208Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1310,7 +895,7 @@
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
                             "line": 130,
                             "column": 10
                           }
@@ -1329,7 +914,7 @@
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:04.236Z",
+                          "startTime": "2025-12-20T05:30:43.211Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1338,230 +923,6 @@
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-175145150b8e3f55a3fc",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 130,
-                  "column": 10
-                },
-                {
-                  "title": "should show title during streaming",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 90000,
-                      "annotations": [
-                        {
-                          "type": "slow",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 69,
-                            "column": 53
-                          }
-                        }
-                      ],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 3722,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:45.071Z",
-                          "annotations": [
-                            {
-                              "type": "slow",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                                "line": 69,
-                                "column": 53
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-551fba4067d7fa81ed7e",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 67,
-                  "column": 9
-                },
-                {
-                  "title": "should display full content after streaming completes",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 90000,
-                      "annotations": [
-                        {
-                          "type": "slow",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 84,
-                            "column": 53
-                          }
-                        }
-                      ],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 3362,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:48.818Z",
-                          "annotations": [
-                            {
-                              "type": "slow",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                                "line": 84,
-                                "column": 53
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-891c0b19beee2935c1dc",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 82,
-                  "column": 9
-                },
-                {
-                  "title": "should show stream-complete indicator when generation finishes",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 2796,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:49.980Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-3fd3065cd1b2729372e8",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 101,
-                  "column": 9
-                },
-                {
-                  "title": "should automatically assign tags after generation",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 113,
-                            "column": 10
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": -1,
-                          "parallelIndex": -1,
-                          "status": "skipped",
-                          "duration": 0,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:52.193Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-3332038d863f829ae20c",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 113,
-                  "column": 10
-                },
-                {
-                  "title": "should enable save-to-library button after generation",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 130,
-                            "column": 10
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": -1,
-                          "parallelIndex": -1,
-                          "status": "skipped",
-                          "duration": 0,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:52.194Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-e9fc652868e6cfd1270b",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
                   "line": 130,
                   "column": 10
@@ -1587,15 +948,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 6,
-                          "parallelIndex": 3,
+                          "workerIndex": 2,
+                          "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 4565,
+                          "duration": 5203,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:04.238Z",
+                          "startTime": "2025-12-20T05:30:43.219Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1621,15 +982,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 5,
-                          "parallelIndex": 1,
+                          "workerIndex": 3,
+                          "parallelIndex": 3,
                           "status": "passed",
-                          "duration": 5494,
+                          "duration": 9156,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:04.480Z",
+                          "startTime": "2025-12-20T05:30:43.679Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1638,74 +999,6 @@
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-e4f3a935bff53107ce57",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 162,
-                  "column": 9
-                },
-                {
-                  "title": "should handle API error gracefully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 8,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 4832,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:52.195Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-998897d425b8f93f2c85",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 146,
-                  "column": 9
-                },
-                {
-                  "title": "should not crash with very long query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 3234,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:52.790Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-30034140d029739c6264",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
                   "line": 162,
                   "column": 9
@@ -1731,15 +1024,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
-                          "parallelIndex": 2,
+                          "workerIndex": 1,
+                          "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 2611,
+                          "duration": 5851,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:05.480Z",
+                          "startTime": "2025-12-20T05:30:43.929Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1748,60 +1041,6 @@
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-d8067076febe5bfe3c7d",
-                  "file": "specs/02-search-generate/search-generate.spec.ts",
-                  "line": 182,
-                  "column": 9
-                },
-                {
-                  "title": "should preserve query in URL after generation",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "description": "Firefox SSE mock interception is flaky",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "line": 184,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 9,
-                          "parallelIndex": 2,
-                          "status": "skipped",
-                          "duration": 248,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:45:56.036Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "description": "Firefox SSE mock interception is flaky",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                                "line": 184,
-                                "column": 12
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "c7b27eb59abe36abe4b5-e2bdebbb057ad8679b17",
                   "file": "specs/02-search-generate/search-generate.spec.ts",
                   "line": 182,
                   "column": 9
@@ -1838,15 +1077,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 0,
+                      "workerIndex": 2,
+                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 1826,
+                      "duration": 5654,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:05.681Z",
+                      "startTime": "2025-12-20T05:30:48.578Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1872,15 +1111,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 0,
+                      "workerIndex": 5,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 1513,
+                      "duration": 5030,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:07.536Z",
+                      "startTime": "2025-12-20T05:30:49.027Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1906,15 +1145,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 2,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "passed",
-                      "duration": 1907,
+                      "duration": 4655,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:08.132Z",
+                      "startTime": "2025-12-20T05:30:49.905Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -1938,7 +1177,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                         "line": 56,
                         "column": 12
                       }
@@ -1949,20 +1188,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 2546,
+                      "duration": 2299,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:08.832Z",
+                      "startTime": "2025-12-20T05:30:52.878Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                             "line": 56,
                             "column": 12
                           }
@@ -1990,7 +1229,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                         "line": 74,
                         "column": 12
                       }
@@ -2001,20 +1240,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 0,
+                      "workerIndex": 5,
+                      "parallelIndex": 2,
                       "status": "skipped",
-                      "duration": 2716,
+                      "duration": 1558,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:09.075Z",
+                      "startTime": "2025-12-20T05:30:54.142Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                             "line": 74,
                             "column": 12
                           }
@@ -2042,7 +1281,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                         "line": 93,
                         "column": 12
                       }
@@ -2053,20 +1292,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
+                      "workerIndex": 2,
                       "parallelIndex": 1,
                       "status": "skipped",
-                      "duration": 5665,
+                      "duration": 2083,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:10.003Z",
+                      "startTime": "2025-12-20T05:30:54.365Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                             "line": 93,
                             "column": 12
                           }
@@ -2094,7 +1333,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                         "line": 113,
                         "column": 12
                       }
@@ -2105,20 +1344,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 2,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "skipped",
-                      "duration": 5591,
+                      "duration": 2080,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:10.061Z",
+                      "startTime": "2025-12-20T05:30:54.616Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                             "line": 113,
                             "column": 12
                           }
@@ -2146,7 +1385,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                         "line": 132,
                         "column": 12
                       }
@@ -2157,20 +1396,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 6701,
+                      "duration": 2449,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:11.471Z",
+                      "startTime": "2025-12-20T05:30:55.197Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                             "line": 132,
                             "column": 12
                           }
@@ -2198,7 +1437,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                         "line": 147,
                         "column": 12
                       }
@@ -2209,20 +1448,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 0,
+                      "workerIndex": 5,
+                      "parallelIndex": 2,
                       "status": "skipped",
-                      "duration": 6362,
+                      "duration": 2110,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:11.831Z",
+                      "startTime": "2025-12-20T05:30:55.783Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
                             "line": 147,
                             "column": 12
                           }
@@ -2252,15 +1491,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 7,
-                      "parallelIndex": 2,
+                      "workerIndex": 2,
+                      "parallelIndex": 1,
                       "status": "passed",
-                      "duration": 6996,
+                      "duration": 8239,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:15.679Z",
+                      "startTime": "2025-12-20T05:30:56.543Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -2269,454 +1508,6 @@
                 }
               ],
               "id": "c2c8e39bad2c9e91410f-563182ce84d16fcef32b",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 155,
-              "column": 7
-            },
-            {
-              "title": "should show loading state when navigating to library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 1367,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:45:56.295Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-edb5e430522d6993eaa0",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 16,
-              "column": 7
-            },
-            {
-              "title": "should display user library page after authentication",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 1958,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:45:57.046Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-77355a23e3ae79a806d2",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 27,
-              "column": 7
-            },
-            {
-              "title": "should display page title when content loads",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 4489,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:45:57.675Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-59d7dbec8e3ba20a84f7",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 41,
-              "column": 7
-            },
-            {
-              "title": "should have sortable table headers when content loads",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 56,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 7711,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:45:59.018Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 56,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-7a59192f7d9e33e613f5",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 50,
-              "column": 7
-            },
-            {
-              "title": "should allow sorting by title",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 74,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 11901,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:02.442Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 74,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-e0ad45ffced0580e0f1c",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 68,
-              "column": 7
-            },
-            {
-              "title": "should allow sorting by date",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 93,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 7918,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:06.767Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 93,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-3c746299093cfb687f44",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 87,
-              "column": 7
-            },
-            {
-              "title": "should navigate to results page when clicking View link",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 113,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 3064,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:14.499Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 113,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-a6bc41708188d3d24423",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 106,
-              "column": 7
-            },
-            {
-              "title": "should show Date Saved column for user library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 132,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 2851,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:14.731Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 132,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-d90dece2d10261fb1983",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 126,
-              "column": 7
-            },
-            {
-              "title": "should have search bar in navigation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 147,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 2968,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:17.580Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 147,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-665a99204aa8fd199d7a",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 141,
-              "column": 7
-            },
-            {
-              "title": "should handle search from library page",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 4378,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:17.607Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-6ed0c31b4554445c1ec9",
               "file": "specs/03-library/library.spec.ts",
               "line": 155,
               "column": 7
@@ -2749,7 +1540,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                         "line": 30,
                         "column": 12
                       }
@@ -2760,20 +1551,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "skipped",
-                      "duration": 34234,
+                      "duration": 32832,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:15.712Z",
+                      "startTime": "2025-12-20T05:30:56.715Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                             "line": 30,
                             "column": 12
                           }
@@ -2801,7 +1592,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                         "line": 54,
                         "column": 12
                       }
@@ -2812,20 +1603,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "skipped",
-                      "duration": 32289,
+                      "duration": 34877,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:49.971Z",
+                      "startTime": "2025-12-20T05:31:29.558Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                             "line": 54,
                             "column": 12
                           }
@@ -2853,7 +1644,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                         "line": 92,
                         "column": 12
                       }
@@ -2864,20 +1655,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "skipped",
-                      "duration": 33464,
+                      "duration": 35407,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:46:22.286Z",
+                      "startTime": "2025-12-20T05:32:04.463Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                             "line": 92,
                             "column": 12
                           }
@@ -2905,7 +1696,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                         "line": 118,
                         "column": 12
                       }
@@ -2916,20 +1707,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 5,
-                      "parallelIndex": 1,
+                      "workerIndex": 1,
+                      "parallelIndex": 0,
                       "status": "skipped",
-                      "duration": 33042,
+                      "duration": 37513,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:46:55.789Z",
+                      "startTime": "2025-12-20T05:32:39.923Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
                             "line": 118,
                             "column": 12
                           }
@@ -2942,214 +1733,6 @@
                 }
               ],
               "id": "9a90287d0feeac884504-4e21db7cb10320909cc4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 108,
-              "column": 7
-            },
-            {
-              "title": "should display existing tags on explanation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 30,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 33146,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:20.585Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 30,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-8ed11d231e3210d42ed6",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 20,
-              "column": 7
-            },
-            {
-              "title": "should show tag management buttons when tags are modified",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 54,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 33584,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:53.750Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 54,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-8c9e3e8a6cad9a5af838",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 44,
-              "column": 7
-            },
-            {
-              "title": "should handle tag input field interaction",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 92,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 33596,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:47:27.377Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 92,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-073aebdbde711b51bf33",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 82,
-              "column": 7
-            },
-            {
-              "title": "should preserve tag state after page refresh",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 118,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 9,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 32297,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:48:01.014Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 118,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-3a429035525eaa75d3ff",
               "file": "specs/04-content-viewing/tags.spec.ts",
               "line": 108,
               "column": 7
@@ -3182,7 +1765,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                         "line": 33,
                         "column": 12
                       }
@@ -3193,20 +1776,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 33409,
+                      "duration": 36907,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:18.255Z",
+                      "startTime": "2025-12-20T05:30:57.687Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                             "line": 33,
                             "column": 12
                           }
@@ -3234,7 +1817,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                         "line": 64,
                         "column": 12
                       }
@@ -3245,20 +1828,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 32030,
+                      "duration": 34912,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:51.677Z",
+                      "startTime": "2025-12-20T05:31:34.619Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                             "line": 64,
                             "column": 12
                           }
@@ -3286,7 +1869,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                         "line": 90,
                         "column": 12
                       }
@@ -3297,20 +1880,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 35837,
+                      "duration": 33992,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:46:23.724Z",
+                      "startTime": "2025-12-20T05:32:09.550Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                             "line": 90,
                             "column": 12
                           }
@@ -3338,7 +1921,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                         "line": 114,
                         "column": 12
                       }
@@ -3349,20 +1932,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 33610,
+                      "duration": 34405,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:46:59.615Z",
+                      "startTime": "2025-12-20T05:32:43.573Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                             "line": 114,
                             "column": 12
                           }
@@ -3390,7 +1973,7 @@
                     {
                       "type": "skip",
                       "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                         "line": 136,
                         "column": 12
                       }
@@ -3401,20 +1984,20 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 6,
+                      "workerIndex": 3,
                       "parallelIndex": 3,
                       "status": "skipped",
-                      "duration": 31997,
+                      "duration": 32966,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:47:33.283Z",
+                      "startTime": "2025-12-20T05:33:17.998Z",
                       "annotations": [
                         {
                           "type": "skip",
                           "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
+                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
                             "line": 136,
                             "column": 12
                           }
@@ -3427,266 +2010,6 @@
                 }
               ],
               "id": "d2d0fd29d1b81bb9f321-06d066fb72697b022a37",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 127,
-              "column": 7
-            },
-            {
-              "title": "should load existing explanation by ID from URL",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 33,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 32353,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:22.026Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 33,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-bb0a25ae396c2ba5427f",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 20,
-              "column": 7
-            },
-            {
-              "title": "should display explanation title",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 64,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 32921,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:46:54.411Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 64,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-c8cff6a1c5cea6f53a2d",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 54,
-              "column": 7
-            },
-            {
-              "title": "should display tags for explanation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 90,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 33536,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:47:27.370Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 90,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-156489bca285fec599d0",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 80,
-              "column": 7
-            },
-            {
-              "title": "should show save button state correctly",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 114,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 32085,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:48:00.944Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 114,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-e9b21a22a4ab3fdd1b19",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 105,
-              "column": 7
-            },
-            {
-              "title": "should preserve explanation ID in URL",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 136,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 8,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 32350,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:48:33.056Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/worktree_22_1/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 136,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-13d3f271beb800dba793",
               "file": "specs/04-content-viewing/viewing.spec.ts",
               "line": 127,
               "column": 7
@@ -3728,15 +2051,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
-                          "parallelIndex": 0,
+                          "workerIndex": 5,
+                          "parallelIndex": 2,
                           "status": "passed",
-                          "duration": 6301,
+                          "duration": 6534,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:18.260Z",
+                          "startTime": "2025-12-20T05:30:57.913Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -3762,15 +2085,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
+                          "workerIndex": 5,
                           "parallelIndex": 2,
                           "status": "passed",
-                          "duration": 1979,
+                          "duration": 4258,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:22.736Z",
+                          "startTime": "2025-12-20T05:31:04.510Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -3779,74 +2102,6 @@
                     }
                   ],
                   "id": "93ba63ac2f2ae08ec75b-a83f014864631d846525",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 35,
-                  "column": 9
-                },
-                {
-                  "title": "should not display content when API returns 500",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 10,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 5409,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:47:29.694Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-c209f2967ca72728cb44",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 18,
-                  "column": 9
-                },
-                {
-                  "title": "should display error message for stream errors",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 10,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 1842,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:47:37.618Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-4e14d4d930a1d45f75a9",
                   "file": "specs/05-edge-cases/errors.spec.ts",
                   "line": 35,
                   "column": 9
@@ -3872,15 +2127,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
-                          "parallelIndex": 0,
+                          "workerIndex": 2,
+                          "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 4321,
+                          "duration": 6618,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:24.581Z",
+                          "startTime": "2025-12-20T05:31:04.842Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -3906,15 +2161,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
+                          "workerIndex": 5,
                           "parallelIndex": 2,
                           "status": "passed",
-                          "duration": 3734,
+                          "duration": 3521,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:24.730Z",
+                          "startTime": "2025-12-20T05:31:08.803Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -3923,74 +2178,6 @@
                     }
                   ],
                   "id": "93ba63ac2f2ae08ec75b-2fc0a8a44fb3d2e2bef5",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 74,
-                  "column": 9
-                },
-                {
-                  "title": "should handle invalid explanation_id in URL gracefully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 10,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 4071,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:47:39.469Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-7131755d3792c7659afd",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 57,
-                  "column": 9
-                },
-                {
-                  "title": "should handle missing query parameter",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 10,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 3282,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:47:43.565Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-22aed2d9d7bf469648ba",
                   "file": "specs/05-edge-cases/errors.spec.ts",
                   "line": 74,
                   "column": 9
@@ -4016,15 +2203,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 7,
-                          "parallelIndex": 2,
+                          "workerIndex": 2,
+                          "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 1940,
+                          "duration": 2041,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T02:45:28.473Z",
+                          "startTime": "2025-12-20T05:31:11.485Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -4033,40 +2220,6 @@
                     }
                   ],
                   "id": "93ba63ac2f2ae08ec75b-449b8f9edc9c52137627",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 88,
-                  "column": 9
-                },
-                {
-                  "title": "should recover from error state on new query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "firefox",
-                      "projectName": "firefox",
-                      "results": [
-                        {
-                          "workerIndex": 10,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 2582,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T02:47:46.888Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-75e2311652d4815dd263",
                   "file": "specs/05-edge-cases/errors.spec.ts",
                   "line": 88,
                   "column": 9
@@ -4103,15 +2256,15 @@
                   "projectName": "chromium",
                   "results": [
                     {
-                      "workerIndex": 4,
-                      "parallelIndex": 0,
+                      "workerIndex": 5,
+                      "parallelIndex": 2,
                       "status": "passed",
-                      "duration": 1093,
+                      "duration": 1165,
                       "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2025-12-20T02:45:28.917Z",
+                      "startTime": "2025-12-20T05:31:12.370Z",
                       "annotations": [],
                       "attachments": []
                     }
@@ -4123,295 +2276,6 @@
               "file": "specs/smoke.spec.ts",
               "line": 4,
               "column": 7
-            },
-            {
-              "title": "home page loads and has search bar",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "firefox",
-                  "projectName": "firefox",
-                  "results": [
-                    {
-                      "workerIndex": 10,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 1063,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:47:49.487Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "6afa746d4711a5a4d7df-613893719e93365101fe",
-              "file": "specs/smoke.spec.ts",
-              "line": 4,
-              "column": 7
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/auth.unauth.spec.ts",
-      "file": "specs/auth.unauth.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Unauthenticated User Tests",
-          "file": "specs/auth.unauth.spec.ts",
-          "line": 4,
-          "column": 6,
-          "specs": [
-            {
-              "title": "login page loads",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 1869,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:39.156Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-7774d7d51ddbf2a9762a",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 5,
-              "column": 7
-            },
-            {
-              "title": "unauthenticated user redirected from protected route",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 2,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 1816,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:39.150Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-27bbc87e5e48cf069910",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 21,
-              "column": 7
-            },
-            {
-              "title": "should require authentication to access library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 2328,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:39.172Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-641e0c912064f751e4d1",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 29,
-              "column": 7
-            },
-            {
-              "title": "should login with valid credentials",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 2,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 3886,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:41.541Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-0f61fc0b78e355dd9434",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 48,
-              "column": 7
-            },
-            {
-              "title": "should show error with invalid credentials",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 3112,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:41.596Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-9c7818b6140d02758435",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 64,
-              "column": 7
-            },
-            {
-              "title": "should handle empty email submission",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 2533,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:42.090Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-88fd55628834bf41bcb7",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 83,
-              "column": 7
-            },
-            {
-              "title": "should handle empty password submission",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium-unauth",
-                  "projectName": "chromium-unauth",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "passed",
-                      "duration": 1643,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T02:44:44.648Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "e6f236b2312bae38dfa2-f4a7444280c220ba8c96",
-              "file": "specs/auth.unauth.spec.ts",
-              "line": 96,
-              "column": 7
             }
           ]
         }
@@ -4420,11 +2284,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-12-20T02:44:31.160Z",
-    "duration": 275391.565,
-    "expected": 51,
-    "skipped": 45,
-    "unexpected": 0,
+    "startTime": "2025-12-20T05:29:53.371Z",
+    "duration": 237876.9,
+    "expected": 22,
+    "skipped": 22,
+    "unexpected": 1,
     "flaky": 0
   }
 }
