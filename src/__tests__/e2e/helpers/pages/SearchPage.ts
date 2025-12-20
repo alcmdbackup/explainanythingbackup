@@ -10,31 +10,36 @@ export class SearchPage extends BasePage {
   }
 
   async navigate() {
-    await super.navigate('/');
+    await this.page.goto('/');
+    await this.page.waitForLoadState('networkidle');
   }
 
   async search(query: string) {
-    // Clear and type to properly trigger React state updates
-    await this.page.click(this.searchInput);
-    await this.page.fill(this.searchInput, '');
-    await this.page.type(this.searchInput, query);
-    await this.page.click(this.searchButton);
+    // Wait for React hydration before interacting
+    const input = this.page.locator(this.searchInput);
+    await input.waitFor({ state: 'visible' });
+    await input.click();
+    await input.fill(query);
+
+    const button = this.page.locator(this.searchButton);
+    await button.waitFor({ state: 'visible' });
+    await button.click();
   }
 
   async fillQuery(query: string) {
-    // Clear and type to properly trigger React state updates
-    await this.page.click(this.searchInput);
-    await this.page.fill(this.searchInput, '');
-    if (query) {
-      await this.page.type(this.searchInput, query);
-    }
+    // Wait for React hydration before interacting
+    const input = this.page.locator(this.searchInput);
+    await input.waitFor({ state: 'visible' });
+    await input.click();
+    await input.fill(query);
   }
 
   async clickSearch() {
     // Check if submit button exists (home variant has it, nav variant doesn't)
-    const buttonExists = await this.page.locator(this.searchButton).isVisible().catch(() => false);
+    const button = this.page.locator(this.searchButton);
+    const buttonExists = await button.isVisible().catch(() => false);
     if (buttonExists) {
-      await this.page.click(this.searchButton);
+      await button.click();
     } else {
       // Nav variant uses Enter key to submit
       await this.page.locator(this.searchInput).press('Enter');
