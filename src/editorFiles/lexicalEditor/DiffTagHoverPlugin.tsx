@@ -1,186 +1,98 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { DiffTagNodeInline, DiffTagNodeBlock, $isDiffTagNodeInline, $isDiffTagNodeBlock, $isDiffUpdateContainerInline } from './DiffTagNode';
-import DiffTagHoverControls from './DiffTagHoverControls';
+import DiffTagInlineControls from './DiffTagInlineControls';
 import { $getNodeByKey } from 'lexical';
 
-interface HoverState {
-  isVisible: boolean;
-  targetElement: HTMLElement | null;
-  nodeKey: string | null;
-  diffTag: 'ins' | 'del' | 'update' | null;
+interface DiffTagState {
+  element: HTMLElement;
+  nodeKey: string;
+  diffTag: 'ins' | 'del' | 'update';
 }
 
 export default function DiffTagHoverPlugin() {
-  console.log('🏁 DiffTagHoverPlugin: Component initializing');
   const [editor] = useLexicalComposerContext();
-  const [hoverState, setHoverState] = useState<HoverState>({
-    isVisible: false,
-    targetElement: null,
-    nodeKey: null,
-    diffTag: null
-  });
+  const [activeDiffTags, setActiveDiffTags] = useState<Map<string, DiffTagState>>(new Map());
 
-  console.log('🏁 DiffTagHoverPlugin: Current hover state:', hoverState);
+  // Scan for all diff tag elements in the editor
+  const scanForDiffTags = useCallback(() => {
+    const rootElement = editor.getRootElement();
+    if (!rootElement) return;
+
+    const newDiffTags = new Map<string, DiffTagState>();
+
+    // Find all elements with data-diff-key attribute
+    const diffElements = rootElement.querySelectorAll('[data-diff-key]');
+    diffElements.forEach((element) => {
+      const nodeKey = element.getAttribute('data-diff-key');
+      const diffType = element.getAttribute('data-diff-type') as 'ins' | 'del' | 'update';
+
+      if (nodeKey && diffType) {
+        newDiffTags.set(nodeKey, {
+          element: element as HTMLElement,
+          nodeKey,
+          diffTag: diffType
+        });
+      }
+    });
+
+    setActiveDiffTags(newDiffTags);
+  }, [editor]);
 
   useEffect(() => {
-    console.log('🚀 DiffTagHoverPlugin: Starting to register mutation listeners');
-    console.log('🚀 DiffTagHoverPlugin: Editor instance:', editor);
-    const registeredElements = new WeakSet();
+    // Initial scan
+    scanForDiffTags();
 
-    // Log initial editor state
-    editor.getEditorState().read(() => {
-      const root = editor.getRootElement();
-      console.log('🚀 DiffTagHoverPlugin: Root element:', root);
-      console.log('🚀 DiffTagHoverPlugin: Editor state keys:', editor.getEditorState()._nodeMap.size);
+    // Register mutation listeners for both inline and block diff tags
+    const removeMutationListener = editor.registerMutationListener(DiffTagNodeInline, () => {
+      // Use requestAnimationFrame to ensure DOM is updated
+      requestAnimationFrame(scanForDiffTags);
     });
 
-    const removeMutationListener = editor.registerMutationListener(DiffTagNodeInline, (mutations) => {
-      console.log('🔍 DiffTagHoverPlugin: DiffTagNodeInline mutations detected:', mutations.size);
-      console.log('🔍 DiffTagHoverPlugin: Mutation details:', Array.from(mutations.entries()));
-      editor.getEditorState().read(() => {
-        for (const [key, mutation] of mutations) {
-          console.log('🔍 DiffTagHoverPlugin: Processing mutation for key:', key, 'type:', mutation);
-          const element = editor.getElementByKey(key);
-          console.log('🔍 DiffTagHoverPlugin: Element for key:', element);
-
-          if ((mutation === 'created' || mutation === 'updated') &&
-              element !== null &&
-              !registeredElements.has(element)) {
-            console.log('🎯 DiffTagHoverPlugin: Adding hover listeners to element', key, mutation);
-            console.log('🎯 DiffTagHoverPlugin: Element details:', {
-              tagName: element.tagName,
-              className: element.className,
-              textContent: element.textContent?.substring(0, 50)
-            });
-            registeredElements.add(element);
-
-            // Add mouseenter event
-            element.addEventListener('mouseenter', (event) => {
-              console.log('🖱️ DiffTagHoverPlugin: Mouse entered diff tag element', key);
-              console.log('🖱️ DiffTagHoverPlugin: Event target:', event.target);
-              console.log('🖱️ DiffTagHoverPlugin: Current element:', event.currentTarget);
-
-              // Get the diff tag type from the node
-              editor.getEditorState().read(() => {
-                const node = $getNodeByKey(key);
-                console.log('🖱️ DiffTagHoverPlugin: Node for key:', node);
-                console.log('🖱️ DiffTagHoverPlugin: Node type check - inline:', $isDiffTagNodeInline(node), 'block:', $isDiffTagNodeBlock(node));
-
-                if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-                  const diffTag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
-                  console.log('📝 DiffTagHoverPlugin: Setting hover state for', diffTag);
-                  console.log('📝 DiffTagHoverPlugin: Previous hover state:', hoverState);
-
-                  setHoverState({
-                    isVisible: true,
-                    targetElement: element,
-                    nodeKey: key,
-                    diffTag: diffTag
-                  });
-
-                  console.log('📝 DiffTagHoverPlugin: New hover state set');
-                } else {
-                  console.log('❌ DiffTagHoverPlugin: Node is not a diff tag node');
-                }
-              });
-            });
-
-            // Note: mouseleave will be handled by the DiffTagHoverControls component
-          }
-        }
-      });
+    const removeBlockMutationListener = editor.registerMutationListener(DiffTagNodeBlock, () => {
+      requestAnimationFrame(scanForDiffTags);
     });
 
-    // Also register for block-level diff tags
-    const removeBlockMutationListener = editor.registerMutationListener(DiffTagNodeBlock, (mutations) => {
-      editor.getEditorState().read(() => {
-        for (const [key, mutation] of mutations) {
-          const element = editor.getElementByKey(key);
-          if ((mutation === 'created' || mutation === 'updated') &&
-              element !== null &&
-              !registeredElements.has(element)) {
-            console.log('🎯 DiffTagHoverPlugin: Adding hover listeners to element', key, mutation);
-            registeredElements.add(element);
-
-            // Add mouseenter event
-            element.addEventListener('mouseenter', (event) => {
-              console.log('🖱️ DiffTagHoverPlugin: Mouse entered diff tag element', key);
-              console.log('🖱️ DiffTagHoverPlugin: Event target:', event.target);
-              console.log('🖱️ DiffTagHoverPlugin: Current element:', event.currentTarget);
-
-              // Get the diff tag type from the node
-              editor.getEditorState().read(() => {
-                const node = $getNodeByKey(key);
-                console.log('🖱️ DiffTagHoverPlugin: Node for key:', node);
-                console.log('🖱️ DiffTagHoverPlugin: Node type check - inline:', $isDiffTagNodeInline(node), 'block:', $isDiffTagNodeBlock(node));
-
-                if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-                  const diffTag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
-                  console.log('📝 DiffTagHoverPlugin: Setting hover state for', diffTag);
-                  console.log('📝 DiffTagHoverPlugin: Previous hover state:', hoverState);
-
-                  setHoverState({
-                    isVisible: true,
-                    targetElement: element,
-                    nodeKey: key,
-                    diffTag: diffTag
-                  });
-
-                  console.log('📝 DiffTagHoverPlugin: New hover state set');
-                } else {
-                  console.log('❌ DiffTagHoverPlugin: Node is not a diff tag node');
-                }
-              });
-            });
-
-            // Note: mouseleave will be handled by the DiffTagHoverControls component
-          }
-        }
-      });
+    // Also listen to general editor updates for cleanup
+    const removeUpdateListener = editor.registerUpdateListener(() => {
+      requestAnimationFrame(scanForDiffTags);
     });
 
     return () => {
       removeMutationListener();
       removeBlockMutationListener();
+      removeUpdateListener();
     };
-  }, [editor]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editor, scanForDiffTags]);
 
-  const handleAccept = () => {
-    if (!hoverState.nodeKey) return;
-
+  const handleAccept = useCallback((nodeKey: string) => {
     editor.update(() => {
-      const node = $getNodeByKey(hoverState.nodeKey!);
+      const node = $getNodeByKey(nodeKey);
       if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-        // For 'ins' nodes, keep the content and remove the diff tag
-        // For 'del' nodes, remove the entire node and its content
-        // For 'update' nodes, keep the second child (after content) and remove the first child (before content)
+        const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
 
-        if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'ins') {
+        if (tag === 'ins') {
           // Accept insertion: keep content, remove diff tag
           const children = node.getChildren();
           children.forEach(child => {
             node.insertBefore(child);
           });
           node.remove();
-        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'del') {
+        } else if (tag === 'del') {
           // Accept deletion: remove the entire node
           node.remove();
-        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'update') {
+        } else if (tag === 'update') {
           // Accept update: keep the second child (after text), remove first child and diff tag
           const children = node.getChildren();
           if (children.length >= 2) {
             const afterContent = children[1];
 
-            // If afterContent is a DiffUpdateContainerInline, extract its children
-            // and insert them directly before the diff tag node, then remove the container
             if ($isDiffUpdateContainerInline(afterContent)) {
               const containerChildren = afterContent.getChildren();
               containerChildren.forEach(child => {
                 node.insertBefore(child);
               });
             } else {
-              // Fallback: insert the afterContent as-is
               node.insertBefore(afterContent);
             }
           }
@@ -188,45 +100,36 @@ export default function DiffTagHoverPlugin() {
         }
       }
     });
+  }, [editor]);
 
-    setHoverState(prev => ({ ...prev, isVisible: false }));
-  };
-
-  const handleReject = () => {
-    if (!hoverState.nodeKey) return;
-
+  const handleReject = useCallback((nodeKey: string) => {
     editor.update(() => {
-      const node = $getNodeByKey(hoverState.nodeKey!);
+      const node = $getNodeByKey(nodeKey);
       if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-        // For 'ins' nodes, remove the entire node
-        // For 'del' nodes, keep the content and remove the diff tag
-        // For 'update' nodes, keep the first child (before content) and remove the second child (after content)
+        const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
 
-        if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'ins') {
+        if (tag === 'ins') {
           // Reject insertion: remove the entire node
           node.remove();
-        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'del') {
+        } else if (tag === 'del') {
           // Reject deletion: keep content, remove diff tag
           const children = node.getChildren();
           children.forEach(child => {
             node.insertBefore(child);
           });
           node.remove();
-        } else if ((node as DiffTagNodeInline | DiffTagNodeBlock).__tag === 'update') {
+        } else if (tag === 'update') {
           // Reject update: keep the first child (before text), remove second child and diff tag
           const children = node.getChildren();
           if (children.length >= 1) {
             const beforeContent = children[0];
 
-            // If beforeContent is a DiffUpdateContainerInline, extract its children
-            // and insert them directly before the diff tag node, then remove the container
             if ($isDiffUpdateContainerInline(beforeContent)) {
               const containerChildren = beforeContent.getChildren();
               containerChildren.forEach(child => {
                 node.insertBefore(child);
               });
             } else {
-              // Fallback: insert the beforeContent as-is
               node.insertBefore(beforeContent);
             }
           }
@@ -234,32 +137,20 @@ export default function DiffTagHoverPlugin() {
         }
       }
     });
-
-    setHoverState({ isVisible: false, targetElement: null, nodeKey: null, diffTag: null });
-  };
-
-  const handleClose = () => {
-    setHoverState({ isVisible: false, targetElement: null, nodeKey: null, diffTag: null });
-  };
-
-  console.log('🎨 DiffTagHoverPlugin render:', {
-    isVisible: hoverState.isVisible,
-    hasTargetElement: !!hoverState.targetElement,
-    diffTag: hoverState.diffTag,
-    nodeKey: hoverState.nodeKey
-  });
+  }, [editor]);
 
   return (
     <>
-      {hoverState.isVisible && hoverState.targetElement && hoverState.diffTag && (
-        <DiffTagHoverControls
-          targetElement={hoverState.targetElement}
-          diffTagType={hoverState.diffTag}
-          onAccept={handleAccept}
-          onReject={handleReject}
-          onClose={handleClose}
+      {Array.from(activeDiffTags.values()).map(({ element, nodeKey, diffTag }) => (
+        <DiffTagInlineControls
+          key={nodeKey}
+          targetElement={element}
+          nodeKey={nodeKey}
+          diffTagType={diffTag}
+          onAccept={() => handleAccept(nodeKey)}
+          onReject={() => handleReject(nodeKey)}
         />
-      )}
+      ))}
     </>
   );
 }
