@@ -10,6 +10,7 @@ import {
 } from '@/components/ui/select';
 import { Sun, Moon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { TextRevealSettings } from '@/components/TextRevealSettings';
 
 export default function SettingsContent() {
   const { palette, mode, setPalette, toggleMode } = useTheme();
@@ -66,6 +67,11 @@ export default function SettingsContent() {
             Click to switch to {mode === 'light' ? 'dark' : 'light'} mode
           </span>
         </div>
+      </div>
+
+      {/* Text Reveal Animation */}
+      <div className="space-y-3">
+        <TextRevealSettings />
       </div>
 
       {/* Theme Preview */}
