@@ -842,7 +842,7 @@ function ResultsPageContent() {
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
-                    disabled: isPageLoading || isStreaming
+                    disabled: isPageLoading || (isStreaming && !streamCompleted && !error)
                 }}
             />
 
