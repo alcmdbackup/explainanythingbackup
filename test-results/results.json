@@ -136,12 +136,12 @@
                   "workerIndex": 0,
                   "parallelIndex": 0,
                   "status": "passed",
-                  "duration": 6757,
+                  "duration": 2682,
                   "errors": [],
                   "stdout": [],
                   "stderr": [],
                   "retry": 0,
-                  "startTime": "2025-12-20T05:30:07.739Z",
+                  "startTime": "2025-12-20T05:53:17.388Z",
                   "annotations": [],
                   "attachments": []
                 }
@@ -153,419 +153,6 @@
           "file": "setup/auth.setup.ts",
           "line": 6,
           "column": 6
-        }
-      ]
-    },
-    {
-      "title": "specs/01-auth/auth.spec.ts",
-      "file": "specs/01-auth/auth.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Authentication Flow",
-          "file": "specs/01-auth/auth.spec.ts",
-          "line": 4,
-          "column": 6,
-          "specs": [],
-          "suites": [
-            {
-              "title": "Session Management",
-              "file": "specs/01-auth/auth.spec.ts",
-              "line": 7,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should persist session after page refresh",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 1,
-                          "parallelIndex": 0,
-                          "status": "passed",
-                          "duration": 398,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:17.392Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-ad88b2cef9726ce55d7f",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 8,
-                  "column": 9
-                },
-                {
-                  "title": "should access protected route when authenticated",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 2,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 9334,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:17.371Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-5621083678ae64c8222f",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 25,
-                  "column": 9
-                },
-                {
-                  "title": "should logout successfully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/01-auth/auth.spec.ts",
-                            "line": 37,
-                            "column": 10
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": -1,
-                          "parallelIndex": -1,
-                          "status": "skipped",
-                          "duration": 0,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:16.230Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-4e46da67850f28f248a1",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 37,
-                  "column": 10
-                }
-              ]
-            },
-            {
-              "title": "Edge Cases",
-              "file": "specs/01-auth/auth.spec.ts",
-              "line": 58,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should redirect to home when accessing login while authenticated",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 3,
-                          "parallelIndex": 3,
-                          "status": "passed",
-                          "duration": 3302,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:17.637Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "44d28f779dc4b8b84b4c-afcf87efc9f8fcf6b45b",
-                  "file": "specs/01-auth/auth.spec.ts",
-                  "line": 59,
-                  "column": 9
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/02-search-generate/regenerate.spec.ts",
-      "file": "specs/02-search-generate/regenerate.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Regeneration Flow",
-          "file": "specs/02-search-generate/regenerate.spec.ts",
-          "line": 10,
-          "column": 6,
-          "specs": [],
-          "suites": [
-            {
-              "title": "Rewrite Button",
-              "file": "specs/02-search-generate/regenerate.spec.ts",
-              "line": 11,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should show rewrite button after content loads",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 22,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 4,
-                          "parallelIndex": 2,
-                          "status": "skipped",
-                          "duration": 9357,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:17.315Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 22,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-e7a4347696f766e937a2",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 12,
-                  "column": 9
-                },
-                {
-                  "title": "should open dropdown and show rewrite options",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 51,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 1,
-                          "parallelIndex": 0,
-                          "status": "skipped",
-                          "duration": 9042,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:18.312Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 51,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-ff8122b7ac0ca6d9ac28",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 43,
-                  "column": 9
-                },
-                {
-                  "title": "should show content with title after loading from library",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 78,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 3,
-                          "parallelIndex": 3,
-                          "status": "skipped",
-                          "duration": 5162,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:21.449Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 78,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-d1d455e2e3217e42796d",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 70,
-                  "column": 9
-                },
-                {
-                  "title": "should have functional rewrite button after content loads",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                            "line": 105,
-                            "column": 14
-                          }
-                        }
-                      ],
-                      "expectedStatus": "skipped",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 3,
-                          "parallelIndex": 3,
-                          "status": "skipped",
-                          "duration": 1484,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:26.649Z",
-                          "annotations": [
-                            {
-                              "type": "skip",
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/regenerate.spec.ts",
-                                "line": 105,
-                                "column": 14
-                              }
-                            }
-                          ],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "skipped"
-                    }
-                  ],
-                  "id": "e994307b225edfd3385e-01e414b7ee9b3f55cc15",
-                  "file": "specs/02-search-generate/regenerate.spec.ts",
-                  "line": 97,
-                  "column": 9
-                }
-              ]
-            }
-          ]
         }
       ]
     },
@@ -591,7 +178,7 @@
               "specs": [
                 {
                   "title": "should submit query from home page and redirect to results",
-                  "ok": false,
+                  "ok": true,
                   "tags": [],
                   "tests": [
                     {
@@ -602,60 +189,20 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 4,
-                          "parallelIndex": 2,
-                          "status": "failed",
-                          "duration": 12960,
-                          "error": {
-                            "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================",
-                            "stack": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n    at /Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:24:18",
-                            "location": {
-                              "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                              "column": 18,
-                              "line": 24
-                            },
-                            "snippet": "  22 |\n  23 |       // Verify redirect to results page with query param\n> 24 |       await page.waitForURL(/\\/results\\?q=/, { timeout: 10000 });\n     |                  ^\n  25 |       const query = await resultsPage.getQueryFromUrl();\n  26 |       expect(query).toContain('quantum entanglement');\n  27 |     });"
-                          },
-                          "errors": [
-                            {
-                              "location": {
-                                "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                                "column": 18,
-                                "line": 24
-                              },
-                              "message": "TimeoutError: page.waitForURL: Timeout 10000ms exceeded.\n=========================== logs ===========================\nwaiting for navigation until \"load\"\n============================================================\n\n  22 |\n  23 |       // Verify redirect to results page with query param\n> 24 |       await page.waitForURL(/\\/results\\?q=/, { timeout: 10000 });\n     |                  ^\n  25 |       const query = await resultsPage.getQueryFromUrl();\n  26 |       expect(query).toContain('quantum entanglement');\n  27 |     });\n    at /Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:24:18"
-                            }
-                          ],
+                          "workerIndex": 1,
+                          "parallelIndex": 0,
+                          "status": "passed",
+                          "duration": 5546,
+                          "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:27.261Z",
+                          "startTime": "2025-12-20T05:53:20.825Z",
                           "annotations": [],
-                          "attachments": [
-                            {
-                              "name": "screenshot",
-                              "contentType": "image/png",
-                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/test-failed-1.png"
-                            },
-                            {
-                              "name": "video",
-                              "contentType": "video/webm",
-                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/video.webm"
-                            },
-                            {
-                              "name": "error-context",
-                              "contentType": "text/markdown",
-                              "path": "/Users/abel/Documents/explainanything-base/explainanything-feature0/test-results/specs-02-search-generate-s-39b10-age-and-redirect-to-results-chromium/error-context.md"
-                            }
-                          ],
-                          "errorLocation": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts",
-                            "column": 18,
-                            "line": 24
-                          }
+                          "attachments": []
                         }
                       ],
-                      "status": "unexpected"
+                      "status": "expected"
                     }
                   ],
                   "id": "c7b27eb59abe36abe4b5-676816568170fd40a2e7",
@@ -679,12 +226,12 @@
                           "workerIndex": 2,
                           "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 2888,
+                          "duration": 1612,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:27.262Z",
+                          "startTime": "2025-12-20T05:53:20.843Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -710,15 +257,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 1,
-                          "parallelIndex": 0,
+                          "workerIndex": 3,
+                          "parallelIndex": 2,
                           "status": "passed",
-                          "duration": 16463,
+                          "duration": 9285,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:27.421Z",
+                          "startTime": "2025-12-20T05:53:20.812Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -752,15 +299,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 3,
+                          "workerIndex": 4,
                           "parallelIndex": 3,
                           "status": "passed",
-                          "duration": 15395,
+                          "duration": 7778,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:28.180Z",
+                          "startTime": "2025-12-20T05:53:20.839Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -789,12 +336,12 @@
                           "workerIndex": 2,
                           "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 12976,
+                          "duration": 6273,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:30.182Z",
+                          "startTime": "2025-12-20T05:53:22.622Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -820,15 +367,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 5,
-                          "parallelIndex": 2,
+                          "workerIndex": 1,
+                          "parallelIndex": 0,
                           "status": "passed",
-                          "duration": 5126,
+                          "duration": 3667,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:43.079Z",
+                          "startTime": "2025-12-20T05:53:26.614Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -871,7 +418,7 @@
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:43.208Z",
+                          "startTime": "2025-12-20T05:53:28.815Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -914,7 +461,7 @@
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:43.211Z",
+                          "startTime": "2025-12-20T05:53:28.816Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -948,15 +495,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 2,
-                          "parallelIndex": 1,
+                          "workerIndex": 4,
+                          "parallelIndex": 3,
                           "status": "passed",
-                          "duration": 5203,
+                          "duration": 5016,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:43.219Z",
+                          "startTime": "2025-12-20T05:53:28.818Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -982,15 +529,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 3,
-                          "parallelIndex": 3,
+                          "workerIndex": 2,
+                          "parallelIndex": 1,
                           "status": "passed",
-                          "duration": 9156,
+                          "duration": 3317,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:43.679Z",
+                          "startTime": "2025-12-20T05:53:28.907Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1024,15 +571,15 @@
                       "projectName": "chromium",
                       "results": [
                         {
-                          "workerIndex": 1,
-                          "parallelIndex": 0,
+                          "workerIndex": 3,
+                          "parallelIndex": 2,
                           "status": "passed",
-                          "duration": 5851,
+                          "duration": 1488,
                           "errors": [],
                           "stdout": [],
                           "stderr": [],
                           "retry": 0,
-                          "startTime": "2025-12-20T05:30:43.929Z",
+                          "startTime": "2025-12-20T05:53:30.324Z",
                           "annotations": [],
                           "attachments": []
                         }
@@ -1050,1245 +597,15 @@
           ]
         }
       ]
-    },
-    {
-      "title": "specs/03-library/library.spec.ts",
-      "file": "specs/03-library/library.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "User Library Management",
-          "file": "specs/03-library/library.spec.ts",
-          "line": 4,
-          "column": 6,
-          "specs": [
-            {
-              "title": "should show loading state when navigating to library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 2,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 5654,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:48.578Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-bea2d96a4016c991fa17",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 16,
-              "column": 7
-            },
-            {
-              "title": "should display user library page after authentication",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 5,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 5030,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:49.027Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-272b8bbd25de21517ba2",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 27,
-              "column": 7
-            },
-            {
-              "title": "should display page title when content loads",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "passed",
-                      "duration": 4655,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:49.905Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-9101560dd64b2f086e63",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 41,
-              "column": 7
-            },
-            {
-              "title": "should have sortable table headers when content loads",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 56,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 2299,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:52.878Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 56,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-42f42e5af70ba2e70335",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 50,
-              "column": 7
-            },
-            {
-              "title": "should allow sorting by title",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 74,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 5,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 1558,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:54.142Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 74,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-fec60d55751692ee32d0",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 68,
-              "column": 7
-            },
-            {
-              "title": "should allow sorting by date",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 93,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 2,
-                      "parallelIndex": 1,
-                      "status": "skipped",
-                      "duration": 2083,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:54.365Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 93,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-cfacebbcf0bd3160aa6a",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 87,
-              "column": 7
-            },
-            {
-              "title": "should navigate to results page when clicking View link",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 113,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 2080,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:54.616Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 113,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-1f0ec91ec5a7dba65e64",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 106,
-              "column": 7
-            },
-            {
-              "title": "should show Date Saved column for user library",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 132,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 2449,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:55.197Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 132,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-300d49dec551f8f7ef12",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 126,
-              "column": 7
-            },
-            {
-              "title": "should have search bar in navigation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                        "line": 147,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 5,
-                      "parallelIndex": 2,
-                      "status": "skipped",
-                      "duration": 2110,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:55.783Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/03-library/library.spec.ts",
-                            "line": 147,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-6e6fd0825689d0614fa5",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 141,
-              "column": 7
-            },
-            {
-              "title": "should handle search from library page",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 2,
-                      "parallelIndex": 1,
-                      "status": "passed",
-                      "duration": 8239,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:56.543Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "c2c8e39bad2c9e91410f-563182ce84d16fcef32b",
-              "file": "specs/03-library/library.spec.ts",
-              "line": 155,
-              "column": 7
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/04-content-viewing/tags.spec.ts",
-      "file": "specs/04-content-viewing/tags.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Tag Management",
-          "file": "specs/04-content-viewing/tags.spec.ts",
-          "line": 4,
-          "column": 6,
-          "specs": [
-            {
-              "title": "should display existing tags on explanation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 30,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 32832,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:56.715Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 30,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-8d42e996a725b08b99d4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 20,
-              "column": 7
-            },
-            {
-              "title": "should show tag management buttons when tags are modified",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 54,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 34877,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:31:29.558Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 54,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-c3400b4423f3c57472b4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 44,
-              "column": 7
-            },
-            {
-              "title": "should handle tag input field interaction",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 92,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 35407,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:32:04.463Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 92,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-0cc1c05602c7c312447f",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 82,
-              "column": 7
-            },
-            {
-              "title": "should preserve tag state after page refresh",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                        "line": 118,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 1,
-                      "parallelIndex": 0,
-                      "status": "skipped",
-                      "duration": 37513,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:32:39.923Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/tags.spec.ts",
-                            "line": 118,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "9a90287d0feeac884504-4e21db7cb10320909cc4",
-              "file": "specs/04-content-viewing/tags.spec.ts",
-              "line": 108,
-              "column": 7
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/04-content-viewing/viewing.spec.ts",
-      "file": "specs/04-content-viewing/viewing.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Content Viewing",
-          "file": "specs/04-content-viewing/viewing.spec.ts",
-          "line": 4,
-          "column": 6,
-          "specs": [
-            {
-              "title": "should load existing explanation by ID from URL",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 33,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 36907,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:30:57.687Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 33,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-92011ac7b0c336d5b4ea",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 20,
-              "column": 7
-            },
-            {
-              "title": "should display explanation title",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 64,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 34912,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:31:34.619Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 64,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-7da13e003dd0fc69aa88",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 54,
-              "column": 7
-            },
-            {
-              "title": "should display tags for explanation",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 90,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 33992,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:32:09.550Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 90,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-db06cb18fc3e820ce165",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 80,
-              "column": 7
-            },
-            {
-              "title": "should show save button state correctly",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 114,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 34405,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:32:43.573Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 114,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-744e04773c9bb9f9d367",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 105,
-              "column": 7
-            },
-            {
-              "title": "should preserve explanation ID in URL",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 60000,
-                  "annotations": [
-                    {
-                      "type": "skip",
-                      "location": {
-                        "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                        "line": 136,
-                        "column": 12
-                      }
-                    }
-                  ],
-                  "expectedStatus": "skipped",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 3,
-                      "parallelIndex": 3,
-                      "status": "skipped",
-                      "duration": 32966,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:33:17.998Z",
-                      "annotations": [
-                        {
-                          "type": "skip",
-                          "location": {
-                            "file": "/Users/abel/Documents/explainanything-base/explainanything-feature0/src/__tests__/e2e/specs/04-content-viewing/viewing.spec.ts",
-                            "line": 136,
-                            "column": 12
-                          }
-                        }
-                      ],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "skipped"
-                }
-              ],
-              "id": "d2d0fd29d1b81bb9f321-06d066fb72697b022a37",
-              "file": "specs/04-content-viewing/viewing.spec.ts",
-              "line": 127,
-              "column": 7
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/05-edge-cases/errors.spec.ts",
-      "file": "specs/05-edge-cases/errors.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Error Handling",
-          "file": "specs/05-edge-cases/errors.spec.ts",
-          "line": 16,
-          "column": 6,
-          "specs": [],
-          "suites": [
-            {
-              "title": "API Errors",
-              "file": "specs/05-edge-cases/errors.spec.ts",
-              "line": 17,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should not display content when API returns 500",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 5,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 6534,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:30:57.913Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-a3993f2071f2def7e05f",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 18,
-                  "column": 9
-                },
-                {
-                  "title": "should display error message for stream errors",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 5,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 4258,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:31:04.510Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-a83f014864631d846525",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 35,
-                  "column": 9
-                }
-              ]
-            },
-            {
-              "title": "Invalid URL Parameters",
-              "file": "specs/05-edge-cases/errors.spec.ts",
-              "line": 56,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should handle invalid explanation_id in URL gracefully",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 2,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 6618,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:31:04.842Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-0ff98f7c57cbcfe59592",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 57,
-                  "column": 9
-                },
-                {
-                  "title": "should handle missing query parameter",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 5,
-                          "parallelIndex": 2,
-                          "status": "passed",
-                          "duration": 3521,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:31:08.803Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-2fc0a8a44fb3d2e2bef5",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 74,
-                  "column": 9
-                }
-              ]
-            },
-            {
-              "title": "Error Recovery",
-              "file": "specs/05-edge-cases/errors.spec.ts",
-              "line": 87,
-              "column": 8,
-              "specs": [
-                {
-                  "title": "should recover from error state on new query",
-                  "ok": true,
-                  "tags": [],
-                  "tests": [
-                    {
-                      "timeout": 30000,
-                      "annotations": [],
-                      "expectedStatus": "passed",
-                      "projectId": "chromium",
-                      "projectName": "chromium",
-                      "results": [
-                        {
-                          "workerIndex": 2,
-                          "parallelIndex": 1,
-                          "status": "passed",
-                          "duration": 2041,
-                          "errors": [],
-                          "stdout": [],
-                          "stderr": [],
-                          "retry": 0,
-                          "startTime": "2025-12-20T05:31:11.485Z",
-                          "annotations": [],
-                          "attachments": []
-                        }
-                      ],
-                      "status": "expected"
-                    }
-                  ],
-                  "id": "93ba63ac2f2ae08ec75b-449b8f9edc9c52137627",
-                  "file": "specs/05-edge-cases/errors.spec.ts",
-                  "line": 88,
-                  "column": 9
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      "title": "specs/smoke.spec.ts",
-      "file": "specs/smoke.spec.ts",
-      "column": 0,
-      "line": 0,
-      "specs": [],
-      "suites": [
-        {
-          "title": "Smoke Tests",
-          "file": "specs/smoke.spec.ts",
-          "line": 3,
-          "column": 6,
-          "specs": [
-            {
-              "title": "home page loads and has search bar",
-              "ok": true,
-              "tags": [],
-              "tests": [
-                {
-                  "timeout": 30000,
-                  "annotations": [],
-                  "expectedStatus": "passed",
-                  "projectId": "chromium",
-                  "projectName": "chromium",
-                  "results": [
-                    {
-                      "workerIndex": 5,
-                      "parallelIndex": 2,
-                      "status": "passed",
-                      "duration": 1165,
-                      "errors": [],
-                      "stdout": [],
-                      "stderr": [],
-                      "retry": 0,
-                      "startTime": "2025-12-20T05:31:12.370Z",
-                      "annotations": [],
-                      "attachments": []
-                    }
-                  ],
-                  "status": "expected"
-                }
-              ],
-              "id": "6afa746d4711a5a4d7df-1cd5efb9161ea55b7c36",
-              "file": "specs/smoke.spec.ts",
-              "line": 4,
-              "column": 7
-            }
-          ]
-        }
-      ]
     }
   ],
   "errors": [],
   "stats": {
-    "startTime": "2025-12-20T05:29:53.371Z",
-    "duration": 237876.9,
-    "expected": 22,
-    "skipped": 22,
-    "unexpected": 1,
+    "startTime": "2025-12-20T05:53:10.846Z",
+    "duration": 23103.81,
+    "expected": 10,
+    "skipped": 2,
+    "unexpected": 0,
     "flaky": 0
   }
 }
