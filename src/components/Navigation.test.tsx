@@ -55,7 +55,7 @@ describe('Navigation', () => {
       render(<Navigation />);
       expect(screen.getByText('Home')).toBeInTheDocument();
       expect(screen.getByText('My Library')).toBeInTheDocument();
-      expect(screen.getByText('All Explanations')).toBeInTheDocument();
+      expect(screen.getByText('Explore')).toBeInTheDocument();
     });
 
     it('should render logout button', () => {
@@ -137,9 +137,9 @@ describe('Navigation', () => {
       expect(libraryLink).toHaveAttribute('href', '/userlibrary');
     });
 
-    it('should render All Explanations link with correct href', () => {
+    it('should render Explore link with correct href', () => {
       render(<Navigation />);
-      const explanationsLink = screen.getByText('All Explanations').closest('a');
+      const explanationsLink = screen.getByText('Explore').closest('a');
       expect(explanationsLink).toHaveAttribute('href', '/explanations');
     });
 
@@ -250,7 +250,7 @@ describe('Navigation', () => {
 
     it('should support keyboard navigation for all links', () => {
       render(<Navigation />);
-      const links = ['Home', 'My Library', 'All Explanations'].map(text =>
+      const links = ['Home', 'My Library', 'Explore'].map(text =>
         screen.getByText(text).closest('a')
       );
       links.forEach(link => {

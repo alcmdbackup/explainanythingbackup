@@ -45,6 +45,8 @@ import { StandaloneTitleLinkNode } from './StandaloneTitleLinkNode';
 import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS, exportMarkdownReadOnly } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
+import { TextRevealPlugin } from './TextRevealPlugin';
+import { TextRevealEffect } from '@/lib/textRevealAnimations';
 
 
 
@@ -201,6 +203,8 @@ interface LexicalEditorProps {
   isEditMode?: boolean;
   onEditModeToggle?: () => void;
   hideEditingUI?: boolean;
+  isStreaming?: boolean;
+  textRevealEffect?: TextRevealEffect;
 }
 
 /**
@@ -234,7 +238,9 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   showToolbar = true,
   isEditMode = true,
   onEditModeToggle: _onEditModeToggle,
-  hideEditingUI = false
+  hideEditingUI = false,
+  isStreaming = false,
+  textRevealEffect = 'none'
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -518,6 +524,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <TablePlugin />
         <CheckListPlugin />
         <DiffTagHoverPlugin />
+        <TextRevealPlugin isStreaming={isStreaming} animationEffect={textRevealEffect} />
         {showTreeView && <TreeViewPlugin />}
       </LexicalComposer>
       

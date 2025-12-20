@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,
+  workers: process.env.CI ? 4 : undefined,
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],
@@ -17,13 +17,41 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
+    // Auth setup - runs once before all tests
+    {
+      name: 'setup',
+      testMatch: /auth\.setup\.ts/,
+    },
+    // Chromium - default for local and PR (authenticated)
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,
+      testIgnore: /auth\.setup\.ts/,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: '.auth/user.json',
+      },
+      dependencies: ['setup'],
     },
+    // Chromium unauthenticated - for testing auth redirects
+    {
+      name: 'chromium-unauth',
+      testMatch: /\.unauth\.spec\.ts$/,
+      use: {
+        ...devices['Desktop Chrome'],
+        storageState: { cookies: [], origins: [] },
+      },
+    },
+    // Firefox - for nightly runs only (authenticated)
     {
       name: 'firefox',
-      use: { ...devices['Desktop Firefox'] },
+      testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,
+      testIgnore: /auth\.setup\.ts/,
+      use: {
+        ...devices['Desktop Firefox'],
+        storageState: '.auth/user.json',
+      },
+      dependencies: ['setup'],
     },
   ],
   webServer: {

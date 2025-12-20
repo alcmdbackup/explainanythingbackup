@@ -186,6 +186,70 @@ export const shortMockExplanation: MockExplanationResponse = {
 };
 
 /**
+ * Mock library explanations for testing library page.
+ */
+export const mockLibraryExplanations = [
+  {
+    explanationid: 584,
+    title: 'Understanding Quantum Entanglement',
+    content: defaultMockExplanation.content,
+    tags: [{ tag_name: 'physics' }, { tag_name: 'quantum' }],
+    saved_timestamp: '2024-01-15T10:30:00Z',
+  },
+  {
+    explanationid: 585,
+    title: 'Machine Learning Basics',
+    content: 'Machine learning is a subset of artificial intelligence...',
+    tags: [{ tag_name: 'ai' }, { tag_name: 'ml' }],
+    saved_timestamp: '2024-01-14T09:00:00Z',
+  },
+];
+
+/**
+ * Mock the user library API to return test explanations.
+ * Intercepts Next.js server action calls to the userlibrary page.
+ */
+export async function mockUserLibraryAPI(
+  page: Page,
+  explanations = mockLibraryExplanations
+) {
+  await page.route('**/userlibrary', async (route, request) => {
+    // Only intercept server action calls (POST with Next-Action header)
+    if (request.method() === 'POST' && request.headers()['next-action']) {
+      await route.fulfill({
+        status: 200,
+        headers: { 'Content-Type': 'text/x-component' },
+        body: JSON.stringify(explanations),
+      });
+    } else {
+      await route.continue();
+    }
+  });
+}
+
+/**
+ * Mock fetching a single explanation by ID.
+ */
+export async function mockExplanationByIdAPI(
+  page: Page,
+  explanation = mockLibraryExplanations[0]
+) {
+  await page.route('**/api/getExplanation**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: true,
+        explanation: {
+          ...explanation,
+          content: explanation.content || defaultMockExplanation.content,
+        },
+      }),
+    });
+  });
+}
+
+/**
  * Mock the API to return a validation error (400).
  */
 export async function mockReturnExplanationValidationError(
