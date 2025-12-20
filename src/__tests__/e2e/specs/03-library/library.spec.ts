@@ -28,28 +28,23 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    // Should show either content table OR error message
+    // Should show either content table, empty state, OR error message
     const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
+    const hasEmptyState = await authenticatedPage.locator('.scholar-card:has-text("Begin Exploring")').isVisible().catch(() => false);
     const hasError = await authenticatedPage.locator('.bg-red-100').isVisible().catch(() => false);
 
     // Page should render something after loading
-    expect(hasTable || hasError).toBe(true);
+    expect(hasTable || hasEmptyState || hasError).toBe(true);
   });
 
-  test('should display page title when content loads', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  test('should display page title when content loads', async ({ authenticatedPage: _page }) => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    // If table is visible, check for title
-    const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    if (hasTable) {
-      const pageTitle = await libraryPage.getPageTitle();
-      expect(pageTitle).toContain('My Library');
-    } else {
-      // Error state - still valid behavior
-      const hasError = await libraryPage.hasError();
-      expect(hasError).toBe(true);
-    }
+    // Page title should always be visible regardless of content state
+    const pageTitle = await libraryPage.getPageTitle();
+    expect(pageTitle).toContain('My Library');
   });
 
   test('should have sortable table headers when content loads', async ({ authenticatedPage }) => {
@@ -178,22 +173,5 @@ test.describe('User Library Management', () => {
     expect(url).toContain('/results?q=quantum');
   });
 
-  test('should require authentication to access library', async ({ page }) => {
-    // Try accessing library without authentication (using non-authenticated page)
-    await page.goto('/userlibrary');
-
-    // Wait for page to stabilize
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-
-    // Either redirect to login OR show authentication error OR loading stuck (no auth)
-    const hasRedirectedOrError = await Promise.race([
-      page.waitForURL(/\/(login|auth)/, { timeout: 3000 }).then(() => 'redirected'),
-      page.waitForSelector('.bg-red-100', { timeout: 3000 }).then(() => 'error'),
-      page.waitForSelector('text=/log in|sign in|authentication|please log in/i', { timeout: 3000 }).then(() => 'login-prompt'),
-      page.waitForSelector('[data-testid="library-loading"]', { timeout: 3000 }).then(() => 'loading-stuck'),
-    ]).catch(() => 'timeout');
-
-    // If we got any response indicating auth is needed, test passes
-    expect(['redirected', 'error', 'login-prompt', 'loading-stuck', 'timeout']).toContain(hasRedirectedOrError);
-  });
+  // NOTE: Auth test moved to unauth.spec.ts since it requires unauthenticated state
 });
