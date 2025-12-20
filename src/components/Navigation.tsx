@@ -81,7 +81,7 @@ export default function Navigation({
                             href="/explanations"
                             className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
                         >
-                            All Explanations
+                            Explore
                         </Link>
                         <Link
                             href="/settings"

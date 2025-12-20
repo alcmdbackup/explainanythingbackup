@@ -863,27 +863,6 @@ function ResultsPageContent() {
                             </div>
                         )}
 
-                        {/* Draft/Edit Status Banner */}
-                        {(explanationStatus === ExplanationStatus.Draft || (explanationStatus === ExplanationStatus.Published && hasUnsavedChanges)) && (
-                            <div className="max-w-2xl mx-auto mb-8 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-copper)] border border-[var(--border-default)] rounded-r-page shadow-warm">
-                                <div className="flex items-center">
-                                    <div className="ml-3">
-                                        <p className="text-sm font-sans font-medium text-[var(--accent-copper)]">
-                                            {explanationStatus === ExplanationStatus.Published && hasUnsavedChanges
-                                                ? 'Editing Published Manuscript'
-                                                : 'Draft Manuscript'
-                                            }
-                                        </p>
-                                        <p className="text-xs font-serif text-[var(--text-muted)] mt-1">
-                                            {explanationStatus === ExplanationStatus.Published && hasUnsavedChanges
-                                                ? 'Changes will create a new published version when published'
-                                                : 'Click "Publish Changes" to publish this draft'
-                                            }
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        )}
 
                         <div className="w-full max-w-4xl mx-auto h-full">
                         {/* Matches View */}
@@ -976,9 +955,16 @@ function ResultsPageContent() {
                                 {explanationTitle && !isPageLoading && (
                                     <div className="mb-6">
                                         <div className="flex items-center justify-between min-h-[2.5rem]">
-                                            <h1 data-testid="explanation-title" className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
-                                                {explanationTitle}
-                                            </h1>
+                                            <div className="flex items-center gap-3">
+                                                {explanationStatus === ExplanationStatus.Draft && (
+                                                    <span className="px-3 py-1 text-sm font-sans font-bold uppercase tracking-wide bg-[var(--accent-blue)] text-white rounded-page">
+                                                        Draft
+                                                    </span>
+                                                )}
+                                                <h1 data-testid="explanation-title" className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
+                                                    {explanationTitle}
+                                                </h1>
+                                            </div>
                                             {matches && matches.length > 0 && (
                                                 <button
                                                     onClick={() => setShowMatches(true)}

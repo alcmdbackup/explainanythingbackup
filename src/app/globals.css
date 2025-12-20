@@ -86,6 +86,7 @@
   /* Accent colors - Gold & Copper */
   --accent-gold: #d4a853;        /* Warm gold */
   --accent-copper: #b87333;      /* Burnished copper */
+  --accent-blue: #1b4965;        /* Professional deep blue */
 
   /* Interactive colors */
   --link: #b87333;               /* Copper for links */
@@ -155,6 +156,7 @@
   /* Accent colors - Lamplight */
   --accent-gold: #f0c674;        /* Lamplight gold */
   --accent-copper: #d4a853;      /* Brass fitting */
+  --accent-blue: #5fa8d3;        /* Visible light blue */
 
   /* Interactive colors */
   --link: #f0c674;               /* Lamplight for links */

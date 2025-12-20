@@ -37,21 +37,21 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps({ isVisible: true });
       render(<AISuggestionsPanel {...props} />);
 
-      expect(screen.getByText('Marginalia')).toBeInTheDocument();
+      expect(screen.getByText('Edit article')).toBeInTheDocument();
     });
 
     it('should not render when isVisible is false', () => {
       const props = createMockAISuggestionsPanelProps({ isVisible: false });
       render(<AISuggestionsPanel {...props} />);
 
-      expect(screen.queryByText('Marginalia')).not.toBeInTheDocument();
+      expect(screen.queryByText('Edit article')).not.toBeInTheDocument();
     });
 
     it('should render panel header with title', () => {
       const props = createMockAISuggestionsPanelProps();
       render(<AISuggestionsPanel {...props} />);
 
-      expect(screen.getByRole('heading', { name: 'Marginalia' })).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Edit article' })).toBeInTheDocument();
     });
 
     it('should render close button when onClose provided', () => {
@@ -76,7 +76,7 @@ describe('AISuggestionsPanel', () => {
 
       expect(screen.getByLabelText(/what would you like to improve/i)).toBeInTheDocument();
       expect(screen.getByPlaceholderText(/describe your desired changes/i)).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: /get ai suggestions/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /get suggestions/i })).toBeInTheDocument();
     });
 
     it('should render instructions text', () => {
@@ -132,7 +132,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
 
-      const submitButton = screen.getByRole('button', { name: /get ai suggestions/i });
+      const submitButton = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(submitButton);
 
       await waitFor(() => {
@@ -189,7 +189,7 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps();
       render(<AISuggestionsPanel {...props} />);
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       expect(button).toBeDisabled();
     });
 
@@ -200,7 +200,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, '   ');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       expect(button).toBeDisabled();
     });
 
@@ -208,7 +208,7 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps({ currentContent: '' });
       render(<AISuggestionsPanel {...props} />);
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       expect(button).toBeDisabled();
     });
 
@@ -219,7 +219,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Valid prompt');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       expect(button).toBeDisabled();
     });
 
@@ -230,7 +230,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Valid prompt');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       expect(button).not.toBeDisabled();
     });
 
@@ -245,7 +245,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Valid prompt');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -264,7 +264,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Valid prompt');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -290,7 +290,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Make it better');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -321,7 +321,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -349,7 +349,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, '  Make it better  ');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -377,7 +377,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -401,7 +401,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -421,7 +421,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -442,7 +442,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -450,7 +450,7 @@ describe('AISuggestionsPanel', () => {
       });
 
       // Button should show normal text again
-      expect(screen.getByRole('button', { name: /get ai suggestions/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /get suggestions/i })).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /composing/i })).not.toBeInTheDocument();
     });
   });
@@ -464,7 +464,7 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps({ currentContent: 'Test content' });
       render(<AISuggestionsPanel {...props} />);
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
 
       // Force enable the button to test validation
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
@@ -488,7 +488,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -508,7 +508,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -528,7 +528,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -549,7 +549,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -566,7 +566,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -592,7 +592,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -620,7 +620,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -641,7 +641,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -668,7 +668,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -689,7 +689,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -743,7 +743,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -770,7 +770,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -796,7 +796,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Improve this');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -817,7 +817,7 @@ describe('AISuggestionsPanel', () => {
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'First prompt');
 
-      const button = screen.getByRole('button', { name: /get ai suggestions/i });
+      const button = screen.getByRole('button', { name: /get suggestions/i });
       fireEvent.click(button);
 
       await waitFor(() => {
