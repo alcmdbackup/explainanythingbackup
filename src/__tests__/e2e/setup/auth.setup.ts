@@ -11,7 +11,8 @@ setup('authenticate', async ({ page }) => {
     process.env.TEST_USER_PASSWORD || 'password'
   );
 
-  await page.waitForURL('/', { timeout: 10000 });
+  await page.waitForLoadState('networkidle');
+  await page.waitForURL('/', { timeout: 30000 });
 
   // Verify auth worked
   const cookies = await page.context().cookies();

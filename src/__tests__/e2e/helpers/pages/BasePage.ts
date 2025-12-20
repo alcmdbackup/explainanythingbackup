@@ -5,6 +5,7 @@ export class BasePage {
 
   async navigate(path: string) {
     await this.page.goto(path);
+    await this.page.waitForLoadState('domcontentloaded');
   }
 
   async waitForNavigation(url: string | RegExp) {

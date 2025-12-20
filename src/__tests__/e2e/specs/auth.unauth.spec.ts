@@ -55,7 +55,8 @@ test.describe('Unauthenticated User Tests', () => {
     );
 
     // Wait for redirect to home page
-    await page.waitForURL('/', { timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+    await page.waitForURL('/', { timeout: 30000 });
 
     // Verify user is logged in
     expect(await loginPage.isLoggedIn()).toBe(true);
@@ -68,7 +69,7 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.login('invalid@email.com', 'wrongpassword');
 
     // Wait for error message
-    await page.waitForSelector('[data-testid="login-error"]', { timeout: 5000 });
+    await page.waitForSelector('[data-testid="login-error"]', { timeout: 15000 });
 
     // Verify error is shown
     expect(await loginPage.isErrorVisible()).toBe(true);

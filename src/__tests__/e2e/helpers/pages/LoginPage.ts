@@ -18,9 +18,13 @@ export class LoginPage extends BasePage {
   }
 
   async login(email: string, password: string) {
-    await this.page.fill(this.emailInput, email);
-    await this.page.fill(this.passwordInput, password);
-    await this.page.click(this.submitButton);
+    // Wait for form to be ready (React hydration complete)
+    await this.page.locator(this.emailInput).waitFor({ state: 'visible' });
+
+    // Use locator-based fill (waits for actionability)
+    await this.page.locator(this.emailInput).fill(email);
+    await this.page.locator(this.passwordInput).fill(password);
+    await this.page.locator(this.submitButton).click();
   }
 
   async getErrorMessage() {
@@ -46,14 +50,14 @@ export class LoginPage extends BasePage {
   }
 
   async fillEmail(email: string) {
-    await this.page.fill(this.emailInput, email);
+    await this.page.locator(this.emailInput).fill(email);
   }
 
   async fillPassword(password: string) {
-    await this.page.fill(this.passwordInput, password);
+    await this.page.locator(this.passwordInput).fill(password);
   }
 
   async clickSubmit() {
-    await this.page.click(this.submitButton);
+    await this.page.locator(this.submitButton).click();
   }
 }
