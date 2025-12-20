@@ -129,11 +129,13 @@ for i in 0 1 2 3 4; do
     # Copy configuration files and install dependencies
     echo "Setting up dependencies and configuration..."
 
-    # Copy .env.local if it exists
-    if [ -f "$GIT_ROOT/.env.local" ]; then
-        echo "  Copying .env.local..."
-        cp "$GIT_ROOT/.env.local" "$WORKTREE_PATH/"
-    fi
+    # Copy environment files if they exist
+    for env_file in .env.local .env.test .env.stage .env.prod; do
+        if [ -f "$GIT_ROOT/$env_file" ]; then
+            echo "  Copying $env_file..."
+            cp "$GIT_ROOT/$env_file" "$WORKTREE_PATH/"
+        fi
+    done
 
     # Install dependencies (don't copy node_modules as it breaks symlinks)
     if [ -f "$WORKTREE_PATH/package.json" ]; then
