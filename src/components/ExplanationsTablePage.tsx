@@ -4,8 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
-import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import Navigation from '@/components/Navigation';
+import ExploreTabs from '@/components/ExploreTabs';
 
 /**
  * ExplanationsTablePage component - Library Catalog
@@ -16,12 +17,18 @@ export default function ExplanationsTablePage({
     error,
     showNavigation = true,
     pageTitle = 'The Archives',
+    sort,
+    period,
 }: {
-    explanations: (ExplanationFullDbType & { dateSaved?: string })[];
+    explanations: (ExplanationWithViewCount & { dateSaved?: string })[];
     error: string | null;
     showNavigation?: boolean;
     pageTitle?: string;
+    sort?: SortMode;
+    period?: TimePeriod;
 }) {
+    // Only show ExploreTabs when sort/period are explicitly provided (i.e., on /explanations page)
+    const showExploreTabs = sort !== undefined && period !== undefined;
     const [sortBy, setSortBy] = useState<'title' | 'date'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -30,6 +37,10 @@ export default function ExplanationsTablePage({
     }
 
     function getSortedExplanations() {
+        // When sort='top', preserve server's view-based ordering
+        if (sort === 'top') {
+            return explanations;
+        }
         const sorted = [...explanations];
         if (sortBy === 'title') {
             sorted.sort((a, b) => {
@@ -83,6 +94,9 @@ export default function ExplanationsTablePage({
                     </h1>
                     <div className="title-flourish mt-4"></div>
                 </div>
+
+                {/* Discovery Mode Tabs - only shown on /explanations page */}
+                {showExploreTabs && <ExploreTabs sort={sort!} period={period!} />}
 
                 {error && (
                     <div className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
@@ -141,6 +155,11 @@ export default function ExplanationsTablePage({
                                                 )}
                                             </span>
                                         </th>
+                                        {sort === 'top' && (
+                                            <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider">
+                                                Views
+                                            </th>
+                                        )}
                                         {hasDateSaved && (
                                             <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                                 Saved
@@ -175,6 +194,13 @@ export default function ExplanationsTablePage({
                                                     {formatUserFriendlyDate(explanation.timestamp)}
                                                 </span>
                                             </td>
+                                            {sort === 'top' && (
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className="text-sm font-sans text-[var(--accent-gold)]">
+                                                        {explanation.viewCount ?? 0}
+                                                    </span>
+                                                </td>
+                                            )}
                                             {hasDateSaved && (
                                                 <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap">
                                                     <span className="text-sm font-sans text-[var(--text-muted)]">

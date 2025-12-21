@@ -26,6 +26,11 @@ jest.mock('@/components/ExplanationsTablePage', () => {
   };
 });
 
+// Helper to create mock searchParams
+const createMockSearchParams = (params: { sort?: string; t?: string } = {}): Promise<{ sort?: string; t?: string }> => {
+  return Promise.resolve(params);
+};
+
 describe('ExplanationsPage', () => {
   const mockExplanations: ExplanationFullDbType[] = [
     {
@@ -54,17 +59,17 @@ describe('ExplanationsPage', () => {
     it('should fetch recent explanations on load', async () => {
       (getRecentExplanations as jest.Mock).mockResolvedValue(mockExplanations);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       expect(getRecentExplanations).toHaveBeenCalledTimes(1);
-      expect(getRecentExplanations).toHaveBeenCalledWith(10);
+      expect(getRecentExplanations).toHaveBeenCalledWith(20, 0, { sort: 'new', period: 'week' });
     });
 
     it('should pass fetched data to ExplanationsTablePage', async () => {
       (getRecentExplanations as jest.Mock).mockResolvedValue(mockExplanations);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const table = screen.getByTestId('explanations-table');
@@ -77,7 +82,7 @@ describe('ExplanationsPage', () => {
     it('should pass empty array when no explanations exist', async () => {
       (getRecentExplanations as jest.Mock).mockResolvedValue([]);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const count = screen.getByTestId('explanations-count');
@@ -96,11 +101,22 @@ describe('ExplanationsPage', () => {
 
       (getRecentExplanations as jest.Mock).mockResolvedValue(tenExplanations);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const count = screen.getByTestId('explanations-count');
       expect(count).toHaveTextContent('10');
+    });
+
+    it('should pass sort and period from searchParams', async () => {
+      (getRecentExplanations as jest.Mock).mockResolvedValue(mockExplanations);
+
+      const PageComponent = await ExplanationsPage({
+        searchParams: createMockSearchParams({ sort: 'top', t: 'month' })
+      });
+      render(PageComponent);
+
+      expect(getRecentExplanations).toHaveBeenCalledWith(20, 0, { sort: 'top', period: 'month' });
     });
   });
 
@@ -109,7 +125,7 @@ describe('ExplanationsPage', () => {
       const errorMessage = 'Database connection failed';
       (getRecentExplanations as jest.Mock).mockRejectedValue(new Error(errorMessage));
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const errorElement = screen.getByTestId('error-message');
@@ -119,7 +135,7 @@ describe('ExplanationsPage', () => {
     it('should pass generic error message when fetch fails with non-Error', async () => {
       (getRecentExplanations as jest.Mock).mockRejectedValue('String error');
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const errorElement = screen.getByTestId('error-message');
@@ -129,7 +145,7 @@ describe('ExplanationsPage', () => {
     it('should pass empty array when fetch fails', async () => {
       (getRecentExplanations as jest.Mock).mockRejectedValue(new Error('Failed'));
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const count = screen.getByTestId('explanations-count');
@@ -139,7 +155,7 @@ describe('ExplanationsPage', () => {
     it('should handle null error when fetch succeeds', async () => {
       (getRecentExplanations as jest.Mock).mockResolvedValue(mockExplanations);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const errorElement = screen.queryByTestId('error-message');
@@ -151,7 +167,7 @@ describe('ExplanationsPage', () => {
     it('should render ExplanationsTablePage component', async () => {
       (getRecentExplanations as jest.Mock).mockResolvedValue(mockExplanations);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const table = screen.getByTestId('explanations-table');
@@ -161,8 +177,8 @@ describe('ExplanationsPage', () => {
     it('should pass both explanations and error props to ExplanationsTablePage', async () => {
       (getRecentExplanations as jest.Mock).mockRejectedValue(new Error('Test error'));
 
-      const PageComponent = await ExplanationsPage();
-      const { container } = render(PageComponent);
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
+      render(PageComponent);
 
       // Verify component is rendered
       const table = screen.getByTestId('explanations-table');
@@ -191,7 +207,7 @@ describe('ExplanationsPage', () => {
 
       (getRecentExplanations as jest.Mock).mockResolvedValue([explanationWithAllFields]);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const count = screen.getByTestId('explanations-count');
@@ -210,7 +226,7 @@ describe('ExplanationsPage', () => {
 
       (getRecentExplanations as jest.Mock).mockResolvedValue([minimalExplanation]);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const table = screen.getByTestId('explanations-table');
@@ -224,7 +240,7 @@ describe('ExplanationsPage', () => {
         new Error('Request timeout')
       );
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const errorElement = screen.getByTestId('error-message');
@@ -236,7 +252,7 @@ describe('ExplanationsPage', () => {
         new Error('Network error: Failed to fetch')
       );
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const errorElement = screen.getByTestId('error-message');
@@ -246,7 +262,7 @@ describe('ExplanationsPage', () => {
     it('should handle undefined or null rejections', async () => {
       (getRecentExplanations as jest.Mock).mockRejectedValue(null);
 
-      const PageComponent = await ExplanationsPage();
+      const PageComponent = await ExplanationsPage({ searchParams: createMockSearchParams() });
       render(PageComponent);
 
       const errorElement = screen.getByTestId('error-message');
