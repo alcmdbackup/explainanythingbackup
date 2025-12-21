@@ -24,8 +24,13 @@ test.describe('Error Handling', () => {
       // Navigate to results with a query
       await resultsPage.navigate('test query');
 
-      // Wait for page to process response
-      await page.waitForTimeout(3000);
+      // Wait for either error or content to appear (or neither)
+      await Promise.race([
+        page.locator('.bg-red-100').waitFor({ state: 'visible', timeout: 10000 }),
+        page.locator('[data-testid="explanation-content"]').waitFor({ state: 'visible', timeout: 10000 }),
+      ]).catch(() => {
+        // Neither appeared - that's expected for 500 errors
+      });
 
       // Verify no content is displayed (app doesn't show error banner for HTTP errors)
       const hasContent = await resultsPage.hasContent().catch(() => false);
@@ -64,8 +69,13 @@ test.describe('Error Handling', () => {
       // Navigate with an invalid explanation_id
       await page.goto('/results?explanation_id=invalid-uuid-12345');
 
-      // Wait for page to settle
-      await page.waitForTimeout(3000);
+      // Wait for error or content to appear
+      await Promise.race([
+        page.locator('.bg-red-100').waitFor({ state: 'visible', timeout: 10000 }),
+        page.locator('[data-testid="explanation-content"]').waitFor({ state: 'visible', timeout: 10000 }),
+      ]).catch(() => {
+        // Neither appeared - page may show empty state
+      });
 
       // Page should either show error or empty state (not crash)
       const hasError = await resultsPage.isErrorVisible().catch(() => false);
@@ -79,8 +89,8 @@ test.describe('Error Handling', () => {
       // Navigate without query or explanation_id
       await page.goto('/results');
 
-      // Wait for page to settle
-      await page.waitForTimeout(2000);
+      // Wait for page to be loaded
+      await page.waitForLoadState('domcontentloaded');
 
       // Page should not crash - verify we're still on results page
       const url = page.url();
@@ -105,7 +115,7 @@ test.describe('Error Handling', () => {
       expect(await resultsPage.isErrorVisible()).toBe(true);
 
       // Clear route and set up success mock
-      await page.unrouteAll();
+      await page.unrouteAll({ behavior: 'wait' });
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
       // Wait for input to become enabled (error state should re-enable it)

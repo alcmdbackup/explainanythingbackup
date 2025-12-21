@@ -60,8 +60,14 @@ test.describe('Authentication Flow', () => {
       // Try to access login page while already logged in
       await authenticatedPage.goto('/login');
 
-      // Should redirect away from login page
-      await authenticatedPage.waitForTimeout(2000);
+      // Wait for page to load
+      await authenticatedPage.waitForLoadState('domcontentloaded');
+
+      // Wait for either redirect or login form to appear (auth check is async)
+      await Promise.race([
+        authenticatedPage.waitForURL(/^(?!.*\/login)/, { timeout: 10000 }), // Not login page
+        authenticatedPage.locator('[data-testid="login-email"]').waitFor({ state: 'visible', timeout: 10000 }),
+      ]).catch(() => {});
 
       // Either redirects to home or stays on login but is authenticated
       const loginPage = new LoginPage(authenticatedPage);

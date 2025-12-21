@@ -1,8 +1,10 @@
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
+import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 
 test.describe('Tag Management', () => {
   let resultsPage: ResultsPage;
+  let libraryPage: UserLibraryPage;
 
   // Use serial mode to avoid test isolation issues with network requests
   // Also add retries for flaky network conditions
@@ -13,17 +15,20 @@ test.describe('Tag Management', () => {
 
   test.beforeEach(async ({ authenticatedPage }) => {
     resultsPage = new ResultsPage(authenticatedPage);
-    // Longer delay to ensure clean network state between tests and let dev server recover
-    await authenticatedPage.waitForTimeout(1000);
+    libraryPage = new UserLibraryPage(authenticatedPage);
   });
 
   test('should display existing tags on explanation', async ({ authenticatedPage }) => {
     // Navigate to library first to get an explanation with tags
     await authenticatedPage.goto('/userlibrary');
-    await Promise.race([
-      authenticatedPage.waitForSelector('table', { timeout: 30000 }),
-      authenticatedPage.waitForSelector('.bg-red-100', { timeout: 30000 }),
-    ]).catch(() => {});
+    const libraryState = await libraryPage.waitForLibraryReady();
+    if (libraryState === 'error') {
+      throw new Error('Library failed to load');
+    }
+    if (libraryState === 'empty') {
+      test.skip();
+      return;
+    }
 
     const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
     if (!hasExplanations) {
@@ -44,10 +49,14 @@ test.describe('Tag Management', () => {
   test('should show tag management buttons when tags are modified', async ({ authenticatedPage }) => {
     // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
-    await Promise.race([
-      authenticatedPage.waitForSelector('table', { timeout: 30000 }),
-      authenticatedPage.waitForSelector('.bg-red-100', { timeout: 30000 }),
-    ]).catch(() => {});
+    const libraryState = await libraryPage.waitForLibraryReady();
+    if (libraryState === 'error') {
+      throw new Error('Library failed to load');
+    }
+    if (libraryState === 'empty') {
+      test.skip();
+      return;
+    }
 
     const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
     if (!hasExplanations) {
@@ -82,10 +91,14 @@ test.describe('Tag Management', () => {
   test('should handle tag input field interaction', async ({ authenticatedPage }) => {
     // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
-    await Promise.race([
-      authenticatedPage.waitForSelector('table', { timeout: 30000 }),
-      authenticatedPage.waitForSelector('.bg-red-100', { timeout: 30000 }),
-    ]).catch(() => {});
+    const libraryState = await libraryPage.waitForLibraryReady();
+    if (libraryState === 'error') {
+      throw new Error('Library failed to load');
+    }
+    if (libraryState === 'empty') {
+      test.skip();
+      return;
+    }
 
     const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
     if (!hasExplanations) {
@@ -108,10 +121,14 @@ test.describe('Tag Management', () => {
   test('should preserve tag state after page refresh', async ({ authenticatedPage }) => {
     // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
-    await Promise.race([
-      authenticatedPage.waitForSelector('table', { timeout: 30000 }),
-      authenticatedPage.waitForSelector('.bg-red-100', { timeout: 30000 }),
-    ]).catch(() => {});
+    const libraryState = await libraryPage.waitForLibraryReady();
+    if (libraryState === 'error') {
+      throw new Error('Library failed to load');
+    }
+    if (libraryState === 'empty') {
+      test.skip();
+      return;
+    }
 
     const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
     if (!hasExplanations) {

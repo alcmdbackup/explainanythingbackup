@@ -88,8 +88,13 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.fillPassword('password');
     await loginPage.clickSubmit();
 
+    // Wait for form to process (either error appears or button becomes enabled again)
+    await Promise.race([
+      page.locator('[data-testid="login-error"]').waitFor({ state: 'visible', timeout: 5000 }),
+      page.locator('[data-testid="login-submit"]').waitFor({ state: 'visible', timeout: 5000 }),
+    ]).catch(() => {});
+
     // Should show validation error or stay on login page
-    await page.waitForTimeout(1000);
     expect(page.url()).toContain('/login');
   });
 
@@ -101,8 +106,13 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.fillEmail('abecha@gmail.com');
     await loginPage.clickSubmit();
 
+    // Wait for form to process (either error appears or button becomes enabled again)
+    await Promise.race([
+      page.locator('[data-testid="login-error"]').waitFor({ state: 'visible', timeout: 5000 }),
+      page.locator('[data-testid="login-submit"]').waitFor({ state: 'visible', timeout: 5000 }),
+    ]).catch(() => {});
+
     // Should show validation error or stay on login page
-    await page.waitForTimeout(1000);
     expect(page.url()).toContain('/login');
   });
 });
