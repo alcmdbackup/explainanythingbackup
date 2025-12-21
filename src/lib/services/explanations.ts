@@ -111,6 +111,8 @@ export async function getRecentExplanations(
   const sort = options?.sort ?? 'new';
   const period = options?.period ?? 'week';
 
+  console.log('[getRecentExplanations] sort:', sort, 'period:', period);
+
   // For 'new' mode, use simple timestamp ordering
   if (sort === 'new') {
     const { data, error } = await supabase
@@ -136,6 +138,9 @@ export async function getRecentExplanations(
   if (period !== 'all') {
     const cutoffDate = new Date();
     switch (period) {
+      case 'hour':
+        cutoffDate.setHours(cutoffDate.getHours() - 1);
+        break;
       case 'today':
         cutoffDate.setDate(cutoffDate.getDate() - 1);
         break;
@@ -146,6 +151,7 @@ export async function getRecentExplanations(
         cutoffDate.setDate(cutoffDate.getDate() - 30);
         break;
     }
+    console.log('[getRecentExplanations] cutoffDate:', cutoffDate.toISOString());
     viewCountsQuery = viewCountsQuery.gte('created_at', cutoffDate.toISOString());
   }
 
@@ -159,6 +165,8 @@ export async function getRecentExplanations(
     const count = viewCounts.get(event.explanationid) || 0;
     viewCounts.set(event.explanationid, count + 1);
   }
+
+  console.log('[getRecentExplanations] viewCounts size:', viewCounts.size, 'total events:', viewEvents?.length);
 
   // Step 2: Get all published explanations
   const { data: explanations, error: expError } = await supabase

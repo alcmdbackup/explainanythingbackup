@@ -59,12 +59,13 @@ export type SortMode = 'new' | 'top';
 
 /**
  * Time period for filtering "top" explanations
+ * • hour: Last 1 hour
  * • today: Last 24 hours
  * • week: Last 7 days
  * • month: Last 30 days
  * • all: All time (no time filter)
  */
-export type TimePeriod = 'today' | 'week' | 'month' | 'all';
+export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
 
 /**
  * Schema for validating allowed LLM models

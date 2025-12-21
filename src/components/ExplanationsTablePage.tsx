@@ -37,6 +37,10 @@ export default function ExplanationsTablePage({
     }
 
     function getSortedExplanations() {
+        // When sort='top', preserve server's view-based ordering
+        if (sort === 'top') {
+            return explanations;
+        }
         const sorted = [...explanations];
         if (sortBy === 'title') {
             sorted.sort((a, b) => {

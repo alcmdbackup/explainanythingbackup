@@ -17,6 +17,7 @@ interface ExploreTabsProps {
 }
 
 const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
+    hour: 'Past Hour',
     today: 'Today',
     week: 'This Week',
     month: 'This Month',
@@ -94,6 +95,9 @@ export default function ExploreTabs({ sort, period }: ExploreTabsProps) {
                         <SelectValue placeholder="Select period" />
                     </SelectTrigger>
                     <SelectContent className="bg-[var(--surface-elevated)] border-[var(--border-default)]">
+                        <SelectItem value="hour" className="text-[var(--text-primary)] focus:bg-[var(--accent-gold)]/10">
+                            {TIME_PERIOD_LABELS.hour}
+                        </SelectItem>
                         <SelectItem value="today" className="text-[var(--text-primary)] focus:bg-[var(--accent-gold)]/10">
                             {TIME_PERIOD_LABELS.today}
                         </SelectItem>

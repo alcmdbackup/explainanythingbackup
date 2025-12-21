@@ -2,6 +2,9 @@ import { getRecentExplanations } from '@/lib/services/explanations';
 import ExplanationsTablePage from '@/components/ExplanationsTablePage';
 import { type ExplanationFullDbType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
+// Disable caching to ensure time period filter affects query results
+export const dynamic = 'force-dynamic';
+
 interface ExplanationsPageProps {
     searchParams: Promise<{ sort?: string; t?: string }>;
 }
