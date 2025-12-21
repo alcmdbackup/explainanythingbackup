@@ -519,6 +519,177 @@ const displayContent = applyLinksToContent(rawContent, links);
 
 ---
 
+### Step 5.5: Lexical-Level Link Overlay (for Diff/Edit Context)
+
+When content contains CriticMarkup diff annotations (from AI suggestions), links must be applied **after** Lexical import so they don't appear as part of the diff.
+
+#### When to Use Which Approach
+
+| Context | Overlay Method | Reason |
+|---------|---------------|--------|
+| **Normal display** (read-only) | Markdown-level (`applyLinksToContent`) | Simpler, content has no diffs |
+| **AI suggestions editing** (has DiffTagNode) | Lexical-level (`applyLinkOverlayToEditor`) | Links shouldn't be "diffed" |
+| **Regular editing** (no diffs) | Either works | Lexical-level more flexible |
+
+#### Flow: AI Suggestions with Links
+
+```
+=== AI SUGGESTIONS FLOW ===
+[Original content] → [AI generates edits]
+         ↓
+[CriticMarkup: {++inserted++} {--deleted--}]
+         ↓
+[$convertFromMarkdownString()] → Lexical tree with DiffTagNode
+         ↓
+[applyLinkOverlayToEditor()] → wrap terms in LinkNode INSIDE DiffTagNode
+         ↓
+[Editor displays: links are clickable, diffs are highlighted, links NOT part of diff]
+```
+
+#### Implementation: Lexical-Level Overlay
+
+**New file:** `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx`
+
+```typescript
+import { $dfs } from '@lexical/utils';
+import { $getRoot, $isTextNode, $createTextNode, TextNode, LexicalEditor } from 'lexical';
+import { $createStandaloneTitleLinkNode, $isStandaloneTitleLinkNode } from './StandaloneTitleLinkNode';
+import type { WhitelistCache } from '@/lib/services/linkResolver';
+
+/**
+ * Apply link overlay to Lexical editor state
+ * - Traverses all text nodes (including inside DiffTagNode)
+ * - Wraps matching whitelist terms in StandaloneTitleLinkNode
+ * - First occurrence only per term
+ * - Skips text already inside LinkNode
+ */
+export function applyLinkOverlayToEditor(
+  editor: LexicalEditor,
+  whitelist: Map<string, { canonical_term: string; standalone_title: string }>
+): void {
+  editor.update(() => {
+    const root = $getRoot();
+    const matchedTerms = new Set<string>();
+
+    // Traverse all nodes depth-first
+    const nodes = $dfs(root);
+
+    for (const { node } of nodes) {
+      if (!$isTextNode(node)) continue;
+
+      // Skip if already inside a link (avoid double-linking)
+      const parent = node.getParent();
+      if (parent && $isStandaloneTitleLinkNode(parent)) continue;
+
+      const textContent = node.getTextContent();
+      const textLower = textContent.toLowerCase();
+
+      // Check each whitelist term (sorted by length desc for longest match first)
+      const sortedTerms = [...whitelist.entries()]
+        .sort((a, b) => b[0].length - a[0].length);
+
+      for (const [termLower, entry] of sortedTerms) {
+        if (matchedTerms.has(termLower)) continue;
+
+        const matchIndex = textLower.indexOf(termLower);
+        if (matchIndex === -1) continue;
+
+        if (!isWordBoundary(textContent, matchIndex, matchIndex + termLower.length)) continue;
+
+        // Found match - split and wrap
+        wrapTextInLink(node, matchIndex, termLower.length, entry.standalone_title);
+        matchedTerms.add(termLower);
+        break; // One match per text node per pass
+      }
+    }
+  });
+}
+
+function wrapTextInLink(
+  textNode: TextNode,
+  matchIndex: number,
+  matchLength: number,
+  standaloneTitle: string
+): void {
+  const textContent = textNode.getTextContent();
+  const matchedText = textContent.substring(matchIndex, matchIndex + matchLength);
+  const beforeText = textContent.substring(0, matchIndex);
+  const afterText = textContent.substring(matchIndex + matchLength);
+
+  // Create link node
+  const encodedTitle = encodeURIComponent(standaloneTitle);
+  const url = `/standalone-title?t=${encodedTitle}`;
+  const linkNode = $createStandaloneTitleLinkNode(url);
+  linkNode.append($createTextNode(matchedText));
+
+  // Critical order: insertBefore → insertAfter → replace
+  if (beforeText) textNode.insertBefore($createTextNode(beforeText));
+  if (afterText) textNode.insertAfter($createTextNode(afterText));
+  textNode.replace(linkNode);
+}
+
+function isWordBoundary(content: string, start: number, end: number): boolean {
+  const isBoundary = (char: string) => /[\s.,;:!?()\[\]{}'\"<>\/]/.test(char);
+  const beforeOk = start === 0 || isBoundary(content[start - 1]);
+  const afterOk = end >= content.length || isBoundary(content[end]);
+  return beforeOk && afterOk;
+}
+```
+
+#### Integration with AI Suggestions Pipeline
+
+**File:** `/src/editorFiles/aiSuggestion.ts` (in `runAISuggestionsPipeline`)
+
+After CriticMarkup is generated and before returning to editor:
+
+```typescript
+// After Step 4 (preprocessCriticMarkup):
+const preprocessed = preprocessCriticMarkup(criticMarkup);
+
+// Step 5: Apply link overlay (if whitelist available)
+// Note: This happens in the editor component after import, not here
+// Return the preprocessed content; overlay applied in LexicalEditorComponent
+
+return {
+  content: preprocessed,
+  session_id: sessionData?.session_id
+};
+```
+
+**File:** `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx`
+
+After importing content with CriticMarkup:
+
+```typescript
+import { applyLinkOverlayToEditor } from './LinkOverlayPlugin';
+import { getWhitelistCache } from '@/lib/services/linkResolver';
+
+// After $convertFromMarkdownString():
+editor.update(async () => {
+  // ... existing import logic ...
+
+  // Apply link overlay if content has diff tags
+  if (hasDiffContent) {
+    const cache = await getWhitelistCache();
+    applyLinkOverlayToEditor(editor, cache.data);
+  }
+});
+```
+
+#### Shared Logic with Markdown-Level Overlay
+
+Both approaches share:
+- Whitelist cache (`getWhitelistCache()`)
+- Word boundary checking (`isWordBoundary()`)
+- First-occurrence tracking
+- Standalone title encoding
+
+Only the final application differs:
+- Markdown: String manipulation with `applyLinksToContent()`
+- Lexical: Node manipulation with `applyLinkOverlayToEditor()`
+
+---
+
 > **Step 6: Candidate Identification** - See [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
 
 ---
@@ -627,11 +798,13 @@ Add actions:
 | `/src/lib/db/schemas.ts` | Add 5 tables (whitelist, aliases, heading_links, overrides, snapshot) |
 | `/src/lib/schemas/schemas.ts` | Add Zod schemas |
 | `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD |
-| `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic |
+| `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic (markdown-level) |
 | `/src/lib/services/articleLinkOverrides.ts` | NEW - Per-article overrides |
+| `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx` | NEW - Lexical-level overlay for diff context |
+| `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx` | Call `applyLinkOverlayToEditor` after diff import |
 | `/src/lib/services/returnExplanation.ts` | REMOVE inline link generation calls |
 | `/src/lib/services/links.ts` | REMOVE `createMappingsKeytermsToLinks` and `createMappingsHeadingsToLinks` |
-| `/src/app/results/page.tsx` | Apply links at render time |
+| `/src/app/results/page.tsx` | Apply links at render time (markdown-level) |
 | `/src/actions/actions.ts` | Add ~9 new actions + heading cache invalidation in `updateExplanationAndTopic` |
 | `/src/app/admin/whitelist/*` | NEW - Admin UI |
 
@@ -643,8 +816,17 @@ Add actions:
 
 1. **Unit tests** for linkResolver (term matching, overlap handling, override application, first-occurrence logic)
 2. **Unit tests** for whitelist service (CRUD, alias resolution, caching)
-3. **E2E tests** for admin UI (add/edit/delete whitelist terms)
-4. **E2E tests** for article display (verify links render correctly)
+3. **Unit tests** for LinkOverlayPlugin:
+   - `wrapTextInLink` with match at start/middle/end of text node
+   - Skipping text inside existing LinkNode
+   - First-occurrence tracking across multiple text nodes
+   - Links inside DiffTagNode (ins/del/update) render correctly
+4. **Integration tests** for AI suggestions + links:
+   - Import CriticMarkup → apply overlay → verify LinkNode inside DiffTagNode
+   - Accept/reject diff → verify links remain/are removed correctly
+   - Export back to markdown → verify links preserved in CriticMarkup
+5. **E2E tests** for admin UI (add/edit/delete whitelist terms)
+6. **E2E tests** for article display (verify links render correctly)
 
 > Candidate testing defined in [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
 
