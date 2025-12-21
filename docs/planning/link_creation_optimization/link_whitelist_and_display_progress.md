@@ -146,29 +146,74 @@ Created the core link resolver service that resolves links at render time using 
 
 ---
 
-### Phase 5: Heading Link Generation ⏳ PENDING
+### Phase 5: Heading Link Generation ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
-| Modify `postprocessNewExplanationContent` | ⏳ Pending | Generate at creation time |
-| Save heading links to DB | ⏳ Pending | In `saveExplanationAndTopic` |
+| Modify `postprocessNewExplanationContent` | ✅ Complete | Now uses `generateHeadingStandaloneTitles`, returns `headingTitles` |
+| Modify `generateNewExplanation` | ✅ Complete | Passes through `headingTitles` |
+| Save heading links to DB | ✅ Complete | `saveHeadingLinks` called in `returnExplanationLogic` |
+| Update tests | ✅ Complete | Updated mocks and assertions |
+
+#### Summary
+
+Modified the explanation creation flow to generate heading standalone titles at creation time and save them to the `article_heading_links` table, instead of embedding links directly into content.
+
+#### Key Changes
+
+| Function | Change |
+|----------|--------|
+| `postprocessNewExplanationContent` | Replaced `createMappingsHeadingsToLinks` with `generateHeadingStandaloneTitles`, removed heading embedding loop, returns `headingTitles` |
+| `generateNewExplanation` | Added `headingTitles` to return type and passes it through |
+| `returnExplanationLogic` | Calls `saveHeadingLinks(newExplanationId, headingTitles)` after saving explanation |
+
+#### Files Modified
+
+- `/src/lib/services/returnExplanation.ts` (MODIFIED - updated 3 functions)
+- `/src/lib/services/returnExplanation.test.ts` (MODIFIED - updated mocks and assertions)
+
+#### Behavior Change
+
+- **Before**: Headings embedded as `## [Heading](/standalone-title?t=encoded)` in content
+- **After**: Content has plain headings `## Heading`, titles stored in `article_heading_links` table
 
 ---
 
-### Phase 6: Content Display ⏳ PENDING
+### Phase 6: Content Display ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
-| Modify `/src/app/results/page.tsx` | ⏳ Pending | Apply links at render time |
+| Add `resolveLinksForDisplayAction` | ✅ Complete | Server action in `/src/actions/actions.ts` |
+| Update `useExplanationLoader.ts` | ✅ Complete | Calls action after loading explanation |
+
+#### Summary
+
+Implemented render-time link resolution by adding a server action that wraps `resolveLinksForArticle()` and `applyLinksToContent()`, called from the `useExplanationLoader` hook when loading explanations.
+
+#### Key Changes
+
+| Function/File | Change |
+|---------------|--------|
+| `resolveLinksForDisplayAction` | New server action - resolves + applies links |
+| `useExplanationLoader.loadExplanation` | Calls action after fetching, falls back to raw content on error |
+
+#### Files Modified
+
+- `/src/actions/actions.ts` (MODIFIED - added ~20 lines)
+- `/src/hooks/useExplanationLoader.ts` (MODIFIED - added ~10 lines)
 
 ---
 
-### Phase 7: Stop Inline Link Generation ⏳ PENDING
+### Phase 7: Stop Inline Link Generation ⏳ PARTIAL
 
 | Step | Status | Notes |
 |------|--------|-------|
-| Remove `createMappingsHeadingsToLinks` calls | ⏳ Pending | |
-| Remove `createMappingsKeytermsToLinks` calls | ⏳ Pending | |
+| Remove `createMappingsHeadingsToLinks` calls | ✅ Complete | Replaced with `generateHeadingStandaloneTitles` in Phase 5 |
+| Remove `createMappingsKeytermsToLinks` calls | ⏳ Pending | Can now remove - Phase 6 (display) is complete |
 
 ---
 

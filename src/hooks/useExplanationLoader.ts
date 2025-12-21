@@ -5,7 +5,8 @@ import {
     getExplanationByIdAction,
     isExplanationSavedByUserAction,
     getTagsForExplanationAction,
-    loadFromPineconeUsingExplanationIdAction
+    loadFromPineconeUsingExplanationIdAction,
+    resolveLinksForDisplayAction
 } from '@/actions/actions';
 import { ExplanationStatus, TagUIType, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
@@ -157,7 +158,19 @@ export function useExplanationLoader(
 
             // Update all state with loaded explanation data
             setExplanationTitle(explanation.explanation_title);
-            setContent(explanation.content);
+
+            // Resolve links at render time (overlay system)
+            let contentToDisplay = explanation.content;
+            try {
+                contentToDisplay = await resolveLinksForDisplayAction(
+                    withRequestId({ explanationId: explanation.id, content: explanation.content })
+                );
+            } catch (err) {
+                // Fallback to raw content if link resolution fails
+                logger.error('Failed to resolve links for display:', { error: err });
+            }
+            setContent(contentToDisplay);
+
             setSystemSavedId(explanation.id);
             setExplanationId(explanation.id);
             setExplanationStatus(explanation.status);

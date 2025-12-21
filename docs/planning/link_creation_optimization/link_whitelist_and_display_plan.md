@@ -513,15 +513,32 @@ removeOverride(explanationId, term): Promise<void>
 
 ---
 
-### Step 5: Modify Content Display (not storage)
-**File:** `/src/app/results/page.tsx` or relevant display component
+### Step 5: Modify Content Display (not storage) ✅ COMPLETE (Phase 6)
+**Files:** `/src/actions/actions.ts`, `/src/hooks/useExplanationLoader.ts`
+
+Implemented via server action called from `useExplanationLoader` hook:
 
 ```typescript
-// When loading article for display:
-const rawContent = explanation.content; // Plain text, no links
-const links = await resolveLinksForArticle(explanation.id, rawContent);
-const displayContent = applyLinksToContent(rawContent, links);
-// Pass displayContent to LexicalEditor
+// In actions.ts - new server action
+const _resolveLinksForDisplayAction = async function(params: {
+    explanationId: number;
+    content: string;
+}) {
+    const links = await resolveLinksForArticle(params.explanationId, params.content);
+    return applyLinksToContent(params.content, links);
+};
+export const resolveLinksForDisplayAction = serverReadRequestId(_resolveLinksForDisplayAction);
+
+// In useExplanationLoader.ts - after loading explanation
+let contentToDisplay = explanation.content;
+try {
+    contentToDisplay = await resolveLinksForDisplayAction(
+        withRequestId({ explanationId: explanation.id, content: explanation.content })
+    );
+} catch (err) {
+    logger.error('Failed to resolve links for display:', { error: err });
+}
+setContent(contentToDisplay);
 ```
 
 **Remove from `/src/lib/services/links.ts`:**
@@ -730,39 +747,41 @@ Content is now stored as plain text. Links are applied at render time via the ov
 
 ---
 
-### Step 6.5: Generate Heading Links at Creation Time
+### Step 6.5: Generate Heading Links at Creation Time ✅ COMPLETE (Phase 5)
 **File:** `/src/lib/services/returnExplanation.ts`
 
-Replace `createMappingsHeadingsToLinks` with heading title generation (no embedding):
+Replaced `createMappingsHeadingsToLinks` with heading title generation (no embedding):
 
 ```typescript
 // In postprocessNewExplanationContent:
-const [headingTitles, tagEvaluation] = await Promise.all([
-  generateHeadingStandaloneTitles(rawContent, titleResult, userid),
+const [headingTitles, keyTermMappings, tagEvaluation] = await Promise.all([
+  generateHeadingStandaloneTitles(rawContent, titleResult, userid, FILE_DEBUG),
+  createMappingsKeytermsToLinks(rawContent, userid, FILE_DEBUG),  // Still embedding key terms for now
   evaluateTags(titleResult, rawContent, userid)
 ]);
 
-// Don't embed links - keep content plain
-const enhancedContent = cleanupAfterEnhancements(rawContent);
+// Headings NOT embedded - only key terms applied
+// (heading embedding loop removed)
 
 return {
   enhancedContent,
   tagEvaluation,
-  headingTitles, // NEW: pass through for later storage
+  headingTitles, // Passed through for DB storage
   error: null
 };
 ```
 
-**File:** `/src/actions/actions.ts` (in `saveExplanationAndTopic`)
+**File:** `/src/lib/services/returnExplanation.ts` (in `returnExplanationLogic`)
 
 After saving explanation, store heading links:
 
 ```typescript
-const savedExplanation = await saveExplanation(explanationData);
+finalExplanationId = newExplanationId;
+explanationData = newExplanationData;
 
-// Store heading links in DB
+// Save heading links to DB (for link overlay system)
 if (headingTitles && Object.keys(headingTitles).length > 0) {
-  await saveHeadingLinks(savedExplanation.id, headingTitles);
+    await saveHeadingLinks(newExplanationId, headingTitles);
 }
 ```
 
@@ -815,13 +834,15 @@ Add actions:
 | `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD | ✅ Complete |
 | `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic + overrides (merged) | ✅ Complete |
 | `/src/lib/services/links.ts` | Export `encodeStandaloneTitleParam` | ✅ Complete |
-| `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx` | NEW - Lexical-level overlay for diff context **(DEFERRED - implement last)** |
-| `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx` | Call `applyLinkOverlayToEditor` after diff import **(DEFERRED - implement last)** |
-| `/src/lib/services/returnExplanation.ts` | REMOVE inline link generation calls |
-| `/src/lib/services/links.ts` | REMOVE `createMappingsKeytermsToLinks` and `createMappingsHeadingsToLinks` |
-| `/src/app/results/page.tsx` | Apply links at render time (markdown-level) |
-| `/src/actions/actions.ts` | Add ~9 new actions + heading cache invalidation in `updateExplanationAndTopic` |
-| `/src/app/admin/whitelist/*` | NEW - Admin UI |
+| `/src/lib/services/returnExplanation.ts` | Generate heading titles at creation, save to DB | ✅ Complete (Phase 5) |
+| `/src/lib/services/returnExplanation.test.ts` | Update mocks/assertions for Phase 5 | ✅ Complete |
+| `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx` | NEW - Lexical-level overlay for diff context | ⏳ DEFERRED |
+| `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx` | Call `applyLinkOverlayToEditor` after diff import | ⏳ DEFERRED |
+| `/src/lib/services/returnExplanation.ts` | REMOVE key term inline link generation | ⏳ Phase 7 |
+| `/src/lib/services/links.ts` | REMOVE `createMappingsKeytermsToLinks` and `createMappingsHeadingsToLinks` | ⏳ Phase 7 |
+| `/src/hooks/useExplanationLoader.ts` | Call `resolveLinksForDisplayAction` on load | ✅ Complete (Phase 6) |
+| `/src/actions/actions.ts` | Add `resolveLinksForDisplayAction` (Phase 6) + ~9 new actions (Phase 8) | ✅ Phase 6 / ⏳ Phase 8 |
+| `/src/app/admin/whitelist/*` | NEW - Admin UI | ⏳ Phase 9 |
 
 > Candidate-related files defined in [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
 
@@ -853,22 +874,22 @@ Add actions:
 ## Implementation Order
 
 ### Core System (Steps 1-8)
-1. **Step 1**: Database (migration + Zod schemas)
-2. **Step 2**: Whitelist service (`linkWhitelist.ts`)
-3. **Step 3**: Link resolver service (`linkResolver.ts`)
-4. **Step 4**: Override service (`articleLinkOverrides.ts`)
-5. **Step 6.5**: Generate heading links at creation time (before removing old code)
-6. **Step 5**: Content display modifications (`results/page.tsx`)
-7. **Step 6**: Stop inline link generation (`returnExplanation.ts`)
-8. **Step 7**: Server actions (`actions.ts`)
-9. **Step 8**: Admin UI (`/admin/whitelist/*`)
-10. Clean up old code in `links.ts`
+1. ✅ **Step 1**: Database (migration + Zod schemas) - Phase 1
+2. ✅ **Step 2**: Whitelist service (`linkWhitelist.ts`) - Phase 2
+3. ✅ **Step 3**: Link resolver service (`linkResolver.ts`) - Phase 3
+4. ✅ **Step 4**: Override service (merged into `linkResolver.ts`) - Phase 3
+5. ✅ **Step 6.5**: Generate heading links at creation time - Phase 5
+6. ✅ **Step 5**: Content display modifications (`useExplanationLoader.ts`) - Phase 6
+7. ⏳ **Step 6**: Stop inline link generation (`returnExplanation.ts`) - Phase 7
+8. ⏳ **Step 7**: Server actions (`actions.ts`) - Phase 8
+9. ⏳ **Step 8**: Admin UI (`/admin/whitelist/*`) - Phase 9
+10. ⏳ Clean up old code in `links.ts`
 
 ### Deferred (Step 5.5 - implement last)
-11. Lexical-level link overlay (`LinkOverlayPlugin.tsx`)
-12. Integration with AI suggestions pipeline (`LexicalEditorComponent.tsx`)
+11. ⏳ Lexical-level link overlay (`LinkOverlayPlugin.tsx`) - Phase 10
+12. ⏳ Integration with AI suggestions pipeline (`LexicalEditorComponent.tsx`) - Phase 10
 
-**Note**: Keep old link generation working until new system is verified.
+**Note**: Keep old key term link generation working until new system is verified. Heading generation already migrated to DB storage in Phase 5.
 
 ---
 

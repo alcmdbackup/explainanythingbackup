@@ -10,7 +10,8 @@ import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automat
 import { logger } from '@/lib/client_utilities';
 import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
-import { 
+import { generateHeadingStandaloneTitles, saveHeadingLinks } from '@/lib/services/linkWhitelist';
+import {
   saveExplanationAndTopic, 
   saveUserQuery, 
   addTagsToExplanationAction 
@@ -104,25 +105,21 @@ export const postprocessNewExplanationContent = withLogging(
     ): Promise<{
         enhancedContent: string;
         tagEvaluation: any;
+        headingTitles: Record<string, string>;
         error: ErrorResponse | null;
     }> {
         try {
             // Run enhancement functions and tag evaluation in parallel
-            const [headingMappings, keyTermMappings, tagEvaluation] = await Promise.all([
-                createMappingsHeadingsToLinks(rawContent, titleResult, userid, FILE_DEBUG),
+            const [headingTitles, keyTermMappings, tagEvaluation] = await Promise.all([
+                generateHeadingStandaloneTitles(rawContent, titleResult, userid, FILE_DEBUG),
                 createMappingsKeytermsToLinks(rawContent, userid, FILE_DEBUG),
                 evaluateTags(titleResult, rawContent, userid)
             ]);
             
-            // Apply both heading and key term mappings to the content
+            // Apply key term mappings to the content (headings are saved to DB separately)
             let enhancedContent = rawContent;
-            
-            // Apply heading mappings first
-            for (const [originalHeading, linkedHeading] of Object.entries(headingMappings)) {
-                enhancedContent = enhancedContent.replace(originalHeading, linkedHeading);
-            }
-            
-            // Apply key term mappings second (only to non-heading lines)
+
+            // Apply key term mappings (only to non-heading lines)
             // This is to prevent bugs in formatting 
             for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
                 enhancedContent = replaceAllExceptHeadings(enhancedContent, originalKeyTerm, linkedKeyTerm);
@@ -134,7 +131,7 @@ export const postprocessNewExplanationContent = withLogging(
             logger.debug('Content postprocessing completed', {
                 originalContentLength: rawContent.length,
                 enhancedContentLength: enhancedContent.length,
-                headingMappingsCount: Object.keys(headingMappings).length,
+                headingTitlesCount: Object.keys(headingTitles).length,
                 keyTermMappingsCount: Object.keys(keyTermMappings).length,
                 hasTagEvaluation: !!tagEvaluation
             });
@@ -142,15 +139,17 @@ export const postprocessNewExplanationContent = withLogging(
             return {
                 enhancedContent,
                 tagEvaluation,
+                headingTitles,
                 error: null
             };
         } catch (error) {
             return {
                 enhancedContent: '',
                 tagEvaluation: null,
-                error: handleError(error, 'postprocessExplanationContent', { 
-                    titleResult, 
-                    contentLength: rawContent.length 
+                headingTitles: {},
+                error: handleError(error, 'postprocessExplanationContent', {
+                    titleResult,
+                    contentLength: rawContent.length
                 })
             };
         }
@@ -186,6 +185,7 @@ export const generateNewExplanation = withLogging(
         explanationData: explanationBaseType | null;
         error: ErrorResponse | null;
         tagEvaluation?: any;
+        headingTitles?: Record<string, string>;
     }> {
         try {
             // Choose prompt function based on userInputType
@@ -228,7 +228,7 @@ export const generateNewExplanation = withLogging(
             );
 
             // Postprocess the content to add links and evaluate tags
-            const { enhancedContent, tagEvaluation, error: postprocessError } = await postprocessNewExplanationContent(
+            const { enhancedContent, tagEvaluation, headingTitles, error: postprocessError } = await postprocessNewExplanationContent(
                 newExplanationContent,
                 titleResult,
                 userid
@@ -238,7 +238,8 @@ export const generateNewExplanation = withLogging(
                 return {
                     explanationData: null,
                     error: postprocessError,
-                    tagEvaluation: undefined
+                    tagEvaluation: undefined,
+                    headingTitles: undefined
                 };
             }
 
@@ -253,24 +254,27 @@ export const generateNewExplanation = withLogging(
                 return {
                     explanationData: null,
                     error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
-                    tagEvaluation: undefined
+                    tagEvaluation: undefined,
+                    headingTitles: undefined
                 };
             }
 
             return {
                 explanationData: newExplanationData,
                 error: null,
-                tagEvaluation
+                tagEvaluation,
+                headingTitles
             };
         } catch (error) {
             return {
                 explanationData: null,
-                error: handleError(error, 'generateNewExplanation', { 
-                    titleResult, 
-                    userInputType, 
-                    additionalRulesCount: additionalRules.length 
+                error: handleError(error, 'generateNewExplanation', {
+                    titleResult,
+                    userInputType,
+                    additionalRulesCount: additionalRules.length
                 }),
-                tagEvaluation: undefined
+                tagEvaluation: undefined,
+                headingTitles: undefined
             };
         }
     },
@@ -511,12 +515,12 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 isMatchFound = true;
             } else {
                 // Generate new explanation using the extracted function
-                const { explanationData: newExplanationData, error: generationError, tagEvaluation } = await generateNewExplanation(
-                    titleResult, 
-                    additionalRules, 
-                    userInputType, 
-                    userid, 
-                    existingContent, 
+                const { explanationData: newExplanationData, error: generationError, tagEvaluation, headingTitles } = await generateNewExplanation(
+                    titleResult,
+                    additionalRules,
+                    userInputType,
+                    userid,
+                    existingContent,
                     onStreamingText
                 );
 
@@ -564,7 +568,12 @@ export const returnExplanationLogic = withLoggingAndTracing(
 
                 finalExplanationId = newExplanationId;
                 explanationData = newExplanationData;
-                
+
+                // Save heading links to DB (for link overlay system)
+                if (headingTitles && Object.keys(headingTitles).length > 0) {
+                    await saveHeadingLinks(newExplanationId, headingTitles);
+                }
+
                 // Apply tags if evaluation was successful
                 if (tagEvaluation && !tagEvaluation.error) {
                     await applyTagsToExplanation(newExplanationId, tagEvaluation, userid);

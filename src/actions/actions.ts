@@ -24,6 +24,7 @@ import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, 
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
 import { supabase } from '../lib/supabase';
+import { resolveLinksForArticle, applyLinksToContent } from '@/lib/services/linkResolver';
 
 
 const FILE_DEBUG = true;
@@ -330,6 +331,27 @@ const _getExplanationByIdAction = async function(params: { id: number }) {
 };
 
 export const getExplanationByIdAction = serverReadRequestId(_getExplanationByIdAction);
+
+/**
+ * Resolves and applies links to explanation content at render time (server action)
+ *
+ * • Fetches heading links from article_heading_links table
+ * • Matches whitelist terms (first occurrence only)
+ * • Applies per-article overrides
+ * • Returns content with markdown links applied
+ * • Falls back to raw content if resolution fails
+ * • Calls: resolveLinksForArticle, applyLinksToContent
+ * • Used by: useExplanationLoader hook when displaying content
+ */
+const _resolveLinksForDisplayAction = async function(params: {
+    explanationId: number;
+    content: string;
+}) {
+    const links = await resolveLinksForArticle(params.explanationId, params.content);
+    return applyLinksToContent(params.content, links);
+};
+
+export const resolveLinksForDisplayAction = serverReadRequestId(_resolveLinksForDisplayAction);
 
 /**
  * Saves an explanation to the user's library (server action)
