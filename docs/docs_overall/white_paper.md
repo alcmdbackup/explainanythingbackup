@@ -1,8 +1,12 @@
 ## Goal
 Produce high quality content through larger-scale AI generation combined with human feedback.
 
-## Overview
+## Product
+ExplainAnything is an AI publishing and ranking platform.
+
+## Key feedback loop
 AI generates content --> human feedback --> better content --> etc
+(TO DO) How to think about ranking?
 
 Objective is to maximize this feedback loop to the maximum extent, to create content that is as high-quality as possible. Even if this is unusual and uncomfortable from a UX perspective, this is worth pursuing. 
 
