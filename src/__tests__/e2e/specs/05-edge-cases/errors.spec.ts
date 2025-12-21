@@ -36,12 +36,16 @@ test.describe('Error Handling', () => {
       const resultsPage = new ResultsPage(page);
 
       // Mock API to return error during streaming (proper SSE error event)
+      // Set up mock BEFORE any navigation
       await mockReturnExplanationStreamError(page, 'Stream interrupted');
+
+      // Small delay to ensure route is fully registered in CI
+      await page.waitForTimeout(100);
 
       await resultsPage.navigate('test query');
 
-      // Wait for error to appear
-      await resultsPage.waitForError(15000);
+      // Wait for error to appear (increased timeout for CI)
+      await resultsPage.waitForError(30000);
 
       // Verify error is displayed
       const isErrorVisible = await resultsPage.isErrorVisible();
@@ -90,8 +94,12 @@ test.describe('Error Handling', () => {
 
       // First, trigger a stream error
       await mockReturnExplanationStreamError(page, 'First request failed');
+
+      // Small delay to ensure route is fully registered in CI
+      await page.waitForTimeout(100);
+
       await resultsPage.navigate('failing query');
-      await resultsPage.waitForError(15000);
+      await resultsPage.waitForError(30000);
 
       // Verify error is displayed
       expect(await resultsPage.isErrorVisible()).toBe(true);
@@ -99,6 +107,9 @@ test.describe('Error Handling', () => {
       // Clear route and set up success mock
       await page.unrouteAll();
       await mockReturnExplanationAPI(page, defaultMockExplanation);
+
+      // Wait for input to become enabled (error state should re-enable it)
+      await page.waitForSelector('[data-testid="search-input"]:not([disabled])', { timeout: 10000 });
 
       // Submit new query using the search bar (nav variant uses Enter key, no submit button)
       await page.fill('[data-testid="search-input"]', 'successful query');

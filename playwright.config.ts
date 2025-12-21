@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 4 : undefined,
+  workers: process.env.CI ? 2 : undefined,  // Reduced from 4 to avoid resource contention
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],
@@ -60,8 +60,8 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
   },
-  timeout: 30000,
+  timeout: process.env.CI ? 60000 : 30000,
   expect: {
-    timeout: 10000,
+    timeout: process.env.CI ? 20000 : 10000,
   },
 });
