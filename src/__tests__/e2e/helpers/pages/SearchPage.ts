@@ -11,7 +11,21 @@ export class SearchPage extends BasePage {
 
   async navigate() {
     await this.page.goto('/');
-    await this.page.waitForLoadState('networkidle');
+    // Wait for DOM content instead of networkidle (which can hang in CI)
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.page.locator(this.searchInput).waitFor({ state: 'visible' });
+
+    // Wait for Next.js/React hydration to complete
+    // React attaches __reactFiber properties to DOM elements after hydration
+    await this.page.waitForFunction(
+      (selector) => {
+        const input = document.querySelector(selector);
+        if (!input) return false;
+        return Object.keys(input).some((key) => key.startsWith('__react'));
+      },
+      this.searchInput,
+      { timeout: 10000 }
+    );
   }
 
   async search(query: string) {

@@ -18,10 +18,15 @@ test.describe('Search and Generate Flow', () => {
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
       await searchPage.navigate();
-      await searchPage.search('quantum entanglement');
 
-      // Verify redirect to results page with query param
-      await page.waitForURL(/\/results\?q=/, { timeout: 10000 });
+      // Use Promise.all to wait for navigation during search action
+      // This ensures we catch the redirect even if there's timing variation
+      await Promise.all([
+        page.waitForURL(/\/results\?q=/, { timeout: 30000 }),
+        searchPage.search('quantum entanglement'),
+      ]);
+
+      // Verify query param is correct
       const query = await resultsPage.getQueryFromUrl();
       expect(query).toContain('quantum entanglement');
     });

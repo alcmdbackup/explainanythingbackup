@@ -126,4 +126,22 @@ export class UserLibraryPage extends BasePage {
   async clickViewOnRow(index: number) {
     await this.clickViewByIndex(index);
   }
+
+  /**
+   * Wait for library page to be in a stable state.
+   * Returns the state type so callers can handle appropriately.
+   */
+  async waitForLibraryReady(timeout = 30000): Promise<'loaded' | 'empty' | 'error'> {
+    const table = this.page.locator('table');
+    const emptyState = this.page.locator('.scholar-card:has-text("Begin Exploring")');
+    const error = this.page.locator('.bg-red-100');
+
+    const result = await Promise.race([
+      table.waitFor({ state: 'visible', timeout }).then(() => 'loaded' as const),
+      emptyState.waitFor({ state: 'visible', timeout }).then(() => 'empty' as const),
+      error.waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
+    ]);
+
+    return result;
+  }
 }

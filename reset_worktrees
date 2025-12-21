@@ -137,6 +137,27 @@ for i in 0 1 2 3 4; do
         fi
     done
 
+    # Copy Claude settings from feature0
+    FEATURE0_CLAUDE="$PARENT_DIR/explainanything-feature0/.claude"
+    WORKTREE_NAME="worktree_${COUNTER}_${i}"
+    if [ -d "$FEATURE0_CLAUDE" ]; then
+        echo "  Copying Claude settings..."
+        mkdir -p "$WORKTREE_PATH/.claude"
+
+        # Copy settings.json if exists
+        if [ -f "$FEATURE0_CLAUDE/settings.json" ]; then
+            cp "$FEATURE0_CLAUDE/settings.json" "$WORKTREE_PATH/.claude/settings.json"
+        fi
+
+        # Copy settings.local.json and replace hardcoded paths
+        if [ -f "$FEATURE0_CLAUDE/settings.local.json" ]; then
+            sed "s/explainanything-feature0/$WORKTREE_NAME/g" \
+                "$FEATURE0_CLAUDE/settings.local.json" > "$WORKTREE_PATH/.claude/settings.local.json"
+        fi
+    else
+        echo "  Warning: $FEATURE0_CLAUDE not found"
+    fi
+
     # Install dependencies (don't copy node_modules as it breaks symlinks)
     if [ -f "$WORKTREE_PATH/package.json" ]; then
         echo "  Installing dependencies (this may take a few minutes)..."
