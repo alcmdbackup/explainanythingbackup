@@ -54,11 +54,43 @@ Created the foundational database layer for the link overlay system. The schema 
 
 ---
 
-### Phase 2: Whitelist Service ⏳ PENDING
+### Phase 2: Whitelist Service ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
-| `/src/lib/services/linkWhitelist.ts` | ⏳ Pending | CRUD + alias + cache functions |
+| `/src/lib/services/linkWhitelist.ts` | ✅ Complete | CRUD + alias + cache functions |
+| Unit Tests | ✅ Complete | 24 tests in `/src/lib/services/linkWhitelist.test.ts` |
+
+#### Summary
+
+Created the service layer for the link whitelist system with full CRUD operations, alias management, snapshot caching, and heading link cache functionality.
+
+#### Functions Implemented
+
+| Category | Function | Purpose |
+|----------|----------|---------|
+| **CRUD** | `createWhitelistTerm` | Create new whitelist entry with deduplication |
+| **CRUD** | `getAllActiveWhitelistTerms` | Get all active terms ordered by name |
+| **CRUD** | `updateWhitelistTerm` | Update existing term (auto-updates lowercase) |
+| **CRUD** | `deleteWhitelistTerm` | Delete term (cascades to aliases) |
+| **Aliases** | `addAliases` | Add multiple aliases with deduplication |
+| **Aliases** | `removeAlias` | Remove single alias by ID |
+| **Aliases** | `getAliasesForTerm` | Get all aliases for a whitelist term |
+| **Lookup** | `getActiveWhitelistAsMap` | Build lookup Map including aliases |
+| **Lookup** | `rebuildSnapshot` | Rebuild snapshot cache with version bump |
+| **Lookup** | `getSnapshot` | Get current snapshot (rebuilds if missing) |
+| **Heading Cache** | `getHeadingLinksForArticle` | Get cached heading titles for article |
+| **Heading Cache** | `saveHeadingLinks` | Upsert heading titles for article |
+| **Heading Cache** | `deleteHeadingLinksForArticle` | Delete all heading links for article |
+| **Heading Cache** | `generateHeadingStandaloneTitles` | Generate AI titles (no DB save) |
+| **Helper** | `getWhitelistTermById` | Get single term by ID |
+
+#### Files Created
+
+- `/src/lib/services/linkWhitelist.ts` (NEW - ~400 lines)
+- `/src/lib/services/linkWhitelist.test.ts` (NEW - 24 tests)
 
 ---
 
