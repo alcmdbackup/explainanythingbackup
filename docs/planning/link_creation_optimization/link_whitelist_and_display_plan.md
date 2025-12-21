@@ -15,14 +15,28 @@ Implement a **link overlay system** where links are stored separately from artic
 
 ---
 
+## Scope Clarification
+
+This plan covers **heading links only**:
+- Headings are always auto-linked with AI-generated standalone titles
+- Standalone titles are **pre-generated during explanation creation** (not render time)
+- Stored in `article_heading_links` table
+
+**Term/keyword links are handled separately** in:
+[`/docs/planning/link_candidate_generation/link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
+
+---
+
 ## Architecture: Link Overlay System
 
 ### Key Decisions
-- **Headings**: Always auto-linked with AI-generated standalone titles (not dependent on whitelist)
-- **Key terms**: Only linked if in whitelist (pure whitelist matching)
+- **Headings**: Always auto-linked with AI-generated standalone titles
+  - Titles generated at **creation time** in `postprocessNewExplanationContent`
+  - Stored immediately in `article_heading_links` table
+  - Render time just fetches from DB (no AI calls)
+- **Key terms**: Only linked if in whitelist (pure whitelist matching) - see candidate generation plan
 - **In-memory cache** with 5 min TTL for whitelist lookups
 - **First occurrence only** per article for key terms (Wikipedia-style linking)
-- **Heading titles cached** per article to avoid repeated AI calls
 
 ### Key Principles
 1. **Content is plain text** - No link markup stored in article content
@@ -57,18 +71,9 @@ const matches = ac.search(content.toLowerCase());
 
 **Deployment**: Vercel serverless functions (no persistent memory across invocations)
 
-#### Caching Options
+#### Whitelist Cache: Vercel KV
 
-| Option | Latency (cold) | Latency (warm) | Extra Cost | Complexity |
-|--------|---------------|----------------|------------|------------|
-| **Vercel KV** ⭐ | ~5ms | ~5ms | Low | Low |
-| **Supabase-only** | ~80ms | ~80ms | None | Lowest |
-| **Edge Config** | ~1ms | ~1ms | None | Medium |
-| **ISR Static** | ~1ms | ~1ms | None | Medium |
-
----
-
-#### Option 1: Vercel KV (Recommended)
+> Alternative caching options (Supabase-only, Edge Config, ISR) are documented in [Appendix A](#appendix-a-alternative-caching-options).
 
 ```
 Serverless Function → Vercel KV (edge) → PostgreSQL (fallback)
@@ -89,23 +94,28 @@ const KV_TTL_SECONDS = 300; // 5 minutes
 async function getWhitelistCache(): Promise<WhitelistCache> {
   // Check Vercel KV first
   const cached = await kv.get<WhitelistCache>(KV_KEY);
-  const currentVersion = await getWhitelistVersion();
+
+  // Get current version from DB snapshot
+  const snapshot = await db.select().from(linkWhitelistSnapshot).limit(1);
+  const currentVersion = snapshot[0]?.version ?? 0;
 
   if (cached && cached.version === currentVersion) {
     return cached;
   }
 
-  // Cache miss or stale - rebuild from DB
-  const data = await getActiveWhitelistAsMap();
-  const fresh: WhitelistCache = {
-    version: currentVersion,
-    data: Object.fromEntries(data),
-    terms: [...data.keys()]
-  };
+  // Cache miss or stale - use snapshot data directly
+  if (snapshot[0]) {
+    const fresh: WhitelistCache = {
+      version: snapshot[0].version,
+      data: snapshot[0].data,
+      terms: Object.keys(snapshot[0].data)
+    };
+    await kv.set(KV_KEY, fresh, { ex: KV_TTL_SECONDS });
+    return fresh;
+  }
 
-  // Store in Vercel KV
-  await kv.set(KV_KEY, fresh, { ex: KV_TTL_SECONDS });
-  return fresh;
+  // No snapshot exists - rebuild
+  return rebuildSnapshot();
 }
 
 // Build Aho-Corasick matcher from cache (in-memory, per-invocation)
@@ -118,116 +128,7 @@ function buildMatcher(cache: WhitelistCache): AhoCorasick {
 
 ---
 
-#### Option 2: Supabase-Only (No External Cache)
-
-```
-Serverless Function → PostgreSQL (optimized query)
-```
-
-```typescript
-// Store serialized whitelist in single row for fast fetch
-// Table: link_whitelist_snapshot (version, data JSONB, updated_at)
-
-async function getWhitelistCache(): Promise<WhitelistCache> {
-  const snapshot = await db
-    .select()
-    .from(linkWhitelistSnapshot)
-    .limit(1);
-
-  if (snapshot) {
-    return {
-      version: snapshot.version,
-      data: snapshot.data,
-      terms: Object.keys(snapshot.data)
-    };
-  }
-
-  // Fallback: build from whitelist table
-  return rebuildSnapshot();
-}
-
-// Trigger: Rebuild snapshot on whitelist changes
-async function rebuildSnapshot() {
-  const data = await getActiveWhitelistAsMap();
-  const version = await getWhitelistVersion();
-  await db.insert(linkWhitelistSnapshot).values({
-    version,
-    data: Object.fromEntries(data)
-  }).onConflictDoUpdate(...);
-  return { version, data: Object.fromEntries(data), terms: [...data.keys()] };
-}
-```
-
-**Pro**: No extra services. **Con**: ~80ms per cold start.
-
----
-
-#### Option 3: Edge Config (Ultra-fast, small data)
-
-```
-Serverless Function → Edge Config (<1ms) → PostgreSQL (on change)
-```
-
-```typescript
-import { get } from '@vercel/edge-config';
-
-async function getWhitelistCache(): Promise<WhitelistCache> {
-  const cached = await get<WhitelistCache>('whitelist');
-  if (cached) return cached;
-
-  // Fallback to DB (shouldn't happen if sync is working)
-  return await fetchFromDB();
-}
-
-// Webhook: Sync to Edge Config on whitelist change
-// POST /api/sync-edge-config
-export async function POST() {
-  const data = await getActiveWhitelistAsMap();
-  await edgeConfigClient.set('whitelist', {
-    version: await getWhitelistVersion(),
-    data: Object.fromEntries(data),
-    terms: [...data.keys()]
-  });
-}
-```
-
-**Pro**: <1ms reads. **Con**: 8KB per-item limit, manual sync via webhook.
-
----
-
-#### Option 4: ISR + Static JSON (Build-time)
-
-```
-Build/ISR → static JSON → revalidate on-demand
-```
-
-```typescript
-// app/api/whitelist/route.ts
-export const revalidate = 300; // 5 minutes
-
-export async function GET() {
-  const data = await getActiveWhitelistAsMap();
-  return Response.json({
-    version: await getWhitelistVersion(),
-    data: Object.fromEntries(data),
-    terms: [...data.keys()]
-  });
-}
-
-// In linkResolver.ts
-async function getWhitelistCache() {
-  const res = await fetch('/api/whitelist', { next: { revalidate: 300 } });
-  return res.json();
-}
-
-// On whitelist change: call revalidatePath('/api/whitelist')
-```
-
-**Pro**: Free, fast. **Con**: Updates not instant (up to 5 min delay).
-
----
-
-#### Heading Link Cache (DB-based, no external cache needed)
+#### Heading Link Cache (DB-based)
 
 ```
 article_heading_links table stores AI-generated titles per article
@@ -235,19 +136,68 @@ article_heading_links table stores AI-generated titles per article
 - Invalidate: DELETE FROM article_heading_links WHERE explanation_id = ?
 ```
 
+#### Heading Cache Invalidation
+
+**Trigger**: On article content update in `updateExplanationAndTopic`
+
+**Implementation** (add to `/src/actions/actions.ts`):
+
+```typescript
+// In updateExplanationAndTopic, BEFORE the update:
+const oldExplanation = await getExplanationById(explanationId);
+
+// After update, if content changed:
+if (updates.content) {
+  const oldHeadings = extractHeadings(oldExplanation.content);
+  const newHeadings = extractHeadings(updates.content);
+
+  if (!headingsMatch(oldHeadings, newHeadings)) {
+    await db.delete(articleHeadingLinks)
+      .where(eq(articleHeadingLinks.explanation_id, explanationId));
+  }
+}
+```
+
+**Helper function** (add to `/src/lib/services/linkResolver.ts`):
+
+```typescript
+export function extractHeadings(content: string): string[] {
+  const regex = /^#{2,3}\s+(.+)$/gm;
+  const headings: string[] = [];
+  let match;
+  while ((match = regex.exec(content)) !== null) {
+    headings.push(match[1].toLowerCase());
+  }
+  return headings;
+}
+
+export function headingsMatch(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((h, i) => h === b[i]);
+}
+```
+
+**Cost**: One extra DB query per save (fetch old content). Negligible since saves already trigger embedding regeneration.
+
 ---
 
-#### Recommended Setup
-
-1. **Start with**: Supabase-only (Option 2) - simplest, no extra services
-2. **Upgrade to**: Vercel KV (Option 1) if cold start latency becomes an issue
-3. **Heading cache**: Always use DB (already planned)
-
 ### Flow
+
 ```
-[Article Content (plain text)]
-         ↓ render time
-[Process Headings] → AI-generate standalone titles (cached per article)
+=== CREATION TIME ===
+[Generate Explanation]
+         ↓
+[postprocessNewExplanationContent]
+         ├─ generateHeadingStandaloneTitles() → AI call
+         ├─ evaluateTags()
+         └─ REMOVE: createMappingsKeytermsToLinks (see candidate generation plan)
+         ↓
+[Save PLAIN content to DB] → no embedded links
+         ↓
+[saveHeadingLinks()] → store titles in article_heading_links table
+
+=== RENDER TIME ===
+[Fetch article_heading_links from DB] → no AI calls
          ↓
 [Apply Whitelist] → find whitelisted key terms in text
          ↓
@@ -309,14 +259,7 @@ CREATE TABLE article_link_overrides (
 
 -- NOTE: link_candidates table is defined in link_candidate_generation_plan.md
 
--- Version tracking for cache invalidation
-CREATE TABLE link_whitelist_meta (
-  key VARCHAR(50) PRIMARY KEY,
-  value INTEGER NOT NULL
-);
-INSERT INTO link_whitelist_meta (key, value) VALUES ('version', 1);
-
--- Snapshot for fast single-query fetch (Supabase-only caching option)
+-- Snapshot for fast single-query fetch (includes version for cache invalidation)
 CREATE TABLE link_whitelist_snapshot (
   id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1), -- Single row
   version INTEGER NOT NULL,
@@ -324,24 +267,8 @@ CREATE TABLE link_whitelist_snapshot (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Trigger to bump version and rebuild snapshot on whitelist changes
-CREATE OR REPLACE FUNCTION bump_whitelist_version() RETURNS TRIGGER AS $$
-BEGIN
-  UPDATE link_whitelist_meta SET value = value + 1 WHERE key = 'version';
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER whitelist_version_bump
-AFTER INSERT OR UPDATE OR DELETE ON link_whitelist
-FOR EACH STATEMENT EXECUTE FUNCTION bump_whitelist_version();
-
-CREATE TRIGGER alias_version_bump
-AFTER INSERT OR UPDATE OR DELETE ON link_whitelist_aliases
-FOR EACH STATEMENT EXECUTE FUNCTION bump_whitelist_version();
-
--- Note: Snapshot rebuild is done in application code after whitelist changes
--- (Can't easily call application code from DB trigger)
+-- NOTE: No DB triggers for version bumping - handled atomically in application code
+-- via rebuildSnapshot() to avoid race conditions between version bump and data rebuild
 ```
 
 ---
@@ -415,9 +342,28 @@ async function getCachedWhitelist(): Promise<Map<string, WhitelistEntry>> {
 }
 
 /**
+ * Check if match is at word boundaries
+ * Boundaries: whitespace, punctuation (except hyphen), start/end of string
+ * Hyphens are NOT boundaries to avoid matching inside compound terms
+ */
+function isWordBoundary(content: string, startIndex: number, endIndex: number): boolean {
+  // Boundary chars: whitespace and punctuation EXCEPT hyphen
+  const isBoundary = (char: string) => /[\s.,;:!?()\[\]{}'\"<>\/]/.test(char);
+
+  const beforeOk = startIndex === 0 || isBoundary(content[startIndex - 1]);
+  const afterOk = endIndex >= content.length || isBoundary(content[endIndex]);
+
+  return beforeOk && afterOk;
+}
+
+function overlaps(link: ResolvedLink, start: number, end: number): boolean {
+  return !(end <= link.startIndex || start >= link.endIndex);
+}
+
+/**
  * Resolve links for an article at render time
- * 1. Process HEADINGS: Always linked, AI-generated titles (cached in DB)
- * 2. Process KEY TERMS: Only if in whitelist
+ * 1. Process HEADINGS first: Always linked, AI-generated titles (cached in DB)
+ * 2. Process KEY TERMS: Only if in whitelist, excluding heading regions
  * 3. First occurrence only per key term
  * 4. Apply overrides
  */
@@ -427,9 +373,12 @@ export async function resolveLinksForArticle(
 ): Promise<ResolvedLink[]> {
   const links: ResolvedLink[] = [];
 
-  // === STEP 1: HEADINGS (always linked) ===
+  // === STEP 1: HEADINGS (always linked, processed first) ===
   const headingLinks = await resolveHeadingLinks(explanationId, content);
   links.push(...headingLinks);
+
+  // Build exclusion zones from heading positions to prevent double-linking
+  const headingRanges = headingLinks.map(h => ({ start: h.startIndex, end: h.endIndex }));
 
   // === STEP 2: KEY TERMS (whitelist only, using Aho-Corasick) ===
   const { data: whitelist, matcher } = await getWhitelistCache();
@@ -456,10 +405,15 @@ export async function resolveLinksForArticle(
     // First occurrence only
     if (matchedTerms.has(termLower)) continue;
 
+    // Skip if inside a heading region (prevents double-linking)
+    if (headingRanges.some(r => match.startIndex >= r.start && match.endIndex <= r.end)) {
+      continue;
+    }
+
     // Check word boundaries (Aho-Corasick doesn't enforce them)
     if (!isWordBoundary(content, match.startIndex, match.endIndex)) continue;
 
-    // Skip if overlaps with heading or already-matched term
+    // Skip if overlaps with already-matched term
     if (links.some(l => overlaps(l, match.startIndex, match.endIndex))) continue;
 
     const override = overrides.get(termLower);
@@ -482,10 +436,8 @@ export async function resolveLinksForArticle(
 }
 
 /**
- * Resolve heading links with caching
- * - Check DB cache for existing standalone titles
- * - Generate via AI for uncached headings
- * - Store in article_heading_links table
+ * Resolve heading links - NO AI calls at render time
+ * Titles are pre-generated at creation time and stored in article_heading_links
  */
 async function resolveHeadingLinks(explanationId: number, content: string): Promise<ResolvedLink[]> {
   const headingRegex = /^(#{2,3})\s+(.+)$/gm;
@@ -498,30 +450,15 @@ async function resolveHeadingLinks(explanationId: number, content: string): Prom
 
   if (headings.length === 0) return [];
 
-  // Check cache for existing titles
+  // Fetch ALL cached titles from DB (created at explanation creation time)
   const cachedTitles = await getHeadingLinksForArticle(explanationId);
-  const uncachedHeadings = headings.filter(h => !cachedTitles.has(h.text.toLowerCase()));
 
-  // Generate titles for uncached headings via AI
-  if (uncachedHeadings.length > 0) {
-    const newTitles = await generateHeadingStandaloneTitles(
-      uncachedHeadings.map(h => h.text),
-      explanationId
-    );
-    // Store in DB cache
-    await saveHeadingLinks(explanationId, newTitles);
-    // Merge into cachedTitles
-    for (const [heading, title] of Object.entries(newTitles)) {
-      cachedTitles.set(heading.toLowerCase(), title);
-    }
-  }
-
-  // Build resolved links
+  // Build resolved links - titles should always exist (created at save time)
   return headings.map(h => ({
-    term: h.match[0], // Full "## Heading" text
+    term: h.match[0],
     startIndex: h.match.index,
     endIndex: h.match.index + h.match[0].length,
-    standaloneTitle: cachedTitles.get(h.text.toLowerCase())!,
+    standaloneTitle: cachedTitles.get(h.text.toLowerCase()) ?? h.text, // fallback to raw heading
     type: 'heading' as const
   }));
 }
@@ -607,6 +544,46 @@ Content is now stored as plain text. Links are applied at render time via the ov
 
 ---
 
+### Step 6.5: Generate Heading Links at Creation Time
+**File:** `/src/lib/services/returnExplanation.ts`
+
+Replace `createMappingsHeadingsToLinks` with heading title generation (no embedding):
+
+```typescript
+// In postprocessNewExplanationContent:
+const [headingTitles, tagEvaluation] = await Promise.all([
+  generateHeadingStandaloneTitles(rawContent, titleResult, userid),
+  evaluateTags(titleResult, rawContent, userid)
+]);
+
+// Don't embed links - keep content plain
+const enhancedContent = cleanupAfterEnhancements(rawContent);
+
+return {
+  enhancedContent,
+  tagEvaluation,
+  headingTitles, // NEW: pass through for later storage
+  error: null
+};
+```
+
+**File:** `/src/actions/actions.ts` (in `saveExplanationAndTopic`)
+
+After saving explanation, store heading links:
+
+```typescript
+const savedExplanation = await saveExplanation(explanationData);
+
+// Store heading links in DB
+if (headingTitles && Object.keys(headingTitles).length > 0) {
+  await saveHeadingLinks(savedExplanation.id, headingTitles);
+}
+```
+
+**Key benefit**: AI call happens once at creation (same timing as before), but result goes to DB instead of being embedded in content. Render time has zero AI calls.
+
+---
+
 ### Step 7: Server Actions
 **File:** `/src/actions/actions.ts`
 
@@ -647,7 +624,7 @@ Add actions:
 
 | File | Change |
 |------|--------|
-| `/src/lib/db/schemas.ts` | Add 6 tables + triggers (whitelist, aliases, heading_links, overrides, meta, snapshot) |
+| `/src/lib/db/schemas.ts` | Add 5 tables (whitelist, aliases, heading_links, overrides, snapshot) |
 | `/src/lib/schemas/schemas.ts` | Add Zod schemas |
 | `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD |
 | `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic |
@@ -655,7 +632,7 @@ Add actions:
 | `/src/lib/services/returnExplanation.ts` | REMOVE inline link generation calls |
 | `/src/lib/services/links.ts` | REMOVE `createMappingsKeytermsToLinks` and `createMappingsHeadingsToLinks` |
 | `/src/app/results/page.tsx` | Apply links at render time |
-| `/src/actions/actions.ts` | Add ~9 new actions |
+| `/src/actions/actions.ts` | Add ~9 new actions + heading cache invalidation in `updateExplanationAndTopic` |
 | `/src/app/admin/whitelist/*` | NEW - Admin UI |
 
 > Candidate-related files defined in [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
@@ -670,3 +647,139 @@ Add actions:
 4. **E2E tests** for article display (verify links render correctly)
 
 > Candidate testing defined in [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
+
+---
+
+## Appendix A: Alternative Caching Options
+
+| Option | Latency (cold) | Latency (warm) | Extra Cost | Complexity |
+|--------|---------------|----------------|------------|------------|
+| **Vercel KV** ⭐ | ~5ms | ~5ms | Low | Low |
+| **Supabase-only** | ~80ms | ~80ms | None | Lowest |
+| **Edge Config** | ~1ms | ~1ms | None | Medium |
+| **ISR Static** | ~1ms | ~1ms | None | Medium |
+
+### Option: Supabase-Only (No External Cache)
+
+```
+Serverless Function → PostgreSQL (optimized query)
+```
+
+```typescript
+// Store serialized whitelist in single row for fast fetch
+// Table: link_whitelist_snapshot (version, data JSONB, updated_at)
+
+async function getWhitelistCache(): Promise<WhitelistCache> {
+  const snapshot = await db
+    .select()
+    .from(linkWhitelistSnapshot)
+    .limit(1);
+
+  if (snapshot) {
+    return {
+      version: snapshot.version,
+      data: snapshot.data,
+      terms: Object.keys(snapshot.data)
+    };
+  }
+
+  // Fallback: build from whitelist table
+  return rebuildSnapshot();
+}
+
+// Called explicitly after whitelist CRUD operations (atomic transaction)
+async function rebuildSnapshot(): Promise<WhitelistCache> {
+  return await db.transaction(async (tx) => {
+    // Get current version, increment atomically
+    const current = await tx.select().from(linkWhitelistSnapshot).limit(1);
+    const newVersion = (current[0]?.version ?? 0) + 1;
+
+    // Build fresh data within same transaction
+    const data = await getActiveWhitelistAsMap(tx);
+
+    // Upsert with new version - atomic with data rebuild
+    await tx.insert(linkWhitelistSnapshot)
+      .values({ id: 1, version: newVersion, data: Object.fromEntries(data), updated_at: new Date() })
+      .onConflictDoUpdate({
+        target: linkWhitelistSnapshot.id,
+        set: { version: newVersion, data: Object.fromEntries(data), updated_at: new Date() }
+      });
+
+    return { version: newVersion, data: Object.fromEntries(data), terms: [...data.keys()] };
+  });
+}
+```
+
+**Pro**: No extra services. **Con**: ~80ms per cold start.
+
+---
+
+### Option: Edge Config (Ultra-fast, small data)
+
+```
+Serverless Function → Edge Config (<1ms) → PostgreSQL (on change)
+```
+
+```typescript
+import { get } from '@vercel/edge-config';
+
+async function getWhitelistCache(): Promise<WhitelistCache> {
+  const cached = await get<WhitelistCache>('whitelist');
+  if (cached) return cached;
+
+  // Fallback to DB (shouldn't happen if sync is working)
+  return await fetchFromDB();
+}
+
+// Webhook: Sync to Edge Config on whitelist change
+// POST /api/sync-edge-config
+export async function POST() {
+  const data = await getActiveWhitelistAsMap();
+  await edgeConfigClient.set('whitelist', {
+    version: await getWhitelistVersion(),
+    data: Object.fromEntries(data),
+    terms: [...data.keys()]
+  });
+}
+```
+
+**Pro**: <1ms reads. **Con**: 8KB per-item limit, manual sync via webhook.
+
+---
+
+### Option: ISR + Static JSON (Build-time)
+
+```
+Build/ISR → static JSON → revalidate on-demand
+```
+
+```typescript
+// app/api/whitelist/route.ts
+export const revalidate = 300; // 5 minutes
+
+export async function GET() {
+  const data = await getActiveWhitelistAsMap();
+  return Response.json({
+    version: await getWhitelistVersion(),
+    data: Object.fromEntries(data),
+    terms: [...data.keys()]
+  });
+}
+
+// In linkResolver.ts
+async function getWhitelistCache() {
+  const res = await fetch('/api/whitelist', { next: { revalidate: 300 } });
+  return res.json();
+}
+
+// On whitelist change: call revalidatePath('/api/whitelist')
+```
+
+**Pro**: Free, fast. **Con**: Updates not instant (up to 5 min delay).
+
+---
+
+### Migration Path
+
+1. **Start with**: Supabase-only - simplest, no extra services
+2. **Upgrade to**: Vercel KV if cold start latency becomes an issue
