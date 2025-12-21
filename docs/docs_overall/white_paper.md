@@ -2,7 +2,7 @@
 Produce high quality content through larger-scale AI generation combined with human feedback.
 
 ## Product
-ExplainAnything is an AI publishing and ranking platform.
+ExplainAnything is an publishing and discovery platform for AI generated content.
 
 ## Key feedback loop
 AI generates content --> human feedback --> better content --> etc
