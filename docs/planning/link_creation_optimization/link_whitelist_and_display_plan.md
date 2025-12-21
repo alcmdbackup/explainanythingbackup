@@ -873,23 +873,23 @@ Add actions:
 
 ## Implementation Order
 
-### Core System (Steps 1-8)
+### Core System (Steps 1-8) ✅ ALL COMPLETE
 1. ✅ **Step 1**: Database (migration + Zod schemas) - Phase 1
 2. ✅ **Step 2**: Whitelist service (`linkWhitelist.ts`) - Phase 2
 3. ✅ **Step 3**: Link resolver service (`linkResolver.ts`) - Phase 3
 4. ✅ **Step 4**: Override service (merged into `linkResolver.ts`) - Phase 3
 5. ✅ **Step 6.5**: Generate heading links at creation time - Phase 5
 6. ✅ **Step 5**: Content display modifications (`useExplanationLoader.ts`) - Phase 6
-7. ⏳ **Step 6**: Stop inline link generation (`returnExplanation.ts`) - Phase 7
-8. ⏳ **Step 7**: Server actions (`actions.ts`) - Phase 8
-9. ⏳ **Step 8**: Admin UI (`/admin/whitelist/*`) - Phase 9
-10. ⏳ Clean up old code in `links.ts`
+7. ✅ **Step 6**: Stop inline link generation (`returnExplanation.ts`) - Phase 7
+8. ✅ **Step 7**: Server actions (`actions.ts`) - Phase 8
+9. ✅ **Step 8**: Admin UI (`/admin/whitelist/*`) - Phase 9
+10. ✅ Clean up old code in `links.ts` - Phase 7
 
 ### Deferred (Step 5.5 - implement last)
 11. ⏳ Lexical-level link overlay (`LinkOverlayPlugin.tsx`) - Phase 10
 12. ⏳ Integration with AI suggestions pipeline (`LexicalEditorComponent.tsx`) - Phase 10
 
-**Note**: Keep old key term link generation working until new system is verified. Heading generation already migrated to DB storage in Phase 5.
+**Note**: Core system complete. Old key term link generation has been removed. Lexical-level overlay deferred until needed for AI suggestions.
 
 ---
 

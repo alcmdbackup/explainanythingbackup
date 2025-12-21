@@ -208,30 +208,75 @@ Implemented render-time link resolution by adding a server action that wraps `re
 
 ---
 
-### Phase 7: Stop Inline Link Generation ⏳ PARTIAL
+### Phase 7: Stop Inline Link Generation ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
 | Remove `createMappingsHeadingsToLinks` calls | ✅ Complete | Replaced with `generateHeadingStandaloneTitles` in Phase 5 |
-| Remove `createMappingsKeytermsToLinks` calls | ⏳ Pending | Can now remove - Phase 6 (display) is complete |
+| Remove `createMappingsKeytermsToLinks` calls | ✅ Complete | Removed from returnExplanation.ts |
+| Delete `createMappingsKeytermsToLinks` function | ✅ Complete | Deleted from links.ts |
+| Update tests | ✅ Complete | Updated links.test.ts and returnExplanation.test.ts |
+
+#### Key Changes
+- Removed `createMappingsKeytermsToLinks` import and usage from `postprocessNewExplanationContent`
+- Deleted `createMappingsKeytermsToLinks` and `createKeyTermMappingPrompt` functions from links.ts
+- Content is now stored plain - key term links resolved at render time via linkResolver
 
 ---
 
-### Phase 8: Server Actions ⏳ PENDING
+### Phase 8: Server Actions ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
-| Add whitelist CRUD actions | ⏳ Pending | ~9 new actions |
-| Add heading cache invalidation | ⏳ Pending | In `updateExplanationAndTopic` |
+| Add whitelist CRUD actions | ✅ Complete | 5 actions: create, getAll, getById, update, delete |
+| Add alias CRUD actions | ✅ Complete | 3 actions: addAliases, removeAlias, getAliasesForTerm |
+| Add override CRUD actions | ✅ Complete | 3 actions: set, remove, get |
+
+#### Actions Added to `/src/actions/actions.ts`
+- `createWhitelistTermAction`
+- `getAllWhitelistTermsAction`
+- `getWhitelistTermByIdAction`
+- `updateWhitelistTermAction`
+- `deleteWhitelistTermAction`
+- `addAliasesAction`
+- `removeAliasAction`
+- `getAliasesForTermAction`
+- `setArticleLinkOverrideAction`
+- `removeArticleLinkOverrideAction`
+- `getArticleLinkOverridesAction`
+
+#### Also Added to `/src/lib/services/linkResolver.ts`
+- `setOverride()` - Set/upsert an override for a term
+- `removeOverride()` - Delete an override
 
 ---
 
-### Phase 9: Admin UI ⏳ PENDING
+### Phase 9: Admin UI ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
-| `/src/app/admin/whitelist/page.tsx` | ⏳ Pending | Main page with tabs |
-| `WhitelistTable.tsx` | ⏳ Pending | CRUD component |
+| `/src/app/admin/layout.tsx` | ✅ Complete | Auth check with hardcoded admin emails |
+| `/src/app/admin/page.tsx` | ✅ Complete | Redirects to /admin/whitelist |
+| `/src/app/admin/whitelist/page.tsx` | ✅ Complete | Main page with Navigation |
+| `/src/components/admin/WhitelistContent.tsx` | ✅ Complete | Full CRUD UI with table, form modal, alias manager |
+
+#### Access Control
+- Hardcoded admin emails in `ADMIN_EMAILS` constant
+- Currently: `['abecha@gmail.com']`
+- Unauthorized users redirected to home
+
+#### Features Implemented
+- Table view with term, standalone title, status columns
+- Add/Edit term modal with form validation
+- Alias management modal with add/remove
+- Active/Inactive status toggle
+- Delete confirmation
 
 ---
 
@@ -249,3 +294,23 @@ Implemented render-time link resolution by adding a server action that wraps `re
 - **Codebase Pattern**: Uses Supabase directly (not Drizzle ORM)
 - **Migrations**: Raw SQL in `supabase/migrations/`
 - **Validation**: Zod schemas in `/src/lib/schemas/schemas.ts`
+
+## Summary
+
+**Core Implementation Complete (Phases 1-9)**
+
+The link whitelist system is fully implemented:
+- Database tables and schemas for whitelist, aliases, overrides, and heading cache
+- Service layer with full CRUD operations and caching
+- Link resolver that applies links at render time
+- Server actions exposing all functionality to the UI
+- Admin UI at `/admin/whitelist` with email-based access control
+
+**Key Behavior Changes:**
+- Content is stored without embedded key term links (plain text)
+- Heading standalone titles generated at creation time, stored in DB
+- Links resolved at render time via `resolveLinksForArticle()`
+- Old `createMappingsKeytermsToLinks` removed entirely
+
+**Remaining (Deferred):**
+- Phase 10: Lexical-level link overlay for AI suggestions with CriticMarkup diffs

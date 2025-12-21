@@ -102,8 +102,6 @@ describe('returnExplanation', () => {
 
     // Mock links
     jest.mock('@/lib/services/links', () => ({
-      createMappingsHeadingsToLinks: jest.fn().mockResolvedValue({}),
-      createMappingsKeytermsToLinks: jest.fn().mockResolvedValue({}),
       cleanupAfterEnhancements: jest.fn(content => content)
     }));
 
@@ -159,14 +157,14 @@ describe('returnExplanation', () => {
 
     it('should test postprocessNewExplanationContent', async () => {
       // Import mocked modules
-      const { createMappingsKeytermsToLinks, cleanupAfterEnhancements } = require('@/lib/services/links');
+      const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
 
       // Setup mocks
       // Headings are no longer embedded - titles are returned separately
+      // Key terms are now resolved at render time via linkResolver (not embedded)
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Test': 'Standalone Test Title' });
-      createMappingsKeytermsToLinks.mockResolvedValue({ 'keyword': '[[keyword]]' });
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
       cleanupAfterEnhancements.mockImplementation((c: string) => c);
 
@@ -181,10 +179,11 @@ describe('returnExplanation', () => {
       );
 
       // Assertions
-      // Headings should NOT be embedded in content anymore (link overlay system)
+      // Links are now resolved at render time via linkResolver
+      // Content should be preserved as-is (only cleaned up with cleanupAfterEnhancements)
       expect(result.enhancedContent).toContain('## Test'); // heading preserved as-is
       expect(result.enhancedContent).not.toContain('[[Test]]'); // no embedded link
-      expect(result.enhancedContent).toContain('[[keyword]]'); // key terms still embedded for now
+      expect(result.enhancedContent).toContain('keyword'); // key term preserved as plain text
       expect(result.headingTitles).toEqual({ 'Test': 'Standalone Test Title' });
       expect(result.tagEvaluation).toEqual({ difficultyLevel: 3 });
       expect(result.error).toBeNull();
@@ -194,7 +193,7 @@ describe('returnExplanation', () => {
       // Import mocked modules
       const { callOpenAIModel } = require('@/lib/services/llms');
       const { createExplanationPrompt } = require('@/lib/prompts');
-      const { createMappingsKeytermsToLinks, cleanupAfterEnhancements } = require('@/lib/services/links');
+      const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
       const { UserInputType } = require('@/lib/schemas/schemas');
@@ -203,7 +202,7 @@ describe('returnExplanation', () => {
       createExplanationPrompt.mockReturnValue('explanation prompt');
       callOpenAIModel.mockResolvedValue('Generated content');
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Heading': 'Standalone Heading Title' });
-      createMappingsKeytermsToLinks.mockResolvedValue({});
+      // Key terms are now resolved at render time via linkResolver
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
       cleanupAfterEnhancements.mockImplementation((c: string) => c);
 

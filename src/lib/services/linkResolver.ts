@@ -1,5 +1,3 @@
-'use server'
-
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { encodeStandaloneTitleParam } from '@/lib/services/links';
 import {
@@ -112,6 +110,64 @@ export async function getOverridesForArticle(
   }
 
   return map;
+}
+
+/**
+ * Set an override for a term in a specific article
+ *
+ * @param explanationId - The article ID
+ * @param term - The term to override
+ * @param overrideType - 'custom_title' or 'disabled'
+ * @param customTitle - The custom standalone title (required if overrideType is 'custom_title')
+ */
+export async function setOverride(
+  explanationId: number,
+  term: string,
+  overrideType: 'custom_title' | 'disabled',
+  customTitle?: string
+): Promise<ArticleLinkOverrideFullType> {
+  const supabase = await createSupabaseServerClient();
+  const termLower = term.toLowerCase();
+
+  if (overrideType === 'custom_title' && !customTitle) {
+    throw new Error('customTitle is required when overrideType is custom_title');
+  }
+
+  const { data, error } = await supabase
+    .from('article_link_overrides')
+    .upsert({
+      explanation_id: explanationId,
+      term: term,
+      term_lower: termLower,
+      override_type: overrideType,
+      custom_standalone_title: overrideType === 'custom_title' ? customTitle : null
+    }, {
+      onConflict: 'explanation_id,term_lower'
+    })
+    .select()
+    .single();
+
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * Remove an override for a term in a specific article (revert to global default)
+ */
+export async function removeOverride(
+  explanationId: number,
+  term: string
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+  const termLower = term.toLowerCase();
+
+  const { error } = await supabase
+    .from('article_link_overrides')
+    .delete()
+    .eq('explanation_id', explanationId)
+    .eq('term_lower', termLower);
+
+  if (error) throw error;
 }
 
 // ============================================================================

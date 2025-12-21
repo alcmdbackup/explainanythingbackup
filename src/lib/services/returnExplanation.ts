@@ -8,7 +8,7 @@ import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } f
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
-import { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } from '@/lib/services/links';
+import { cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
 import { generateHeadingStandaloneTitles, saveHeadingLinks } from '@/lib/services/linkWhitelist';
 import {
@@ -69,33 +69,17 @@ export const generateTitleFromUserQuery = withLogging(
 );
 
 /**
- * Replaces all occurrences of a term in content while skipping lines that start with ##
- */
-function replaceAllExceptHeadings(content: string, originalTerm: string, replacementTerm: string): string {
-    const lines = content.split('\n');
-    const processedLines = lines.map(line => {
-        // Skip lines that start with ## (headings)
-        if (line.trim().startsWith('##')) {
-            return line;
-        }
-        return line.replaceAll(originalTerm, replacementTerm);
-    });
-    return processedLines.join('\n');
-}
-
-/**
- * Postprocesses explanation content by adding links, evaluating tags, and validating the result
- * 
+ * Postprocesses explanation content by generating heading standalone titles, evaluating tags, and validating the result
+ *
  * Key responsibilities:
- * - Runs enhancement functions and tag evaluation in parallel
- * - Applies heading and key term mappings to content
+ * - Generates heading standalone titles and evaluates tags in parallel
  * - Cleans up formatting and removes unwanted patterns
- * - Validates the final explanation data against schema
- * - Returns enhanced content and tag evaluation results
- * 
+ * - Returns enhanced content, heading titles (for DB storage), and tag evaluation
+ *
+ * Note: Key term links are now resolved at render time via linkResolver service
+ *
  * Used by: generateNewExplanation
- * Calls: createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, evaluateTags,
- *        replaceAllExceptHeadings, cleanupAfterEnhancements
+ * Calls: generateHeadingStandaloneTitles, evaluateTags, cleanupAfterEnhancements
  */
 export const postprocessNewExplanationContent = withLogging(
     async function postprocessExplanationContent(
@@ -109,30 +93,20 @@ export const postprocessNewExplanationContent = withLogging(
         error: ErrorResponse | null;
     }> {
         try {
-            // Run enhancement functions and tag evaluation in parallel
-            const [headingTitles, keyTermMappings, tagEvaluation] = await Promise.all([
+            // Generate heading standalone titles and evaluate tags in parallel
+            // Key term links are now resolved at render time via linkResolver
+            const [headingTitles, tagEvaluation] = await Promise.all([
                 generateHeadingStandaloneTitles(rawContent, titleResult, userid, FILE_DEBUG),
-                createMappingsKeytermsToLinks(rawContent, userid, FILE_DEBUG),
                 evaluateTags(titleResult, rawContent, userid)
             ]);
-            
-            // Apply key term mappings to the content (headings are saved to DB separately)
-            let enhancedContent = rawContent;
 
-            // Apply key term mappings (only to non-heading lines)
-            // This is to prevent bugs in formatting 
-            for (const [originalKeyTerm, linkedKeyTerm] of Object.entries(keyTermMappings)) {
-                enhancedContent = replaceAllExceptHeadings(enhancedContent, originalKeyTerm, linkedKeyTerm);
-            }
-            
             // Clean up any remaining **bold** patterns
-            enhancedContent = cleanupAfterEnhancements(enhancedContent);
+            const enhancedContent = cleanupAfterEnhancements(rawContent);
 
             logger.debug('Content postprocessing completed', {
                 originalContentLength: rawContent.length,
                 enhancedContentLength: enhancedContent.length,
                 headingTitlesCount: Object.keys(headingTitles).length,
-                keyTermMappingsCount: Object.keys(keyTermMappings).length,
                 hasTagEvaluation: !!tagEvaluation
             });
 

@@ -24,7 +24,23 @@ import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, 
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
 import { supabase } from '../lib/supabase';
-import { resolveLinksForArticle, applyLinksToContent } from '@/lib/services/linkResolver';
+import { resolveLinksForArticle, applyLinksToContent, getOverridesForArticle, setOverride, removeOverride } from '@/lib/services/linkResolver';
+import {
+  createWhitelistTerm,
+  updateWhitelistTerm,
+  deleteWhitelistTerm,
+  getAllActiveWhitelistTerms,
+  getWhitelistTermById,
+  addAliases,
+  removeAlias,
+  getAliasesForTerm
+} from '@/lib/services/linkWhitelist';
+import type {
+  LinkWhitelistInsertType,
+  LinkWhitelistFullType,
+  LinkAliasFullType,
+  ArticleLinkOverrideFullType
+} from '@/lib/schemas/schemas';
 
 
 const FILE_DEBUG = true;
@@ -1486,4 +1502,349 @@ const _loadAISuggestionSessionAction = withLogging(
 );
 
 export const loadAISuggestionSessionAction = serverReadRequestId(_loadAISuggestionSessionAction);
+
+// ============================================================================
+// LINK WHITELIST CRUD ACTIONS
+// ============================================================================
+
+/**
+ * Create a new whitelist term (server action)
+ *
+ * • Creates a new term in the link_whitelist table
+ * • Automatically rebuilds the snapshot cache
+ * • Used by admin UI for managing whitelisted terms
+ */
+const _createWhitelistTermAction = withLogging(
+    async function createWhitelistTermAction(
+        term: LinkWhitelistInsertType
+    ): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const created = await createWhitelistTerm(term);
+            return { success: true, data: created, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'createWhitelistTermAction', { term: term.canonical_term })
+            };
+        }
+    },
+    'createWhitelistTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const createWhitelistTermAction = serverReadRequestId(_createWhitelistTermAction);
+
+/**
+ * Get all active whitelist terms (server action)
+ *
+ * • Fetches all active terms from link_whitelist table
+ * • Used by admin UI to display whitelist
+ */
+const _getAllWhitelistTermsAction = withLogging(
+    async function getAllWhitelistTermsAction(): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const terms = await getAllActiveWhitelistTerms();
+            return { success: true, data: terms, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAllWhitelistTermsAction', {})
+            };
+        }
+    },
+    'getAllWhitelistTermsAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getAllWhitelistTermsAction = serverReadRequestId(_getAllWhitelistTermsAction);
+
+/**
+ * Get a whitelist term by ID (server action)
+ *
+ * • Fetches a single term by ID from link_whitelist table
+ * • Used by admin UI for editing a term
+ */
+const _getWhitelistTermByIdAction = withLogging(
+    async function getWhitelistTermByIdAction(id: number): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const term = await getWhitelistTermById(id);
+            return { success: true, data: term, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getWhitelistTermByIdAction', { id })
+            };
+        }
+    },
+    'getWhitelistTermByIdAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getWhitelistTermByIdAction = serverReadRequestId(_getWhitelistTermByIdAction);
+
+/**
+ * Update a whitelist term (server action)
+ *
+ * • Updates an existing term in link_whitelist table
+ * • Automatically rebuilds the snapshot cache
+ * • Used by admin UI for editing terms
+ */
+const _updateWhitelistTermAction = withLogging(
+    async function updateWhitelistTermAction(
+        id: number,
+        updates: Partial<LinkWhitelistInsertType>
+    ): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const updated = await updateWhitelistTerm(id, updates);
+            return { success: true, data: updated, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'updateWhitelistTermAction', { id, updates })
+            };
+        }
+    },
+    'updateWhitelistTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const updateWhitelistTermAction = serverReadRequestId(_updateWhitelistTermAction);
+
+/**
+ * Delete a whitelist term (server action)
+ *
+ * • Deletes a term from link_whitelist table (cascades to aliases)
+ * • Automatically rebuilds the snapshot cache
+ * • Used by admin UI for removing terms
+ */
+const _deleteWhitelistTermAction = withLogging(
+    async function deleteWhitelistTermAction(id: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await deleteWhitelistTerm(id);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'deleteWhitelistTermAction', { id })
+            };
+        }
+    },
+    'deleteWhitelistTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const deleteWhitelistTermAction = serverReadRequestId(_deleteWhitelistTermAction);
+
+// ============================================================================
+// ALIAS CRUD ACTIONS
+// ============================================================================
+
+/**
+ * Add aliases to a whitelist term (server action)
+ *
+ * • Creates new aliases for a whitelist term
+ * • Deduplicates and skips existing aliases
+ * • Automatically rebuilds the snapshot cache
+ */
+const _addAliasesAction = withLogging(
+    async function addAliasesAction(
+        whitelistId: number,
+        aliases: string[]
+    ): Promise<{
+        success: boolean;
+        data: LinkAliasFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const created = await addAliases(whitelistId, aliases);
+            return { success: true, data: created, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'addAliasesAction', { whitelistId, aliasCount: aliases.length })
+            };
+        }
+    },
+    'addAliasesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const addAliasesAction = serverReadRequestId(_addAliasesAction);
+
+/**
+ * Remove an alias (server action)
+ *
+ * • Deletes an alias from link_whitelist_aliases table
+ * • Automatically rebuilds the snapshot cache
+ */
+const _removeAliasAction = withLogging(
+    async function removeAliasAction(aliasId: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await removeAlias(aliasId);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'removeAliasAction', { aliasId })
+            };
+        }
+    },
+    'removeAliasAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const removeAliasAction = serverReadRequestId(_removeAliasAction);
+
+/**
+ * Get aliases for a whitelist term (server action)
+ *
+ * • Fetches all aliases for a whitelist term
+ * • Used by admin UI for managing aliases
+ */
+const _getAliasesForTermAction = withLogging(
+    async function getAliasesForTermAction(whitelistId: number): Promise<{
+        success: boolean;
+        data: LinkAliasFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const aliases = await getAliasesForTerm(whitelistId);
+            return { success: true, data: aliases, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAliasesForTermAction', { whitelistId })
+            };
+        }
+    },
+    'getAliasesForTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getAliasesForTermAction = serverReadRequestId(_getAliasesForTermAction);
+
+// ============================================================================
+// ARTICLE LINK OVERRIDE ACTIONS
+// ============================================================================
+
+/**
+ * Set an override for a term in a specific article (server action)
+ *
+ * • Creates or updates an override in article_link_overrides table
+ * • overrideType: 'custom_title' (provide customTitle) or 'disabled' (hide link)
+ */
+const _setArticleLinkOverrideAction = withLogging(
+    async function setArticleLinkOverrideAction(
+        explanationId: number,
+        term: string,
+        overrideType: 'custom_title' | 'disabled',
+        customTitle?: string
+    ): Promise<{
+        success: boolean;
+        data: ArticleLinkOverrideFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const override = await setOverride(explanationId, term, overrideType, customTitle);
+            return { success: true, data: override, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'setArticleLinkOverrideAction', { explanationId, term, overrideType })
+            };
+        }
+    },
+    'setArticleLinkOverrideAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const setArticleLinkOverrideAction = serverReadRequestId(_setArticleLinkOverrideAction);
+
+/**
+ * Remove an override for a term in a specific article (server action)
+ *
+ * • Deletes the override, reverting to global default behavior
+ */
+const _removeArticleLinkOverrideAction = withLogging(
+    async function removeArticleLinkOverrideAction(
+        explanationId: number,
+        term: string
+    ): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await removeOverride(explanationId, term);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'removeArticleLinkOverrideAction', { explanationId, term })
+            };
+        }
+    },
+    'removeArticleLinkOverrideAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const removeArticleLinkOverrideAction = serverReadRequestId(_removeArticleLinkOverrideAction);
+
+/**
+ * Get all overrides for an article (server action)
+ *
+ * • Fetches all overrides for a specific explanation
+ * • Returns as array for easier consumption in UI
+ */
+const _getArticleLinkOverridesAction = withLogging(
+    async function getArticleLinkOverridesAction(explanationId: number): Promise<{
+        success: boolean;
+        data: ArticleLinkOverrideFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const overridesMap = await getOverridesForArticle(explanationId);
+            const overrides = Array.from(overridesMap.values());
+            return { success: true, data: overrides, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getArticleLinkOverridesAction', { explanationId })
+            };
+        }
+    },
+    'getArticleLinkOverridesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getArticleLinkOverridesAction = serverReadRequestId(_getArticleLinkOverridesAction);
 

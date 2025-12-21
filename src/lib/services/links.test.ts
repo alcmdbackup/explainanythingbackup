@@ -4,10 +4,8 @@
 
 import {
   createMappingsHeadingsToLinks,
-  createMappingsKeytermsToLinks,
   enhanceContentWithInlineLinks,
   cleanupAfterEnhancements,
-  createKeyTermMappingPrompt,
   createLinksInContentPrompt
 } from './links';
 import { callOpenAIModel } from '@/lib/services/llms';
@@ -148,120 +146,6 @@ More text.
     });
   });
 
-  describe('createMappingsKeytermsToLinks', () => {
-    it('should return empty object when no key terms found', async () => {
-      // Arrange
-      const content = 'This is plain text without any bold terms.';
-
-      // Act
-      const result = await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(result).toEqual({});
-      expect(mockCallOpenAIModel).not.toHaveBeenCalled();
-    });
-
-    it('should create mappings for **keyterm** patterns', async () => {
-      // Arrange
-      const content = 'Learn about **neural networks** and **deep learning**.';
-      mockCallOpenAIModel.mockResolvedValue(JSON.stringify({
-        titles: ['Artificial Neural Networks', 'Deep Learning Fundamentals']
-      }));
-
-      // Act
-      const result = await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(Object.keys(result)).toHaveLength(2);
-      expect(result['**neural networks**']).toContain('[neural networks](/standalone-title?t=');
-      expect(result['**deep learning**']).toContain('[deep learning](/standalone-title?t=');
-    });
-
-    it('should extract sentence context for key terms', async () => {
-      // Arrange
-      const content = 'The **algorithm** runs quickly. Machine learning uses **neural networks** for predictions.';
-      mockCallOpenAIModel.mockResolvedValue(JSON.stringify({
-        titles: ['Algorithm Performance', 'Neural Networks in ML']
-      }));
-
-      // Act
-      await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(mockCallOpenAIModel).toHaveBeenCalled();
-      // The call should have been made with a prompt containing context
-      const callArgs = mockCallOpenAIModel.mock.calls[0][0];
-      expect(callArgs).toContain('algorithm');
-      expect(callArgs).toContain('neural networks');
-    });
-
-    it('should handle AI response parsing errors gracefully', async () => {
-      // Arrange
-      const content = 'Learn about **testing**.';
-      mockCallOpenAIModel.mockResolvedValue('invalid json');
-
-      // Act
-      const result = await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(result).toEqual({});
-    });
-
-    it('should handle LLM throwing error', async () => {
-      // Arrange
-      const content = 'Learn about **testing**.';
-      mockCallOpenAIModel.mockRejectedValue(new Error('LLM Error'));
-
-      // Act
-      const result = await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(result).toEqual({});
-    });
-
-    it('should log debug info when debug flag is true', async () => {
-      // Arrange
-      const content = 'Learn about **testing**.';
-      mockCallOpenAIModel.mockResolvedValue(JSON.stringify({
-        titles: ['Software Testing']
-      }));
-
-      // Act
-      await createMappingsKeytermsToLinks(content, 'user123', true);
-
-      // Assert
-      expect(logger.debug).toHaveBeenCalled();
-    });
-
-    it('should handle nested bold patterns correctly', async () => {
-      // Arrange
-      const content = 'Text with **first term** and **second term** here.';
-      mockCallOpenAIModel.mockResolvedValue(JSON.stringify({
-        titles: ['First Concept', 'Second Concept']
-      }));
-
-      // Act
-      const result = await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(Object.keys(result)).toHaveLength(2);
-    });
-
-    it('should use fallback context when sentence detection fails', async () => {
-      // Arrange
-      const content = '**term**'; // Very short content
-      mockCallOpenAIModel.mockResolvedValue(JSON.stringify({
-        titles: ['Term Definition']
-      }));
-
-      // Act
-      const result = await createMappingsKeytermsToLinks(content, 'user123');
-
-      // Assert
-      expect(result['**term**']).toBeDefined();
-    });
-  });
-
   describe('enhanceContentWithInlineLinks', () => {
     it('should throw error when content is empty', async () => {
       // Act & Assert
@@ -360,38 +244,6 @@ More text.
 
       // Assert
       expect(result).toBe('');
-    });
-  });
-
-  describe('createKeyTermMappingPrompt', () => {
-    it('should create a prompt with key term data', () => {
-      // Arrange
-      const keyTermData = [
-        { term: 'algorithm', sentence: 'The algorithm runs quickly.' },
-        { term: 'data', sentence: 'We need more data.' }
-      ];
-
-      // Act
-      const result = createKeyTermMappingPrompt(keyTermData);
-
-      // Assert
-      expect(result).toContain('algorithm');
-      expect(result).toContain('The algorithm runs quickly');
-      expect(result).toContain('data');
-      expect(result).toContain('We need more data');
-      expect(result).toContain('titles');
-    });
-
-    it('should format as JSON structure', () => {
-      // Arrange
-      const keyTermData = [{ term: 'test', sentence: 'Test sentence.' }];
-
-      // Act
-      const result = createKeyTermMappingPrompt(keyTermData);
-
-      // Assert
-      expect(result).toContain('"term"');
-      expect(result).toContain('"sentence"');
     });
   });
 
