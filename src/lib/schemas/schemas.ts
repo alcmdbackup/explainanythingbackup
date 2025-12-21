@@ -586,3 +586,168 @@ export type ExplanationMetricsType = z.infer<typeof explanationMetricsSchema>;
 export const explanationMetricsInsertSchema = explanationMetricsSchema.omit({ id: true });
 
 export type ExplanationMetricsInsertType = z.infer<typeof explanationMetricsInsertSchema>;
+
+// =============================================================================
+// LINK WHITELIST SYSTEM SCHEMAS
+// =============================================================================
+
+/**
+ * Override type enum for article link overrides
+ */
+export enum LinkOverrideType {
+  CustomTitle = "custom_title",
+  Disabled = "disabled"
+}
+
+/**
+ * Schema for link whitelist insert data
+ * @example
+ * {
+ *   canonical_term: "Machine Learning",
+ *   standalone_title: "Machine Learning (Computer Science)",
+ *   description: "A branch of AI focused on learning from data",
+ *   is_active: true
+ * }
+ */
+export const linkWhitelistInsertSchema = z.object({
+  canonical_term: z.string().min(1).max(255),
+  standalone_title: z.string().min(1).max(500),
+  description: z.string().optional(),
+  is_active: z.boolean().default(true),
+});
+
+/**
+ * Full link whitelist schema including database fields
+ */
+export const linkWhitelistFullSchema = linkWhitelistInsertSchema.extend({
+  id: z.number().int().positive(),
+  canonical_term_lower: z.string().max(255),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type LinkWhitelistInsertType = z.infer<typeof linkWhitelistInsertSchema>;
+export type LinkWhitelistFullType = z.infer<typeof linkWhitelistFullSchema>;
+
+/**
+ * Schema for link whitelist alias insert data
+ * @example
+ * {
+ *   whitelist_id: 1,
+ *   alias_term: "ML"
+ * }
+ */
+export const linkAliasInsertSchema = z.object({
+  whitelist_id: z.number().int().positive(),
+  alias_term: z.string().min(1).max(255),
+});
+
+/**
+ * Full link alias schema including database fields
+ */
+export const linkAliasFullSchema = linkAliasInsertSchema.extend({
+  id: z.number().int().positive(),
+  alias_term_lower: z.string().max(255),
+  created_at: z.string(),
+});
+
+export type LinkAliasInsertType = z.infer<typeof linkAliasInsertSchema>;
+export type LinkAliasFullType = z.infer<typeof linkAliasFullSchema>;
+
+/**
+ * Schema for article heading link insert data
+ * @example
+ * {
+ *   explanation_id: 123,
+ *   heading_text: "Training Process",
+ *   standalone_title: "Machine Learning Training Process"
+ * }
+ */
+export const articleHeadingLinkInsertSchema = z.object({
+  explanation_id: z.number().int().positive(),
+  heading_text: z.string().min(1).max(500),
+  standalone_title: z.string().min(1).max(500),
+});
+
+/**
+ * Full article heading link schema including database fields
+ */
+export const articleHeadingLinkFullSchema = articleHeadingLinkInsertSchema.extend({
+  id: z.number().int().positive(),
+  heading_text_lower: z.string().max(500),
+  created_at: z.string(),
+});
+
+export type ArticleHeadingLinkInsertType = z.infer<typeof articleHeadingLinkInsertSchema>;
+export type ArticleHeadingLinkFullType = z.infer<typeof articleHeadingLinkFullSchema>;
+
+/**
+ * Schema for article link override insert data
+ * @example
+ * {
+ *   explanation_id: 123,
+ *   term: "neural networks",
+ *   override_type: "custom_title",
+ *   custom_standalone_title: "Artificial Neural Networks"
+ * }
+ */
+export const articleLinkOverrideInsertSchema = z.object({
+  explanation_id: z.number().int().positive(),
+  term: z.string().min(1).max(255),
+  override_type: z.nativeEnum(LinkOverrideType),
+  custom_standalone_title: z.string().max(500).optional(),
+});
+
+/**
+ * Full article link override schema including database fields
+ */
+export const articleLinkOverrideFullSchema = articleLinkOverrideInsertSchema.extend({
+  id: z.number().int().positive(),
+  term_lower: z.string().max(255),
+  created_at: z.string(),
+});
+
+export type ArticleLinkOverrideInsertType = z.infer<typeof articleLinkOverrideInsertSchema>;
+export type ArticleLinkOverrideFullType = z.infer<typeof articleLinkOverrideFullSchema>;
+
+/**
+ * Schema for whitelist cache entry (used in snapshot data)
+ */
+export const whitelistCacheEntrySchema = z.object({
+  canonical_term: z.string(),
+  standalone_title: z.string(),
+});
+
+export type WhitelistCacheEntryType = z.infer<typeof whitelistCacheEntrySchema>;
+
+/**
+ * Schema for link whitelist snapshot
+ * @example
+ * {
+ *   id: 1,
+ *   version: 5,
+ *   data: { "machine learning": { canonical_term: "Machine Learning", standalone_title: "..." } },
+ *   updated_at: "2024-03-20T10:30:00Z"
+ * }
+ */
+export const linkWhitelistSnapshotSchema = z.object({
+  id: z.number().int().default(1),
+  version: z.number().int().nonnegative(),
+  data: z.record(z.string(), whitelistCacheEntrySchema),
+  updated_at: z.string(),
+});
+
+export type LinkWhitelistSnapshotType = z.infer<typeof linkWhitelistSnapshotSchema>;
+
+/**
+ * Schema for resolved link (output of link resolver)
+ */
+export const resolvedLinkSchema = z.object({
+  term: z.string(),
+  startIndex: z.number().int().nonnegative(),
+  endIndex: z.number().int().nonnegative(),
+  standaloneTitle: z.string(),
+  type: z.enum(['heading', 'term']),
+});
+
+export type ResolvedLinkType = z.infer<typeof resolvedLinkSchema>;

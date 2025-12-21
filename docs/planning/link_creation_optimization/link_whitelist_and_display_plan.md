@@ -3,7 +3,7 @@
 ## Summary
 Implement a **link overlay system** where links are stored separately from article content. Links are resolved at render time, keeping content clean for embeddings and enabling bulk link updates without editing articles.
 
-**Execution Tracking**: `docs/planning/link_creation_optimization/link_whitelist_and_display_execution.md`
+**Execution Tracking**: [`link_whitelist_and_display_progress.md`](./link_whitelist_and_display_progress.md)
 
 ### Design Choices
 - **Caching**: Vercel KV (edge caching, ~5ms latency)
@@ -283,15 +283,20 @@ CREATE TABLE link_whitelist_snapshot (
 ## Implementation Steps
 
 ### Step 1: Database & Schemas
-**Files to modify:**
-- `/src/lib/db/schemas.ts` - Add Drizzle table definitions
+**Files to create/modify:**
+- `supabase/migrations/YYYYMMDDHHMMSS_link_whitelist_system.sql` - SQL migration for new tables
 - `/src/lib/schemas/schemas.ts` - Add Zod validation schemas
+
+> **Note**: This codebase uses Supabase client directly (not Drizzle ORM). Database tables are defined via SQL migrations.
 
 **New types:**
 - `LinkWhitelistInsertType`, `LinkWhitelistFullType`
 - `LinkAliasInsertType`, `LinkAliasFullType`
-- `ArticleHeadingLinkType` (cached AI-generated heading titles)
-- `ArticleLinkOverrideType`
+- `ArticleHeadingLinkInsertType`, `ArticleHeadingLinkFullType` (cached AI-generated heading titles)
+- `ArticleLinkOverrideInsertType`, `ArticleLinkOverrideFullType`
+- `LinkWhitelistSnapshotType`, `WhitelistCacheEntryType`
+- `ResolvedLinkType`
+- `LinkOverrideType` enum
 
 > Candidate types defined in [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
 
@@ -805,8 +810,8 @@ Add actions:
 
 | File | Change |
 |------|--------|
-| `/src/lib/db/schemas.ts` | Add 5 tables (whitelist, aliases, heading_links, overrides, snapshot) |
-| `/src/lib/schemas/schemas.ts` | Add Zod schemas |
+| `supabase/migrations/YYYYMMDDHHMMSS_link_whitelist_system.sql` | SQL migration for 5 tables (whitelist, aliases, heading_links, overrides, snapshot) |
+| `/src/lib/schemas/schemas.ts` | Add Zod schemas + types |
 | `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD |
 | `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic (markdown-level) |
 | `/src/lib/services/articleLinkOverrides.ts` | NEW - Per-article overrides |

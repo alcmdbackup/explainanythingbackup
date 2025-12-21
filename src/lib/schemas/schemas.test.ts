@@ -4,6 +4,7 @@ import {
   AnchorSet,
   TagBarMode,
   ExplanationStatus,
+  LinkOverrideType,
   allowedLLMModelSchema,
   explanationBaseSchema,
   matchSchema,
@@ -14,6 +15,12 @@ import {
   explanationInsertSchema,
   userQueryInsertSchema,
   matchWithCurrentContentSchema,
+  linkWhitelistInsertSchema,
+  linkAliasInsertSchema,
+  articleHeadingLinkInsertSchema,
+  articleLinkOverrideInsertSchema,
+  linkWhitelistSnapshotSchema,
+  resolvedLinkSchema,
 } from './schemas';
 
 describe('schemas', () => {
@@ -682,6 +689,247 @@ describe('schemas', () => {
       };
 
       expect(() => SimpleOrPresetTagUISchema.parse(invalidData)).toThrow();
+    });
+  });
+
+  // =============================================================================
+  // LINK WHITELIST SYSTEM SCHEMAS
+  // =============================================================================
+
+  describe('linkWhitelistInsertSchema', () => {
+    it('should validate correct whitelist insert data', () => {
+      const validData = {
+        canonical_term: 'Machine Learning',
+        standalone_title: 'Machine Learning (Computer Science)',
+        description: 'A branch of AI',
+        is_active: true,
+      };
+
+      const result = linkWhitelistInsertSchema.parse(validData);
+
+      expect(result).toEqual(validData);
+    });
+
+    it('should use default is_active value', () => {
+      const validData = {
+        canonical_term: 'Machine Learning',
+        standalone_title: 'Machine Learning (Computer Science)',
+      };
+
+      const result = linkWhitelistInsertSchema.parse(validData);
+
+      expect(result.is_active).toBe(true);
+    });
+
+    it('should reject empty canonical_term', () => {
+      const invalidData = {
+        canonical_term: '',
+        standalone_title: 'Some Title',
+      };
+
+      expect(() => linkWhitelistInsertSchema.parse(invalidData)).toThrow();
+    });
+
+    it('should accept optional description', () => {
+      const validData = {
+        canonical_term: 'Machine Learning',
+        standalone_title: 'Machine Learning (Computer Science)',
+      };
+
+      const result = linkWhitelistInsertSchema.parse(validData);
+
+      expect(result.description).toBeUndefined();
+    });
+  });
+
+  describe('linkAliasInsertSchema', () => {
+    it('should validate correct alias insert data', () => {
+      const validData = {
+        whitelist_id: 1,
+        alias_term: 'ML',
+      };
+
+      const result = linkAliasInsertSchema.parse(validData);
+
+      expect(result).toEqual(validData);
+    });
+
+    it('should reject non-positive whitelist_id', () => {
+      const invalidData = {
+        whitelist_id: 0,
+        alias_term: 'ML',
+      };
+
+      expect(() => linkAliasInsertSchema.parse(invalidData)).toThrow();
+    });
+
+    it('should reject empty alias_term', () => {
+      const invalidData = {
+        whitelist_id: 1,
+        alias_term: '',
+      };
+
+      expect(() => linkAliasInsertSchema.parse(invalidData)).toThrow();
+    });
+  });
+
+  describe('articleHeadingLinkInsertSchema', () => {
+    it('should validate correct heading link insert data', () => {
+      const validData = {
+        explanation_id: 123,
+        heading_text: 'Training Process',
+        standalone_title: 'Machine Learning Training Process',
+      };
+
+      const result = articleHeadingLinkInsertSchema.parse(validData);
+
+      expect(result).toEqual(validData);
+    });
+
+    it('should reject non-positive explanation_id', () => {
+      const invalidData = {
+        explanation_id: -1,
+        heading_text: 'Training Process',
+        standalone_title: 'Machine Learning Training Process',
+      };
+
+      expect(() => articleHeadingLinkInsertSchema.parse(invalidData)).toThrow();
+    });
+  });
+
+  describe('articleLinkOverrideInsertSchema', () => {
+    it('should validate custom_title override', () => {
+      const validData = {
+        explanation_id: 123,
+        term: 'neural networks',
+        override_type: LinkOverrideType.CustomTitle,
+        custom_standalone_title: 'Artificial Neural Networks',
+      };
+
+      const result = articleLinkOverrideInsertSchema.parse(validData);
+
+      expect(result).toEqual(validData);
+    });
+
+    it('should validate disabled override', () => {
+      const validData = {
+        explanation_id: 123,
+        term: 'neural networks',
+        override_type: LinkOverrideType.Disabled,
+      };
+
+      const result = articleLinkOverrideInsertSchema.parse(validData);
+
+      expect(result.override_type).toBe('disabled');
+    });
+
+    it('should reject invalid override_type', () => {
+      const invalidData = {
+        explanation_id: 123,
+        term: 'neural networks',
+        override_type: 'invalid_type',
+      };
+
+      expect(() => articleLinkOverrideInsertSchema.parse(invalidData)).toThrow();
+    });
+  });
+
+  describe('linkWhitelistSnapshotSchema', () => {
+    it('should validate correct snapshot data', () => {
+      const validData = {
+        id: 1,
+        version: 5,
+        data: {
+          'machine learning': {
+            canonical_term: 'Machine Learning',
+            standalone_title: 'Machine Learning (Computer Science)',
+          },
+        },
+        updated_at: '2024-03-20T10:30:00Z',
+      };
+
+      const result = linkWhitelistSnapshotSchema.parse(validData);
+
+      expect(result.version).toBe(5);
+      expect(result.data['machine learning'].canonical_term).toBe('Machine Learning');
+    });
+
+    it('should accept empty data object', () => {
+      const validData = {
+        id: 1,
+        version: 0,
+        data: {},
+        updated_at: '2024-03-20T10:30:00Z',
+      };
+
+      const result = linkWhitelistSnapshotSchema.parse(validData);
+
+      expect(result.data).toEqual({});
+    });
+
+    it('should reject negative version', () => {
+      const invalidData = {
+        id: 1,
+        version: -1,
+        data: {},
+        updated_at: '2024-03-20T10:30:00Z',
+      };
+
+      expect(() => linkWhitelistSnapshotSchema.parse(invalidData)).toThrow();
+    });
+  });
+
+  describe('resolvedLinkSchema', () => {
+    it('should validate heading link', () => {
+      const validData = {
+        term: '## Training Process',
+        startIndex: 0,
+        endIndex: 20,
+        standaloneTitle: 'Machine Learning Training',
+        type: 'heading' as const,
+      };
+
+      const result = resolvedLinkSchema.parse(validData);
+
+      expect(result.type).toBe('heading');
+    });
+
+    it('should validate term link', () => {
+      const validData = {
+        term: 'neural networks',
+        startIndex: 50,
+        endIndex: 65,
+        standaloneTitle: 'Artificial Neural Networks',
+        type: 'term' as const,
+      };
+
+      const result = resolvedLinkSchema.parse(validData);
+
+      expect(result.type).toBe('term');
+    });
+
+    it('should reject invalid type', () => {
+      const invalidData = {
+        term: 'test',
+        startIndex: 0,
+        endIndex: 4,
+        standaloneTitle: 'Test',
+        type: 'invalid',
+      };
+
+      expect(() => resolvedLinkSchema.parse(invalidData)).toThrow();
+    });
+
+    it('should reject negative indices', () => {
+      const invalidData = {
+        term: 'test',
+        startIndex: -1,
+        endIndex: 4,
+        standaloneTitle: 'Test',
+        type: 'term',
+      };
+
+      expect(() => resolvedLinkSchema.parse(invalidData)).toThrow();
     });
   });
 });
