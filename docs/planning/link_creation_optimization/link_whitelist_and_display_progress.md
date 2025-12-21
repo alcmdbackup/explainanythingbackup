@@ -94,19 +94,55 @@ Created the service layer for the link whitelist system with full CRUD operation
 
 ---
 
-### Phase 3: Link Resolver Service ⏳ PENDING
+### Phase 3: Link Resolver Service ✅ COMPLETE
+
+**Completed**: 2025-12-21
 
 | Step | Status | Notes |
 |------|--------|-------|
-| `/src/lib/services/linkResolver.ts` | ⏳ Pending | Core overlay logic |
+| `/src/lib/services/linkResolver.ts` | ✅ Complete | Core overlay logic |
+| `/src/lib/services/links.ts` | ✅ Complete | Exported `encodeStandaloneTitleParam` |
+| Unit Tests | ✅ Complete | 43 tests in `/src/lib/services/linkResolver.test.ts` |
+
+#### Summary
+
+Created the core link resolver service that resolves links at render time using the whitelist and heading cache from Phases 1-2. Also includes per-article override handling (originally planned as separate Phase 4).
+
+#### Functions Implemented
+
+| Category | Function | Purpose |
+|----------|----------|---------|
+| **Core** | `resolveLinksForArticle` | Main resolver - processes headings + whitelist terms |
+| **Core** | `applyLinksToContent` | Apply resolved links to markdown content |
+| **Overrides** | `getOverridesForArticle` | Fetch per-article overrides from DB |
+| **Helpers** | `isWordBoundary` | Check word boundaries for matching |
+| **Helpers** | `overlaps` | Check if ranges overlap |
+| **Helpers** | `extractHeadings` | Extract h2/h3 headings from content |
+| **Helpers** | `headingsMatch` | Compare heading arrays |
+
+#### Algorithm
+
+1. **Process headings first** (always linked, cached AI-generated titles)
+2. **Build exclusion zones** from heading positions
+3. **Match whitelist terms** (longer terms first, first occurrence only)
+4. **Apply overrides** (disabled or custom_title)
+5. **Sort by position** and return
+
+#### Files Modified/Created
+
+- `/src/lib/services/linkResolver.ts` (NEW - ~250 lines)
+- `/src/lib/services/linkResolver.test.ts` (NEW - 43 tests)
+- `/src/lib/services/links.ts` (MODIFIED - exported `encodeStandaloneTitleParam`)
 
 ---
 
-### Phase 4: Override Service ⏳ PENDING
+### Phase 4: Override Service ✅ COMPLETE (Merged into Phase 3)
 
 | Step | Status | Notes |
 |------|--------|-------|
-| `/src/lib/services/articleLinkOverrides.ts` | ⏳ Pending | Per-article overrides |
+| `getOverridesForArticle` | ✅ Complete | Included in `linkResolver.ts` |
+
+**Note**: Per-article override handling was incorporated directly into `linkResolver.ts` rather than creating a separate service file, as it's tightly coupled with link resolution logic.
 
 ---
 

@@ -282,7 +282,7 @@ CREATE TABLE link_whitelist_snapshot (
 
 ## Implementation Steps
 
-### Step 1: Database & Schemas ✅ COMPLETE
+### Step 1: Database & Schemas ✅ COMPLETE (Phase 1)
 **Files to create/modify:**
 - `supabase/migrations/YYYYMMDDHHMMSS_link_whitelist_system.sql` - SQL migration for new tables
 - `/src/lib/schemas/schemas.ts` - Add Zod validation schemas
@@ -302,7 +302,7 @@ CREATE TABLE link_whitelist_snapshot (
 
 ---
 
-### Step 2: Whitelist Service ✅ COMPLETE
+### Step 2: Whitelist Service ✅ COMPLETE (Phase 2)
 **New file:** `/src/lib/services/linkWhitelist.ts`
 
 ```typescript
@@ -327,7 +327,7 @@ generateHeadingStandaloneTitles(headings: string[], explanationId): Promise<Reco
 
 ---
 
-### Step 3: Link Resolver Service (NEW - Core of overlay system)
+### Step 3: Link Resolver Service ✅ COMPLETE (Phase 3)
 **New file:** `/src/lib/services/linkResolver.ts`
 
 ```typescript
@@ -494,7 +494,7 @@ export function applyLinksToContent(content: string, links: ResolvedLink[]): str
 
 ---
 
-### Step 4: Per-Article Override Service
+### Step 4: Per-Article Override Service ✅ COMPLETE (Merged into Phase 3)
 **New file:** `/src/lib/services/articleLinkOverrides.ts`
 
 ```typescript
@@ -808,13 +808,13 @@ Add actions:
 
 ## Critical Files
 
-| File | Change |
-|------|--------|
-| `supabase/migrations/YYYYMMDDHHMMSS_link_whitelist_system.sql` | SQL migration for 5 tables (whitelist, aliases, heading_links, overrides, snapshot) |
-| `/src/lib/schemas/schemas.ts` | Add Zod schemas + types |
-| `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD |
-| `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic (markdown-level) |
-| `/src/lib/services/articleLinkOverrides.ts` | NEW - Per-article overrides |
+| File | Change | Status |
+|------|--------|--------|
+| `supabase/migrations/20251221080336_link_whitelist_system.sql` | SQL migration for 5 tables | ✅ Complete |
+| `/src/lib/schemas/schemas.ts` | Add Zod schemas + types | ✅ Complete |
+| `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD | ✅ Complete |
+| `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic + overrides (merged) | ✅ Complete |
+| `/src/lib/services/links.ts` | Export `encodeStandaloneTitleParam` | ✅ Complete |
 | `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx` | NEW - Lexical-level overlay for diff context **(DEFERRED - implement last)** |
 | `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx` | Call `applyLinkOverlayToEditor` after diff import **(DEFERRED - implement last)** |
 | `/src/lib/services/returnExplanation.ts` | REMOVE inline link generation calls |

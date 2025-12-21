@@ -11,7 +11,7 @@ import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } fro
  * • Ensures all characters that could interfere with markdown syntax are properly encoded
  * • Used specifically for /standalone-title?t= URL parameters
  */
-function encodeStandaloneTitleParam(title: string): string {
+export function encodeStandaloneTitleParam(title: string): string {
   // First apply standard URL encoding
   let encoded = encodeURIComponent(title);
 
