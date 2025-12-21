@@ -80,7 +80,7 @@ jobs:
     needs: [integration-tests]
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         shard: [1, 2]
     env:
@@ -121,7 +121,7 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
 
-      - run: npm run test:e2e -- --project=chromium --project=chromium-unauth --shard=${{ matrix.shard }}/2
+      - run: npm run test:e2e -- --project=chromium --project=chromium-unauth --shard=${{ matrix.shard }}/2 --max-failures=1
 
       - uses: actions/upload-artifact@v4
         if: always()
