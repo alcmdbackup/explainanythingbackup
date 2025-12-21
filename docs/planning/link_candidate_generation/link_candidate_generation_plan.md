@@ -216,7 +216,32 @@ async function extractLinkCandidates(
     status: 'pending'
   }));
 
-  await insertLinkCandidatesAtomic(candidates);
+  // Insert candidates and track source article association
+  const insertedIds = await insertLinkCandidatesAtomic(candidates);
+
+  // Track which article suggested each candidate (for source_article_count)
+  await insertCandidateSourceArticles(insertedIds, explanationId);
+}
+
+async function insertCandidateSourceArticles(
+  candidateIds: number[],
+  explanationId: number
+): Promise<void> {
+  if (candidateIds.length === 0) return;
+
+  const { error } = await supabase
+    .from('candidate_source_articles')
+    .upsert(
+      candidateIds.map(id => ({
+        candidate_id: id,
+        explanation_id: explanationId
+      })),
+      { onConflict: 'candidate_id,explanation_id', ignoreDuplicates: true }
+    );
+
+  if (error) {
+    logger.warn('Failed to insert candidate source articles', { error });
+  }
 }
 ```
 
@@ -244,6 +269,83 @@ async function saveExplanation(...) {
 | **Total per article** | | | **~$0.003** |
 
 The second call adds negligible cost (~3% increase)
+
+---
+
+## Handling Content Edits (Batch Re-extraction)
+
+Content edits are processed via **periodic batch job**, not real-time. This avoids blocking user edits and simplifies the extraction logic.
+
+### Tracking Extraction State
+
+Track when candidates were last extracted for each article:
+
+```sql
+-- Add to explanations table (or separate tracking table)
+ALTER TABLE explanations ADD COLUMN last_candidate_extraction_at TIMESTAMPTZ;
+```
+
+### Batch Re-extraction Job
+
+Periodically find articles needing re-extraction and process them:
+
+```typescript
+async function reprocessStaleArticles(batchSize = 50): Promise<{
+  processed: number;
+  candidatesUpdated: number;
+}> {
+  // Find articles where content changed since last extraction
+  const stale = await supabase
+    .from('explanations')
+    .select('id, title, content')
+    .or('last_candidate_extraction_at.is.null,updated_at.gt.last_candidate_extraction_at')
+    .limit(batchSize);
+
+  let candidatesUpdated = 0;
+
+  for (const article of stale.data ?? []) {
+    // Clear old source associations for this article
+    await clearCandidateSourcesForArticle(article.id);
+
+    // Re-extract candidates (inserts new source associations)
+    await extractLinkCandidates(article.id, article.title, article.content);
+
+    // Mark as processed
+    await supabase
+      .from('explanations')
+      .update({ last_candidate_extraction_at: new Date().toISOString() })
+      .eq('id', article.id);
+
+    candidatesUpdated++;
+  }
+
+  return { processed: stale.data?.length ?? 0, candidatesUpdated };
+}
+
+async function clearCandidateSourcesForArticle(explanationId: number): Promise<void> {
+  // Delete source associations (trigger will decrement counts)
+  await supabase
+    .from('candidate_source_articles')
+    .delete()
+    .eq('explanation_id', explanationId);
+}
+```
+
+### Scheduling
+
+| Option | Frequency | Use Case |
+|--------|-----------|----------|
+| Cron job | Every hour | Standard operation |
+| Admin action | On-demand | Immediate re-processing |
+| Combined with TF-IDF | Same schedule | Share infrastructure |
+
+```typescript
+// Configuration
+const BATCH_CONFIG = {
+  REEXTRACTION_BATCH_SIZE: 50,
+  REEXTRACTION_INTERVAL: '1 hour'
+};
+```
 
 ---
 
@@ -586,6 +688,7 @@ CREATE TABLE link_candidates (
   source VARCHAR(20) NOT NULL,  -- 'llm_extraction' | 'tfidf'
   tfidf_score NUMERIC(6,4),     -- NULL for llm_extraction
   first_seen_explanation_id INT REFERENCES explanations(id),
+  source_article_count INT DEFAULT 1,  -- # of articles recommending this candidate
   status VARCHAR(20) NOT NULL DEFAULT 'pending',
     -- 'pending' → awaiting human review (direct from LLM extraction)
     -- 'pending_evaluation' → TF-IDF candidates awaiting optional LLM eval
@@ -598,7 +701,48 @@ CREATE TABLE link_candidates (
 
 CREATE INDEX idx_link_candidates_status ON link_candidates(status);
 CREATE INDEX idx_link_candidates_explanation ON link_candidates(first_seen_explanation_id);
+
+-- Track which articles suggested each candidate (for proper count tracking on edits/deletes)
+CREATE TABLE candidate_source_articles (
+  id SERIAL PRIMARY KEY,
+  candidate_id INT REFERENCES link_candidates(id) ON DELETE CASCADE,
+  explanation_id INT REFERENCES explanations(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(candidate_id, explanation_id)
+);
+
+CREATE INDEX idx_candidate_sources_candidate ON candidate_source_articles(candidate_id);
+CREATE INDEX idx_candidate_sources_explanation ON candidate_source_articles(explanation_id);
+
+-- Trigger to maintain source_article_count
+CREATE OR REPLACE FUNCTION update_candidate_article_count()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    UPDATE link_candidates SET source_article_count = source_article_count + 1
+    WHERE id = NEW.candidate_id;
+  ELSIF TG_OP = 'DELETE' THEN
+    UPDATE link_candidates SET source_article_count = GREATEST(0, source_article_count - 1)
+    WHERE id = OLD.candidate_id;
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_update_candidate_count
+AFTER INSERT OR DELETE ON candidate_source_articles
+FOR EACH ROW EXECUTE FUNCTION update_candidate_article_count();
 ```
+
+### Edge Case Handling
+
+| Scenario | Mechanism | Result |
+|----------|-----------|--------|
+| **Article deleted** | `ON DELETE CASCADE` on `explanation_id` | Associations removed → trigger decrements count |
+| **Content edited, term no longer recommended** | `clearCandidateSourcesForArticle()` before re-extraction | Old associations deleted → count decremented; new extraction only adds current terms |
+| **LLM returns duplicate terms** | `UNIQUE(term_lower)` on `link_candidates` + upsert | Term inserted once; same candidate ID used |
+| **Same article processed twice** | `UNIQUE(candidate_id, explanation_id)` + `ignoreDuplicates` | Only one association per article-candidate pair |
+| **Candidate count reaches zero** | Trigger uses `GREATEST(0, count - 1)` | Count never goes negative; candidate remains for potential future matches |
 
 ### Candidate Lifecycle
 
@@ -627,10 +771,14 @@ CREATE INDEX idx_link_candidates_explanation ON link_candidates(first_seen_expla
 ### Admin Queue Queries
 
 ```sql
--- Candidates pending human approval
-SELECT * FROM link_candidates
-WHERE status = 'pending_approval'
-ORDER BY created_at DESC;
+-- Candidates pending human approval (sorted by recommendation count for prioritization)
+SELECT
+  id, term, source, tfidf_score,
+  source_article_count,  -- Shows "Recommended by X articles"
+  status, created_at
+FROM link_candidates
+WHERE status = 'pending' OR status = 'pending_approval'
+ORDER BY source_article_count DESC, created_at DESC;
 
 -- Approve a candidate
 UPDATE link_candidates SET status = 'approved', updated_at = NOW()
@@ -645,6 +793,11 @@ FROM link_candidates WHERE id = $1;
 UPDATE link_candidates SET status = 'rejected', updated_at = NOW()
 WHERE id = $1;
 ```
+
+**Admin Queue Display:**
+- `source_article_count` column shows "Recommended by X articles"
+- Higher count = higher priority (more articles suggest this term is important)
+- Sort by count descending for prioritized review
 
 ### Admin Actions
 
@@ -789,14 +942,14 @@ async function updateExplanation(id: number, updates: Partial<ExplanationInsertT
 
 | File | Change |
 |------|--------|
-| `supabase/migrations/xxx_link_candidates.sql` | NEW - link_candidates table + term_corpus_stats |
-| `/src/lib/services/linkCandidates.ts` | NEW - `extractLinkCandidates()`, LLM extraction, TF-IDF scan, queue |
+| `supabase/migrations/xxx_link_candidates.sql` | NEW - `link_candidates` + `candidate_source_articles` tables, trigger for count |
+| `/src/lib/services/linkCandidates.ts` | NEW - `extractLinkCandidates()`, `insertCandidateSourceArticles()`, `reprocessStaleArticles()`, `clearCandidateSourcesForArticle()` |
 | `/src/lib/services/returnExplanation.ts` | MODIFY - Call `extractLinkCandidates()` after save (background) |
 | `/src/lib/services/termTracking.ts` | NEW - Incremental TF-IDF stats update |
 | `/src/lib/prompts.ts` | Add `createCandidateExtractionPrompt`, `createLinkEvaluationPrompt` |
 | `/src/lib/schemas/schemas.ts` | Add `candidateExtractionSchema`, `linkCandidateSchema`, `linkEvaluationSchema` |
-| `/src/actions/actions.ts` | Add queue admin actions |
-| `/src/app/admin/link-candidates/page.tsx` | NEW - Admin UI for approval queue (optional) |
+| `/src/actions/actions.ts` | Add queue admin actions, `reprocessStaleArticlesAction` |
+| `/src/app/admin/link-candidates/page.tsx` | NEW - Admin UI for approval queue with `source_article_count` column |
 
 ---
 
@@ -820,7 +973,11 @@ const CANDIDATE_CONFIG = {
 
   // Batch job scheduling
   EVALUATION_INTERVAL: '1 hour',  // How often to run evaluation batch
-  TFIDF_SCAN_INTERVAL: '1 day'    // How often to run TF-IDF scan
+  TFIDF_SCAN_INTERVAL: '1 day',   // How often to run TF-IDF scan
+
+  // Content edit re-extraction settings
+  REEXTRACTION_BATCH_SIZE: 50,    // Articles per batch job run
+  REEXTRACTION_INTERVAL: '1 hour' // How often to check for stale articles
 };
 ```
 
