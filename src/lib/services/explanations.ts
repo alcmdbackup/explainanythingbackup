@@ -2,7 +2,7 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 //import {supabase} from '@/lib/supabase'
-import { type ExplanationFullDbType, type ExplanationInsertType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
 /**
  * Service for interacting with the explanations table in Supabase
@@ -101,7 +101,7 @@ export async function getRecentExplanations(
     sort?: SortMode;      // 'new' | 'top', default 'new'
     period?: TimePeriod;  // 'today' | 'week' | 'month' | 'all', default 'week'
   }
-): Promise<ExplanationFullDbType[]> {
+): Promise<ExplanationWithViewCount[]> {
   const supabase = await createSupabaseServerClient()
 
   // Validate parameters
@@ -168,10 +168,15 @@ export async function getRecentExplanations(
 
   if (expError) throw expError;
 
-  // Step 3: Sort by view count (descending), then by timestamp (descending) as tiebreaker
-  const sortedExplanations = (explanations || []).sort((a, b) => {
-    const viewsA = viewCounts.get(a.id) || 0;
-    const viewsB = viewCounts.get(b.id) || 0;
+  // Step 3: Add view counts and sort by view count (descending), then by timestamp (descending) as tiebreaker
+  const explanationsWithViews: ExplanationWithViewCount[] = (explanations || []).map(exp => ({
+    ...exp,
+    viewCount: viewCounts.get(exp.id) || 0
+  }));
+
+  explanationsWithViews.sort((a, b) => {
+    const viewsA = a.viewCount || 0;
+    const viewsB = b.viewCount || 0;
     if (viewsB !== viewsA) {
       return viewsB - viewsA; // Higher views first
     }
@@ -180,7 +185,7 @@ export async function getRecentExplanations(
   });
 
   // Apply pagination
-  return sortedExplanations.slice(offset, offset + limit);
+  return explanationsWithViews.slice(offset, offset + limit);
 }
 
 /**

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
-import { type ExplanationFullDbType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import Navigation from '@/components/Navigation';
 import ExploreTabs from '@/components/ExploreTabs';
 
@@ -20,7 +20,7 @@ export default function ExplanationsTablePage({
     sort,
     period,
 }: {
-    explanations: (ExplanationFullDbType & { dateSaved?: string })[];
+    explanations: (ExplanationWithViewCount & { dateSaved?: string })[];
     error: string | null;
     showNavigation?: boolean;
     pageTitle?: string;
@@ -151,6 +151,11 @@ export default function ExplanationsTablePage({
                                                 )}
                                             </span>
                                         </th>
+                                        {sort === 'top' && (
+                                            <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider">
+                                                Views
+                                            </th>
+                                        )}
                                         {hasDateSaved && (
                                             <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                                 Saved
@@ -185,6 +190,13 @@ export default function ExplanationsTablePage({
                                                     {formatUserFriendlyDate(explanation.timestamp)}
                                                 </span>
                                             </td>
+                                            {sort === 'top' && (
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className="text-sm font-sans text-[var(--accent-gold)]">
+                                                        {explanation.viewCount ?? 0}
+                                                    </span>
+                                                </td>
+                                            )}
                                             {hasDateSaved && (
                                                 <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap">
                                                     <span className="text-sm font-sans text-[var(--text-muted)]">

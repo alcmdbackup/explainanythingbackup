@@ -224,6 +224,7 @@ export type MatchType = z.infer<typeof matchSchema>;
 export type matchWithCurrentContentType = z.infer<typeof matchWithCurrentContentSchema>;
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
+export type ExplanationWithViewCount = ExplanationFullDbType & { viewCount?: number };
 export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
 
 /**
