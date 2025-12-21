@@ -1,10 +1,10 @@
 {
-  "numStartups": 66,
+  "numStartups": 73,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
   "tipsHistory": {
-    "enter-to-steer-in-relatime": 49,
+    "enter-to-steer-in-relatime": 69,
     "new-user-warmup": 7,
     "memory-command": 64,
     "plan-mode-for-complex-tasks": 19,
@@ -14,35 +14,36 @@
     "status-line": 52,
     "stickers-command": 64,
     "# for memory": 41,
-    "paste-images-mac": 61,
+    "paste-images-mac": 71,
     "double-esc-code-restore": 65,
-    "continue": 58,
-    "shift-tab": 58,
+    "continue": 68,
+    "shift-tab": 68,
     "tab-toggle-thinking": 26,
     "prompt-queue": 15,
     "todo-list": 64,
-    "shift-enter": 59,
-    "install-github-app": 59,
-    "drag-and-drop-images": 61,
-    "image-paste": 49,
-    "ultrathink-keyword": 59,
-    "custom-agents": 55,
-    "permissions": 59,
+    "shift-enter": 69,
+    "install-github-app": 69,
+    "drag-and-drop-images": 71,
+    "image-paste": 69,
+    "ultrathink-keyword": 69,
+    "custom-agents": 70,
+    "permissions": 69,
     "custom-commands": 64,
     "default-permission-mode-config": 63,
-    "rename-conversation": 53,
+    "rename-conversation": 68,
     "colorterm-truecolor": 55,
     "config-thinking-mode": 65,
     "guest-passes": 58,
     "frontend-design-plugin": 50,
-    "install-slack-app": 58,
+    "install-slack-app": 68,
     "desktop-app": 62,
     "web-app": 64,
     "mobile-app": 64,
     "git-worktrees": 52,
-    "ide-upsell-external-terminal": 63
+    "ide-upsell-external-terminal": 63,
+    "btw-side-question": 66
   },
-  "promptQueueUseCount": 53,
+  "promptQueueUseCount": 57,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false,
@@ -122,13 +123,13 @@
       "hasClaudeMdExternalIncludesApproved": false,
       "hasClaudeMdExternalIncludesWarningShown": false,
       "exampleFiles": [
-        "actions.ts",
-        "vectorsim.ts",
-        "explanation-generation.integration.test.ts",
-        "tag-management.integration.test.ts",
-        "llm-responses.ts"
+        "page.tsx",
+        "Navigation.tsx",
+        "SearchBar.tsx",
+        "LexicalEditor.tsx",
+        "globals.css"
       ],
-      "exampleFilesGeneratedAt": 1765598209058,
+      "exampleFilesGeneratedAt": 1766244953026,
       "lastTotalWebSearchRequests": 0,
       "hasCompletedProjectOnboarding": true,
       "reactVulnerabilityCache": {
@@ -790,10 +791,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1766202687110
+      "timestamp": 1766244951739
     }
   },
-  "lastPlanModeUse": 1766201998213,
+  "lastPlanModeUse": 1766245010551,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -881,7 +882,7 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/7COV20SfyA"
       },
-      "timestamp": 1766202672222
+      "timestamp": 1766244941124
     }
   },
   "passesUpsellSeenCount": 4,
