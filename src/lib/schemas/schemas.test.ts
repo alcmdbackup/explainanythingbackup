@@ -419,7 +419,7 @@ describe('schemas', () => {
   describe('explanationMetricsSchema', () => {
     it('should validate correct explanation metrics data', () => {
       const validData = {
-        explanation_id: 123,
+        explanationid: 123,
         total_saves: 10,
         total_views: 100,
         save_rate: 0.1,
@@ -429,7 +429,7 @@ describe('schemas', () => {
       const result = explanationMetricsSchema.parse(validData);
 
       expect(result).toMatchObject({
-        explanation_id: 123,
+        explanationid: 123,
         total_saves: 10,
         total_views: 100,
         save_rate: 0.1,
@@ -438,7 +438,7 @@ describe('schemas', () => {
 
     it('should use default values', () => {
       const validData = {
-        explanation_id: 123,
+        explanationid: 123,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
@@ -451,13 +451,13 @@ describe('schemas', () => {
 
     it('should validate save_rate boundaries (0-1)', () => {
       const validData0 = {
-        explanation_id: 123,
+        explanationid: 123,
         save_rate: 0,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
       const validData1 = {
-        explanation_id: 123,
+        explanationid: 123,
         save_rate: 1,
         last_updated: '2024-03-20T10:30:00Z',
       };
@@ -468,13 +468,13 @@ describe('schemas', () => {
 
     it('should reject save_rate outside 0-1 range', () => {
       const invalidDataNegative = {
-        explanation_id: 123,
+        explanationid: 123,
         save_rate: -0.1,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
       const invalidDataTooHigh = {
-        explanation_id: 123,
+        explanationid: 123,
         save_rate: 1.1,
         last_updated: '2024-03-20T10:30:00Z',
       };
@@ -485,7 +485,7 @@ describe('schemas', () => {
 
     it('should reject negative total_saves and total_views', () => {
       const invalidData = {
-        explanation_id: 123,
+        explanationid: 123,
         total_saves: -1,
         total_views: 100,
         last_updated: '2024-03-20T10:30:00Z',
@@ -496,7 +496,7 @@ describe('schemas', () => {
 
     it('should accept ISO 8601 date strings', () => {
       const validData = {
-        explanation_id: 123,
+        explanationid: 123,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
@@ -508,7 +508,7 @@ describe('schemas', () => {
     it('should accept Date objects', () => {
       const dateObj = new Date('2024-03-20T10:30:00Z');
       const validData = {
-        explanation_id: 123,
+        explanationid: 123,
         last_updated: dateObj,
       };
 
@@ -519,7 +519,7 @@ describe('schemas', () => {
 
     it('should accept parseable date strings', () => {
       const validData = {
-        explanation_id: 123,
+        explanationid: 123,
         last_updated: '2024-03-20',
       };
 
@@ -530,7 +530,7 @@ describe('schemas', () => {
 
     it('should reject invalid date strings', () => {
       const invalidData = {
-        explanation_id: 123,
+        explanationid: 123,
         last_updated: 'not-a-date',
       };
 
@@ -540,7 +540,7 @@ describe('schemas', () => {
     it('should accept optional id field', () => {
       const withId = {
         id: 456,
-        explanation_id: 123,
+        explanationid: 123,
         last_updated: '2024-03-20T10:30:00Z',
       };
 

@@ -51,6 +51,22 @@ export enum ExplanationStatus {
 }
 
 /**
+ * Sort mode for discovery/explore tab
+ * • new: Sort by creation timestamp (newest first)
+ * • top: Sort by view count during selected time period
+ */
+export type SortMode = 'new' | 'top';
+
+/**
+ * Time period for filtering "top" explanations
+ * • today: Last 24 hours
+ * • week: Last 7 days
+ * • month: Last 30 days
+ * • all: All time (no time filter)
+ */
+export type TimePeriod = 'today' | 'week' | 'month' | 'all';
+
+/**
  * Schema for validating allowed LLM models
  * • Restricts model parameter to approved OpenAI models only
  * • Ensures consistent model usage across the application
@@ -556,7 +572,7 @@ export type MultipleStandaloneTitlesType = z.infer<typeof multipleStandaloneTitl
  * Stores consolidated metrics per explanation including saves, views, and engagement ratio
  * @example
  * {
- *   explanation_id: 123,
+ *   explanationid: 123,
  *   total_saves: 15,
  *   total_views: 245,
  *   save_rate: 0.061, // 15/245 = 6.1% save rate
@@ -565,7 +581,7 @@ export type MultipleStandaloneTitlesType = z.infer<typeof multipleStandaloneTitl
  */
 export const explanationMetricsSchema = z.object({
   id: z.number().int().positive().optional(), // Primary key, auto-generated
-  explanation_id: z.number().int().positive(),
+  explanationid: z.number().int().positive(), // DB column is `explanationid` (no underscore)
   total_saves: z.number().int().min(0).default(0),
   total_views: z.number().int().min(0).default(0),
   save_rate: z.number().min(0).max(1).default(0), // Ratio of saves/views (0.0 to 1.0)

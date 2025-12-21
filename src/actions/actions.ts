@@ -408,8 +408,12 @@ export const isExplanationSavedByUserAction = serverReadRequestId(_isExplanation
  * • Calls: getRecentExplanations
  * • Used by: ExplanationsPage, other client components
  */
-const _getRecentExplanationsAction = async function(limit?: number, offset?: number, orderBy?: string, order?: 'asc' | 'desc') {
-    return await getRecentExplanations(limit, offset, orderBy, order);
+const _getRecentExplanationsAction = async function(
+    limit?: number,
+    offset?: number,
+    options?: { sort?: 'new' | 'top'; period?: 'today' | 'week' | 'month' | 'all' }
+) {
+    return await getRecentExplanations(limit, offset, options);
 };
 
 export const getRecentExplanationsAction = serverReadRequestId(_getRecentExplanationsAction); 

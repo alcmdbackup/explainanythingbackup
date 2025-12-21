@@ -4,8 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
-import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { type ExplanationFullDbType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import Navigation from '@/components/Navigation';
+import ExploreTabs from '@/components/ExploreTabs';
 
 /**
  * ExplanationsTablePage component - Library Catalog
@@ -16,12 +17,18 @@ export default function ExplanationsTablePage({
     error,
     showNavigation = true,
     pageTitle = 'The Archives',
+    sort,
+    period,
 }: {
     explanations: (ExplanationFullDbType & { dateSaved?: string })[];
     error: string | null;
     showNavigation?: boolean;
     pageTitle?: string;
+    sort?: SortMode;
+    period?: TimePeriod;
 }) {
+    // Only show ExploreTabs when sort/period are explicitly provided (i.e., on /explanations page)
+    const showExploreTabs = sort !== undefined && period !== undefined;
     const [sortBy, setSortBy] = useState<'title' | 'date'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -83,6 +90,9 @@ export default function ExplanationsTablePage({
                     </h1>
                     <div className="title-flourish mt-4"></div>
                 </div>
+
+                {/* Discovery Mode Tabs - only shown on /explanations page */}
+                {showExploreTabs && <ExploreTabs sort={sort!} period={period!} />}
 
                 {error && (
                     <div className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">

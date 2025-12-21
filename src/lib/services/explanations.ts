@@ -2,7 +2,7 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 //import {supabase} from '@/lib/supabase'
-import { type ExplanationFullDbType, type ExplanationInsertType } from '@/lib/schemas/schemas';
+import { type ExplanationFullDbType, type ExplanationInsertType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
 /**
  * Service for interacting with the explanations table in Supabase
@@ -78,36 +78,109 @@ export async function getExplanationById(id: number): Promise<ExplanationFullDbT
 }
 
 /**
- * Get recent explanations with pagination
+ * Get recent explanations with pagination and optional sorting/filtering
  * @param limit Number of records to return
  * @param offset Number of records to skip
- * @param orderBy Order by column
- * @param order Order direction
+ * @param options Optional sort mode and time period for filtering
  * @returns Array of explanation records
+ *
+ * @example
+ * // Get newest explanations (default)
+ * const newExplanations = await getRecentExplanations(10, 0, { sort: 'new' });
+ *
+ * // Get top explanations this week
+ * const topWeek = await getRecentExplanations(10, 0, { sort: 'top', period: 'week' });
+ *
+ * // Get top explanations all time
+ * const topAll = await getRecentExplanations(10, 0, { sort: 'top', period: 'all' });
  */
 export async function getRecentExplanations(
   limit: number = 10,
   offset: number = 0,
-  orderBy: string = 'timestamp',
-  order: 'asc' | 'desc' = 'desc'
+  options?: {
+    sort?: SortMode;      // 'new' | 'top', default 'new'
+    period?: TimePeriod;  // 'today' | 'week' | 'month' | 'all', default 'week'
+  }
 ): Promise<ExplanationFullDbType[]> {
   const supabase = await createSupabaseServerClient()
-  
+
   // Validate parameters
   if (limit <= 0) limit = 10;
   if (offset < 0) offset = 0;
-  
-  const query = supabase
+
+  const sort = options?.sort ?? 'new';
+  const period = options?.period ?? 'week';
+
+  // For 'new' mode, use simple timestamp ordering
+  if (sort === 'new') {
+    const { data, error } = await supabase
+      .from('explanations')
+      .select()
+      .eq('status', 'published')
+      .order('timestamp', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw error;
+    return data || [];
+  }
+
+  // For 'top' mode, count views during the period from userExplanationEvents
+  // Query userExplanationEvents to get view counts grouped by explanationid
+  // Filter by event_name = 'explanation_viewed' and created_at within period
+  let viewCountsQuery = supabase
+    .from('userExplanationEvents')
+    .select('explanationid')
+    .eq('event_name', 'explanation_viewed');
+
+  // Add time filter (except for 'all')
+  if (period !== 'all') {
+    const cutoffDate = new Date();
+    switch (period) {
+      case 'today':
+        cutoffDate.setDate(cutoffDate.getDate() - 1);
+        break;
+      case 'week':
+        cutoffDate.setDate(cutoffDate.getDate() - 7);
+        break;
+      case 'month':
+        cutoffDate.setDate(cutoffDate.getDate() - 30);
+        break;
+    }
+    viewCountsQuery = viewCountsQuery.gte('created_at', cutoffDate.toISOString());
+  }
+
+  const { data: viewEvents, error: viewError } = await viewCountsQuery;
+
+  if (viewError) throw viewError;
+
+  // Count views per explanation
+  const viewCounts = new Map<number, number>();
+  for (const event of viewEvents || []) {
+    const count = viewCounts.get(event.explanationid) || 0;
+    viewCounts.set(event.explanationid, count + 1);
+  }
+
+  // Step 2: Get all published explanations
+  const { data: explanations, error: expError } = await supabase
     .from('explanations')
     .select()
-    .eq('status', 'published')
-    .order(orderBy, { ascending: order === 'asc' })
-    .range(offset, offset + limit - 1);
+    .eq('status', 'published');
 
-  const { data, error } = await query;
+  if (expError) throw expError;
 
-  if (error) throw error;
-  return data || [];
+  // Step 3: Sort by view count (descending), then by timestamp (descending) as tiebreaker
+  const sortedExplanations = (explanations || []).sort((a, b) => {
+    const viewsA = viewCounts.get(a.id) || 0;
+    const viewsB = viewCounts.get(b.id) || 0;
+    if (viewsB !== viewsA) {
+      return viewsB - viewsA; // Higher views first
+    }
+    // Tiebreaker: newer explanations first
+    return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+  });
+
+  // Apply pagination
+  return sortedExplanations.slice(offset, offset + limit);
 }
 
 /**

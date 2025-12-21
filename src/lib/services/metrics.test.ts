@@ -136,7 +136,7 @@ describe('Metrics Service', () => {
       // Mock the RPC call for increment
       mockSupabase.rpc.mockResolvedValue({
         data: [{
-          explanation_id: 456,
+          explanationid: 456,
           total_views: 1,
           total_saves: 0,
           save_rate: 0,
@@ -223,7 +223,7 @@ describe('Metrics Service', () => {
     it('should refresh specific metrics by single ID', async () => {
       // Arrange
       const mockMetrics: ExplanationMetricsType[] = [{
-        explanation_id: 1,
+        explanationid: 1,
         total_views: 10,
         total_saves: 5,
         save_rate: 0.5,
@@ -249,14 +249,14 @@ describe('Metrics Service', () => {
       // Arrange
       const mockMetrics: ExplanationMetricsType[] = [
         {
-          explanation_id: 1,
+          explanationid: 1,
           total_views: 10,
           total_saves: 5,
           save_rate: 0.5,
           last_updated: '2024-01-01T00:00:00Z'
         },
         {
-          explanation_id: 2,
+          explanationid: 2,
           total_views: 20,
           total_saves: 10,
           save_rate: 0.5,
@@ -461,7 +461,7 @@ describe('Metrics Service', () => {
     it('should increment views successfully', async () => {
       // Arrange
       const mockMetrics: ExplanationMetricsType = {
-        explanation_id: 1,
+        explanationid: 1,
         total_views: 11,
         total_saves: 5,
         save_rate: 0.45,
@@ -543,7 +543,7 @@ describe('Metrics Service', () => {
     it('should increment saves successfully', async () => {
       // Arrange
       const mockMetrics: ExplanationMetricsType = {
-        explanation_id: 1,
+        explanationid: 1,
         total_views: 10,
         total_saves: 6,
         save_rate: 0.6,
