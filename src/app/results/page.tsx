@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useReducer, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges } from '@/actions/actions';
+import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
 import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
@@ -401,6 +401,21 @@ function ResultsPageContent() {
             setExplanationVector(null); // Reset vector on error
             setExplanationStatus(null); // Reset status on error
         } else {
+            // Resolve links for the newly created explanation before redirect
+            // This ensures links render correctly since loadExplanation may be skipped
+            // when explanationId is already set from streaming
+            if (explanationId && content) {
+                try {
+                    const contentWithLinks = await resolveLinksForDisplayAction(
+                        withRequestId({ explanationId, content })
+                    );
+                    setContent(contentWithLinks);
+                } catch (err) {
+                    logger.error('Failed to resolve links after creation:', { error: err });
+                    // Continue with redirect even if link resolution fails
+                }
+            }
+
             // Redirect to URL with explanation_id and userQueryId
             const params = new URLSearchParams();
             if (explanationId) {
@@ -409,7 +424,7 @@ function ResultsPageContent() {
             if (userQueryId) {
                 params.set('userQueryId', userQueryId.toString());
             }
-            
+
             router.push(`/results?${params.toString()}`);
             // Note: setIsLoading(false) will be handled by the page reload
         }
@@ -537,8 +552,9 @@ function ResultsPageContent() {
         }
     };
 
-    // Get content from lifecycle reducer instead of useExplanationLoader
-    const formattedExplanation = getPageContent(lifecycleState) || content || '';
+    // Get content from hook (has resolved links) first, fallback to lifecycle reducer
+    // The hook's content has resolved links from resolveLinksForDisplayAction
+    const formattedExplanation = content || getPageContent(lifecycleState) || '';
 
     /**
      * Handles edit mode toggle for Lexical editor
@@ -770,7 +786,8 @@ function ResultsPageContent() {
             return;
         }
 
-        const currentPageContent = getPageContent(lifecycleState) || content;
+        // Prioritize content from hook (has resolved links) over lifecycle state
+        const currentPageContent = content || getPageContent(lifecycleState);
 
         // On first run, just sync the state without updating the editor
         // LexicalEditor handles initialContent on its own

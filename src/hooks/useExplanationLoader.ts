@@ -12,6 +12,8 @@ import { ExplanationStatus, TagUIType, matchWithCurrentContentType } from '@/lib
 import { logger } from '@/lib/client_utilities';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 
+const FILE_DEBUG = false;
+
 /**
  * Custom hook for loading and managing explanation data
  *
@@ -143,12 +145,15 @@ export function useExplanationLoader(
         matches?: matchWithCurrentContentType[]
     ) => {
         try {
+            logger.debug('[loadExplanation] START - loading explanation:', { targetExplanationId }, FILE_DEBUG);
             setIsLoading(true);
             setError(null);
 
+            logger.debug('[loadExplanation] Calling getExplanationByIdAction...', null, FILE_DEBUG);
             const explanation = await getExplanationByIdAction(
                 withRequestId({ id: targetExplanationId })
             );
+            logger.debug('[loadExplanation] getExplanationByIdAction returned:', { found: !!explanation }, FILE_DEBUG);
 
             if (!explanation) {
                 setError('Explanation not found');
@@ -161,10 +166,15 @@ export function useExplanationLoader(
 
             // Resolve links at render time (overlay system)
             let contentToDisplay = explanation.content;
+            logger.debug('[loadExplanation] Calling resolveLinksForDisplayAction...', { contentLength: explanation.content.length }, FILE_DEBUG);
             try {
                 contentToDisplay = await resolveLinksForDisplayAction(
                     withRequestId({ explanationId: explanation.id, content: explanation.content })
                 );
+                logger.debug('[loadExplanation] resolveLinksForDisplayAction returned:', {
+                    resultLength: contentToDisplay.length,
+                    hasLinks: contentToDisplay.includes('/standalone-title')
+                }, FILE_DEBUG);
             } catch (err) {
                 // Fallback to raw content if link resolution fails
                 logger.error('Failed to resolve links for display:', { error: err });
@@ -219,7 +229,7 @@ export function useExplanationLoader(
             logger.debug('Attempting to load vector for explanation:', {
                 explanationId: explanation.id,
                 explanationTitle: explanation.explanation_title
-            }, true);
+            }, FILE_DEBUG);
 
             const vectorResult = await loadFromPineconeUsingExplanationIdAction(
                 withRequestId({ explanationId: explanation.id })
@@ -258,14 +268,14 @@ export function useExplanationLoader(
                         hasVector: 'vector' in vectorDataAny,
                         vectorType: typeof vectorDataAny.vector,
                         vectorLength: vectorDataAny.vector?.length || 0
-                    }, true);
+                    }, FILE_DEBUG);
                 } else {
                     // No vector found for this explanation (normal for older explanations)
                     setExplanationVector(null);
                     logger.debug('No vector found for explanation:', {
                         found: false,
                         explanationId: explanation.id
-                    }, true);
+                    }, FILE_DEBUG);
                 }
             } else {
                 // Check if this is a specific error or just no vector found
