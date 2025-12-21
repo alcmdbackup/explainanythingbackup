@@ -4,7 +4,8 @@ import {
     getExplanationByIdAction,
     isExplanationSavedByUserAction,
     getTagsForExplanationAction,
-    loadFromPineconeUsingExplanationIdAction
+    loadFromPineconeUsingExplanationIdAction,
+    resolveLinksForDisplayAction
 } from '@/actions/actions';
 import { ExplanationStatus, TagUIType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
@@ -25,6 +26,7 @@ const mockGetExplanationByIdAction = getExplanationByIdAction as jest.MockedFunc
 const mockIsExplanationSavedByUserAction = isExplanationSavedByUserAction as jest.MockedFunction<typeof isExplanationSavedByUserAction>;
 const mockGetTagsForExplanationAction = getTagsForExplanationAction as jest.MockedFunction<typeof getTagsForExplanationAction>;
 const mockLoadFromPineconeUsingExplanationIdAction = loadFromPineconeUsingExplanationIdAction as jest.MockedFunction<typeof loadFromPineconeUsingExplanationIdAction>;
+const mockResolveLinksForDisplayAction = resolveLinksForDisplayAction as jest.MockedFunction<typeof resolveLinksForDisplayAction>;
 
 describe('useExplanationLoader', () => {
     const mockExplanation = {
@@ -81,6 +83,10 @@ describe('useExplanationLoader', () => {
             success: true,
             data: mockVector,
             error: null
+        });
+        // Mock resolveLinksForDisplayAction to return content unchanged
+        mockResolveLinksForDisplayAction.mockImplementation(async (params) => {
+            return (params as { content: string }).content;
         });
     });
 
