@@ -3,6 +3,13 @@
 ## Summary
 Implement a **link overlay system** where links are stored separately from article content. Links are resolved at render time, keeping content clean for embeddings and enabling bulk link updates without editing articles.
 
+**Execution Tracking**: `docs/planning/link_creation_optimization/link_whitelist_and_display_execution.md`
+
+### Design Choices
+- **Caching**: Vercel KV (edge caching, ~5ms latency)
+- **Matching**: Aho-Corasick algorithm (100+ terms expected)
+- **Lexical Diff Overlay**: Deferred (focus on core system first)
+
 ---
 
 ## Requirements (from user)
@@ -521,6 +528,9 @@ const displayContent = applyLinksToContent(rawContent, links);
 
 ### Step 5.5: Lexical-Level Link Overlay (for Diff/Edit Context)
 
+> **⚠️ DEFERRED**: This step is implemented LAST, after all other steps are complete and tested.
+> Focus on the core markdown-level overlay system first (Steps 1-8).
+
 When content contains CriticMarkup diff annotations (from AI suggestions), links must be applied **after** Lexical import so they don't appear as part of the diff.
 
 #### When to Use Which Approach
@@ -800,8 +810,8 @@ Add actions:
 | `/src/lib/services/linkWhitelist.ts` | NEW - Whitelist CRUD |
 | `/src/lib/services/linkResolver.ts` | NEW - Core overlay logic (markdown-level) |
 | `/src/lib/services/articleLinkOverrides.ts` | NEW - Per-article overrides |
-| `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx` | NEW - Lexical-level overlay for diff context |
-| `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx` | Call `applyLinkOverlayToEditor` after diff import |
+| `/src/editorFiles/lexicalEditor/LinkOverlayPlugin.tsx` | NEW - Lexical-level overlay for diff context **(DEFERRED - implement last)** |
+| `/src/editorFiles/lexicalEditor/LexicalEditorComponent.tsx` | Call `applyLinkOverlayToEditor` after diff import **(DEFERRED - implement last)** |
 | `/src/lib/services/returnExplanation.ts` | REMOVE inline link generation calls |
 | `/src/lib/services/links.ts` | REMOVE `createMappingsKeytermsToLinks` and `createMappingsHeadingsToLinks` |
 | `/src/app/results/page.tsx` | Apply links at render time (markdown-level) |
@@ -814,21 +824,46 @@ Add actions:
 
 ## Testing
 
+### Core System (implement first)
 1. **Unit tests** for linkResolver (term matching, overlap handling, override application, first-occurrence logic)
 2. **Unit tests** for whitelist service (CRUD, alias resolution, caching)
-3. **Unit tests** for LinkOverlayPlugin:
+3. **E2E tests** for admin UI (add/edit/delete whitelist terms)
+4. **E2E tests** for article display (verify links render correctly)
+
+### Lexical Diff Overlay (DEFERRED - implement last)
+5. **Unit tests** for LinkOverlayPlugin:
    - `wrapTextInLink` with match at start/middle/end of text node
    - Skipping text inside existing LinkNode
    - First-occurrence tracking across multiple text nodes
    - Links inside DiffTagNode (ins/del/update) render correctly
-4. **Integration tests** for AI suggestions + links:
+6. **Integration tests** for AI suggestions + links:
    - Import CriticMarkup → apply overlay → verify LinkNode inside DiffTagNode
    - Accept/reject diff → verify links remain/are removed correctly
    - Export back to markdown → verify links preserved in CriticMarkup
-5. **E2E tests** for admin UI (add/edit/delete whitelist terms)
-6. **E2E tests** for article display (verify links render correctly)
 
 > Candidate testing defined in [`link_candidate_generation_plan.md`](../link_candidate_generation/link_candidate_generation_plan.md)
+
+---
+
+## Implementation Order
+
+### Core System (Steps 1-8)
+1. **Step 1**: Database (migration + Zod schemas)
+2. **Step 2**: Whitelist service (`linkWhitelist.ts`)
+3. **Step 3**: Link resolver service (`linkResolver.ts`)
+4. **Step 4**: Override service (`articleLinkOverrides.ts`)
+5. **Step 6.5**: Generate heading links at creation time (before removing old code)
+6. **Step 5**: Content display modifications (`results/page.tsx`)
+7. **Step 6**: Stop inline link generation (`returnExplanation.ts`)
+8. **Step 7**: Server actions (`actions.ts`)
+9. **Step 8**: Admin UI (`/admin/whitelist/*`)
+10. Clean up old code in `links.ts`
+
+### Deferred (Step 5.5 - implement last)
+11. Lexical-level link overlay (`LinkOverlayPlugin.tsx`)
+12. Integration with AI suggestions pipeline (`LexicalEditorComponent.tsx`)
+
+**Note**: Keep old link generation working until new system is verified.
 
 ---
 
