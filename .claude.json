@@ -1,5 +1,5 @@
 {
-  "numStartups": 73,
+  "numStartups": 74,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
@@ -29,7 +29,7 @@
     "custom-agents": 70,
     "permissions": 69,
     "custom-commands": 64,
-    "default-permission-mode-config": 63,
+    "default-permission-mode-config": 73,
     "rename-conversation": 68,
     "colorterm-truecolor": 55,
     "config-thinking-mode": 65,
@@ -794,7 +794,7 @@
       "timestamp": 1766244951739
     }
   },
-  "lastPlanModeUse": 1766245010551,
+  "lastPlanModeUse": 1766288661916,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
