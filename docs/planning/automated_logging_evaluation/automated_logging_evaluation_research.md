@@ -8,10 +8,10 @@ This document catalogs all files and plans related to logging and automated logg
 
 ## Planning Documents
 
-### Client-Side Automated Logging
+### Client-Side Automated Logging (DEPRECATED - moved to docs/deprecated/)
 
 #### Approach 1: Runtime Hybrid Discovery
-**File:** `docs/backend_explorations/automated_client_logging_approach_1.md`
+**File:** `docs/deprecated/automated_client_logging_approach_1.md`
 
 - **Strategy:** Dual-method function discovery (React DevTools Hook + Stack trace analysis)
 - **Coverage:** 85% DevTools Hook, 15% Stack trace
@@ -23,7 +23,7 @@ This document catalogs all files and plans related to logging and automated logg
   - Mandatory production safety checklist (6+ layers)
 
 #### Approach 2: Build-Time AST Transform
-**File:** `docs/backend_explorations/automated_client_logging_approach_2.md`
+**File:** `docs/deprecated/automated_client_logging_approach_2.md`
 
 - **Strategy:** SWC/Babel AST transforms at compile time
 - **Key Features:**
@@ -36,21 +36,21 @@ This document catalogs all files and plans related to logging and automated logg
 
 ---
 
-### Server-Side Automated Logging
+### Server-Side Automated Logging (DEPRECATED - moved to docs/deprecated/)
 
-**File:** `docs/backend_explorations/automatic_server_logging.md`
+**File:** `docs/deprecated/automatic_server_logging.md`
 
-- **Architecture:** Three-phase implementation
+- **Architecture:** Three-phase implementation (NOT IMPLEMENTED - interceptors deleted)
   - Phase 1: Module interception (70% coverage)
   - Phase 2: Runtime callback wrapping (20% coverage)
   - Phase 3: Universal interception (10% coverage)
 - **Total Coverage:** ~78%
 - **Integration:** All logging flows through existing `withLogging` function
-- **Infrastructure Files:**
-  - `moduleInterceptor.ts`
-  - `runtimeWrapper.ts`
-  - `universalInterceptor.ts`
-  - `automaticServerLoggingBase.ts`
+- **Infrastructure Files (DELETED):**
+  - ~~`autoServerLoggingModuleInterceptor.ts`~~ - deleted
+  - ~~`autoServerLoggingRuntimeWrapper.ts`~~ - deleted
+  - ~~`autoServerLoggingUniversalInterceptor.ts`~~ - deleted
+  - `automaticServerLoggingBase.ts` - **RETAINED** (contains `withLogging` wrapper)
 
 ---
 
@@ -81,12 +81,12 @@ This document catalogs all files and plans related to logging and automated logg
 
 ### Server-Side Logging Infrastructure
 
-| File | Purpose |
-|------|---------|
-| `src/lib/logging/server/automaticServerLoggingBase.ts` | Core `withLogging` wrapper function |
-| `src/lib/logging/server/autoServerLoggingModuleInterceptor.ts` | Phase 1 - Module-level automatic wrapping |
-| `src/lib/logging/server/autoServerLoggingRuntimeWrapper.ts` | Phase 2 - Runtime callback interception |
-| `src/lib/logging/server/autoServerLoggingUniversalInterceptor.ts` | Phase 3 - Universal function interception |
+| File | Purpose | Status |
+|------|---------|--------|
+| `src/lib/logging/server/automaticServerLoggingBase.ts` | Core `withLogging` wrapper function | **Active** |
+| ~~`src/lib/logging/server/autoServerLoggingModuleInterceptor.ts`~~ | Phase 1 - Module-level automatic wrapping | Deleted |
+| ~~`src/lib/logging/server/autoServerLoggingRuntimeWrapper.ts`~~ | Phase 2 - Runtime callback interception | Deleted |
+| ~~`src/lib/logging/server/autoServerLoggingUniversalInterceptor.ts`~~ | Phase 3 - Universal function interception | Deleted |
 
 ### Testing Infrastructure
 
