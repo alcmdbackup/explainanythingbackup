@@ -620,3 +620,116 @@ Result:
 | DiffTag insert | insertBefore/After + replace | importExportUtils.ts | 376-390 |
 | Node promotion | split parent + insertAfter | importExportUtils.ts | 153-208 |
 | Heading detection | nodeContainsHeading() | importExportUtils.ts | 128-133 |
+
+---
+
+## 16. TESTING AND DEBUGGING TOOLS
+
+### EditorTest Page (`src/app/(debug)/editorTest/page.tsx`)
+
+**Purpose**: Comprehensive debug page for testing the 4-step AI suggestions pipeline.
+
+**URL Parameters**:
+- `?explanation_id=123` - Load explanation content and related sessions
+- `?session_id=abc` - Load complete session with all 4 pipeline steps
+
+**4 Color-Coded Test Panels**:
+
+| Panel | Color | Step | Function |
+|-------|-------|------|----------|
+| AI Suggestions | Orange | 1 | Generate structured edits from AI |
+| Edits Applied | Green | 2 | Apply edits to original content |
+| Diff Applied | Purple | 3 | Generate CriticMarkup via AST diff |
+| Preprocessed | Orange | 4 | Normalize multiline patterns |
+
+**Features**:
+- Run individual steps or complete pipeline
+- Load previous results from database dropdowns
+- Rename saved test sets
+- Session-based tracking for AI suggestions
+- Validation checks for preprocessed content
+- Update editor with final result
+
+### Testing Pipeline Service (`src/lib/services/testingPipeline.ts`)
+
+**Database Table**: `testing_edits_pipeline`
+
+**Record Structure**:
+```typescript
+{
+  id: number;
+  set_name: string;           // Test set identifier
+  step: string;               // Pipeline step name
+  content: string;            // Step output
+  session_id?: string;        // AI suggestion session
+  explanation_id?: number;
+  explanation_title?: string;
+  user_prompt?: string;
+  source_content?: string;
+  session_metadata?: any;
+  created_at: string;
+}
+```
+
+**Step Names**:
+- `1_ai_suggestion`
+- `2_edits_applied_to_markdown`
+- `3_diff_applied_to_markdown`
+- `4_preprocess_diff_before_import`
+
+**Key Functions**:
+
+| Function | Purpose |
+|----------|---------|
+| `checkTestingPipelineExists()` | Check for duplicate records |
+| `saveTestingPipelineRecord()` | Insert new pipeline record |
+| `checkAndSaveTestingPipelineRecord()` | Deduplicated save |
+| `updateTestingPipelineRecordSetName()` | Rename test sets |
+| `getTestingPipelineRecords()` | Get all records for set |
+
+### Server Actions (`src/actions/actions.ts`)
+
+**Testing Pipeline Actions**:
+- `saveTestingPipelineStepAction()` - Save step with session data
+- `getTestingPipelineRecordsByStepAction()` - Populate dropdowns
+- `updateTestingPipelineRecordSetNameAction()` - Rename sets
+
+**AI Session Actions**:
+- `getAISuggestionSessionsAction()` - List distinct sessions
+- `loadAISuggestionSessionAction()` - Load complete session with all steps
+
+### Other Debug Pages (`src/app/(debug)/`)
+
+| Page | Purpose |
+|------|---------|
+| `diffTest/` | Test markdown diff generation |
+| `resultsTest/` | Test DiffTagNode rendering and hover |
+| `mdASTdiff_demo/` | Comprehensive AST diff testing with test runner |
+| `latex-test/` | Test LaTeX math rendering |
+| `streaming-test/` | Test real-time streaming |
+| `test-client-logging/` | Test client-side logging |
+
+### Test Files
+
+| File | Coverage |
+|------|----------|
+| `testingPipeline.test.ts` | Pipeline service with mocked Supabase |
+| `actions.test.ts` | Server action tests |
+| `DiffTagNode.test.ts` | CriticMarkup node rendering |
+| `DiffTagHoverPlugin.test.tsx` | Hover interactions |
+| `importExportUtils.test.ts` | Markdown import/export |
+| `markdownASTdiff.test.ts` | AST diff generation |
+
+### Validation (EditorTest page)
+
+**Preprocessed Content Checks**:
+- **Check A**: Non-CriticMarkup headings start on newline
+- **Check B**: CriticMarkup containing headings starts on newline
+
+### Console Logging Prefixes
+
+| Prefix | Source |
+|--------|--------|
+| `🔧` | Service layer (testingPipeline.ts) |
+| `🎭` | AISuggestionsPanel |
+| `📝` | Editor actions |
