@@ -37,12 +37,22 @@ import {
   getSnapshot,
   getHeadingLinksForArticle
 } from '@/lib/services/linkWhitelist';
+import {
+  getAllCandidates,
+  getCandidateById,
+  approveCandidate,
+  rejectCandidate,
+  deleteCandidate,
+  updateOccurrencesForArticle
+} from '@/lib/services/linkCandidates';
 import type {
   LinkWhitelistInsertType,
   LinkWhitelistFullType,
   LinkAliasFullType,
-  ArticleLinkOverrideFullType
+  ArticleLinkOverrideFullType,
+  LinkCandidateFullType
 } from '@/lib/schemas/schemas';
+import { CandidateStatus } from '@/lib/schemas/schemas';
 
 
 const FILE_DEBUG = true;
@@ -165,6 +175,19 @@ const _updateExplanationAndTopic = withLogging(
                     explanationId,
                     updatedExplanation.primary_topic_id
                 );
+            }
+
+            // If content was updated, re-count candidate occurrences
+            if (updates.content) {
+                try {
+                    await updateOccurrencesForArticle(explanationId, updates.content, FILE_DEBUG);
+                } catch (occError) {
+                    // Log but don't fail the update if occurrence recounting fails
+                    logger.error('Failed to update candidate occurrences', {
+                        explanationId,
+                        error: occError instanceof Error ? occError.message : String(occError)
+                    });
+                }
             }
 
             return {
@@ -1810,6 +1833,161 @@ const _getAliasesForTermAction = withLogging(
 );
 
 export const getAliasesForTermAction = serverReadRequestId(_getAliasesForTermAction);
+
+// ============================================================================
+// LINK CANDIDATE ACTIONS
+// ============================================================================
+
+/**
+ * Get all link candidates (server action)
+ *
+ * • Fetches all candidates, optionally filtered by status
+ * • Ordered by total_occurrences DESC
+ * • Used by admin UI for candidate queue
+ */
+const _getAllCandidatesAction = withLogging(
+    async function getAllCandidatesAction(
+        status?: CandidateStatus
+    ): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const candidates = await getAllCandidates(status);
+            return { success: true, data: candidates, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAllCandidatesAction', { status })
+            };
+        }
+    },
+    'getAllCandidatesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getAllCandidatesAction = serverReadRequestId(_getAllCandidatesAction);
+
+/**
+ * Get a candidate by ID (server action)
+ *
+ * • Fetches a single candidate by ID
+ * • Used by admin UI for viewing candidate details
+ */
+const _getCandidateByIdAction = withLogging(
+    async function getCandidateByIdAction(id: number): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const candidate = await getCandidateById(id);
+            return { success: true, data: candidate, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getCandidateByIdAction', { id })
+            };
+        }
+    },
+    'getCandidateByIdAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getCandidateByIdAction = serverReadRequestId(_getCandidateByIdAction);
+
+/**
+ * Approve a candidate (server action)
+ *
+ * • Creates a whitelist entry with the provided standalone_title
+ * • Updates candidate status to 'approved'
+ * • Used by admin UI to promote candidates to whitelist
+ */
+const _approveCandidateAction = withLogging(
+    async function approveCandidateAction(
+        id: number,
+        standaloneTitle: string
+    ): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const approved = await approveCandidate(id, standaloneTitle);
+            return { success: true, data: approved, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'approveCandidateAction', { id, standaloneTitle })
+            };
+        }
+    },
+    'approveCandidateAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const approveCandidateAction = serverReadRequestId(_approveCandidateAction);
+
+/**
+ * Reject a candidate (server action)
+ *
+ * • Updates candidate status to 'rejected'
+ * • Candidate is kept for deduplication
+ * • Used by admin UI to reject candidates
+ */
+const _rejectCandidateAction = withLogging(
+    async function rejectCandidateAction(id: number): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const rejected = await rejectCandidate(id);
+            return { success: true, data: rejected, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'rejectCandidateAction', { id })
+            };
+        }
+    },
+    'rejectCandidateAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const rejectCandidateAction = serverReadRequestId(_rejectCandidateAction);
+
+/**
+ * Delete a candidate (server action)
+ *
+ * • Permanently deletes a candidate and its occurrences
+ * • Used by admin UI for removing candidates
+ */
+const _deleteCandidateAction = withLogging(
+    async function deleteCandidateAction(id: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await deleteCandidate(id);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'deleteCandidateAction', { id })
+            };
+        }
+    },
+    'deleteCandidateAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const deleteCandidateAction = serverReadRequestId(_deleteCandidateAction);
 
 // ============================================================================
 // ARTICLE LINK OVERRIDE ACTIONS

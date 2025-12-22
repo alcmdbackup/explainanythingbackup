@@ -769,3 +769,85 @@ export const resolvedLinkSchema = z.object({
 });
 
 export type ResolvedLinkType = z.infer<typeof resolvedLinkSchema>;
+
+// =============================================================================
+// LINK CANDIDATES SYSTEM SCHEMAS
+// =============================================================================
+
+/**
+ * Candidate status enum for link candidates
+ */
+export enum CandidateStatus {
+  Pending = 'pending',
+  Approved = 'approved',
+  Rejected = 'rejected'
+}
+
+/**
+ * Schema for link candidate insert data
+ * @example
+ * {
+ *   term: "Machine Learning",
+ *   source: "llm",
+ *   first_seen_explanation_id: 123
+ * }
+ */
+export const linkCandidateInsertSchema = z.object({
+  term: z.string().min(1).max(255),
+  source: z.enum(['llm', 'manual']).default('llm'),
+  first_seen_explanation_id: z.number().int().positive().nullable().optional(),
+});
+
+/**
+ * Full link candidate schema including database fields
+ */
+export const linkCandidateFullSchema = linkCandidateInsertSchema.extend({
+  id: z.number().int().positive(),
+  term_lower: z.string().max(255),
+  status: z.nativeEnum(CandidateStatus).default(CandidateStatus.Pending),
+  total_occurrences: z.number().int().min(0).default(0),
+  article_count: z.number().int().min(0).default(0),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type LinkCandidateInsertType = z.infer<typeof linkCandidateInsertSchema>;
+export type LinkCandidateFullType = z.infer<typeof linkCandidateFullSchema>;
+
+/**
+ * Schema for candidate occurrence insert data
+ * @example
+ * {
+ *   candidate_id: 1,
+ *   explanation_id: 123,
+ *   occurrence_count: 5
+ * }
+ */
+export const candidateOccurrenceInsertSchema = z.object({
+  candidate_id: z.number().int().positive(),
+  explanation_id: z.number().int().positive(),
+  occurrence_count: z.number().int().min(0).default(1),
+});
+
+/**
+ * Full candidate occurrence schema including database fields
+ */
+export const candidateOccurrenceFullSchema = candidateOccurrenceInsertSchema.extend({
+  id: z.number().int().positive(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+export type CandidateOccurrenceInsertType = z.infer<typeof candidateOccurrenceInsertSchema>;
+export type CandidateOccurrenceFullType = z.infer<typeof candidateOccurrenceFullSchema>;
+
+/**
+ * Schema for LLM link candidates extraction response
+ * @example
+ * {
+ *   candidates: ["quantum entanglement", "photon", "wave function"]
+ * }
+ */
+export const linkCandidatesExtractionSchema = z.object({
+  candidates: z.array(z.string()),
+});

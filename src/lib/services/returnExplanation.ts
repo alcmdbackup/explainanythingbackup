@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
-import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt } from '@/lib/prompts';
-import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet } from '@/lib/schemas/schemas';
+import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt } from '@/lib/prompts';
+import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
@@ -11,10 +11,11 @@ import { logger } from '@/lib/client_utilities';
 import { cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
 import { generateHeadingStandaloneTitles, saveHeadingLinks } from '@/lib/services/linkWhitelist';
+import { saveCandidatesFromLLM } from '@/lib/services/linkCandidates';
 import {
-  saveExplanationAndTopic, 
-  saveUserQuery, 
-  addTagsToExplanationAction 
+  saveExplanationAndTopic,
+  saveUserQuery,
+  addTagsToExplanationAction
 } from '@/actions/actions';
 
 // Simple streaming callback for text content
@@ -69,17 +70,73 @@ export const generateTitleFromUserQuery = withLogging(
 );
 
 /**
- * Postprocesses explanation content by generating heading standalone titles, evaluating tags, and validating the result
+ * Extracts link candidates from article content using LLM
  *
  * Key responsibilities:
- * - Generates heading standalone titles and evaluates tags in parallel
+ * - Calls LLM with structured output to identify 5-15 educational terms
+ * - Returns array of candidate terms for whitelist consideration
+ * - Runs in parallel with other postprocessing tasks
+ *
+ * Used by: postprocessNewExplanationContent
+ * Calls: callOpenAIModel with linkCandidatesExtractionSchema
+ */
+export const extractLinkCandidates = withLogging(
+    async function extractLinkCandidates(
+        content: string,
+        articleTitle: string,
+        userid: string
+    ): Promise<string[]> {
+        try {
+            const prompt = createLinkCandidatesPrompt(content, articleTitle);
+
+            const aiResponse = await callOpenAIModel(
+                prompt,
+                'extractLinkCandidates',
+                userid,
+                default_model,
+                false,
+                null,
+                linkCandidatesExtractionSchema,
+                'linkCandidatesExtraction',
+                FILE_DEBUG
+            );
+
+            const parsedResponse = JSON.parse(aiResponse);
+            const candidates = parsedResponse.candidates || [];
+
+            logger.debug('Extracted link candidates', {
+                articleTitle,
+                candidateCount: candidates.length,
+                candidates: candidates.slice(0, 5) // Log first 5 for debugging
+            });
+
+            return candidates;
+        } catch (error) {
+            logger.error('Error extracting link candidates', {
+                articleTitle,
+                error: error instanceof Error ? error.message : String(error)
+            });
+            return [];
+        }
+    },
+    'extractLinkCandidates',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Postprocesses explanation content by generating heading standalone titles, evaluating tags, extracting link candidates, and validating the result
+ *
+ * Key responsibilities:
+ * - Generates heading standalone titles, evaluates tags, and extracts link candidates in parallel
  * - Cleans up formatting and removes unwanted patterns
- * - Returns enhanced content, heading titles (for DB storage), and tag evaluation
+ * - Returns enhanced content, heading titles (for DB storage), tag evaluation, and link candidates
  *
  * Note: Key term links are now resolved at render time via linkResolver service
  *
  * Used by: generateNewExplanation
- * Calls: generateHeadingStandaloneTitles, evaluateTags, cleanupAfterEnhancements
+ * Calls: generateHeadingStandaloneTitles, evaluateTags, extractLinkCandidates, cleanupAfterEnhancements
  */
 export const postprocessNewExplanationContent = withLogging(
     async function postprocessExplanationContent(
@@ -90,14 +147,16 @@ export const postprocessNewExplanationContent = withLogging(
         enhancedContent: string;
         tagEvaluation: any;
         headingTitles: Record<string, string>;
+        linkCandidates: string[];
         error: ErrorResponse | null;
     }> {
         try {
-            // Generate heading standalone titles and evaluate tags in parallel
+            // Generate heading standalone titles, evaluate tags, and extract link candidates in parallel
             // Key term links are now resolved at render time via linkResolver
-            const [headingTitles, tagEvaluation] = await Promise.all([
+            const [headingTitles, tagEvaluation, linkCandidates] = await Promise.all([
                 generateHeadingStandaloneTitles(rawContent, titleResult, userid, FILE_DEBUG),
-                evaluateTags(titleResult, rawContent, userid)
+                evaluateTags(titleResult, rawContent, userid),
+                extractLinkCandidates(rawContent, titleResult, userid)
             ]);
 
             // Clean up any remaining **bold** patterns
@@ -107,13 +166,15 @@ export const postprocessNewExplanationContent = withLogging(
                 originalContentLength: rawContent.length,
                 enhancedContentLength: enhancedContent.length,
                 headingTitlesCount: Object.keys(headingTitles).length,
-                hasTagEvaluation: !!tagEvaluation
+                hasTagEvaluation: !!tagEvaluation,
+                linkCandidatesCount: linkCandidates.length
             });
 
             return {
                 enhancedContent,
                 tagEvaluation,
                 headingTitles,
+                linkCandidates,
                 error: null
             };
         } catch (error) {
@@ -121,6 +182,7 @@ export const postprocessNewExplanationContent = withLogging(
                 enhancedContent: '',
                 tagEvaluation: null,
                 headingTitles: {},
+                linkCandidates: [],
                 error: handleError(error, 'postprocessExplanationContent', {
                     titleResult,
                     contentLength: rawContent.length
@@ -160,6 +222,7 @@ export const generateNewExplanation = withLogging(
         error: ErrorResponse | null;
         tagEvaluation?: any;
         headingTitles?: Record<string, string>;
+        linkCandidates?: string[];
     }> {
         try {
             // Choose prompt function based on userInputType
@@ -201,8 +264,8 @@ export const generateNewExplanation = withLogging(
                 'llmQuery'
             );
 
-            // Postprocess the content to add links and evaluate tags
-            const { enhancedContent, tagEvaluation, headingTitles, error: postprocessError } = await postprocessNewExplanationContent(
+            // Postprocess the content to add links, evaluate tags, and extract link candidates
+            const { enhancedContent, tagEvaluation, headingTitles, linkCandidates, error: postprocessError } = await postprocessNewExplanationContent(
                 newExplanationContent,
                 titleResult,
                 userid
@@ -213,7 +276,8 @@ export const generateNewExplanation = withLogging(
                     explanationData: null,
                     error: postprocessError,
                     tagEvaluation: undefined,
-                    headingTitles: undefined
+                    headingTitles: undefined,
+                    linkCandidates: undefined
                 };
             }
 
@@ -221,15 +285,16 @@ export const generateNewExplanation = withLogging(
                 explanation_title: titleResult,
                 content: enhancedContent,
             };
-            
+
             const validatedUserQuery = explanationBaseSchema.safeParse(newExplanationData);
-            
+
             if (!validatedUserQuery.success) {
                 return {
                     explanationData: null,
                     error: createValidationError('Generated response does not match user query schema', validatedUserQuery.error),
                     tagEvaluation: undefined,
-                    headingTitles: undefined
+                    headingTitles: undefined,
+                    linkCandidates: undefined
                 };
             }
 
@@ -237,7 +302,8 @@ export const generateNewExplanation = withLogging(
                 explanationData: newExplanationData,
                 error: null,
                 tagEvaluation,
-                headingTitles
+                headingTitles,
+                linkCandidates
             };
         } catch (error) {
             return {
@@ -248,7 +314,8 @@ export const generateNewExplanation = withLogging(
                     additionalRulesCount: additionalRules.length
                 }),
                 tagEvaluation: undefined,
-                headingTitles: undefined
+                headingTitles: undefined,
+                linkCandidates: undefined
             };
         }
     },
@@ -489,7 +556,7 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 isMatchFound = true;
             } else {
                 // Generate new explanation using the extracted function
-                const { explanationData: newExplanationData, error: generationError, tagEvaluation, headingTitles } = await generateNewExplanation(
+                const { explanationData: newExplanationData, error: generationError, tagEvaluation, headingTitles, linkCandidates } = await generateNewExplanation(
                     titleResult,
                     additionalRules,
                     userInputType,
@@ -513,7 +580,7 @@ export const returnExplanationLogic = withLoggingAndTracing(
 
                 // Save the generated explanation
                 const { error: explanationTopicError, id: newExplanationId } = await saveExplanationAndTopic(userInput, newExplanationData!);
-                
+
                 if (explanationTopicError) {
                     return {
                         originalUserInput: userInput,
@@ -551,6 +618,11 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 // Apply tags if evaluation was successful
                 if (tagEvaluation && !tagEvaluation.error) {
                     await applyTagsToExplanation(newExplanationId, tagEvaluation, userid);
+                }
+
+                // Save link candidates for admin approval queue
+                if (linkCandidates && linkCandidates.length > 0) {
+                    await saveCandidatesFromLLM(newExplanationId, newExplanationData!.content, linkCandidates, FILE_DEBUG);
                 }
             }
 
