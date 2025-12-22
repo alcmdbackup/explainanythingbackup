@@ -102,9 +102,53 @@ The skipped tests are covered by:
 
 ## Recommendation
 
-**Short term**: Accept Option E (status quo). The 63 tests in `markdownASTdiff.test.ts` provide comprehensive coverage of the diff algorithm using proper mock AST nodes.
+**Chosen approach**: Option C - Separate ESM Test Runner with tsx
 
-**Medium term**: Consider Option B (Vitest) when the project needs major test infrastructure updates. Vitest is becoming the standard for modern TypeScript projects.
+This enables the 87 skipped tests with real parsing while keeping Jest unchanged.
+
+---
+
+## Implementation Plan
+
+### Phase 1: Create ESM Test File
+1. Create `src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts`
+2. Use Node's built-in test runner (`node:test`) with tsx
+3. Import real `unified` and `remark-parse` (ESM works natively)
+4. Port the 87 skipped fixture tests from `markdownASTdiff.fixtures.test.ts`
+
+### Phase 2: Add npm Script
+Add to `package.json`:
+```json
+"test:esm": "npx tsx --test src/**/*.esm.test.ts"
+```
+
+### Phase 3: Update CI (if applicable)
+Ensure CI runs both:
+```bash
+npm test        # Jest tests (155 passing)
+npm run test:esm  # ESM tests (87 parsing tests)
+```
+
+### Phase 4: Clean Up Original File
+- Remove the `describe.skip` blocks from `markdownASTdiff.fixtures.test.ts`
+- Add comment pointing to the ESM test file
+
+### Files to Create/Modify
+- `src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts` - **New file**
+- `package.json` - Add `test:esm` script
+- `src/editorFiles/markdownASTdiff/markdownASTdiff.fixtures.test.ts` - Remove skipped tests
+- `.github/workflows/*.yml` - Add ESM test step (if CI exists)
+
+### Success Criteria
+- 87 previously-skipped tests now run and pass
+- No changes to existing Jest tests
+- Both test commands work: `npm test` and `npm run test:esm`
+
+---
+
+## Long-term Consideration
+
+Consider Option B (Vitest migration) when the project needs major test infrastructure updates. Vitest has native ESM support and would unify both test runners.
 
 ## Test Coverage Summary
 
