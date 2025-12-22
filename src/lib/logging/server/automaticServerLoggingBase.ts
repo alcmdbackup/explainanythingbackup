@@ -349,29 +349,10 @@ export function withBatchLogging<T extends Record<string, (...args: any[]) => an
 }
 
 /**
- * Automatic logging system initialization
- * Combines module interception, runtime wrapping, and universal interception
+ * Automatic logging system initialization (deprecated)
+ * The auto-interception modules have been removed. This is now a no-op.
  */
 export function initializeAutoLogging() {
-  if (typeof window !== 'undefined') return; // Server-side only
-
-  // Dynamic imports to avoid circular dependencies
-  Promise.all([
-    import('./autoServerLoggingModuleInterceptor').then(m => m.setupServerModuleInterception),
-    import('./autoServerLoggingRuntimeWrapper').then(m => m.setupServerRuntimeWrapping),
-    import('./autoServerLoggingUniversalInterceptor').then(m => m.setupServerUniversalInterception)
-  ]).then(([setupModuleInterception, setupRuntimeWrapping, setupUniversalInterception]) => {
-    // Phase 1: Module interception (70% coverage)
-    setupModuleInterception();
-
-    // Phase 2: Runtime wrapping (20% coverage) - with framework filtering
-    setupRuntimeWrapping();
-
-    // Phase 3: Universal interception (10% coverage) - use with caution
-    // setupUniversalInterception(); // Uncomment for maximum coverage
-
-    console.log('🔧 Automatic logging system initialized - all logging flows through withLogging');
-  }).catch(error => {
-    console.warn('⚠️ Some automatic logging modules not found, continuing with available modules:', error.message);
-  });
+  // No-op: auto-interception modules removed
+  // withLogging wrapper still works for manually wrapped functions
 }
