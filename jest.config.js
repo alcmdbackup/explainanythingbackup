@@ -58,6 +58,7 @@ const config = {
     '/public/',
     'src/__tests__/e2e/',
     'src/__tests__/integration/',
+    '\\.esm\\.test\\.ts$', // ESM tests run via npm run test:esm
   ],
 
   // Verbose output

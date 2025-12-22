@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { DiffTagNodeInline, DiffTagNodeBlock, $isDiffTagNodeInline, $isDiffTagNodeBlock, $isDiffUpdateContainerInline } from './DiffTagNode';
+import { DiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
 import DiffTagInlineControls from './DiffTagInlineControls';
-import { $getNodeByKey } from 'lexical';
+import { acceptDiffTag, rejectDiffTag } from './diffTagMutations';
 
 // Store only nodeKey -> diffType mapping (not element references which can become stale)
 type DiffTagType = 'ins' | 'del' | 'update';
@@ -58,78 +58,13 @@ export default function DiffTagHoverPlugin() {
     };
   }, [editor, scanForDiffTags]);
 
+  // Use the extracted accept/reject functions from diffTagMutations.ts
   const handleAccept = useCallback((nodeKey: string) => {
-    editor.update(() => {
-      const node = $getNodeByKey(nodeKey);
-      if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-        const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
-
-        if (tag === 'ins') {
-          // Accept insertion: keep content, remove diff tag
-          const children = node.getChildren();
-          children.forEach(child => {
-            node.insertBefore(child);
-          });
-          node.remove();
-        } else if (tag === 'del') {
-          // Accept deletion: remove the entire node
-          node.remove();
-        } else if (tag === 'update') {
-          // Accept update: keep the second child (after text), remove first child and diff tag
-          const children = node.getChildren();
-          if (children.length >= 2) {
-            const afterContent = children[1];
-
-            if ($isDiffUpdateContainerInline(afterContent)) {
-              const containerChildren = afterContent.getChildren();
-              containerChildren.forEach(child => {
-                node.insertBefore(child);
-              });
-            } else {
-              node.insertBefore(afterContent);
-            }
-          }
-          node.remove();
-        }
-      }
-    });
+    acceptDiffTag(editor, nodeKey);
   }, [editor]);
 
   const handleReject = useCallback((nodeKey: string) => {
-    editor.update(() => {
-      const node = $getNodeByKey(nodeKey);
-      if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-        const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
-
-        if (tag === 'ins') {
-          // Reject insertion: remove the entire node
-          node.remove();
-        } else if (tag === 'del') {
-          // Reject deletion: keep content, remove diff tag
-          const children = node.getChildren();
-          children.forEach(child => {
-            node.insertBefore(child);
-          });
-          node.remove();
-        } else if (tag === 'update') {
-          // Reject update: keep the first child (before text), remove second child and diff tag
-          const children = node.getChildren();
-          if (children.length >= 1) {
-            const beforeContent = children[0];
-
-            if ($isDiffUpdateContainerInline(beforeContent)) {
-              const containerChildren = beforeContent.getChildren();
-              containerChildren.forEach(child => {
-                node.insertBefore(child);
-              });
-            } else {
-              node.insertBefore(beforeContent);
-            }
-          }
-          node.remove();
-        }
-      }
-    });
+    rejectDiffTag(editor, nodeKey);
   }, [editor]);
 
   // Re-query elements fresh on each render to avoid stale references
