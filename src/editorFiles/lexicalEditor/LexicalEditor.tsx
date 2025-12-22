@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 'use client';
 
-import { $getRoot} from 'lexical';
+import { $getRoot, $isTextNode, $createTextNode, TextNode, LexicalNode } from 'lexical';
+import { $dfs } from '@lexical/utils';
+import { $isLinkNode } from '@lexical/link';
+import { $isHeadingNode } from '@lexical/rich-text';
 import { useState, useCallback, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { OnChangePlugin } from '@lexical/react/LexicalOnChangePlugin';
@@ -41,12 +44,24 @@ import { MarkNode } from '@lexical/mark';
 
 // Import custom DiffTagNodeInline and CriticMarkup transformer
 import { DiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from './DiffTagNode';
-import { StandaloneTitleLinkNode } from './StandaloneTitleLinkNode';
+import { StandaloneTitleLinkNode, $createStandaloneTitleLinkNode, $isStandaloneTitleLinkNode } from './StandaloneTitleLinkNode';
 import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS, exportMarkdownReadOnly } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 import { TextRevealPlugin } from './TextRevealPlugin';
 import { TextRevealEffect } from '@/lib/textRevealAnimations';
+import { getLinkDataForLexicalOverlayAction, type LexicalLinkOverlayData } from '@/actions/actions';
+
+/**
+ * Encodes a URL parameter for use in standalone title links
+ * Duplicated from links.ts to avoid server-only import chain
+ */
+function encodeStandaloneTitleParam(title: string): string {
+  let encoded = encodeURIComponent(title);
+  // Additionally encode parentheses which break markdown link parsing
+  encoded = encoded.replace(/\(/g, '%28').replace(/\)/g, '%29');
+  return encoded;
+}
 
 
 
@@ -225,6 +240,7 @@ export interface LexicalEditorRef {
   setEditMode: (isEditMode: boolean) => void;
   getEditMode: () => boolean;
   focus: () => void;
+  applyLinkOverlay: (explanationId: number) => Promise<void>;
 }
 
 const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
@@ -449,6 +465,203 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
       if (editor) {
         editor.focus();
       }
+    },
+    applyLinkOverlay: async (explanationId: number) => {
+      if (!explanationId) {
+        console.log('📝 LexicalEditor.applyLinkOverlay: No explanationId provided, skipping');
+        return;
+      }
+
+      if (!editor) {
+        console.log('📝 LexicalEditor.applyLinkOverlay: Editor not ready');
+        return;
+      }
+
+      console.log('📝 LexicalEditor.applyLinkOverlay: Fetching link data for explanationId:', explanationId);
+
+      // Fetch link data OUTSIDE editor.update()
+      const linkData = await getLinkDataForLexicalOverlayAction({ explanationId });
+
+      console.log('📝 LexicalEditor.applyLinkOverlay: Received link data', {
+        headingLinks: linkData.headingLinks.length,
+        whitelistTerms: linkData.whitelistTerms.length,
+        overrides: linkData.overrides.length
+      });
+
+      // Build lookup maps for efficient access
+      const headingLinkMap = new Map(
+        linkData.headingLinks.map(h => [h.headingTextLower, h.standaloneTitle])
+      );
+
+      const overrideMap = new Map(
+        linkData.overrides.map(o => [o.termLower, o])
+      );
+
+      // Sort terms by length (longest first) for proper matching
+      const sortedTerms = [...linkData.whitelistTerms].sort(
+        (a, b) => b.termLower.length - a.termLower.length
+      );
+
+      // All DOM mutations in ONE update call
+      editor.update(() => {
+        const matchedTerms = new Set<string>(); // First-occurrence tracking
+        const nodes = $dfs($getRoot());
+
+        // Helper: Check if node is inside a link
+        const isInsideLinkNode = (node: LexicalNode): boolean => {
+          let parent = node.getParent();
+          while (parent !== null) {
+            if ($isLinkNode(parent) || $isStandaloneTitleLinkNode(parent)) {
+              return true;
+            }
+            parent = parent.getParent();
+          }
+          return false;
+        };
+
+        // Helper: Check word boundaries
+        const isWordBoundary = (content: string, startIndex: number, endIndex: number): boolean => {
+          const isBoundary = (char: string) => /[\s.,;:!?()\[\]{}'\"<>\/]/.test(char);
+          const beforeOk = startIndex === 0 || isBoundary(content[startIndex - 1]);
+          const afterOk = endIndex >= content.length || isBoundary(content[endIndex]);
+          return beforeOk && afterOk;
+        };
+
+        // Helper: Wrap a match in a StandaloneTitleLinkNode
+        const wrapMatchInLink = (textNode: TextNode, startIndex: number, endIndex: number, standaloneTitle: string): void => {
+          const textLength = textNode.getTextContentSize();
+          const url = `/standalone-title?t=${encodeStandaloneTitleParam(standaloneTitle)}`;
+
+          if (startIndex === 0 && endIndex === textLength) {
+            // Entire node - create clone, wrap in link, replace
+            const clone = $createTextNode(textNode.getTextContent());
+            clone.setFormat(textNode.getFormat());
+            const linkNode = $createStandaloneTitleLinkNode(url);
+            linkNode.append(clone);
+            textNode.replace(linkNode);
+          } else if (startIndex === 0) {
+            // Match at start: splitText returns [match, after]
+            const [match] = textNode.splitText(endIndex);
+            const linkNode = $createStandaloneTitleLinkNode(url);
+            linkNode.append(match);
+            match.replace(linkNode);
+          } else if (endIndex === textLength) {
+            // Match at end: splitText returns [before, match]
+            const parts = textNode.splitText(startIndex);
+            const match = parts[1];
+            const linkNode = $createStandaloneTitleLinkNode(url);
+            linkNode.append(match);
+            match.replace(linkNode);
+          } else {
+            // Match in middle: splitText returns [before, match, after]
+            const parts = textNode.splitText(startIndex, endIndex);
+            const match = parts[1];
+            const linkNode = $createStandaloneTitleLinkNode(url);
+            linkNode.append(match);
+            match.replace(linkNode);
+          }
+        };
+
+        // Process heading nodes first
+        for (const { node } of nodes) {
+          if ($isHeadingNode(node)) {
+            const headingText = node.getTextContent().trim().toLowerCase();
+            const standaloneTitle = headingLinkMap.get(headingText);
+
+            if (standaloneTitle) {
+              // Wrap all text children of the heading in a link
+              const children = node.getChildren();
+              for (const child of children) {
+                if ($isTextNode(child) && !isInsideLinkNode(child)) {
+                  const url = `/standalone-title?t=${encodeStandaloneTitleParam(standaloneTitle)}`;
+                  const clone = $createTextNode(child.getTextContent());
+                  clone.setFormat(child.getFormat());
+                  const linkNode = $createStandaloneTitleLinkNode(url);
+                  linkNode.append(clone);
+                  child.replace(linkNode);
+                }
+              }
+            }
+          }
+        }
+
+        // Re-traverse for term matching (headings may have changed structure)
+        const nodesForTerms = $dfs($getRoot());
+
+        for (const { node } of nodesForTerms) {
+          if (!$isTextNode(node) || isInsideLinkNode(node)) {
+            continue;
+          }
+
+          const textContent = node.getTextContent();
+          const textContentLower = textContent.toLowerCase();
+
+          // Find all matches in this text node
+          interface Match {
+            startIndex: number;
+            endIndex: number;
+            standaloneTitle: string;
+            termLower: string;
+          }
+          const matches: Match[] = [];
+
+          for (const term of sortedTerms) {
+            // Skip if already matched this term
+            if (matchedTerms.has(term.termLower)) continue;
+
+            // Check override
+            const override = overrideMap.get(term.termLower);
+            if (override?.type === 'disabled') {
+              matchedTerms.add(term.termLower);
+              continue;
+            }
+
+            // Find occurrence
+            const index = textContentLower.indexOf(term.termLower);
+            if (index === -1) continue;
+
+            const endIndex = index + term.termLower.length;
+
+            // Check word boundaries
+            if (!isWordBoundary(textContent, index, endIndex)) continue;
+
+            // Check for overlaps with existing matches
+            const overlaps = matches.some(
+              m => !(endIndex <= m.startIndex || index >= m.endIndex)
+            );
+            if (overlaps) continue;
+
+            // Valid match
+            const standaloneTitle = override?.type === 'custom_title' && override.customTitle
+              ? override.customTitle
+              : term.standaloneTitle;
+
+            matches.push({
+              startIndex: index,
+              endIndex,
+              standaloneTitle,
+              termLower: term.termLower
+            });
+
+            matchedTerms.add(term.termLower);
+          }
+
+          // Process matches right-to-left to avoid index drift
+          matches.sort((a, b) => b.startIndex - a.startIndex);
+
+          let currentNode: TextNode | null = node;
+          for (const match of matches) {
+            if (currentNode) {
+              wrapMatchInLink(currentNode, match.startIndex, match.endIndex, match.standaloneTitle);
+              // After wrapping, currentNode is no longer valid for further operations
+              // Each match should be processed on the original indices
+              currentNode = null;
+            }
+          }
+        }
+
+        console.log('📝 LexicalEditor.applyLinkOverlay: Complete, matched terms:', matchedTerms.size);
+      });
     }
   }), [editor, internalMarkdownMode, internalEditMode]);
 
