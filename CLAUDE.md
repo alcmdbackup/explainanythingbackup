@@ -1,4 +1,5 @@
 # My defaults
+- Always start by reading /docs/docs_overall/getting_started.md
 - Always prioritize being concise even a the expense of grammar
 - Always prefer to re-use existing code rather than writing new code.
 - After every code block you write, lint, compile and write corresponding tests and run them before writing the next code block. 
