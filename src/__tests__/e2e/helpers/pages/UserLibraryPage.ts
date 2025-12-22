@@ -133,7 +133,7 @@ export class UserLibraryPage extends BasePage {
    */
   async waitForLibraryReady(timeout = 30000): Promise<'loaded' | 'empty' | 'error'> {
     const table = this.page.locator('table');
-    const emptyState = this.page.locator('.scholar-card:has-text("Begin Exploring")');
+    const emptyState = this.page.locator('.scholar-card:has-text("Start exploring")');
     const error = this.page.locator('.bg-red-100');
 
     const result = await Promise.race([

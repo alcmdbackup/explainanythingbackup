@@ -24,8 +24,8 @@ import { login, signup } from './actions';
 import { loginSchema, type LoginInput } from './validation';
 
 /**
- * Login Page - Library Entry
- * Midnight Scholar theme - Elegant authentication experience
+ * Login Page
+ * Elegant authentication experience
  */
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
@@ -111,12 +111,12 @@ export default function LoginPage() {
         <Card className="scholar-card">
           <CardHeader className="space-y-1 text-center">
             <CardTitle className="text-xl font-display">
-              {isSignup ? 'Join the Library' : 'Enter the Library'}
+              {isSignup ? 'Create account' : 'Sign in'}
             </CardTitle>
-            <CardDescription className="font-serif italic">
+            <CardDescription className="font-serif">
               {isSignup
-                ? 'Create your scholarly account'
-                : 'Welcome back, scholar'}
+                ? 'Create your account'
+                : 'Welcome back'}
             </CardDescription>
           </CardHeader>
 
@@ -146,7 +146,7 @@ export default function LoginPage() {
                   id="email"
                   data-testid="login-email"
                   type="email"
-                  placeholder="scholar@example.com"
+                  placeholder="you@example.com"
                   disabled={isLoading}
                   {...register('email')}
                   aria-invalid={!!errors.email}
@@ -234,10 +234,10 @@ export default function LoginPage() {
                 {isLoading ? (
                   <>
                     <Spinner variant="quill" size={16} className="mr-2" />
-                    {isSignup ? 'Creating account...' : 'Entering...'}
+                    {isSignup ? 'Creating account...' : 'Signing in...'}
                   </>
                 ) : (
-                  <>{isSignup ? 'Create Account' : 'Enter the Library'}</>
+                  <>{isSignup ? 'Create Account' : 'Sign in'}</>
                 )}
               </Button>
 
@@ -258,7 +258,7 @@ export default function LoginPage() {
                 onClick={() => setIsSignup(!isSignup)}
                 disabled={isLoading}
               >
-                {isSignup ? 'Already a member? Enter' : 'New here? Join us'}
+                {isSignup ? 'Already have an account? Sign in' : 'New here? Create account'}
               </Button>
             </CardFooter>
           </form>

@@ -17,13 +17,6 @@ interface NavigationProps {
 
 /**
  * Reusable navigation component with optional search bar
- * Midnight Scholar theme - Library header aesthetic
- *
- * Features:
- * - Elegant serif logo with gold accent
- * - Gold underline hover animations on links
- * - Integrated search bar with scholarly styling
- * - Dark mode support with lamplight accents
  */
 export default function Navigation({
     showSearchBar = true,
@@ -56,7 +49,7 @@ export default function Navigation({
                         <div className="flex-1 max-w-lg mx-8">
                             <SearchBar
                                 variant="nav"
-                                placeholder="Search the archives..."
+                                placeholder="Search..."
                                 maxLength={100}
                                 {...searchBarProps}
                             />
@@ -75,7 +68,7 @@ export default function Navigation({
                             href="/userlibrary"
                             className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
                         >
-                            My Library
+                            Saved
                         </Link>
                         <Link
                             href="/explanations"

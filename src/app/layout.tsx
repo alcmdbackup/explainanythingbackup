@@ -3,7 +3,7 @@ import { Playfair_Display, Source_Serif_4, DM_Sans, JetBrains_Mono } from "next/
 import "./globals.css";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 
-// Midnight Scholar Typography
+// Typography
 const playfairDisplay = Playfair_Display({
   variable: "--font-playfair",
   subsets: ["latin"],

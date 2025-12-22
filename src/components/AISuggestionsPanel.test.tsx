@@ -79,15 +79,6 @@ describe('AISuggestionsPanel', () => {
       expect(screen.getByRole('button', { name: /get suggestions/i })).toBeInTheDocument();
     });
 
-    it('should render instructions text', () => {
-      const props = createMockAISuggestionsPanelProps();
-      render(<AISuggestionsPanel {...props} />);
-
-      expect(screen.getByText(/describe the improvements you'd like to see/i)).toBeInTheDocument();
-      expect(screen.getByText(/ai will analyze and enhance your content/i)).toBeInTheDocument();
-      expect(screen.getByText(/changes will be applied directly to your manuscript/i)).toBeInTheDocument();
-    });
-
     it('should apply theme styling classes', () => {
       const props = createMockAISuggestionsPanelProps();
       const { container } = render(<AISuggestionsPanel {...props} />);
@@ -426,7 +417,7 @@ describe('AISuggestionsPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
-        expect(screen.getByText(/Your manuscript has been updated with scholarly suggestions/i)).toBeInTheDocument();
+        expect(screen.getByText(/Your content has been updated with AI suggestions/i)).toBeInTheDocument();
       });
     });
 
@@ -624,7 +615,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('The Scholar is Writing...')).toBeInTheDocument();
+        expect(screen.getByText('Processing...')).toBeInTheDocument();
       });
     });
 
@@ -696,7 +687,7 @@ describe('AISuggestionsPanel', () => {
         expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
-      expect(screen.queryByText('The Scholar is Writing...')).not.toBeInTheDocument();
+      expect(screen.queryByText('Processing...')).not.toBeInTheDocument();
     });
   });
 

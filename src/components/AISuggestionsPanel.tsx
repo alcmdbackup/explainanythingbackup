@@ -24,8 +24,7 @@ interface ProgressState {
 }
 
 /**
- * AI Suggestions Panel - Marginalia Sidebar
- * Midnight Scholar theme - styled as scholarly marginalia notes
+ * AI Suggestions Panel - Sidebar for AI-powered editing
  */
 export default function AISuggestionsPanel({
   isVisible,
@@ -186,7 +185,7 @@ export default function AISuggestionsPanel({
           />
         </div>
 
-        {/* Submit Button - Scholar style */}
+        {/* Submit Button */}
         <button
           onClick={handleSubmit}
           disabled={isLoading || !userPrompt.trim() || !currentContent.trim()}
@@ -215,7 +214,7 @@ export default function AISuggestionsPanel({
             <div className="flex items-center mb-3">
               <Spinner variant="quill" size={20} className="mr-2" />
               <span className="text-sm font-sans font-medium text-[var(--accent-gold)]">
-                The Scholar is Writing...
+                Processing...
               </span>
             </div>
             <p className="text-sm font-serif italic text-[var(--text-muted)] mb-3">
@@ -233,7 +232,7 @@ export default function AISuggestionsPanel({
           </div>
         )}
 
-        {/* Error Display - Scholarly warning */}
+        {/* Error Display */}
         {error && (
           <div className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page p-4">
             <div className="flex items-center">
@@ -250,7 +249,7 @@ export default function AISuggestionsPanel({
           </div>
         )}
 
-        {/* Success Message - Scholarly confirmation */}
+        {/* Success Message */}
         {lastResult?.success && !isLoading && (
           <div className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page p-4">
             <div className="flex items-center">
@@ -262,7 +261,7 @@ export default function AISuggestionsPanel({
               </span>
             </div>
             <p className="text-sm font-serif text-[var(--text-secondary)] mt-2">
-              Your manuscript has been updated with scholarly suggestions.
+              Your content has been updated with AI suggestions.
             </p>
             {process.env.NODE_ENV === 'development' && lastResult.session_id && sessionData && (
               <div className="mt-3">
@@ -282,26 +281,6 @@ export default function AISuggestionsPanel({
           </div>
         )}
 
-        {/* Instructions - Scholarly tips */}
-        <div className="border-t border-[var(--border-default)] pt-4 mt-4">
-          <h4 className="text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
-            Scholarly Notes
-          </h4>
-          <ul className="text-xs font-serif text-[var(--text-muted)] space-y-1.5">
-            <li className="flex items-start gap-1.5">
-              <span className="text-[var(--accent-gold)]">•</span>
-              <span>Describe the improvements you&apos;d like to see</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="text-[var(--accent-gold)]">•</span>
-              <span>The AI will analyze and enhance your content</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="text-[var(--accent-gold)]">•</span>
-              <span>Changes will be applied directly to your manuscript</span>
-            </li>
-          </ul>
-        </div>
       </div>
     </div>
   );
