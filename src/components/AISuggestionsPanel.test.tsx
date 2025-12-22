@@ -426,7 +426,7 @@ describe('AISuggestionsPanel', () => {
 
       await waitFor(() => {
         expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
-        expect(screen.getByText(/Your manuscript has been updated with scholarly suggestions/i)).toBeInTheDocument();
+        expect(screen.getByText(/Your content has been updated with AI suggestions/i)).toBeInTheDocument();
       });
     });
 
@@ -624,7 +624,7 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(button);
 
       await waitFor(() => {
-        expect(screen.getByText('The Scholar is Writing...')).toBeInTheDocument();
+        expect(screen.getByText('Processing...')).toBeInTheDocument();
       });
     });
 
@@ -696,7 +696,7 @@ describe('AISuggestionsPanel', () => {
         expect(screen.getByText('Revisions Applied')).toBeInTheDocument();
       });
 
-      expect(screen.queryByText('The Scholar is Writing...')).not.toBeInTheDocument();
+      expect(screen.queryByText('Processing...')).not.toBeInTheDocument();
     });
   });
 

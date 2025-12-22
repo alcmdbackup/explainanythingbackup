@@ -28,10 +28,10 @@ describe('LoginPage', () => {
     it('should render login form with card', () => {
       render(<LoginPage />);
 
-      // Title and submit button both say "Enter the Library"
-      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
+      // Title and submit button both say "Sign in"
+      expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0);
       expect(
-        screen.getByText('Welcome back, scholar')
+        screen.getByText('Welcome back')
       ).toBeInTheDocument();
     });
 
@@ -53,10 +53,10 @@ describe('LoginPage', () => {
       expect(passwordInput).toHaveAttribute('id', 'password');
     });
 
-    it('should render enter the library button', () => {
+    it('should render sign in button', () => {
       render(<LoginPage />);
 
-      const loginButton = screen.getByRole('button', { name: /enter the library/i });
+      const loginButton = screen.getByRole('button', { name: /sign in/i });
       expect(loginButton).toBeInTheDocument();
     });
 
@@ -64,7 +64,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupButton = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       expect(signupButton).toBeInTheDocument();
     });
@@ -174,7 +174,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
@@ -199,7 +199,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
@@ -216,16 +216,16 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       // Verify we start in login mode
-      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
-      expect(screen.getByText('Join the Library')).toBeInTheDocument();
+      expect(screen.getByText('Create account')).toBeInTheDocument();
       expect(
-        screen.getByText('Create your scholarly account')
+        screen.getByText('Create your account')
       ).toBeInTheDocument();
     });
 
@@ -234,16 +234,16 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
       const loginToggle = screen.getByRole('button', {
-        name: /already a member\? enter/i,
+        name: /already have an account\? sign in/i,
       });
       await user.click(loginToggle);
 
-      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
+      expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0);
     });
   });
 

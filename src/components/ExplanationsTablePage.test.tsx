@@ -102,7 +102,7 @@ describe('ExplanationsTablePage', () => {
 
     it('should use default pageTitle when not provided', () => {
       render(<ExplanationsTablePage explanations={[]} error={null} />);
-      expect(screen.getByText('The Archives')).toBeInTheDocument();
+      expect(screen.getByText('Explore')).toBeInTheDocument();
     });
 
     it('should render table headers', () => {
