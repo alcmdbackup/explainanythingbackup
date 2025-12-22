@@ -52,6 +52,9 @@ function EditorTestPageContent() {
     // Validation state for preprocessed step
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
 
+    // Export fixture state
+    const [fixtureExported, setFixtureExported] = useState<boolean>(false);
+
     // Pipeline function state
     const [isPipelineRunning, setIsPipelineRunning] = useState<boolean>(false);
     const [pipelineError, setPipelineError] = useState<string>('');
@@ -748,6 +751,53 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         }
     };
 
+    // Handle exporting current pipeline state as a test fixture
+    const handleExportAsFixture = async () => {
+        if (!currentContent || !appliedEdits || !markdownASTDiffResult || !preprocessedMarkdown) {
+            alert('Please complete all pipeline steps before exporting a fixture.');
+            return;
+        }
+
+        // Count diff operations in the CriticMarkup
+        const insCount = (markdownASTDiffResult.match(/\{\+\+/g) || []).length;
+        const delCount = (markdownASTDiffResult.match(/\{--/g) || []).length;
+        const updateCount = (markdownASTDiffResult.match(/\{~~/g) || []).length;
+        const totalOperations = insCount + delCount + updateCount;
+
+        // Determine expected diff types
+        const expectedDiffTypes: string[] = [];
+        if (insCount > 0) expectedDiffTypes.push('ins');
+        if (delCount > 0) expectedDiffTypes.push('del');
+        if (updateCount > 0) expectedDiffTypes.push('update');
+
+        // Generate fixture JSON
+        const fixture = {
+            name: '',
+            description: '',
+            category: '',
+            originalMarkdown: currentContent,
+            editedMarkdown: appliedEdits,
+            expectedStep3Output: markdownASTDiffResult,
+            expectedStep4Output: preprocessedMarkdown,
+            expectedDiffNodeCount: totalOperations,
+            expectedDiffTypes: expectedDiffTypes
+        };
+
+        const fixtureJson = JSON.stringify(fixture, null, 2);
+
+        try {
+            await navigator.clipboard.writeText(fixtureJson);
+            setFixtureExported(true);
+            console.log('Fixture exported to clipboard:', fixtureJson);
+
+            // Reset feedback after 3 seconds
+            setTimeout(() => setFixtureExported(false), 3000);
+        } catch (error) {
+            console.error('Failed to copy fixture to clipboard:', error);
+            alert('Failed to copy fixture to clipboard. Check console for the JSON.');
+        }
+    };
+
     // Handle running the complete AI pipeline
     const handleRunPipeline = async () => {
         if (!currentContent.trim()) {
@@ -1389,7 +1439,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                             </pre>
                                         </div>
 
-                                        <div className="mt-4">
+                                        <div className="mt-4 flex flex-wrap gap-2 items-center">
                                             <button
                                                 onClick={handleUpdateEditorWithMarkdown}
                                                 disabled={!preprocessedMarkdown}
@@ -1401,7 +1451,23 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                             >
                                                 Update Editor Window with Markdown
                                             </button>
+                                            <button
+                                                onClick={handleExportAsFixture}
+                                                disabled={!currentContent || !appliedEdits || !markdownASTDiffResult || !preprocessedMarkdown}
+                                                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                    !currentContent || !appliedEdits || !markdownASTDiffResult || !preprocessedMarkdown
+                                                        ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                        : 'bg-green-600 hover:bg-green-700 text-white'
+                                                }`}
+                                            >
+                                                {fixtureExported ? 'Copied to Clipboard!' : 'Export as Fixture'}
+                                            </button>
                                         </div>
+                                        {fixtureExported && (
+                                            <p className="mt-2 text-xs text-green-600 dark:text-green-400">
+                                                Fixture JSON copied! Paste into editor-test-helpers.ts AI_PIPELINE_FIXTURES.
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>
