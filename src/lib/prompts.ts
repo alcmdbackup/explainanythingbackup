@@ -120,6 +120,47 @@ Example format:
 }
 
 /**
+ * Creates a prompt for LLM to extract link candidates from article content
+ *
+ * • Takes article content and title as input
+ * • Instructs LLM to identify 5-15 educational terms
+ * • Criteria: standalone-worthy, not too generic, not the main topic
+ * • Forces structured JSON response
+ * • Used by extractLinkCandidates in returnExplanation for candidate generation
+ *
+ * @param content - The article content to analyze
+ * @param articleTitle - The title of the article (to exclude from candidates)
+ * @returns A formatted prompt string for LLM processing
+ */
+export function createLinkCandidatesPrompt(content: string, articleTitle: string): string {
+  return `Analyze the following encyclopedia article and identify 5-15 terms that would make good encyclopedia links.
+
+Article Title: "${articleTitle}"
+
+Article Content:
+${content}
+
+Select terms that:
+1. Are educational concepts readers might want to learn more about
+2. Could be standalone encyclopedia articles themselves
+3. Are specific enough (avoid generic words like "example", "process", "system", "method")
+4. Are NOT the article's main topic ("${articleTitle}" or close variants)
+5. Appear in the article content
+
+Return your response as a JSON object with a "candidates" array containing the terms.
+
+Example format:
+{
+  "candidates": [
+    "quantum entanglement",
+    "photon",
+    "wave function",
+    "Heisenberg uncertainty principle"
+  ]
+}`;
+}
+
+/**
  * Creates a prompt for LLM to select the best match from a list of potential sources
  * 
  * • Takes user query and formatted matches as input
