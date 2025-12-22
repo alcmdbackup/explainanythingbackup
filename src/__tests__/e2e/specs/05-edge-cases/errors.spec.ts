@@ -80,15 +80,18 @@ test.describe('Error Handling', () => {
       await resultsPage.waitForError(30000);
       console.log('[E2E-DEBUG] Error element appeared');
 
-      // Verify error is displayed
-      const isErrorVisible = await resultsPage.isErrorVisible();
-      console.log('[E2E-DEBUG] isErrorVisible:', isErrorVisible);
-      expect(isErrorVisible).toBe(true);
+      // Verify error is displayed and contains expected message
+      // Use toPass for resilience against timing issues (HMR, state resets)
+      await expect(async () => {
+        const isErrorVisible = await resultsPage.isErrorVisible();
+        console.log('[E2E-DEBUG] isErrorVisible:', isErrorVisible);
+        expect(isErrorVisible).toBe(true);
 
-      // Verify error message content
-      const errorMessage = await resultsPage.getErrorMessage();
-      console.log('[E2E-DEBUG] errorMessage:', errorMessage);
-      expect(errorMessage).toContain('Stream interrupted');
+        const errorMessage = await resultsPage.getErrorMessage();
+        console.log('[E2E-DEBUG] errorMessage:', errorMessage);
+        expect(errorMessage).not.toBeNull();
+        expect(errorMessage).toContain('Stream interrupted');
+      }).toPass({ timeout: 5000 });
     });
   });
 
