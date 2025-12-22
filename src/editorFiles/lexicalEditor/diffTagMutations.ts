@@ -19,8 +19,9 @@ import {
  * - del: Remove the entire node (accept the deletion)
  * - update: Keep the "after" content (second child), remove the rest
  */
-export function acceptDiffTag(editor: LexicalEditor, nodeKey: string): void {
-  editor.update(() => {
+export function acceptDiffTag(editor: LexicalEditor, nodeKey: string): Promise<void> {
+  return new Promise((resolve) => {
+    editor.update(() => {
     const node = $getNodeByKey(nodeKey);
     if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
       const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
@@ -53,6 +54,7 @@ export function acceptDiffTag(editor: LexicalEditor, nodeKey: string): void {
         node.remove();
       }
     }
+    }, { discrete: true, onUpdate: resolve });
   });
 }
 
@@ -63,8 +65,9 @@ export function acceptDiffTag(editor: LexicalEditor, nodeKey: string): void {
  * - del: Keep the deleted content, remove the diff wrapper
  * - update: Keep the "before" content (first child), remove the rest
  */
-export function rejectDiffTag(editor: LexicalEditor, nodeKey: string): void {
-  editor.update(() => {
+export function rejectDiffTag(editor: LexicalEditor, nodeKey: string): Promise<void> {
+  return new Promise((resolve) => {
+    editor.update(() => {
     const node = $getNodeByKey(nodeKey);
     if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
       const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
@@ -97,5 +100,6 @@ export function rejectDiffTag(editor: LexicalEditor, nodeKey: string): void {
         node.remove();
       }
     }
+    }, { discrete: true, onUpdate: resolve });
   });
 }
