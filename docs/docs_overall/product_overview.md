@@ -22,7 +22,7 @@ ExplainAnything is an AI-powered publishing and discovery platform that produces
 - Real-time streaming for instant feedback during generation
 
 ### Content Management
-- Rich markdown with LaTeX math support
+- Rich markdown with LaTeX math support (in development)
 - Toggle between display and edit modes
 - AI-assisted editing with diff visualization (in development)
 - Save to personal library
