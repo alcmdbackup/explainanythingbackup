@@ -65,8 +65,8 @@ await editorRef.current?.applyLinkOverlay(explanationId);
 ### Preconditions
 
 - **`explanationId` required**: If no `explanationId` is provided, `applyLinkOverlay()` returns early without applying links
-- New/unsaved explanations have no ID yet - links will be applied after first save
-- This prevents errors when fetching heading links or overrides from DB
+- Both draft and published explanations have IDs - links work for drafts too
+- The `explanationId` check handles edge cases where the editor is used without an explanation context
 
 ### Implementation
 
@@ -101,6 +101,131 @@ The `applyLinkOverlay()` function will:
 - `$createStandaloneTitleLinkNode(url)` factory
 - `$isStandaloneTitleLinkNode(node)` type guard
 - Custom click handler for `/standalone-title?t=` URLs
+
+### Implementation Details
+
+#### Checking LinkNode Ancestry
+
+To skip TextNodes already inside a link, traverse ancestors:
+
+```typescript
+function isInsideLinkNode(node: LexicalNode): boolean {
+  let parent = node.getParent();
+  while (parent !== null) {
+    if ($isLinkNode(parent) || $isStandaloneTitleLinkNode(parent)) {
+      return true;
+    }
+    parent = parent.getParent();
+  }
+  return false;
+}
+```
+
+#### Handling Multiple Matches in One TextNode
+
+Process matches **right-to-left** within each TextNode to avoid index drift:
+
+```typescript
+// Within editor.update():
+const textContent = textNode.getTextContent();
+const matches = findAllMatches(textContent, terms); // Returns sorted by startIndex
+
+// Process from end to start
+for (let i = matches.length - 1; i >= 0; i--) {
+  const match = matches[i];
+  wrapMatchInLink(textNode, match.startIndex, match.endIndex, match.url);
+}
+```
+
+#### TextNode.splitText() Edge Cases
+
+`splitText()` returns different array lengths based on split positions:
+
+```typescript
+function wrapMatchInLink(
+  textNode: TextNode,
+  startIndex: number,
+  endIndex: number,
+  url: string
+): void {
+  const textLength = textNode.getTextContentSize();
+
+  if (startIndex === 0 && endIndex === textLength) {
+    // Entire node is the match - wrap without splitting
+    const linkNode = $createStandaloneTitleLinkNode(url);
+    linkNode.append(textNode);
+    textNode.replace(linkNode); // Wrong - textNode is now child
+    // Correct approach:
+    const clone = $createTextNode(textNode.getTextContent());
+    const linkNode = $createStandaloneTitleLinkNode(url);
+    linkNode.append(clone);
+    textNode.replace(linkNode);
+  } else if (startIndex === 0) {
+    // Match at start: splitText returns [match, after]
+    const [match, after] = textNode.splitText(endIndex);
+    const linkNode = $createStandaloneTitleLinkNode(url);
+    linkNode.append(match);
+    match.replace(linkNode);
+  } else if (endIndex === textLength) {
+    // Match at end: splitText returns [before, match]
+    const [before, match] = textNode.splitText(startIndex);
+    const linkNode = $createStandaloneTitleLinkNode(url);
+    linkNode.append(match);
+    match.replace(linkNode);
+  } else {
+    // Match in middle: splitText returns [before, match, after]
+    const [before, match, after] = textNode.splitText(startIndex, endIndex);
+    const linkNode = $createStandaloneTitleLinkNode(url);
+    linkNode.append(match);
+    match.replace(linkNode);
+  }
+}
+```
+
+#### Heading Matching at Lexical Level
+
+Headings in Lexical are `HeadingNode` elements (not markdown `##` prefixed). Match against stored titles:
+
+```typescript
+// Heading links from DB: { headingText: "Machine Learning", standaloneTitle: "..." }
+// In Lexical tree, find HeadingNode and match its text content
+
+const nodes = $dfs($getRoot());
+nodes.forEach(({ node }) => {
+  if ($isHeadingNode(node)) {
+    const headingText = node.getTextContent().trim();
+    const headingLink = headingLinks.find(h => h.headingText === headingText);
+    if (headingLink) {
+      // Wrap all text children in link
+      wrapHeadingContent(node, headingLink.standaloneTitle);
+    }
+  }
+});
+```
+
+#### Transaction Batching
+
+All modifications must occur in a single `editor.update()` call:
+
+```typescript
+async applyLinkOverlay(explanationId: number): Promise<void> {
+  if (!explanationId) return;
+
+  // Fetch data OUTSIDE editor.update()
+  const linkData = await getLinkDataForLexicalOverlayAction(explanationId);
+
+  // All DOM mutations in ONE update call
+  editor.update(() => {
+    const matchedTerms = new Set<string>(); // First-occurrence tracking
+    const nodes = $dfs($getRoot());
+
+    for (const { node } of nodes) {
+      if ($isTextNode(node) && !isInsideLinkNode(node)) {
+        processTextNode(node, linkData, matchedTerms);
+      }
+    }
+  });
+}
 
 ## Design Decisions
 
@@ -150,15 +275,30 @@ When content with links inside DiffTagNodeInline is exported:
 2. For link children: returns `[text](url)`
 3. Wrapped in CriticMarkup: `{++[Machine Learning](/standalone-title?t=...)++}`
 
-**Required fix**: `exportNodeToMarkdown()` in `DiffTagNode.ts` needs to handle `standalone-title-link` node type:
+**Required fix**: `exportNodeToMarkdown()` in `DiffTagNode.ts` needs to handle `standalone-title-link` node type.
+
+The current implementation has a complex structure handling containers, headings, lists, etc. The fix must:
+1. Add `standalone-title-link` to the existing `link` case
+2. Use `node.getURL()` method (inherited from LinkNode)
+3. Preserve URL encoding (already encoded in the URL)
 
 ```typescript
-// Current (only handles 'link')
-if (nodeType === 'link') { ... }
+// Current (around line 170 in DiffTagNode.ts)
+if (nodeType === 'link') {
+  const text = node.getTextContent();
+  const url = node.getURL();
+  return `[${text}](${url})`;
+}
 
-// Updated (handles both)
-if (nodeType === 'link' || nodeType === 'standalone-title-link') { ... }
+// Updated - add standalone-title-link to the condition
+if (nodeType === 'link' || nodeType === 'standalone-title-link') {
+  const text = node.getTextContent();
+  const url = node.getURL();
+  return `[${text}](${url})`;
+}
 ```
+
+**Note**: `StandaloneTitleLinkNode` extends `LinkNode`, so `getURL()` is available.
 
 ## Testing Strategy
 
@@ -184,7 +324,8 @@ if (nodeType === 'link' || nodeType === 'standalone-title-link') { ... }
    - **Decision**: Yes - fetch from `article_heading_links` and apply at Lexical level alongside key terms.
 
 5. **What if no `explanationId`?**
-   - **Decision**: Return early, skip linking. Links applied after first save.
+   - **Decision**: Return early, skip linking. This is an edge case (editor used outside explanation context).
 
 6. **Should we cache whitelist data?**
    - **Decision**: Deferred - fetch via server action each time, optimize later if needed.
+   - **Caveat**: Diff accept/reject may fire rapidly. Consider caching link data in a ref with short TTL (e.g., 5s) if performance becomes an issue.
