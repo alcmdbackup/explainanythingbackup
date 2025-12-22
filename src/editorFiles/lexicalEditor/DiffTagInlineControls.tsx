@@ -21,6 +21,11 @@ const DiffTagInlineControls: React.FC<DiffTagInlineControlsProps> = ({
   const controlsRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
+    // Verify element is still in DOM
+    if (!targetElement.isConnected) {
+      return;
+    }
+
     // Check if controls already exist in this element
     const existingControls = targetElement.querySelector('.diff-tag-controls');
     if (existingControls) {
@@ -35,14 +40,15 @@ const DiffTagInlineControls: React.FC<DiffTagInlineControlsProps> = ({
     setContainer(controlsContainer);
 
     return () => {
-      // Clean up on unmount
-      if (controlsContainer.parentNode === targetElement) {
+      // Clean up on unmount - check element is still connected
+      if (controlsContainer.parentNode === targetElement && targetElement.isConnected) {
         targetElement.removeChild(controlsContainer);
       }
     };
   }, [targetElement]);
 
-  if (!container) {
+  // Early return if container not set or target disconnected
+  if (!container || !targetElement.isConnected) {
     return null;
   }
 

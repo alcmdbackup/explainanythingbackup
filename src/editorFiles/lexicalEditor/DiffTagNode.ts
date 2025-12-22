@@ -173,8 +173,8 @@ export class DiffTagNodeInline extends ElementNode {
       return '`' + text + '`';
     }
     
-    // Handle links
-    if (nodeType === 'link') {
+    // Handle links (including standalone-title-link)
+    if (nodeType === 'link' || nodeType === 'standalone-title-link') {
       const text = node.getTextContent();
       const url = node.getURL();
       return `[${text}](${url})`;

@@ -33,7 +33,9 @@ import {
   getWhitelistTermById,
   addAliases,
   removeAlias,
-  getAliasesForTerm
+  getAliasesForTerm,
+  getSnapshot,
+  getHeadingLinksForArticle
 } from '@/lib/services/linkWhitelist';
 import type {
   LinkWhitelistInsertType,
@@ -368,6 +370,60 @@ const _resolveLinksForDisplayAction = async function(params: {
 };
 
 export const resolveLinksForDisplayAction = serverReadRequestId(_resolveLinksForDisplayAction);
+
+/**
+ * Data structure for Lexical-level link overlay
+ * Used by LexicalEditor.applyLinkOverlay() to apply links at the editor tree level
+ */
+export interface LexicalLinkOverlayData {
+    headingLinks: { headingTextLower: string; standaloneTitle: string }[];
+    whitelistTerms: { termLower: string; canonicalTerm: string; standaloneTitle: string }[];
+    overrides: { termLower: string; type: 'disabled' | 'custom_title'; customTitle?: string }[];
+}
+
+/**
+ * Fetches link data for Lexical-level overlay (server action)
+ *
+ * • Fetches heading links from article_heading_links table
+ * • Fetches whitelist terms from snapshot cache
+ * • Fetches per-article overrides
+ * • Returns data in format suitable for Lexical tree-level processing
+ * • Used by: LexicalEditor.applyLinkOverlay()
+ */
+const _getLinkDataForLexicalOverlayAction = async function(params: {
+    explanationId: number;
+}): Promise<LexicalLinkOverlayData> {
+    // Fetch heading links
+    const headingLinksMap = await getHeadingLinksForArticle(params.explanationId);
+    const headingLinks = Array.from(headingLinksMap.entries()).map(([headingTextLower, standaloneTitle]) => ({
+        headingTextLower,
+        standaloneTitle
+    }));
+
+    // Fetch whitelist snapshot
+    const snapshot = await getSnapshot();
+    const whitelistTerms = Object.entries(snapshot.data).map(([termLower, entry]) => ({
+        termLower,
+        canonicalTerm: entry.canonical_term,
+        standaloneTitle: entry.standalone_title
+    }));
+
+    // Fetch per-article overrides
+    const overridesMap = await getOverridesForArticle(params.explanationId);
+    const overrides = Array.from(overridesMap.entries()).map(([termLower, override]) => ({
+        termLower,
+        type: override.override_type as 'disabled' | 'custom_title',
+        customTitle: override.custom_standalone_title ?? undefined
+    }));
+
+    return {
+        headingLinks,
+        whitelistTerms,
+        overrides
+    };
+};
+
+export const getLinkDataForLexicalOverlayAction = serverReadRequestId(_getLinkDataForLexicalOverlayAction);
 
 /**
  * Saves an explanation to the user's library (server action)

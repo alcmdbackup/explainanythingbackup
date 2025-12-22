@@ -4,39 +4,32 @@ import { DiffTagNodeInline, DiffTagNodeBlock, $isDiffTagNodeInline, $isDiffTagNo
 import DiffTagInlineControls from './DiffTagInlineControls';
 import { $getNodeByKey } from 'lexical';
 
-interface DiffTagState {
-  element: HTMLElement;
-  nodeKey: string;
-  diffTag: 'ins' | 'del' | 'update';
-}
+// Store only nodeKey -> diffType mapping (not element references which can become stale)
+type DiffTagType = 'ins' | 'del' | 'update';
 
 export default function DiffTagHoverPlugin() {
   const [editor] = useLexicalComposerContext();
-  const [activeDiffTags, setActiveDiffTags] = useState<Map<string, DiffTagState>>(new Map());
+  const [activeDiffKeys, setActiveDiffKeys] = useState<Map<string, DiffTagType>>(new Map());
 
   // Scan for all diff tag elements in the editor
   const scanForDiffTags = useCallback(() => {
     const rootElement = editor.getRootElement();
     if (!rootElement) return;
 
-    const newDiffTags = new Map<string, DiffTagState>();
+    const newDiffKeys = new Map<string, DiffTagType>();
 
     // Find all elements with data-diff-key attribute
     const diffElements = rootElement.querySelectorAll('[data-diff-key]');
     diffElements.forEach((element) => {
       const nodeKey = element.getAttribute('data-diff-key');
-      const diffType = element.getAttribute('data-diff-type') as 'ins' | 'del' | 'update';
+      const diffType = element.getAttribute('data-diff-type') as DiffTagType;
 
       if (nodeKey && diffType) {
-        newDiffTags.set(nodeKey, {
-          element: element as HTMLElement,
-          nodeKey,
-          diffTag: diffType
-        });
+        newDiffKeys.set(nodeKey, diffType);
       }
     });
 
-    setActiveDiffTags(newDiffTags);
+    setActiveDiffKeys(newDiffKeys);
   }, [editor]);
 
   useEffect(() => {
@@ -139,18 +132,27 @@ export default function DiffTagHoverPlugin() {
     });
   }, [editor]);
 
+  // Re-query elements fresh on each render to avoid stale references
+  const rootElement = editor.getRootElement();
+
   return (
     <>
-      {Array.from(activeDiffTags.values()).map(({ element, nodeKey, diffTag }) => (
-        <DiffTagInlineControls
-          key={nodeKey}
-          targetElement={element}
-          nodeKey={nodeKey}
-          diffTagType={diffTag}
-          onAccept={() => handleAccept(nodeKey)}
-          onReject={() => handleReject(nodeKey)}
-        />
-      ))}
+      {Array.from(activeDiffKeys.entries()).map(([nodeKey, diffTag]) => {
+        // Query element fresh each time to avoid stale references
+        const element = rootElement?.querySelector(`[data-diff-key="${nodeKey}"]`) as HTMLElement | null;
+        if (!element) return null;
+
+        return (
+          <DiffTagInlineControls
+            key={nodeKey}
+            targetElement={element}
+            nodeKey={nodeKey}
+            diffTagType={diffTag}
+            onAccept={() => handleAccept(nodeKey)}
+            onReject={() => handleReject(nodeKey)}
+          />
+        );
+      })}
     </>
   );
 }

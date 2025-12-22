@@ -1059,23 +1059,23 @@ export function replaceBrTagsWithNewlines(): void {
     if ($isElementNode(node)) {
       const nodeType = node.getType();
       
-      // Process both paragraph and heading nodes
-      if (nodeType === 'paragraph' || nodeType === 'heading' || nodeType === 'diff-update-container-inline') {
-        // Process text children of paragraph and heading nodes
+      // Process paragraph, heading, diff-tag-inline, and diff-update-container-inline nodes
+      if (nodeType === 'paragraph' || nodeType === 'heading' || nodeType === 'diff-tag-inline' || nodeType === 'diff-update-container-inline') {
+        // Process text children of these nodes
         const children = node.getChildren();
         children.forEach((child: any) => {
           if ($isTextNode(child)) {
             const textContent = child.getTextContent();
             let cleanedText: string;
-            
-            if (nodeType === 'paragraph' || nodeType === 'diff-update-container-inline') {
-              // Replace all consecutive <br> tags with a single \n in paragraphs
+
+            if (nodeType === 'paragraph' || nodeType === 'diff-tag-inline' || nodeType === 'diff-update-container-inline') {
+              // Replace all consecutive <br> tags with a single \n in paragraphs and diff tags
               cleanedText = textContent.replace(/(<br\s*\/?>\s*)+/g, '\n');
             } else {
               // Simply delete all <br> tags in headings
               cleanedText = textContent.replace(/<br\s*\/?>/g, '');
             }
-            
+
             if (textContent !== cleanedText) {
               console.log(`🔄 Processed <br> tags in ${nodeType} text node:`, JSON.stringify(textContent), "->", JSON.stringify(cleanedText));
               child.setTextContent(cleanedText);

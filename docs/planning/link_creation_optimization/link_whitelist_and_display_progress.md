@@ -280,12 +280,15 @@ Implemented render-time link resolution by adding a server action that wraps `re
 
 ---
 
-### Phase 10 (DEFERRED): Lexical-Level Link Overlay
+### Phase 10 (REDESIGNED): Lexical-Level Link Overlay
 
 | Step | Status | Notes |
 |------|--------|-------|
-| `LinkOverlayPlugin.tsx` | ⏳ Deferred | For AI suggestions diff context |
-| Integration with AI pipeline | ⏳ Deferred | Apply after CriticMarkup import |
+| Research & Design | ✅ Complete | See [`render_links_directly_in_editor_refactor_research.md`](./render_links_directly_in_editor_refactor_research.md) |
+| `applyLinkOverlay()` ref method | ⏳ Pending | Trigger-based approach replaces plugin |
+| Integration with triggers | ⏳ Pending | Initial load, AI suggestions, diff accept/reject |
+
+**Design Change**: Replaced continuous "LinkOverlayPlugin" monitoring with simpler trigger-based `applyLinkOverlay()` function called at specific points.
 
 ---
 
@@ -312,5 +315,5 @@ The link whitelist system is fully implemented:
 - Links resolved at render time via `resolveLinksForArticle()`
 - Old `createMappingsKeytermsToLinks` removed entirely
 
-**Remaining (Deferred):**
-- Phase 10: Lexical-level link overlay for AI suggestions with CriticMarkup diffs
+**Remaining (Redesigned):**
+- Phase 10: Trigger-based `applyLinkOverlay()` for Lexical editor (see research doc)
