@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../helpers/pages/LoginPage';
+import { waitForState, waitForPageStable } from '../helpers/wait-utils';
 
 test.describe('Unauthenticated User Tests', () => {
   test('login page loads', async ({ page }) => {
@@ -30,19 +31,19 @@ test.describe('Unauthenticated User Tests', () => {
     // Try accessing library without authentication
     await page.goto('/userlibrary');
 
-    // Wait for page to stabilize
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    // Wait for page to stabilize (avoids networkidle which hangs in CI)
+    await waitForPageStable(page, { timeout: 10000 });
 
     // Either redirect to login OR show authentication error
-    const hasRedirectedOrError = await Promise.race([
-      page.waitForURL(/\/(login|auth)/, { timeout: 3000 }).then(() => 'redirected'),
-      page.waitForSelector('.bg-red-100', { timeout: 3000 }).then(() => 'error'),
-      page.waitForSelector('text=/log in|sign in|authentication|please log in/i', { timeout: 3000 }).then(() => 'login-prompt'),
-      page.waitForSelector('[data-testid="library-loading"]', { timeout: 3000 }).then(() => 'loading-stuck'),
-    ]).catch(() => 'timeout');
+    const state = await waitForState(page, {
+      redirected: async () => /\/(login|auth)/.test(page.url()),
+      error: async () => await page.locator('.bg-red-100').isVisible(),
+      loginPrompt: async () => await page.locator('text=/log in|sign in|authentication|please log in/i').isVisible(),
+      loadingStuck: async () => await page.locator('[data-testid="library-loading"]').isVisible(),
+    }, { timeout: 10000 });
 
     // If we got any response indicating auth is needed, test passes
-    expect(['redirected', 'error', 'login-prompt', 'loading-stuck', 'timeout']).toContain(hasRedirectedOrError);
+    expect(['redirected', 'error', 'loginPrompt', 'loadingStuck', 'timeout']).toContain(state);
   });
 
   test('should login with valid credentials', async ({ page }) => {
@@ -125,10 +126,10 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.clickSubmit();
 
     // Wait for form to process (either error appears or button becomes enabled again)
-    await Promise.race([
-      page.locator('[data-testid="login-error"]').waitFor({ state: 'visible', timeout: 5000 }),
-      page.locator('[data-testid="login-submit"]').waitFor({ state: 'visible', timeout: 5000 }),
-    ]).catch(() => {});
+    await waitForState(page, {
+      error: async () => await page.locator('[data-testid="login-error"]').isVisible(),
+      ready: async () => await page.locator('[data-testid="login-submit"]').isVisible(),
+    }, { timeout: 5000 });
 
     // Should show validation error or stay on login page
     expect(page.url()).toContain('/login');
@@ -143,10 +144,10 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.clickSubmit();
 
     // Wait for form to process (either error appears or button becomes enabled again)
-    await Promise.race([
-      page.locator('[data-testid="login-error"]').waitFor({ state: 'visible', timeout: 5000 }),
-      page.locator('[data-testid="login-submit"]').waitFor({ state: 'visible', timeout: 5000 }),
-    ]).catch(() => {});
+    await waitForState(page, {
+      error: async () => await page.locator('[data-testid="login-error"]').isVisible(),
+      ready: async () => await page.locator('[data-testid="login-submit"]').isVisible(),
+    }, { timeout: 5000 });
 
     // Should show validation error or stay on login page
     expect(page.url()).toContain('/login');

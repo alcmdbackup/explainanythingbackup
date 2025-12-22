@@ -7,6 +7,7 @@ import {
   defaultMockExplanation,
   shortMockExplanation,
 } from '../../helpers/api-mocks';
+import { waitForState } from '../../helpers/wait-utils';
 
 test.describe('Search and Generate Flow', () => {
   test.describe('Search Navigation', () => {
@@ -155,12 +156,14 @@ test.describe('Search and Generate Flow', () => {
 
       await resultsPage.navigate('error query');
 
-      // Wait for error state - page should show some error indicator
-      // The exact error handling depends on the app's implementation
-      await page.waitForTimeout(3000);
+      // Wait for error or content state to appear
+      const state = await waitForState(page, {
+        error: async () => await page.locator('.bg-red-100').isVisible(),
+        content: async () => await resultsPage.hasContent(),
+      }, { timeout: 10000 });
 
-      // Verify no content is displayed
-      const hasContent = await resultsPage.hasContent().catch(() => false);
+      // Verify no content is displayed (error expected)
+      const hasContent = state === 'content';
       expect(hasContent).toBe(false);
     });
 
