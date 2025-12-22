@@ -197,10 +197,16 @@ test.describe('Search and Generate Flow', () => {
 
       const query = 'test query preservation';
       await resultsPage.navigate(query);
-      await resultsPage.waitForCompleteGeneration();
 
-      const urlQuery = await resultsPage.getQueryFromUrl();
-      expect(urlQuery).toBe(query);
+      // Check URL immediately after navigation - query should be in URL from the start
+      // Use retry pattern to handle timing variations in URL updates
+      await expect(async () => {
+        const urlQuery = await resultsPage.getQueryFromUrl();
+        expect(urlQuery).toBe(query);
+      }).toPass({ timeout: 10000 });
+
+      // Then verify generation completes successfully
+      await resultsPage.waitForCompleteGeneration();
     });
   });
 });
