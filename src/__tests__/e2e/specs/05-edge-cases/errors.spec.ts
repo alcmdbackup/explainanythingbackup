@@ -12,6 +12,7 @@ import {
   mockReturnExplanationAPI,
   defaultMockExplanation,
 } from '../../helpers/api-mocks';
+import { waitForState, waitForRouteReady } from '../../helpers/wait-utils';
 
 test.describe('Error Handling', () => {
   test.describe('API Errors', () => {
@@ -25,15 +26,13 @@ test.describe('Error Handling', () => {
       await resultsPage.navigate('test query');
 
       // Wait for either error or content to appear (or neither)
-      await Promise.race([
-        page.locator('.bg-red-100').waitFor({ state: 'visible', timeout: 10000 }),
-        page.locator('[data-testid="explanation-content"]').waitFor({ state: 'visible', timeout: 10000 }),
-      ]).catch(() => {
-        // Neither appeared - that's expected for 500 errors
+      const state = await waitForState(page, {
+        error: async () => await page.locator('.bg-red-100').isVisible(),
+        content: async () => await resultsPage.hasContent(),
       });
 
       // Verify no content is displayed (app doesn't show error banner for HTTP errors)
-      const hasContent = await resultsPage.hasContent().catch(() => false);
+      const hasContent = state === 'content';
       expect(hasContent).toBe(false);
     });
 
@@ -67,8 +66,8 @@ test.describe('Error Handling', () => {
       await mockReturnExplanationStreamError(page, 'Stream interrupted');
       console.log('[E2E-DEBUG] Mock registered for stream error');
 
-      // Small delay to ensure route is fully registered in CI
-      await page.waitForTimeout(100);
+      // Ensure route is fully registered before navigation
+      await waitForRouteReady(page);
 
       await resultsPage.navigate('test query');
       console.log('[E2E-DEBUG] Navigated to results page, URL:', page.url());
@@ -101,16 +100,14 @@ test.describe('Error Handling', () => {
       await page.goto('/results?explanation_id=invalid-uuid-12345');
 
       // Wait for error or content to appear
-      await Promise.race([
-        page.locator('.bg-red-100').waitFor({ state: 'visible', timeout: 10000 }),
-        page.locator('[data-testid="explanation-content"]').waitFor({ state: 'visible', timeout: 10000 }),
-      ]).catch(() => {
-        // Neither appeared - page may show empty state
+      const state = await waitForState(page, {
+        error: async () => await page.locator('.bg-red-100').isVisible(),
+        content: async () => await resultsPage.hasContent(),
       });
 
       // Page should either show error or empty state (not crash)
-      const hasError = await resultsPage.isErrorVisible().catch(() => false);
-      const hasContent = await resultsPage.hasContent().catch(() => false);
+      const hasError = state === 'error';
+      const hasContent = state === 'content';
 
       // Either error is shown or no content - but page shouldn't crash
       expect(hasError || !hasContent).toBe(true);
@@ -136,8 +133,8 @@ test.describe('Error Handling', () => {
       // First, trigger a stream error
       await mockReturnExplanationStreamError(page, 'First request failed');
 
-      // Small delay to ensure route is fully registered in CI
-      await page.waitForTimeout(100);
+      // Ensure route is fully registered before navigation
+      await waitForRouteReady(page);
 
       await resultsPage.navigate('failing query');
       await resultsPage.waitForError(30000);
