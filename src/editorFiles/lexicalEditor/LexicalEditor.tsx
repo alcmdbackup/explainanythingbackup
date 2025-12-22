@@ -123,8 +123,8 @@ function InitialContentPlugin({
       if (isMarkdownMode) {
         editor.update(() => {
           $convertFromMarkdownString(initialContent, MARKDOWN_TRANSFORMERS);
-          // Clean up trailing <br> tags from heading and paragraph text nodes
-          removeTrailingBreaksFromTextNodes();
+          // Clean up <br> tags from text nodes (including in diff tags)
+          replaceBrTagsWithNewlines();
         });
       } else {
         editor.update(() => {
@@ -437,8 +437,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
           editor.update(() => {
             const preprocessedMarkdown = preprocessCriticMarkup(currentEditorText);
             $convertFromMarkdownString(preprocessedMarkdown, MARKDOWN_TRANSFORMERS);
-            // Clean up trailing <br> tags from heading and paragraph text nodes
-            removeTrailingBreaksFromTextNodes();
+            // Clean up <br> tags from text nodes (including in diff tags)
+            replaceBrTagsWithNewlines();
           });
         }
         // Note: Don't update internal state here - parent component handles that
