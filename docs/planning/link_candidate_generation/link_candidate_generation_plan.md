@@ -1,13 +1,23 @@
-# Candidate Generation for Link Whitelist
+# Link Candidate Generation Plan (Revised)
 
 ## Summary
 
-**Two-LLM Pipeline + TF-IDF:**
-1. **LLM 1 (existing):** Generate article content
-2. **LLM 2 (new, lighter):** Extract link candidates from generated content (async, background)
-3. **TF-IDF corpus scan:** Complementary candidates from corpus-wide patterns
+**LLM-based extraction pipeline** for generating link whitelist candidates:
+1. **LLM (gpt-4.1-nano):** Extract link candidates from generated content (synchronous)
+2. **TF-IDF tracking:** Track article frequency for approval prioritization (Phase 2)
+3. **Human approval queue:** Admin reviews and approves/rejects candidates
 
 All candidates stored in `link_candidates` table, then sent to **human approval queue** where admin sets **link target** (search by default, specific article, or custom URL).
+
+---
+
+## Decisions Made
+
+| Question | Decision |
+|----------|----------|
+| Sync vs Async | **Sync for MVP** - accept ~500ms latency |
+| Backfill scope | **New articles only** - backfill deferred |
+| Rejection persistence | **Keep forever** - no auto-delete |
 
 ---
 
@@ -23,114 +33,243 @@ All candidates stored in `link_candidates` table, then sent to **human approval 
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
-│     STAGE 2: CANDIDATE EXTRACTION (New, Background/Async)       │
+│     STAGE 2: CANDIDATE EXTRACTION (Synchronous, ~500ms)         │
 ├─────────────────────────────────────────────────────────────────┤
-│  LLM 2 (gpt-4.1-nano, lighter) analyzes full article content    │
+│  LLM 2 (gpt-4.1-nano) analyzes full article content             │
 │       ↓                                                         │
 │  Returns 5-15 link-worthy terms                                 │
 │       ↓                                                         │
-│  Store in link_candidates with source='llm_extraction'          │
-└─────────────────────────────────────────────────────────────────┘
-                              +
-┌─────────────────────────────────────────────────────────────────┐
-│         STAGE 3: TF-IDF CORPUS SCAN (Batch, Periodic)           │
-├─────────────────────────────────────────────────────────────────┤
-│  Periodic job scans term_corpus_stats                           │
-│       ↓                                                         │
-│  Identify high-scoring terms not yet in candidates              │
-│       ↓                                                         │
-│  Store in link_candidates with source='tfidf'                   │
+│  Store in link_candidates with source='llm'                     │
 └─────────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────────┐
 │                     HUMAN APPROVAL QUEUE                        │
 ├─────────────────────────────────────────────────────────────────┤
-│  Admin reviews candidates from both sources                     │
+│  Admin reviews candidates (sorted by article frequency)         │
 │       ↓                                                         │
-│  Approved → link_whitelist (with link target: search/article/url)│
-│  Rejected → marked as rejected                                  │
+│  Approved → link_whitelist (with link target)                   │
+│  Rejected → marked as rejected (kept forever)                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Key Design Decisions
+---
 
-| Decision | Rationale |
-|----------|-----------|
-| Two-LLM approach | Separate concerns: content quality vs link candidate extraction |
-| Lighter model (nano) for extraction | Cheaper (~$0.0001/article), extraction is simpler task |
-| Full content to LLM 2 | Better extraction quality with full context |
-| Background/async extraction | No latency impact on user experience |
-| TF-IDF as complementary | Catches cross-article patterns the per-article LLM might miss |
-| No auto-approval | Human review ensures quality |
-| Link target on approval | Admin chooses destination (search default, article, or custom URL) |
+## Async Job Options (For Future Migration)
+
+Current approach is **synchronous** for MVP. If latency becomes a problem, migrate to:
+
+### Option A: Supabase Edge Functions + pg_cron
+```sql
+-- pg_cron job (runs every 5 minutes)
+SELECT cron.schedule('extract-candidates', '*/5 * * * *', $$
+  SELECT net.http_post(
+    url := 'https://your-project.supabase.co/functions/v1/extract-candidates',
+    headers := '{"Authorization": "Bearer service_role_key"}'::jsonb
+  )
+$$);
+```
+
+### Option B: Vercel Cron Jobs
+```json
+// vercel.json
+{
+  "crons": [{
+    "path": "/api/cron/extract-candidates",
+    "schedule": "*/5 * * * *"
+  }]
+}
+```
 
 ---
 
-## Scalability: Incremental Term Tracking
+## Term Extraction Algorithm
 
-### Why Incremental?
+### Bold Term Extraction
+```typescript
+interface ExtractedTerm {
+  term: string;           // Original casing
+  termLower: string;      // Lowercase for matching
+  source: 'bold' | 'heading';
+  count: number;          // Occurrences in document
+}
 
-The naive approach (load all docs, extract terms, build stats) doesn't scale:
+function extractBoldTerms(content: string): ExtractedTerm[] {
+  // Match **bold** patterns (markdown)
+  const boldRegex = /\*\*([^*]+)\*\*/g;
+  const terms = new Map<string, ExtractedTerm>();
 
-| Docs | Terms/Doc | Extractions | Memory |
-|------|-----------|-------------|--------|
-| 100 | 500 | 50K | OK |
-| 1,000 | 500 | 500K | Slow |
-| 10,000 | 500 | 5M | OOM risk |
+  let match;
+  while ((match = boldRegex.exec(content)) !== null) {
+    const term = match[1].trim();
+    const termLower = term.toLowerCase();
 
-### Solution: Track Stats Incrementally
+    // Skip short terms and common words
+    if (term.length < 3) continue;
+    if (STOPWORDS.has(termLower)) continue;
 
-Instead of recomputing on every scan, we:
-1. **On article save**: Extract terms once, update running totals
-2. **On article delete**: Decrement counts
-3. **On candidate scan**: Just query pre-computed stats
+    const existing = terms.get(termLower);
+    if (existing) {
+      existing.count++;
+    } else {
+      terms.set(termLower, { term, termLower, source: 'bold', count: 1 });
+    }
+  }
+
+  return Array.from(terms.values());
+}
+
+function extractHeadingTerms(content: string): ExtractedTerm[] {
+  // Match ## and ### headings
+  const headingRegex = /^#{2,3}\s+(.+)$/gm;
+  const terms: ExtractedTerm[] = [];
+
+  let match;
+  while ((match = headingRegex.exec(content)) !== null) {
+    const term = match[1].trim();
+    terms.push({
+      term,
+      termLower: term.toLowerCase(),
+      source: 'heading',
+      count: 1
+    });
+  }
+
+  return terms;
+}
+
+function extractTermsFromContent(content: string): ExtractedTerm[] {
+  const boldTerms = extractBoldTerms(content);
+  const headingTerms = extractHeadingTerms(content);
+
+  // Merge, preferring bold source if both
+  const merged = new Map<string, ExtractedTerm>();
+
+  for (const term of [...headingTerms, ...boldTerms]) {
+    const existing = merged.get(term.termLower);
+    if (!existing || term.source === 'bold') {
+      merged.set(term.termLower, term);
+    }
+  }
+
+  return Array.from(merged.values());
+}
+
+const STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all',
+  'can', 'her', 'was', 'one', 'our', 'out', 'has', 'have',
+  'been', 'some', 'then', 'them', 'these', 'this', 'that',
+  'with', 'from', 'will', 'would', 'could', 'should',
+  'example', 'process', 'system', 'method', 'approach'
+]);
+```
+
+### Why Bold Terms?
+- Authors naturally bold important concepts
+- High signal-to-noise ratio
+- No NLP libraries needed
+- Fast extraction
 
 ---
 
-## Database Schema for Term Tracking
+## TF-IDF: Approval Prioritization (Phase 2)
+
+TF-IDF is **not for generating candidates** - it's for **prioritizing the approval queue**.
+
+### Purpose
+When reviewing candidates, show "Appears in X articles" to help admins prioritize which terms to approve first. High-frequency terms are more valuable to approve.
+
+### Schema
+```sql
+-- Track which articles contain each candidate (for frequency count)
+CREATE TABLE candidate_article_occurrences (
+  id SERIAL PRIMARY KEY,
+  candidate_id INT REFERENCES link_candidates(id) ON DELETE CASCADE,
+  explanation_id INT REFERENCES explanations(id) ON DELETE CASCADE,
+  occurrence_count INT DEFAULT 1,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(candidate_id, explanation_id)
+);
+
+CREATE INDEX idx_cao_candidate ON candidate_article_occurrences(candidate_id);
+```
+
+### Query for Admin Queue
+```sql
+-- Get candidates with article frequency for prioritization
+SELECT
+  c.*,
+  COUNT(cao.explanation_id) as article_count,
+  SUM(cao.occurrence_count) as total_occurrences
+FROM link_candidates c
+LEFT JOIN candidate_article_occurrences cao ON c.id = cao.candidate_id
+WHERE c.status = 'pending'
+GROUP BY c.id
+ORDER BY article_count DESC, c.created_at ASC;
+```
+
+---
+
+## Status Lifecycle (Simplified)
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   pending   │ ──► │  approved   │ ──► │ (whitelist) │
+└─────────────┘     └─────────────┘     └─────────────┘
+       │
+       ▼
+┌─────────────┐
+│  rejected   │
+└─────────────┘
+```
+
+**All candidates start as `pending`**, regardless of source. Admin reviews and either approves (→ whitelist) or rejects.
+
+### Database Enum
+```sql
+CREATE TYPE candidate_status AS ENUM ('pending', 'approved', 'rejected');
+```
+
+---
+
+## Database Schema
 
 ```sql
--- Aggregate term statistics across corpus (updated incrementally)
-CREATE TABLE term_corpus_stats (
+-- Candidates awaiting approval
+CREATE TABLE link_candidates (
   id SERIAL PRIMARY KEY,
-  term VARCHAR(255) NOT NULL,              -- Original casing
-  term_lower VARCHAR(255) NOT NULL UNIQUE, -- For lookups
-  document_frequency INT DEFAULT 0,        -- # docs containing term (for IDF)
-  total_occurrences INT DEFAULT 0,         -- Total count across all docs (for TF)
-  bold_count INT DEFAULT 0,                -- Times found as bold (high signal)
+  term VARCHAR(255) NOT NULL,
+  term_lower VARCHAR(255) NOT NULL UNIQUE,
+  source VARCHAR(20) NOT NULL DEFAULT 'llm',  -- 'llm' | 'manual'
+  status candidate_status NOT NULL DEFAULT 'pending',
   first_seen_explanation_id INT REFERENCES explanations(id),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_term_corpus_stats_doc_freq ON term_corpus_stats(document_frequency DESC);
-CREATE INDEX idx_term_corpus_stats_term_lower ON term_corpus_stats(term_lower);
+CREATE INDEX idx_candidates_status ON link_candidates(status);
+CREATE INDEX idx_candidates_term ON link_candidates(term_lower);
 
--- Per-article term occurrences (for decrementing on delete)
-CREATE TABLE explanation_terms (
-  id SERIAL PRIMARY KEY,
-  explanation_id INT NOT NULL REFERENCES explanations(id) ON DELETE CASCADE,
-  term_lower VARCHAR(255) NOT NULL,
-  occurrence_count INT DEFAULT 1,
-  is_bold BOOLEAN DEFAULT false,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(explanation_id, term_lower)
-);
+-- RLS Policies
+ALTER TABLE link_candidates ENABLE ROW LEVEL SECURITY;
 
-CREATE INDEX idx_explanation_terms_explanation ON explanation_terms(explanation_id);
-CREATE INDEX idx_explanation_terms_term ON explanation_terms(term_lower);
+CREATE POLICY "Enable read for authenticated users"
+ON link_candidates FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY "Enable insert for authenticated users"
+ON link_candidates FOR INSERT TO authenticated WITH CHECK (true);
+
+CREATE POLICY "Enable update for authenticated users"
+ON link_candidates FOR UPDATE TO authenticated USING (true);
+
+CREATE POLICY "Enable delete for authenticated users"
+ON link_candidates FOR DELETE TO authenticated USING (true);
 ```
 
 ---
 
-## Stage 1: LLM Candidate Extraction (Background, After Article Save)
-
-Uses a dedicated lighter LLM call to extract link candidates from generated content. Runs in background after article save - no latency impact on user experience.
-
-**Location:** Add `extractLinkCandidates()` call in `returnExplanation.ts` after saving
+## LLM Candidate Extraction
 
 ### Prompt
-
 ```typescript
 export function createCandidateExtractionPrompt(
   title: string,
@@ -158,7 +297,6 @@ Return JSON: {"candidates": ["term1", "term2", ...]}`;
 ```
 
 ### Schema
-
 ```typescript
 const candidateExtractionSchema = z.object({
   candidates: z.array(z.string())
@@ -166,95 +304,58 @@ const candidateExtractionSchema = z.object({
 ```
 
 ### Implementation
-
 ```typescript
-// Helper to extract headings from content
-function extractHeadings(content: string): string[] {
-  const headingRegex = /^(#{2,3})\s+(.+)$/gm;
-  const headings: string[] = [];
-  let match;
-  while ((match = headingRegex.exec(content)) !== null) {
-    headings.push(match[2].trim());
-  }
-  return headings;
-}
-
-// Called after article save - runs in background
+// Called synchronously after article save
 async function extractLinkCandidates(
   explanationId: number,
   title: string,
   content: string
 ): Promise<void> {
   const headings = extractHeadings(content);
-
   const prompt = createCandidateExtractionPrompt(title, headings, content);
 
-  // Use lighter/cheaper model
-  const response = await callOpenAIModel(
-    prompt,
-    'link_candidate_extraction',
-    'system',
-    'gpt-4.1-nano',  // Lighter model
-    false,
-    null,
-    candidateExtractionSchema,
-    'candidateExtraction'
-  );
-
-  const parsed = candidateExtractionSchema.safeParse(JSON.parse(response));
-  if (!parsed.success) {
-    logger.warn('Failed to parse candidate extraction response');
-    return;
-  }
-
-  // Store candidates for later processing
-  const candidates = parsed.data.candidates.map(term => ({
-    term,
-    term_lower: term.toLowerCase(),
-    source: 'llm_extraction',
-    first_seen_explanation_id: explanationId,
-    status: 'pending'
-  }));
-
-  // Insert candidates and track source article association
-  const insertedIds = await insertLinkCandidatesAtomic(candidates);
-
-  // Track which article suggested each candidate (for source_article_count)
-  await insertCandidateSourceArticles(insertedIds, explanationId);
-}
-
-async function insertCandidateSourceArticles(
-  candidateIds: number[],
-  explanationId: number
-): Promise<void> {
-  if (candidateIds.length === 0) return;
-
-  const { error } = await supabase
-    .from('candidate_source_articles')
-    .upsert(
-      candidateIds.map(id => ({
-        candidate_id: id,
-        explanation_id: explanationId
-      })),
-      { onConflict: 'candidate_id,explanation_id', ignoreDuplicates: true }
+  try {
+    const response = await callOpenAIModel(
+      prompt,
+      'link_candidate_extraction',
+      'system',
+      'gpt-4.1-nano',
+      false,
+      null,
+      candidateExtractionSchema,
+      'candidateExtraction'
     );
 
-  if (error) {
-    logger.warn('Failed to insert candidate source articles', { error });
+    const parsed = candidateExtractionSchema.safeParse(JSON.parse(response));
+    if (!parsed.success) {
+      logger.warn('Failed to parse candidate extraction response');
+      return;
+    }
+
+    const candidates = parsed.data.candidates.map(term => ({
+      term,
+      term_lower: term.toLowerCase(),
+      source: 'llm',
+      first_seen_explanation_id: explanationId,
+      status: 'pending'
+    }));
+
+    await insertCandidatesAtomic(candidates);
+  } catch (error) {
+    logger.error('Candidate extraction failed', { error, explanationId });
+    // Don't throw - extraction failure shouldn't block article save
   }
 }
 ```
 
 ### Integration with Article Save
-
 ```typescript
 // In returnExplanation.ts after saving
 async function saveExplanation(...) {
   const saved = await createExplanation(explanation);
 
-  // Run candidate extraction in background (don't await)
-  extractLinkCandidates(saved.id, saved.title, saved.content)
-    .catch(err => logger.error('Background candidate extraction failed', { err }));
+  // Synchronous extraction (~500ms)
+  await extractLinkCandidates(saved.id, saved.title, saved.content);
 
   return saved;
 }
@@ -268,1086 +369,291 @@ async function saveExplanation(...) {
 | Candidate extraction | gpt-4.1-nano | ~500 in, ~50 out | ~$0.0001 |
 | **Total per article** | | | **~$0.003** |
 
-The second call adds negligible cost (~3% increase)
+The extraction call adds negligible cost (~3% increase).
 
 ---
 
-## Handling Content Edits (Batch Re-extraction)
+## Admin UI: Candidates Queue
 
-Content edits are processed via **periodic batch job**, not real-time. This avoids blocking user edits and simplifies the extraction logic.
+Follow existing patterns from `/src/components/admin/WhitelistContent.tsx`.
 
-### Tracking Extraction State
-
-Track when candidates were last extracted for each article:
-
-```sql
--- Add to explanations table (or separate tracking table)
-ALTER TABLE explanations ADD COLUMN last_candidate_extraction_at TIMESTAMPTZ;
+### File Structure
+```
+/src/app/admin/candidates/page.tsx          # Dynamic import wrapper
+/src/components/admin/CandidatesContent.tsx  # Main component
 ```
 
-### Batch Re-extraction Job
-
-Periodically find articles needing re-extraction and process them:
-
+### CandidatesContent.tsx Structure
 ```typescript
-async function reprocessStaleArticles(batchSize = 50): Promise<{
-  processed: number;
-  candidatesUpdated: number;
-}> {
-  // Find articles where content changed since last extraction
-  const stale = await supabase
-    .from('explanations')
-    .select('id, title, content')
-    .or('last_candidate_extraction_at.is.null,updated_at.gt.last_candidate_extraction_at')
-    .limit(batchSize);
+type ModalMode = 'approve' | 'edit' | null;
 
-  let candidatesUpdated = 0;
-
-  for (const article of stale.data ?? []) {
-    // Clear old source associations for this article
-    await clearCandidateSourcesForArticle(article.id);
-
-    // Re-extract candidates (inserts new source associations)
-    await extractLinkCandidates(article.id, article.title, article.content);
-
-    // Mark as processed
-    await supabase
-      .from('explanations')
-      .update({ last_candidate_extraction_at: new Date().toISOString() })
-      .eq('id', article.id);
-
-    candidatesUpdated++;
-  }
-
-  return { processed: stale.data?.length ?? 0, candidatesUpdated };
-}
-
-async function clearCandidateSourcesForArticle(explanationId: number): Promise<void> {
-  // Delete source associations (trigger will decrement counts)
-  await supabase
-    .from('candidate_source_articles')
-    .delete()
-    .eq('explanation_id', explanationId);
+interface CandidatesContentState {
+  candidates: LinkCandidateFullType[];
+  selectedCandidate: LinkCandidateFullType | null;
+  modalMode: ModalMode;
+  loading: boolean;
+  error: string | null;
+  saving: boolean;
+  // Approval form
+  targetType: 'search' | 'article' | 'url';
+  targetUrl: string;
+  displayText: string;
 }
 ```
 
-### Scheduling
+### Table Columns
+| Column | Description |
+|--------|-------------|
+| Term | The candidate term |
+| Source | `llm` or `manual` |
+| Articles | Count from TF-IDF (Phase 2) |
+| First Seen | Date added |
+| Actions | Approve / Reject / Edit |
 
-| Option | Frequency | Use Case |
-|--------|-----------|----------|
-| Cron job | Every hour | Standard operation |
-| Admin action | On-demand | Immediate re-processing |
-| Combined with TF-IDF | Same schedule | Share infrastructure |
+### Approve Modal
+When approving, admin selects:
+1. **Link target type**: Search (default) / Existing article / Custom URL
+2. **Display text** (optional override)
 
+### Server Actions
 ```typescript
-// Configuration
-const BATCH_CONFIG = {
-  REEXTRACTION_BATCH_SIZE: 50,
-  REEXTRACTION_INTERVAL: '1 hour'
-};
+// In /src/actions/actions.ts
+getAllCandidatesAction(status?: 'pending' | 'approved' | 'rejected')
+createCandidateAction(term: string, source?: 'manual')
+approveCandidateAction(id: number, targetType: string, targetUrl?: string)
+rejectCandidateAction(id: number)
+deleteCandidateAction(id: number)
 ```
 
 ---
 
-## Stage 2: TF-IDF - Incremental Stats Update
+## Implementation Phases
 
-> **See [Fix 1: Race Conditions](#fix-1-race-conditions-in-term-stats-updates) for the production-ready atomic version.**
+### Phase 1: MVP (Core LLM Extraction)
+**Goal:** Extract candidates from new articles, store for review
 
-### On Article Save/Update
+| Task | File | Notes |
+|------|------|-------|
+| Migration | `supabase/migrations/xxx_link_candidates.sql` | Tables + RLS |
+| Schemas | `/src/lib/schemas/schemas.ts` | Zod types |
+| Extraction service | `/src/lib/services/linkCandidates.ts` | `extractLinkCandidates()` |
+| Prompt | `/src/lib/prompts.ts` | `createCandidateExtractionPrompt()` |
+| Integration | `/src/lib/services/returnExplanation.ts` | Call extraction after save |
+| Server actions | `/src/actions/actions.ts` | CRUD + approve/reject |
+| Admin UI | `/src/components/admin/CandidatesContent.tsx` | Table + approve modal |
+| Admin route | `/src/app/admin/candidates/page.tsx` | Page wrapper |
+| Tests | `/src/lib/services/linkCandidates.test.ts` | Unit + integration tests |
 
-```typescript
-async function updateTermStatsOnSave(
-  explanationId: number,
-  content: string
-): Promise<void> {
-  const extractedTerms = extractTermsFromContent(content);
+### Phase 2: TF-IDF Prioritization
+**Goal:** Show article frequency in admin queue
 
-  // Get existing terms for this article (if updating)
-  const existingTerms = await getExplanationTerms(explanationId);
-  const existingMap = new Map(existingTerms.map(t => [t.term_lower, t]));
-  const newMap = new Map(extractedTerms.map(t => [t.termLower, t]));
+| Task | File | Notes |
+|------|------|-------|
+| Occurrences table | Migration | `candidate_article_occurrences` |
+| Track occurrences | `linkCandidates.ts` | On extraction, upsert occurrence |
+| Query with counts | `linkCandidates.ts` | Join for admin display |
+| UI update | `CandidatesContent.tsx` | Add "Articles" column |
 
-  // Terms to add (in new, not in existing)
-  for (const [termLower, term] of newMap) {
-    if (!existingMap.has(termLower)) {
-      await upsertTermCorpusStats(term, explanationId, 'increment');
-      await insertExplanationTerm(explanationId, term);
-    } else {
-      // Update occurrence count if changed
-      const existing = existingMap.get(termLower)!;
-      if (existing.occurrence_count !== term.count) {
-        const delta = term.count - existing.occurrence_count;
-        await updateTermOccurrences(termLower, delta);
-        await updateExplanationTermCount(explanationId, termLower, term.count);
-      }
-    }
-  }
+### Phase 3: Optimization (Future)
+**Goal:** Handle edge cases, migrate to async if needed
 
-  // Terms to remove (in existing, not in new)
-  for (const [termLower, existing] of existingMap) {
-    if (!newMap.has(termLower)) {
-      await upsertTermCorpusStats(
-        { termLower, count: existing.occurrence_count, source: existing.is_bold ? 'bold' : 'noun' },
-        explanationId,
-        'decrement'
-      );
-      await deleteExplanationTerm(explanationId, termLower);
-    }
-  }
-}
-
-async function upsertTermCorpusStats(
-  term: ExtractedTerm,
-  explanationId: number,
-  operation: 'increment' | 'decrement'
-): Promise<void> {
-  const delta = operation === 'increment' ? 1 : -1;
-  const occurrenceDelta = operation === 'increment' ? term.count : -term.count;
-  const boldDelta = term.source === 'bold' ? delta : 0;
-
-  await supabase.rpc('upsert_term_corpus_stats', {
-    p_term: term.term,
-    p_term_lower: term.termLower,
-    p_doc_freq_delta: delta,
-    p_occurrence_delta: occurrenceDelta,
-    p_bold_delta: boldDelta,
-    p_first_seen_id: operation === 'increment' ? explanationId : null
-  });
-}
-```
-
-### Database Function for Atomic Upsert
-
-```sql
-CREATE OR REPLACE FUNCTION upsert_term_corpus_stats(
-  p_term VARCHAR(255),
-  p_term_lower VARCHAR(255),
-  p_doc_freq_delta INT,
-  p_occurrence_delta INT,
-  p_bold_delta INT,
-  p_first_seen_id INT
-) RETURNS VOID AS $$
-BEGIN
-  INSERT INTO term_corpus_stats (term, term_lower, document_frequency, total_occurrences, bold_count, first_seen_explanation_id)
-  VALUES (p_term, p_term_lower, GREATEST(0, p_doc_freq_delta), GREATEST(0, p_occurrence_delta), GREATEST(0, p_bold_delta), p_first_seen_id)
-  ON CONFLICT (term_lower) DO UPDATE SET
-    document_frequency = GREATEST(0, term_corpus_stats.document_frequency + p_doc_freq_delta),
-    total_occurrences = GREATEST(0, term_corpus_stats.total_occurrences + p_occurrence_delta),
-    bold_count = GREATEST(0, term_corpus_stats.bold_count + p_bold_delta),
-    updated_at = NOW();
-
-  -- Clean up terms with zero documents
-  DELETE FROM term_corpus_stats WHERE term_lower = p_term_lower AND document_frequency <= 0;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-### On Article Delete
-
-Handled automatically by `ON DELETE CASCADE` on `explanation_terms`, but we need a trigger to update `term_corpus_stats`:
-
-```sql
-CREATE OR REPLACE FUNCTION decrement_term_stats_on_delete()
-RETURNS TRIGGER AS $$
-BEGIN
-  UPDATE term_corpus_stats
-  SET
-    document_frequency = GREATEST(0, document_frequency - 1),
-    total_occurrences = GREATEST(0, total_occurrences - OLD.occurrence_count),
-    bold_count = GREATEST(0, bold_count - CASE WHEN OLD.is_bold THEN 1 ELSE 0 END),
-    updated_at = NOW()
-  WHERE term_lower = OLD.term_lower;
-
-  -- Clean up zero-doc terms
-  DELETE FROM term_corpus_stats WHERE term_lower = OLD.term_lower AND document_frequency <= 0;
-
-  RETURN OLD;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_decrement_term_stats
-BEFORE DELETE ON explanation_terms
-FOR EACH ROW EXECUTE FUNCTION decrement_term_stats_on_delete();
-```
+| Task | Notes |
+|------|-------|
+| Batch re-extraction | Handle content edits |
+| Async migration | Move to Edge Functions if latency is a problem |
+| Backfill (optional) | Process existing articles if desired later |
 
 ---
 
-## Stage 2: TF-IDF - Composite Scoring (Query-Based)
+## Test Cases
 
-No more in-memory processing. Just query the pre-computed stats.
-
+### Unit Tests: Term Extraction
 ```typescript
-interface TermStatsRow {
-  term: string;
-  term_lower: string;
-  document_frequency: number;
-  total_occurrences: number;
-  bold_count: number;
-  first_seen_explanation_id: number;
-}
+// /src/lib/services/linkCandidates.test.ts
 
-async function getTermStatsForScoring(minDocFreq: number = 3): Promise<TermStatsRow[]> {
-  const { data, error } = await supabase
-    .from('term_corpus_stats')
-    .select('*')
-    .gte('document_frequency', minDocFreq)
-    .order('document_frequency', { ascending: false });
-
-  if (error) throw error;
-  return data;
-}
-
-async function getTotalDocumentCount(): Promise<number> {
-  const { count, error } = await supabase
-    .from('explanations')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'published');
-
-  if (error) throw error;
-  return count ?? 0;
-}
-
-function calculateScores(
-  terms: TermStatsRow[],
-  totalDocuments: number
-): ScoredTerm[] {
-  if (terms.length === 0) return [];
-
-  // Calculate TF-IDF
-  const withTfIdf = terms.map(term => {
-    const idf = Math.log(totalDocuments / term.document_frequency);
-    const avgTf = term.total_occurrences / term.document_frequency;
-    const avgTfIdf = avgTf * idf;
-    return { ...term, idf, avgTfIdf, compositeScore: 0 };
+describe('extractBoldTerms', () => {
+  it('extracts single bold term', () => {
+    const content = 'Learn about **machine learning** today.';
+    const terms = extractBoldTerms(content);
+    expect(terms).toHaveLength(1);
+    expect(terms[0].term).toBe('machine learning');
+    expect(terms[0].count).toBe(1);
   });
 
-  // Normalize and weight
-  const maxDocFreq = Math.max(...withTfIdf.map(t => t.document_frequency));
-  const maxTfIdf = Math.max(...withTfIdf.map(t => t.avgTfIdf));
-  const maxBold = Math.max(...withTfIdf.map(t => t.bold_count));
-  const maxOccur = Math.max(...withTfIdf.map(t => t.total_occurrences));
+  it('counts multiple occurrences', () => {
+    const content = '**React** is great. I love **React**.';
+    const terms = extractBoldTerms(content);
+    expect(terms).toHaveLength(1);
+    expect(terms[0].count).toBe(2);
+  });
 
-  return withTfIdf.map(term => {
-    const normDocFreq = maxDocFreq > 0 ? term.document_frequency / maxDocFreq : 0;
-    const normTfIdf = maxTfIdf > 0 ? term.avgTfIdf / maxTfIdf : 0;
-    const normBold = maxBold > 0 ? term.bold_count / maxBold : 0;
-    const normOccur = maxOccur > 0 ? term.total_occurrences / maxOccur : 0;
+  it('skips short terms', () => {
+    const content = '**AI** is a **big** deal.';
+    const terms = extractBoldTerms(content);
+    expect(terms).toHaveLength(0);
+  });
 
-    // Weights: TF-IDF 35%, DocFreq 25%, BoldCount 25%, TotalOccur 15%
-    term.compositeScore =
-      0.35 * normTfIdf +
-      0.25 * normDocFreq +
-      0.25 * normBold +
-      0.15 * normOccur;
+  it('skips stopwords', () => {
+    const content = 'This is **the** example.';
+    const terms = extractBoldTerms(content);
+    expect(terms).toHaveLength(0);
+  });
 
-    return term;
-  }).sort((a, b) => b.compositeScore - a.compositeScore);
-}
-```
+  it('preserves original casing', () => {
+    const content = '**JavaScript** is popular.';
+    const terms = extractBoldTerms(content);
+    expect(terms[0].term).toBe('JavaScript');
+    expect(terms[0].termLower).toBe('javascript');
+  });
+});
 
-**How TF-IDF Works:**
-- **TF (Term Frequency):** `total_occurrences / document_frequency` = avg occurrences per doc
-- **IDF (Inverse Document Frequency):** `log(total_docs / document_frequency)` = rarer terms score higher
-- **TF-IDF:** `TF × IDF` = important terms that aren't everywhere
+describe('extractHeadingTerms', () => {
+  it('extracts h2 headings', () => {
+    const content = '## Introduction\nSome text\n## Conclusion';
+    const terms = extractHeadingTerms(content);
+    expect(terms).toHaveLength(2);
+    expect(terms[0].term).toBe('Introduction');
+  });
 
-**Scoring Rationale:**
-- **TF-IDF (35%):** Identifies corpus-important but not ubiquitous terms
-- **DocFreq (25%):** Rewards terms appearing across many articles
-- **BoldCount (25%):** Bold = author explicitly marked as important
-- **TotalOccur (15%):** Raw frequency signal
+  it('extracts h3 headings', () => {
+    const content = '### Subsection\nDetails here';
+    const terms = extractHeadingTerms(content);
+    expect(terms).toHaveLength(1);
+  });
 
----
-
-## Stage 3: LLM Evaluation for TF-IDF Candidates (Optional, Async Batch Job)
-
-**Note:** LLM extraction candidates (from Stage 1) go directly to approval queue since the extraction LLM already evaluates quality. This stage is **only for TF-IDF candidates** if additional quality filtering is desired.
-
-Runs as async batch job - no latency impact on article generation.
-
-> **See [Fix 2: LLM Error Handling](#fix-2-llm-error-handling) for retry logic and validation.**
-
-### Prompt with Article Context
-
-```typescript
-interface EvaluationInput {
-  title: string;
-  headings: string[];
-  candidates: string[];
-}
-
-export function createLinkEvaluationPrompt(input: EvaluationInput): string {
-  return `You are evaluating terms for an educational encyclopedia's link system.
-
-## Article Context
-**Title:** ${input.title}
-**Sections:** ${input.headings.join(', ')}
-
-## Candidate Terms
-${input.candidates.map((t, i) => `${i + 1}. ${t}`).join('\n')}
-
-## Task
-For each term, decide if it would be a good link in this article:
-- Y = Yes, readers would benefit from a link to learn more about this term
-- N = No, too generic, too specific to this article, or not educational
-
-Respond with JSON: {"decisions": ["Y", "N", "Y", ...]}`;
-}
-
-const linkEvaluationSchema = z.object({
-  decisions: z.array(z.enum(['Y', 'N']))
+  it('ignores h1 and h4+', () => {
+    const content = '# Title\n## Section\n#### Deep';
+    const terms = extractHeadingTerms(content);
+    expect(terms).toHaveLength(1);
+    expect(terms[0].term).toBe('Section');
+  });
 });
 ```
 
-### Batch Job Flow
-
+### Unit Tests: Candidate Service
 ```typescript
-// Runs periodically (e.g., every hour or on-demand)
-async function evaluatePendingCandidates(): Promise<{
-  articlesProcessed: number;
-  candidatesEvaluated: number;
-}> {
-  // Get articles with pending candidates
-  const articlesWithPending = await getArticlesWithPendingCandidates();
-  let totalEvaluated = 0;
+describe('insertCandidatesAtomic', () => {
+  it('inserts new candidates', async () => {
+    const result = await insertCandidatesAtomic([
+      { term: 'React', term_lower: 'react', source: 'llm' }
+    ]);
+    expect(result.inserted).toBe(1);
+    expect(result.skipped).toBe(0);
+  });
 
-  for (const article of articlesWithPending) {
-    const { title, headings } = await getArticleContext(article.id);
-    const candidates = await getPendingCandidatesForArticle(article.id);
+  it('skips duplicates via upsert', async () => {
+    await insertCandidatesAtomic([{ term: 'React', term_lower: 'react', source: 'llm' }]);
+    const result = await insertCandidatesAtomic([
+      { term: 'React', term_lower: 'react', source: 'llm' }
+    ]);
+    expect(result.inserted).toBe(0);
+    expect(result.skipped).toBe(1);
+  });
+});
 
-    if (candidates.length === 0) continue;
+describe('approveCandidate', () => {
+  it('moves candidate to whitelist with search target', async () => {
+    const candidate = await createCandidate('Machine Learning');
+    await approveCandidate(candidate.id, 'search');
 
-    // LLM evaluation with article context
-    const prompt = createLinkEvaluationPrompt({
-      title,
-      headings,
-      candidates: candidates.map(c => c.term)
+    const whitelist = await getWhitelistTermByLower('machine learning');
+    expect(whitelist).not.toBeNull();
+    expect(whitelist.target_type).toBe('search');
+  });
+
+  it('updates candidate status to approved', async () => {
+    const candidate = await createCandidate('Neural Network');
+    await approveCandidate(candidate.id, 'search');
+
+    const updated = await getCandidateById(candidate.id);
+    expect(updated.status).toBe('approved');
+  });
+});
+```
+
+### Integration Tests: LLM Extraction
+```typescript
+describe('extractLinkCandidates (integration)', () => {
+  it('extracts candidates from article content', async () => {
+    const mockContent = `
+## Introduction
+Learn about **machine learning** and **neural networks**.
+
+## Applications
+**Deep learning** powers modern AI systems.
+    `;
+
+    mockOpenAI.mockResolvedValueOnce({
+      candidates: ['machine learning', 'neural networks', 'deep learning', 'AI systems']
     });
 
-    const response = await callOpenAIModel(
-      prompt, 'link_evaluation', 'system', 'gpt-4o-mini',
-      false, null, linkEvaluationSchema, 'linkEvaluation'
-    );
+    await extractLinkCandidates(123, 'Test Article', mockContent);
 
-    // Parse and validate (with safeParse + length check)
-    const decisions = parseEvaluationResponse(response, candidates.length);
-
-    // Update candidate statuses
-    for (let i = 0; i < candidates.length; i++) {
-      const newStatus = decisions[i] === 'Y'
-        ? 'pending_approval'  // Goes to human queue
-        : 'rejected';
-      await updateCandidateStatus(candidates[i].id, newStatus);
-    }
-
-    totalEvaluated += candidates.length;
-  }
-
-  return {
-    articlesProcessed: articlesWithPending.length,
-    candidatesEvaluated: totalEvaluated
-  };
-}
-
-// Helper to extract headings from content
-function extractHeadings(content: string): string[] {
-  const headingRegex = /^(#{2,3})\s+(.+)$/gm;
-  const headings: string[] = [];
-  let match;
-  while ((match = headingRegex.exec(content)) !== null) {
-    headings.push(match[2].trim());
-  }
-  return headings;
-}
-```
-
-### Cost Analysis
-
-| Per Article | Tokens | Cost (gpt-4o-mini) |
-|-------------|--------|-------------------|
-| Input: title + headings + ~10 terms | ~500 | ~$0.000075 |
-| Output: 10 decisions | ~50 | ~$0.00003 |
-| **Total per article** | | **~$0.0001** |
-
-Monthly cost for 1000 articles: **~$0.10**
-
----
-
-## Stage 4: Human Approval Queue
-
-All LLM-approved candidates go to a human review queue. No auto-approval.
-
-> **See [Fix 3: Check-then-Insert Race](#fix-3-check-then-insert-race-condition) for atomic insert patterns.**
-
-### Database Schema for Candidates
-
-```sql
-CREATE TABLE link_candidates (
-  id SERIAL PRIMARY KEY,
-  term VARCHAR(255) NOT NULL,
-  term_lower VARCHAR(255) NOT NULL,
-  source VARCHAR(20) NOT NULL,  -- 'llm_extraction' | 'tfidf'
-  tfidf_score NUMERIC(6,4),     -- NULL for llm_extraction
-  first_seen_explanation_id INT REFERENCES explanations(id),
-  source_article_count INT DEFAULT 1,  -- # of articles recommending this candidate
-  status VARCHAR(20) NOT NULL DEFAULT 'pending',
-    -- 'pending' → awaiting human review (direct from LLM extraction)
-    -- 'pending_evaluation' → TF-IDF candidates awaiting optional LLM eval
-    -- 'approved' → moved to link_whitelist
-    -- 'rejected' → not suitable
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(term_lower)
-);
-
-CREATE INDEX idx_link_candidates_status ON link_candidates(status);
-CREATE INDEX idx_link_candidates_explanation ON link_candidates(first_seen_explanation_id);
-
--- Track which articles suggested each candidate (for proper count tracking on edits/deletes)
-CREATE TABLE candidate_source_articles (
-  id SERIAL PRIMARY KEY,
-  candidate_id INT REFERENCES link_candidates(id) ON DELETE CASCADE,
-  explanation_id INT REFERENCES explanations(id) ON DELETE CASCADE,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  UNIQUE(candidate_id, explanation_id)
-);
-
-CREATE INDEX idx_candidate_sources_candidate ON candidate_source_articles(candidate_id);
-CREATE INDEX idx_candidate_sources_explanation ON candidate_source_articles(explanation_id);
-
--- Trigger to maintain source_article_count
-CREATE OR REPLACE FUNCTION update_candidate_article_count()
-RETURNS TRIGGER AS $$
-BEGIN
-  IF TG_OP = 'INSERT' THEN
-    UPDATE link_candidates SET source_article_count = source_article_count + 1
-    WHERE id = NEW.candidate_id;
-  ELSIF TG_OP = 'DELETE' THEN
-    UPDATE link_candidates SET source_article_count = GREATEST(0, source_article_count - 1)
-    WHERE id = OLD.candidate_id;
-  END IF;
-  RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_update_candidate_count
-AFTER INSERT OR DELETE ON candidate_source_articles
-FOR EACH ROW EXECUTE FUNCTION update_candidate_article_count();
-```
-
-### Edge Case Handling
-
-| Scenario | Mechanism | Result |
-|----------|-----------|--------|
-| **Article deleted** | `ON DELETE CASCADE` on `explanation_id` | Associations removed → trigger decrements count |
-| **Content edited, term no longer recommended** | `clearCandidateSourcesForArticle()` before re-extraction | Old associations deleted → count decremented; new extraction only adds current terms |
-| **LLM returns duplicate terms** | `UNIQUE(term_lower)` on `link_candidates` + upsert | Term inserted once; same candidate ID used |
-| **Same article processed twice** | `UNIQUE(candidate_id, explanation_id)` + `ignoreDuplicates` | Only one association per article-candidate pair |
-| **Candidate count reaches zero** | Trigger uses `GREATEST(0, count - 1)` | Count never goes negative; candidate remains for potential future matches |
-
-### Candidate Lifecycle
-
-```
-[LLM extraction]  → pending (direct to human queue)
-                         ↓
-                   [Human review]
-                    ↓           ↓
-               approved      rejected
-                    ↓
-            [link_whitelist]
-
-[TF-IDF scan]    → pending_evaluation (optional)
-                         ↓
-              [LLM evaluation batch] (optional)
-                    ↓           ↓
-                 pending      rejected
-                    ↓
-              [Human review]
-                    ↓           ↓
-               approved      rejected
-                    ↓
-            [link_whitelist]
-```
-
-### Admin Queue Queries
-
-```sql
--- Candidates pending human approval (sorted by recommendation count for prioritization)
-SELECT
-  id, term, source, tfidf_score,
-  source_article_count,  -- Shows "Recommended by X articles"
-  status, created_at
-FROM link_candidates
-WHERE status = 'pending' OR status = 'pending_approval'
-ORDER BY source_article_count DESC, created_at DESC;
-
--- Approve a candidate
-UPDATE link_candidates SET status = 'approved', updated_at = NOW()
-WHERE id = $1;
-
--- Then insert into whitelist
-INSERT INTO link_whitelist (canonical_term, canonical_term_lower, standalone_title, type, is_active)
-SELECT term, term_lower, term, 'term', true
-FROM link_candidates WHERE id = $1;
-
--- Reject a candidate
-UPDATE link_candidates SET status = 'rejected', updated_at = NOW()
-WHERE id = $1;
-```
-
-**Admin Queue Display:**
-- `source_article_count` column shows "Recommended by X articles"
-- Higher count = higher priority (more articles suggest this term is important)
-- Sort by count descending for prioritized review
-
-### Admin Actions
-
-| Action | Description |
-|--------|-------------|
-| **Approve** | Move to `link_whitelist`, set link target |
-| **Reject** | Set status = 'rejected' (won't resurface) |
-| **Edit** | Modify term text before approving |
-| **Bulk approve** | Approve multiple with default (search) links |
-
-### Link Target Options
-
-When approving a candidate, admin selects where the link should point:
-
-| Target Type | Example | Use Case |
-|-------------|---------|----------|
-| **Search (default)** | `/results?q=machine+learning` | Term doesn't have dedicated article yet |
-| **Existing article** | `/results?id=123` | Term has a matching explanation |
-| **Custom URL** | `/topic/ai` | Link to topic page or external resource |
-
-```sql
--- Updated link_whitelist schema
-CREATE TABLE link_whitelist (
-  id SERIAL PRIMARY KEY,
-  canonical_term VARCHAR(255) NOT NULL,
-  canonical_term_lower VARCHAR(255) NOT NULL UNIQUE,
-
-  -- Link target (one of these will be set)
-  target_type VARCHAR(20) NOT NULL DEFAULT 'search',  -- 'search' | 'article' | 'url'
-  target_explanation_id INT REFERENCES explanations(id),  -- if target_type = 'article'
-  target_url VARCHAR(500),  -- if target_type = 'url', or generated search URL
-
-  display_text VARCHAR(255),  -- Optional: override display text
-  is_active BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
-);
-```
-
-### Approval Flow
-
-```typescript
-interface ApproveCandiateInput {
-  candidateId: number;
-  targetType: 'search' | 'article' | 'url';
-  targetExplanationId?: number;  // Required if targetType = 'article'
-  targetUrl?: string;            // Required if targetType = 'url'
-  displayText?: string;          // Optional override
-}
-
-async function approveCandidate(input: ApproveCandiateInput): Promise<void> {
-  const candidate = await getCandidateById(input.candidateId);
-
-  // Generate target URL based on type
-  let targetUrl: string;
-  switch (input.targetType) {
-    case 'search':
-      targetUrl = `/results?q=${encodeURIComponent(candidate.term)}`;
-      break;
-    case 'article':
-      targetUrl = `/results?id=${input.targetExplanationId}`;
-      break;
-    case 'url':
-      targetUrl = input.targetUrl!;
-      break;
-  }
-
-  // Insert into whitelist
-  await insertWhitelistTerm({
-    canonical_term: candidate.term,
-    canonical_term_lower: candidate.term_lower,
-    target_type: input.targetType,
-    target_explanation_id: input.targetExplanationId ?? null,
-    target_url: targetUrl,
-    display_text: input.displayText ?? null,
-    is_active: true
+    const candidates = await getAllCandidates('pending');
+    expect(candidates.length).toBeGreaterThanOrEqual(3);
   });
 
-  // Update candidate status
-  await updateCandidateStatus(input.candidateId, 'approved');
-}
-```
+  it('handles LLM failure gracefully', async () => {
+    mockOpenAI.mockRejectedValueOnce(new Error('API Error'));
 
-### Bulk Approve with Search Default
-
-For efficiency, bulk approve uses search as default target:
-
-```typescript
-async function bulkApproveWithSearchDefault(candidateIds: number[]): Promise<number> {
-  const candidates = await getCandidatesByIds(candidateIds);
-
-  const whitelistEntries = candidates.map(c => ({
-    canonical_term: c.term,
-    canonical_term_lower: c.term_lower,
-    target_type: 'search',
-    target_url: `/results?q=${encodeURIComponent(c.term)}`,
-    is_active: true
-  }));
-
-  await insertWhitelistTermsAtomic(whitelistEntries);
-  await updateCandidateStatuses(candidateIds, 'approved');
-
-  return candidates.length;
-}
-```
-
----
-
-## Integration Points
-
-### Hook into Article Save
-
-```typescript
-// In returnExplanation.ts or wherever articles are saved
-async function saveExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
-  const saved = await createExplanation(explanation);
-
-  // Update term stats incrementally
-  await updateTermStatsOnSave(saved.id, saved.content);
-
-  return saved;
-}
-```
-
-### Hook into Article Update
-
-```typescript
-async function updateExplanation(id: number, updates: Partial<ExplanationInsertType>): Promise<ExplanationFullDbType> {
-  const updated = await updateExplanationInDb(id, updates);
-
-  if (updates.content) {
-    await updateTermStatsOnSave(id, updates.content);
-  }
-
-  return updated;
-}
-```
-
----
-
-## Implementation Files
-
-| File | Change |
-|------|--------|
-| `supabase/migrations/xxx_link_candidates.sql` | NEW - `link_candidates` + `candidate_source_articles` tables, trigger for count |
-| `/src/lib/services/linkCandidates.ts` | NEW - `extractLinkCandidates()`, `insertCandidateSourceArticles()`, `reprocessStaleArticles()`, `clearCandidateSourcesForArticle()` |
-| `/src/lib/services/returnExplanation.ts` | MODIFY - Call `extractLinkCandidates()` after save (background) |
-| `/src/lib/services/termTracking.ts` | NEW - Incremental TF-IDF stats update |
-| `/src/lib/prompts.ts` | Add `createCandidateExtractionPrompt`, `createLinkEvaluationPrompt` |
-| `/src/lib/schemas/schemas.ts` | Add `candidateExtractionSchema`, `linkCandidateSchema`, `linkEvaluationSchema` |
-| `/src/actions/actions.ts` | Add queue admin actions, `reprocessStaleArticlesAction` |
-| `/src/app/admin/link-candidates/page.tsx` | NEW - Admin UI for approval queue with `source_article_count` column |
-
----
-
-## Configuration
-
-```typescript
-const CANDIDATE_CONFIG = {
-  // TF-IDF scan settings
-  MIN_DOC_FREQUENCY: 3,           // Min articles a term must appear in
-  TOP_N_FOR_TFIDF: 100,           // Max terms per TF-IDF scan
-  COMPOSITE_WEIGHTS: {
-    tfIdf: 0.35,
-    docFreq: 0.25,
-    boldCount: 0.25,
-    totalOccur: 0.15
-  },
-
-  // LLM evaluation batch settings
-  EVALUATION_BATCH_SIZE: 50,      // Terms per LLM call
-  MAX_RETRIES: 2,                 // Retry attempts on LLM failure
-
-  // Batch job scheduling
-  EVALUATION_INTERVAL: '1 hour',  // How often to run evaluation batch
-  TFIDF_SCAN_INTERVAL: '1 day',   // How often to run TF-IDF scan
-
-  // Content edit re-extraction settings
-  REEXTRACTION_BATCH_SIZE: 50,    // Articles per batch job run
-  REEXTRACTION_INTERVAL: '1 hour' // How often to check for stale articles
-};
-```
-
----
-
-## Migration: Backfill Existing Articles
-
-One-time script to populate `term_corpus_stats` from existing articles:
-
-```typescript
-async function backfillTermStats(): Promise<{ processed: number; terms: number }> {
-  const explanations = await getAllPublishedExplanations();
-  let termsAdded = 0;
-
-  for (const exp of explanations) {
-    const terms = extractTermsFromContent(exp.content);
-
-    for (const term of terms) {
-      await upsertTermCorpusStats(term, exp.id, 'increment');
-      await insertExplanationTerm(exp.id, term);
-      termsAdded++;
-    }
-  }
-
-  return { processed: explanations.length, terms: termsAdded };
-}
-```
-
----
-
-## Testing Considerations
-
-1. **Unit tests** for term extraction (bold + noun)
-2. **Unit tests** for TF-IDF calculation
-3. **Unit tests** for composite scoring
-4. **Integration test** for incremental updates (save → stats updated)
-5. **Integration test** for delete cascade (delete → stats decremented)
-6. **Integration test** with mock LLM responses
-7. **E2E test** for full pipeline (can use `skipLlm: true` for CI)
-
----
-
-## Concurrency & Error Handling Fixes
-
-### Fix 1: Race Conditions in Term Stats Updates
-
-**Problem:** `updateTermStatsOnSave` has no transaction handling. Concurrent saves corrupt counts.
-
-**Solution:** Move entire update logic into a single atomic PostgreSQL function.
-
-```sql
--- Atomic term stats update (replaces multiple TypeScript calls)
-CREATE OR REPLACE FUNCTION update_explanation_term_stats(
-  p_explanation_id INT,
-  p_terms JSONB  -- Array of {term, termLower, source, count}
-) RETURNS VOID AS $$
-DECLARE
-  existing_terms JSONB;
-  new_term JSONB;
-  term_lower VARCHAR(255);
-  old_term RECORD;
-BEGIN
-  -- Get existing terms for this explanation (single query)
-  SELECT jsonb_agg(jsonb_build_object(
-    'term_lower', et.term_lower,
-    'occurrence_count', et.occurrence_count,
-    'is_bold', et.is_bold
-  )) INTO existing_terms
-  FROM explanation_terms et
-  WHERE et.explanation_id = p_explanation_id;
-
-  existing_terms := COALESCE(existing_terms, '[]'::jsonb);
-
-  -- Delete all existing terms for this explanation
-  DELETE FROM explanation_terms WHERE explanation_id = p_explanation_id;
-
-  -- Decrement corpus stats for removed terms
-  FOR old_term IN
-    SELECT * FROM jsonb_to_recordset(existing_terms)
-    AS x(term_lower VARCHAR(255), occurrence_count INT, is_bold BOOLEAN)
-  LOOP
-    UPDATE term_corpus_stats SET
-      document_frequency = GREATEST(0, document_frequency - 1),
-      total_occurrences = GREATEST(0, total_occurrences - old_term.occurrence_count),
-      bold_count = GREATEST(0, bold_count - CASE WHEN old_term.is_bold THEN 1 ELSE 0 END),
-      updated_at = NOW()
-    WHERE term_corpus_stats.term_lower = old_term.term_lower;
-  END LOOP;
-
-  -- Insert new terms and increment corpus stats
-  FOR new_term IN SELECT * FROM jsonb_array_elements(p_terms)
-  LOOP
-    term_lower := new_term->>'termLower';
-
-    -- Insert into explanation_terms
-    INSERT INTO explanation_terms (explanation_id, term_lower, occurrence_count, is_bold)
-    VALUES (
-      p_explanation_id,
-      term_lower,
-      (new_term->>'count')::INT,
-      (new_term->>'source') = 'bold'
-    );
-
-    -- Upsert into term_corpus_stats
-    INSERT INTO term_corpus_stats (term, term_lower, document_frequency, total_occurrences, bold_count, first_seen_explanation_id)
-    VALUES (
-      new_term->>'term',
-      term_lower,
-      1,
-      (new_term->>'count')::INT,
-      CASE WHEN (new_term->>'source') = 'bold' THEN 1 ELSE 0 END,
-      p_explanation_id
-    )
-    ON CONFLICT (term_lower) DO UPDATE SET
-      document_frequency = term_corpus_stats.document_frequency + 1,
-      total_occurrences = term_corpus_stats.total_occurrences + (new_term->>'count')::INT,
-      bold_count = term_corpus_stats.bold_count + CASE WHEN (new_term->>'source') = 'bold' THEN 1 ELSE 0 END,
-      updated_at = NOW();
-  END LOOP;
-
-  -- Cleanup zero-doc terms
-  DELETE FROM term_corpus_stats WHERE document_frequency <= 0;
-END;
-$$ LANGUAGE plpgsql;
-```
-
-**Updated TypeScript call:**
-
-```typescript
-async function updateTermStatsOnSave(
-  explanationId: number,
-  content: string
-): Promise<void> {
-  const extractedTerms = extractTermsFromContent(content);
-
-  // Single atomic RPC call - no race conditions
-  const { error } = await supabase.rpc('update_explanation_term_stats', {
-    p_explanation_id: explanationId,
-    p_terms: JSON.stringify(extractedTerms)
+    await expect(
+      extractLinkCandidates(123, 'Test', 'Content')
+    ).resolves.not.toThrow();
   });
-
-  if (error) {
-    logger.error('Failed to update term stats', { explanationId, error });
-    throw error;
-  }
-}
-```
-
----
-
-### Fix 2: LLM Error Handling
-
-**Problems:**
-- Array length mismatch causes silent corruption
-- JSON.parse throws on malformed output
-- No retry logic
-
-**Solution:** Use safeParse, validate array length, graceful fallback.
-
-```typescript
-import { z } from 'zod';
-
-const candidateEvaluationSchema = z.object({
-  decisions: z.array(z.enum(['Y', 'N']))
 });
+```
 
-async function evaluateCandidatesWithLLM(
-  candidates: ScoredTerm[]
-): Promise<{ term: ScoredTerm; approved: boolean }[]> {
-  const BATCH_SIZE = 50;
-  const MAX_RETRIES = 2;
-  const results: { term: ScoredTerm; approved: boolean }[] = [];
+### E2E Tests: Admin Queue
+```typescript
+describe('Admin Candidates Queue', () => {
+  beforeEach(async () => {
+    await loginAsAdmin();
+    await page.goto('/admin/candidates');
+  });
 
-  for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-    const batch = candidates.slice(i, i + BATCH_SIZE);
-    const prompt = createCandidateEvaluationPrompt(
-      batch.map(c => ({ term: c.term, docFreq: c.document_frequency, score: c.compositeScore }))
-    );
+  it('displays pending candidates', async () => {
+    await expect(page.getByRole('table')).toBeVisible();
+    await expect(page.getByText('machine learning')).toBeVisible();
+  });
 
-    let lastError: Error | null = null;
+  it('approves candidate with search target', async () => {
+    await page.getByRole('row', { name: /machine learning/i })
+      .getByRole('button', { name: 'Approve' }).click();
 
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const response = await callOpenAIModel(
-          prompt, 'candidate_evaluation', 'system', 'gpt-4o-mini',
-          false, null, candidateEvaluationSchema, 'candidateEvaluation'
-        );
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.getByRole('button', { name: 'Confirm' }).click();
 
-        // Safe JSON parse
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(response);
-        } catch (jsonError) {
-          throw new Error(`Malformed JSON response: ${response.slice(0, 100)}`);
-        }
+    await expect(page.getByText('Approved successfully')).toBeVisible();
+  });
 
-        // Safe schema validation
-        const validated = candidateEvaluationSchema.safeParse(parsed);
-        if (!validated.success) {
-          throw new Error(`Schema validation failed: ${validated.error.message}`);
-        }
+  it('rejects candidate', async () => {
+    await page.getByRole('row', { name: /test term/i })
+      .getByRole('button', { name: 'Reject' }).click();
 
-        // Validate array length matches input
-        if (validated.data.decisions.length !== batch.length) {
-          throw new Error(
-            `Array length mismatch: expected ${batch.length}, got ${validated.data.decisions.length}`
-          );
-        }
+    await expect(page.getByRole('row', { name: /test term/i })).not.toBeVisible();
+  });
 
-        // Success - add results
-        batch.forEach((candidate, idx) => {
-          results.push({ term: candidate, approved: validated.data.decisions[idx] === 'Y' });
-        });
-
-        break; // Exit retry loop on success
-
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        logger.warn(`LLM evaluation attempt ${attempt + 1} failed`, {
-          batchStart: i,
-          batchSize: batch.length,
-          error: lastError.message
-        });
-
-        if (attempt === MAX_RETRIES) {
-          // Graceful fallback: reject entire batch on persistent failure
-          logger.error('LLM evaluation failed after retries, rejecting batch', {
-            batchStart: i,
-            batchSize: batch.length
-          });
-          batch.forEach(candidate => {
-            results.push({ term: candidate, approved: false });
-          });
-        }
-      }
-    }
-  }
-
-  return results;
-}
+  it('shows article count for prioritization', async () => {
+    // Phase 2 test
+    await expect(
+      page.getByRole('row', { name: /popular term/i }).getByText('5 articles')
+    ).toBeVisible();
+  });
+});
 ```
 
 ---
 
-### Fix 3: Check-then-Insert Race Condition
+## Critical Files Summary
 
-**Problem:** `getExistingWhitelistTerms()` check before insert allows duplicates under concurrent scans.
-
-**Solution:** Use UPSERT with ON CONFLICT DO NOTHING.
-
-```typescript
-async function insertWhitelistTermsAtomic(
-  terms: Array<{
-    canonical_term: string;
-    canonical_term_lower: string;
-    standalone_title: string;
-    type: string;
-  }>
-): Promise<{ inserted: number; skipped: number }> {
-  if (terms.length === 0) return { inserted: 0, skipped: 0 };
-
-  // Use upsert - duplicates are silently ignored
-  const { data, error } = await supabase
-    .from('link_whitelist')
-    .upsert(
-      terms.map(t => ({
-        canonical_term: t.canonical_term,
-        canonical_term_lower: t.canonical_term_lower,
-        standalone_title: t.standalone_title,
-        type: t.type,
-        is_active: true
-      })),
-      {
-        onConflict: 'canonical_term_lower',
-        ignoreDuplicates: true  // Don't error on conflicts
-      }
-    )
-    .select();
-
-  if (error) {
-    logger.error('Failed to insert whitelist terms', { error });
-    throw error;
-  }
-
-  const inserted = data?.length ?? 0;
-  return { inserted, skipped: terms.length - inserted };
-}
-
-async function insertCandidatesAtomic(
-  candidates: Array<{
-    term: string;
-    term_lower: string;
-    occurrence_count: number;
-    first_seen_explanation_id: number;
-  }>
-): Promise<{ inserted: number; skipped: number }> {
-  if (candidates.length === 0) return { inserted: 0, skipped: 0 };
-
-  const { data, error } = await supabase
-    .from('link_candidates')
-    .upsert(
-      candidates.map(c => ({
-        term: c.term,
-        term_lower: c.term_lower,
-        occurrence_count: c.occurrence_count,
-        first_seen_explanation_id: c.first_seen_explanation_id,
-        status: 'pending'
-      })),
-      {
-        onConflict: 'term_lower',
-        ignoreDuplicates: true
-      }
-    )
-    .select();
-
-  if (error) {
-    logger.error('Failed to insert candidates', { error });
-    throw error;
-  }
-
-  const inserted = data?.length ?? 0;
-  return { inserted, skipped: candidates.length - inserted };
-}
-```
-
-**Updated scanCorpusForTfIdfCandidates (no auto-approval):**
-
-```typescript
-export async function scanCorpusForTfIdfCandidates(options?: {
-  minDocFrequency?: number;
-  topN?: number;
-}): Promise<{ termsScanned: number; candidatesAdded: number }> {
-  const { minDocFrequency = 3, topN = 100 } = options ?? {};
-
-  const termStats = await getTermStatsForScoring(minDocFrequency);
-  const totalDocs = await getTotalDocumentCount();
-  const scored = calculateScores(termStats, totalDocs);
-
-  // Filter out terms already in candidates or whitelist
-  const existing = await getExistingTerms();
-  const newCandidates = scored
-    .filter(t => !existing.has(t.term_lower))
-    .slice(0, topN);
-
-  // Insert as TF-IDF candidates (all go to pending_evaluation)
-  const result = await insertCandidatesAtomic(
-    newCandidates.map(t => ({
-      term: t.term,
-      term_lower: t.term_lower,
-      source: 'tfidf',
-      tfidf_score: t.compositeScore,
-      first_seen_explanation_id: t.first_seen_explanation_id,
-      status: 'pending_evaluation'
-    }))
-  );
-
-  return {
-    termsScanned: termStats.length,
-    candidatesAdded: result.inserted
-  };
-}
-```
-
----
-
-## Summary of Fixes
-
-| Issue | Solution | Pattern Used |
-|-------|----------|--------------|
-| Race conditions | Single atomic PostgreSQL function | Same as `increment_explanation_saves` in metrics.ts |
-| LLM array mismatch | Validate length before processing | Same as `tagEvaluationSchema.safeParse` pattern |
-| LLM JSON errors | safeParse + retry loop | Same as existing LLM error handling |
-| Check-then-insert | UPSERT with ignoreDuplicates | Same as `ON CONFLICT` in metrics functions |
+| File | Action | Phase |
+|------|--------|-------|
+| `supabase/migrations/xxx_link_candidates.sql` | NEW | 1 |
+| `/src/lib/schemas/schemas.ts` | MODIFY | 1 |
+| `/src/lib/services/linkCandidates.ts` | NEW | 1 |
+| `/src/lib/prompts.ts` | MODIFY | 1 |
+| `/src/lib/services/returnExplanation.ts` | MODIFY | 1 |
+| `/src/actions/actions.ts` | MODIFY | 1 |
+| `/src/app/admin/candidates/page.tsx` | NEW | 1 |
+| `/src/components/admin/CandidatesContent.tsx` | NEW | 1 |
+| `/src/lib/services/linkCandidates.test.ts` | NEW | 1 |
