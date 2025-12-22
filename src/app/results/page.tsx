@@ -103,6 +103,9 @@ function ResultsPageContent() {
     const isInitialLoadRef = useRef<boolean>(true);
     const hasInitializedContent = useRef<boolean>(false);
 
+    // Prevent duplicate API calls from useEffect re-firing (HMR, searchParams reference change)
+    const processedParamsRef = useRef<string | null>(null);
+
     // Close dropdown when clicking outside and reset tags
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -654,6 +657,20 @@ function ResultsPageContent() {
         }*/
 
         const processParams = async () => {
+            // Extract params early to create fingerprint
+            const urlExplanationId = searchParams.get('explanation_id');
+            const urlUserQueryId = searchParams.get('userQueryId');
+            const title = searchParams.get('t');
+            const query = searchParams.get('q');
+
+            // Create fingerprint from URL params to detect duplicate processing
+            // This prevents HMR/Fast Refresh from re-triggering API calls
+            const paramsFingerprint = `${query || ''}|${title || ''}|${urlExplanationId || ''}|${urlUserQueryId || ''}`;
+            if (processedParamsRef.current === paramsFingerprint) {
+                return; // Already processed these exact params
+            }
+            processedParamsRef.current = paramsFingerprint;
+
             // Initialize request ID for page load
             const pageLoadRequestId = `page-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
             RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: 'anonymous' });
@@ -675,11 +692,6 @@ function ResultsPageContent() {
             if (initialMode !== mode) {
                 setMode(initialMode);
             }
-
-            const urlExplanationId = searchParams.get('explanation_id');
-            const urlUserQueryId = searchParams.get('userQueryId');
-            const title = searchParams.get('t');
-            const query = searchParams.get('q');
 
             const effectiveUserid = userid || await fetchUserid();
             

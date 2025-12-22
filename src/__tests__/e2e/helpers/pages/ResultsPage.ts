@@ -204,10 +204,14 @@ export class ResultsPage extends BasePage {
   // Error handling methods
   async getErrorMessage(): Promise<string | null> {
     const errorElement = this.page.locator(this.errorMessage);
-    if (await errorElement.isVisible()) {
+    try {
+      // Wait briefly for element to be stable before reading text
+      // This prevents race conditions between visibility check and text extraction
+      await errorElement.waitFor({ state: 'visible', timeout: 2000 });
       return await errorElement.innerText();
+    } catch {
+      return null;
     }
-    return null;
   }
 
   async waitForError(timeout = 30000) {
