@@ -448,3 +448,51 @@ No LLM needed - the diff algorithm is deterministic.
 | Pipeline DB service | `src/lib/services/testingPipeline.ts` |
 | Request ID context | `src/lib/requestIdContext.ts` |
 | Existing tests | `*.test.ts` files colocated with source |
+| Fixture manager | `src/app/(debug)/fixtureManager/page.tsx` |
+
+---
+
+## Fixture Manager Page
+
+**URL**: `/fixtureManager`
+
+A debug page for creating and managing test fixtures.
+
+### Features
+
+1. **Existing Fixtures List** - Table showing all fixtures with name, category, actions (edit/delete/validate)
+2. **Create/Edit Form**:
+   - Name, description, category inputs
+   - Two textareas: `originalMarkdown` and `editedMarkdown`
+   - "Generate Expected Outputs" button - runs Step 3-4 deterministically
+   - Display of `expectedStep3Output` and `expectedStep4Output`
+   - "Save Fixture" button
+3. **Validation Panel** - Run fixture through pipeline and compare actual vs expected
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/testing/fixtures/aiPipeline/types.ts` | `PipelineFixture` interface |
+| `src/testing/fixtures/aiPipeline/index.ts` | Fixture loader utilities |
+| `src/testing/fixtures/aiPipeline/actions.ts` | Server actions for CRUD + generate |
+| `src/app/(debug)/fixtureManager/page.tsx` | Fixture manager UI |
+
+### Key Server Actions
+
+```typescript
+listFixturesAction()                    // List all fixtures
+loadFixtureAction(path)                 // Load single fixture
+saveFixtureAction(fixture)              // Save fixture to JSON
+deleteFixtureAction(path)               // Delete fixture
+generateExpectedOutputsAction(original, edited)  // Run Step 3-4
+validateFixtureAction(fixture)          // Compare actual vs expected
+```
+
+### Workflow
+
+1. Enter `originalMarkdown` and `editedMarkdown` in textareas
+2. Click "Generate Expected Outputs" to run pipeline
+3. Review generated `expectedStep3Output` and `expectedStep4Output`
+4. Fill in name, description, category
+5. Click "Save Fixture" to write JSON to `src/testing/fixtures/aiPipeline/cases/`
