@@ -46,19 +46,55 @@ test.describe('Unauthenticated User Tests', () => {
   });
 
   test('should login with valid credentials', async ({ page }) => {
+    console.log('[E2E-DEBUG] Login test starting');
+
+    // Capture browser console for debugging
+    page.on('console', msg => {
+      console.log(`[BROWSER ${msg.type()}] ${msg.text()}`);
+    });
+
+    // Log all navigation events
+    page.on('framenavigated', frame => {
+      if (frame === page.mainFrame()) {
+        console.log('[E2E-DEBUG] Frame navigated to:', frame.url());
+      }
+    });
+
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
+    console.log('[E2E-DEBUG] On login page:', page.url());
+
+    const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
+    console.log('[E2E-DEBUG] Logging in with email:', testEmail);
 
     await loginPage.login(
-      process.env.TEST_USER_EMAIL || 'abecha@gmail.com',
+      testEmail,
       process.env.TEST_USER_PASSWORD || 'password'
     );
+    console.log('[E2E-DEBUG] Login form submitted, current URL:', page.url());
 
-    // Wait for redirect to home page (increased timeout for CI, no networkidle which can hang)
-    await page.waitForURL('/', { timeout: 60000 });
+    // Log current URL periodically while waiting for redirect
+    const urlCheckInterval = setInterval(() => {
+      console.log('[E2E-DEBUG] Polling URL:', page.url());
+    }, 5000);
+
+    try {
+      // Wait for redirect to home page (increased timeout for CI, no networkidle which can hang)
+      await page.waitForURL('/', { timeout: 60000 });
+      console.log('[E2E-DEBUG] Redirect successful to:', page.url());
+    } catch (error) {
+      console.log('[E2E-DEBUG] Redirect failed, final URL:', page.url());
+      // Take screenshot on failure
+      await page.screenshot({ path: 'test-results/debug-login-redirect-failed.png' }).catch(() => {});
+      throw error;
+    } finally {
+      clearInterval(urlCheckInterval);
+    }
 
     // Verify user is logged in
-    expect(await loginPage.isLoggedIn()).toBe(true);
+    const isLoggedIn = await loginPage.isLoggedIn();
+    console.log('[E2E-DEBUG] isLoggedIn:', isLoggedIn);
+    expect(isLoggedIn).toBe(true);
   });
 
   test('should show error with invalid credentials', async ({ page }) => {

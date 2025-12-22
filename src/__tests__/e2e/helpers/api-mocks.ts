@@ -287,7 +287,13 @@ export async function mockReturnExplanationStreamError(
   page: Page,
   errorMessage: string = 'Stream interrupted'
 ) {
+  console.log('[MOCK-DEBUG] Registering stream error mock for:', errorMessage);
+
   await page.route('**/api/returnExplanation', async (route) => {
+    console.log('[MOCK-DEBUG] Route handler invoked for returnExplanation');
+    console.log('[MOCK-DEBUG] Request URL:', route.request().url());
+    console.log('[MOCK-DEBUG] Request method:', route.request().method());
+
     const events: string[] = [];
 
     // Start streaming normally
@@ -304,6 +310,9 @@ export async function mockReturnExplanationStreamError(
       error: errorMessage,
     })}\n\n`);
 
+    console.log('[MOCK-DEBUG] Fulfilling with', events.length, 'SSE events');
+    console.log('[MOCK-DEBUG] Events:', events.map(e => e.replace(/\n/g, '\\n')));
+
     await route.fulfill({
       status: 200,
       headers: {
@@ -313,5 +322,9 @@ export async function mockReturnExplanationStreamError(
       },
       body: events.join(''),
     });
+
+    console.log('[MOCK-DEBUG] Route fulfilled successfully');
   });
+
+  console.log('[MOCK-DEBUG] Route registered for **/api/returnExplanation');
 }

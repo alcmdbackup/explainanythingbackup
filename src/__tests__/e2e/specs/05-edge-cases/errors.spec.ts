@@ -40,24 +40,55 @@ test.describe('Error Handling', () => {
     test('should display error message for stream errors', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
+      // --- E2E DEBUG LOGGING START ---
+      console.log('[E2E-DEBUG] Test starting: stream error test');
+
+      // Capture ALL browser console messages for debugging
+      page.on('console', msg => {
+        console.log(`[BROWSER ${msg.type()}] ${msg.text()}`);
+      });
+
+      // Log network requests to returnExplanation API
+      page.on('request', req => {
+        if (req.url().includes('returnExplanation')) {
+          console.log('[E2E-DEBUG] Request to returnExplanation:', req.method(), req.url());
+        }
+      });
+
+      page.on('response', res => {
+        if (res.url().includes('returnExplanation')) {
+          console.log('[E2E-DEBUG] Response from returnExplanation:', res.status(), res.headers()['content-type']);
+        }
+      });
+      // --- E2E DEBUG LOGGING END ---
+
       // Mock API to return error during streaming (proper SSE error event)
       // Set up mock BEFORE any navigation
       await mockReturnExplanationStreamError(page, 'Stream interrupted');
+      console.log('[E2E-DEBUG] Mock registered for stream error');
 
       // Small delay to ensure route is fully registered in CI
       await page.waitForTimeout(100);
 
       await resultsPage.navigate('test query');
+      console.log('[E2E-DEBUG] Navigated to results page, URL:', page.url());
+
+      // Take screenshot before waiting for error (for CI debugging)
+      await page.screenshot({ path: 'test-results/debug-stream-error-before-wait.png' }).catch(() => {});
 
       // Wait for error to appear (increased timeout for CI)
+      console.log('[E2E-DEBUG] Waiting for error element to appear...');
       await resultsPage.waitForError(30000);
+      console.log('[E2E-DEBUG] Error element appeared');
 
       // Verify error is displayed
       const isErrorVisible = await resultsPage.isErrorVisible();
+      console.log('[E2E-DEBUG] isErrorVisible:', isErrorVisible);
       expect(isErrorVisible).toBe(true);
 
       // Verify error message content
       const errorMessage = await resultsPage.getErrorMessage();
+      console.log('[E2E-DEBUG] errorMessage:', errorMessage);
       expect(errorMessage).toContain('Stream interrupted');
     });
   });

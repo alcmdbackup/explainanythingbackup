@@ -304,16 +304,23 @@ function ResultsPageContent() {
         if (!reader) {
             throw new Error('Failed to get response reader');
         }
+        console.log('[SSE-DEBUG] Got response reader, starting to read SSE stream');
 
         const decoder = new TextDecoder();
         let finalResult: unknown = null;
+        let chunkCount = 0;
 
         while (true) {
             const { done, value } = await reader.read();
-            
-            if (done) break;
 
+            if (done) {
+                console.log('[SSE-DEBUG] Stream done, total chunks received:', chunkCount);
+                break;
+            }
+
+            chunkCount++;
             const chunk = decoder.decode(value);
+            console.log('[SSE-DEBUG] Chunk', chunkCount, 'received, length:', chunk.length);
             logger.debug('Client received chunk:', { chunkLength: chunk.length, chunk: chunk.substring(0, 200) }, FILE_DEBUG);
             const lines = chunk.split('\n');
 
@@ -325,7 +332,10 @@ function ResultsPageContent() {
                         logger.debug('Client received streaming data:', { data }, FILE_DEBUG);
                         
                         if (data.type === 'error') {
+                            console.log('[SSE-DEBUG] Error event received:', data.error);
+                            console.log('[SSE-DEBUG] Dispatching ERROR action to lifecycle reducer');
                             dispatchLifecycle({ type: 'ERROR', error: data.error });
+                            console.log('[SSE-DEBUG] ERROR action dispatched, resetting vector and status');
                             setExplanationVector(null); // Reset vector on error
                             setExplanationStatus(null); // Reset status on error
                             return;
