@@ -197,9 +197,12 @@ describe('Tag Management Integration Tests', () => {
     it('should handle adding multiple tags efficiently', async () => {
       const topic = await createTopicInDb();
       const explanation = await createExplanationInDb(topic.id);
-      const tags = await Promise.all(
-        Array.from({ length: 5 }, (_, i) => createTagInDb(`tag-${i}`))
-      );
+      // Create tags sequentially to avoid race condition where getTagsById
+      // query runs before all tags are visible in the database
+      const tags = [];
+      for (let i = 0; i < 5; i++) {
+        tags.push(await createTagInDb(`tag-${i}`));
+      }
       const tagIds = tags.map((t) => t.id);
 
       const startTime = Date.now();
