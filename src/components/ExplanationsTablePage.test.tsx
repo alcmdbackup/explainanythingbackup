@@ -521,8 +521,8 @@ describe('ExplanationsTablePage', () => {
     it('should show empty state message when no explanations', () => {
       render(<ExplanationsTablePage explanations={[]} error={null} />);
 
-      expect(screen.getByText('Your library awaits its first manuscript.')).toBeInTheDocument();
-      expect(screen.getByText('Save explanations to build your personal collection.')).toBeInTheDocument();
+      expect(screen.getByText('Nothing saved yet')).toBeInTheDocument();
+      expect(screen.getByText('Save explanations you want to revisit.')).toBeInTheDocument();
     });
 
     it('should not show table when no explanations', () => {

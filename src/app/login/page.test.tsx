@@ -273,7 +273,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(passwordInput, 'short');
       await user.click(submitButton);
@@ -289,7 +289,7 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
       await user.click(submitButton);
 
       await waitFor(() => {
@@ -305,7 +305,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -321,7 +321,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
@@ -345,7 +345,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
@@ -374,7 +374,7 @@ describe('LoginPage', () => {
       const rememberMeCheckbox = screen.getByRole('checkbox', {
         name: /remember me/i,
       });
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -400,14 +400,14 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
       await user.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/entering/i)).toBeInTheDocument();
+        expect(screen.getByText(/signing in/i)).toBeInTheDocument();
       });
     });
 
@@ -424,7 +424,7 @@ describe('LoginPage', () => {
         /^password$/i
       ) as HTMLInputElement;
       const submitButton = screen.getByRole('button', {
-        name: /enter the library/i,
+        name: /sign in/i,
       }) as HTMLButtonElement;
 
       await user.type(emailInput, 'test@example.com');
@@ -450,7 +450,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'wrongpassword');
@@ -473,7 +473,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       // First submission with error
       await user.type(emailInput, 'test@example.com');

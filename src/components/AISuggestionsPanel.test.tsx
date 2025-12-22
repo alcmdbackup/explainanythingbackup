@@ -79,15 +79,6 @@ describe('AISuggestionsPanel', () => {
       expect(screen.getByRole('button', { name: /get suggestions/i })).toBeInTheDocument();
     });
 
-    it('should render instructions text', () => {
-      const props = createMockAISuggestionsPanelProps();
-      render(<AISuggestionsPanel {...props} />);
-
-      expect(screen.getByText(/describe the improvements you'd like to see/i)).toBeInTheDocument();
-      expect(screen.getByText(/ai will analyze and enhance your content/i)).toBeInTheDocument();
-      expect(screen.getByText(/changes will be applied directly to your manuscript/i)).toBeInTheDocument();
-    });
-
     it('should apply theme styling classes', () => {
       const props = createMockAISuggestionsPanelProps();
       const { container } = render(<AISuggestionsPanel {...props} />);

@@ -131,9 +131,9 @@ describe('Navigation', () => {
       expect(homeLink).toHaveAttribute('href', '/');
     });
 
-    it('should render My Library link with correct href', () => {
+    it('should render Saved link with correct href', () => {
       render(<Navigation />);
-      const libraryLink = screen.getByText('My Library').closest('a');
+      const libraryLink = screen.getByText('Saved').closest('a');
       expect(libraryLink).toHaveAttribute('href', '/userlibrary');
     });
 
@@ -250,7 +250,7 @@ describe('Navigation', () => {
 
     it('should support keyboard navigation for all links', () => {
       render(<Navigation />);
-      const links = ['Home', 'My Library', 'Explore'].map(text =>
+      const links = ['Home', 'Saved', 'Explore'].map(text =>
         screen.getByText(text).closest('a')
       );
       links.forEach(link => {
