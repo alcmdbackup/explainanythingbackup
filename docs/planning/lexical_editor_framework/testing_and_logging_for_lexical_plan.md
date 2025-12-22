@@ -187,6 +187,17 @@ src/editorFiles/lexicalEditor/__tests__/
 ### Test Execution Pattern
 
 ```typescript
+import { unified } from 'unified';
+import remarkParse from 'remark-parse';
+import { RenderCriticMarkupFromMDAstDiff } from '../markdownASTdiff';
+import { preprocessCriticMarkup } from '../lexicalEditor/importExportUtils';
+import { loadAllFixtures } from '@/testing/fixtures/aiPipeline';
+
+// Parse markdown to AST (same pattern as aiSuggestion.ts:207-208)
+function parseMarkdown(markdown: string) {
+  return unified().use(remarkParse).parse(markdown);
+}
+
 describe('Pipeline Fixtures', () => {
   const fixtures = loadAllFixtures();
 
@@ -209,7 +220,7 @@ describe('Pipeline Fixtures', () => {
 
 ---
 
-## Accept/Reject Integration Tests (12 total)
+## Accept/Reject Integration Tests (14 total)
 
 ### Current Gap
 
@@ -221,27 +232,93 @@ Existing tests verify UI rendering but NOT the actual editor mutations:
 
 **Missing:** Integration tests that verify `handleAccept()` and `handleReject()` actually mutate the editor state correctly.
 
+### Prerequisite: Extract Accept/Reject Logic
+
+The `handleAccept` and `handleReject` functions are currently defined as `useCallback` hooks inside `DiffTagHoverPlugin.tsx` (lines 61-133). They cannot be imported for testing.
+
+**Solution:** Extract to a separate testable module:
+
+```typescript
+// src/editorFiles/lexicalEditor/diffTagMutations.ts
+import { LexicalEditor, $getNodeByKey } from 'lexical';
+import { $isDiffTagNodeInline, $isDiffTagNodeBlock, $isDiffUpdateContainerInline } from './DiffTagNode';
+
+export function acceptDiffTag(editor: LexicalEditor, nodeKey: string): void {
+  editor.update(() => {
+    const node = $getNodeByKey(nodeKey);
+    if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
+      const tag = node.__tag;
+      if (tag === 'ins') {
+        const children = node.getChildren();
+        children.forEach(child => node.insertBefore(child));
+        node.remove();
+      } else if (tag === 'del') {
+        node.remove();
+      } else if (tag === 'update') {
+        const children = node.getChildren();
+        if (children.length >= 2) {
+          const afterContent = children[1];
+          if ($isDiffUpdateContainerInline(afterContent)) {
+            afterContent.getChildren().forEach(child => node.insertBefore(child));
+          } else {
+            node.insertBefore(afterContent);
+          }
+        }
+        node.remove();
+      }
+    }
+  });
+}
+
+export function rejectDiffTag(editor: LexicalEditor, nodeKey: string): void {
+  // Similar logic with inverted behavior
+}
+```
+
+Then update `DiffTagHoverPlugin.tsx` to import and use these functions.
+
 ### Test Cases
 
 | Tag | Action | Verify |
 |-----|--------|--------|
-| ins | accept | Children unwrapped, diff tag removed |
-| ins | reject | Entire node removed |
-| del | accept | Entire node removed |
-| del | reject | Children unwrapped, diff tag removed |
-| update | accept | 2nd child (after) promoted, diff tag removed |
-| update | reject | 1st child (before) promoted, diff tag removed |
+| ins (inline) | accept | Children unwrapped, diff tag removed |
+| ins (inline) | reject | Entire node removed |
+| del (inline) | accept | Entire node removed |
+| del (inline) | reject | Children unwrapped, diff tag removed |
+| update (inline) | accept | 2nd child (after) promoted, diff tag removed |
+| update (inline) | reject | 1st child (before) promoted, diff tag removed |
 | update | accept w/ container | DiffUpdateContainerInline properly unwrapped |
 | update | reject w/ container | DiffUpdateContainerInline properly unwrapped |
 | multi-child | accept ins | Multiple children all unwrapped |
 | sequence | accept then accept | Two operations in sequence work |
+| **block (heading)** | **accept** | **DiffTagNodeBlock with heading unwrapped correctly** |
+| **block (heading)** | **reject** | **DiffTagNodeBlock with heading removed correctly** |
 | edge | empty diff node | Handles gracefully |
 | edge | missing node key | No crash, fails gracefully |
 
 ### Test Pattern
 
 ```typescript
-import { createTestEditor, editorUpdate } from '../testUtils';
+import { createEditor, $getRoot, $createTextNode } from 'lexical';
+import { HeadingNode } from '@lexical/rich-text';
+import { acceptDiffTag, rejectDiffTag } from '../diffTagMutations';
+import { $createDiffTagNodeInline, DiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline } from '../DiffTagNode';
+
+function createTestEditor() {
+  return createEditor({
+    nodes: [HeadingNode, DiffTagNodeInline, DiffTagNodeBlock, DiffUpdateContainerInline],
+    onError: (error) => { throw error; },
+  });
+}
+
+async function editorUpdate<T>(editor: LexicalEditor, fn: () => T): Promise<T> {
+  return new Promise((resolve, reject) => {
+    editor.update(() => {
+      try { resolve(fn()); }
+      catch (error) { reject(error); }
+    }, { discrete: true });
+  });
+}
 
 describe('DiffTag Accept/Reject Integration', () => {
   it('ins accept: unwraps children, removes diff tag', async () => {
@@ -260,8 +337,8 @@ describe('DiffTag Accept/Reject Integration', () => {
       // ... get the diff node key
     });
 
-    // Execute accept
-    handleAccept(editor, nodeKey);
+    // Execute accept using extracted function
+    acceptDiffTag(editor, nodeKey);
 
     // Verify: text remains, diff tag gone
     editor.getEditorState().read(() => {
@@ -329,34 +406,40 @@ When a successful pipeline run completes:
 
 ## Implementation Plan
 
-### Phase 1: Fixture Infrastructure
+### Phase 1: Fixture Infrastructure + Accept/Reject Extraction
 1. Create `src/testing/fixtures/aiPipeline/types.ts`
 2. Create `src/testing/fixtures/aiPipeline/index.ts`
 3. Create directory structure for cases
+4. **Extract accept/reject logic to `src/editorFiles/lexicalEditor/diffTagMutations.ts`**
+5. Update `DiffTagHoverPlugin.tsx` to import from `diffTagMutations.ts`
 
-### Phase 2: Initial Fixtures
-1. Write 5 initial fixtures by hand (one per category)
+### Phase 2: Fixture Manager Page (Build the Tool First)
+1. Create `src/testing/fixtures/aiPipeline/actions.ts` (server actions with dev-only fs access)
+2. Create `src/app/(debug)/fixtureManager/page.tsx`
+3. Test that Generate Expected Outputs works correctly
+
+### Phase 3: Initial Fixtures (Using Fixture Manager)
+1. Use Fixture Manager to create 5 initial fixtures (one per category)
 2. Verify fixture format is correct
 
-### Phase 3: Pipeline Test Files
+### Phase 4: Pipeline Test Files
 1. Create `markdownASTdiff.fixtures.test.ts`
 2. Create `preprocessing.fixtures.test.ts`
-3. Run tests, verify they pass
+3. Run tests, verify they pass with initial 5 fixtures
 
-### Phase 4: Remaining Fixtures
-1. Write remaining 25 fixtures by hand
-2. Run through Step 3-4 code to generate expected outputs
-3. Manually verify outputs are correct
-4. Run full test suite
+### Phase 5: Remaining Fixtures (Using Fixture Manager)
+1. Use Fixture Manager to create remaining 25 fixtures
+2. Review generated expected outputs for correctness
+3. Run full test suite
 
-### Phase 5: Accept/Reject Integration Tests
+### Phase 6: Accept/Reject Integration Tests
 1. Create `DiffTagAcceptReject.integration.test.tsx`
-2. Implement 12 test cases for accept/reject behavior
+2. Implement 14 test cases (12 inline + 2 block) for accept/reject behavior
 3. Verify all tests pass
 
-### Phase 6: Fixture Capture Tool
+### Phase 7: EditorTest Export Button (Optional)
 1. Add "Export as Fixture" button to EditorTest page
-2. Enable capturing future regression fixtures from real runs
+2. Enable capturing future regression fixtures from real pipeline runs
 
 ---
 
@@ -366,23 +449,28 @@ When a successful pipeline run completes:
 |--------|------|
 | Create | `src/testing/fixtures/aiPipeline/types.ts` |
 | Create | `src/testing/fixtures/aiPipeline/index.ts` |
+| Create | `src/testing/fixtures/aiPipeline/actions.ts` (dev-only fs access) |
 | Create | `src/testing/fixtures/aiPipeline/cases/*.json` (30 files) |
+| Create | `src/app/(debug)/fixtureManager/page.tsx` |
+| Create | `src/editorFiles/lexicalEditor/diffTagMutations.ts` (extracted accept/reject logic) |
 | Create | `src/editorFiles/markdownASTdiff/__tests__/markdownASTdiff.fixtures.test.ts` |
 | Create | `src/editorFiles/lexicalEditor/__tests__/preprocessing.fixtures.test.ts` |
 | Create | `src/editorFiles/lexicalEditor/__tests__/DiffTagAcceptReject.integration.test.tsx` |
-| Modify | `src/app/(debug)/editorTest/page.tsx` (add export button) |
+| Modify | `src/editorFiles/lexicalEditor/DiffTagHoverPlugin.tsx` (import from diffTagMutations.ts) |
+| Modify | `src/app/(debug)/editorTest/page.tsx` (add export button - optional) |
 
 ---
 
 ## Success Criteria
 
 - [ ] All 30 fixture tests pass
-- [ ] All 12 accept/reject integration tests pass
+- [ ] All 14 accept/reject integration tests pass (12 inline + 2 block)
 - [ ] Each test clearly reports pass/fail with fixture name
 - [ ] Failed tests show diff between expected/actual
 - [ ] Can run `npm test -- --grep "Pipeline Fixtures"` to run only fixture tests
 - [ ] Can run `npm test -- --grep "Accept/Reject"` to run only integration tests
-- [ ] EditorTest page can export new fixtures for regression testing
+- [ ] Fixture Manager page works at `/fixtureManager` (dev only)
+- [ ] EditorTest page can export new fixtures for regression testing (optional)
 
 ---
 
@@ -396,41 +484,43 @@ When a successful pipeline run completes:
 | Additional pipeline logging? | None | Existing request ID system covers needs |
 | Test report format? | Console only | Standard Jest output, no extra infrastructure |
 | Deterministic entry points? | Skip | Step 3-4 functions already standalone |
-| LLM needed for fixtures? | No | Diff algorithm is deterministic; hand-craft inputs, run code once to get expected outputs |
-| Test count? | 30 fixtures + 12 integration | Comprehensive coverage including edge cases and accept/reject |
+| LLM needed for fixtures? | No | Diff algorithm is deterministic; use Fixture Manager to generate expected outputs |
+| Test count? | 30 fixtures + 14 integration | Comprehensive coverage including edge cases, accept/reject, and block-level nodes |
 | Accept/reject testing? | Yes | Currently untested; critical user-facing functionality |
+| Accept/reject testability? | Extract to module | `handleAccept`/`handleReject` are `useCallback` hooks; extract to `diffTagMutations.ts` |
+| Block-level testing? | Yes (2 tests) | `DiffTagNodeBlock` may behave differently than inline |
+| Fixture Manager file access? | Dev-only fs | Works on local; add `NODE_ENV` check for safety |
+| Phase ordering? | Fixture Manager first | Build the tool, then use it to generate fixtures |
 
 ---
 
 ## Generating Expected Outputs for Fixtures
 
-For each fixture, follow this workflow:
+Use the **Fixture Manager page** (`/fixtureManager`) to generate fixtures:
 
-1. **Write inputs by hand:**
+1. **Enter inputs in the UI:**
    - `originalMarkdown`: The starting content
    - `editedMarkdown`: The simulated LLM-edited content
 
-2. **Run through Step 3 code:**
+2. **Click "Generate Expected Outputs"** - the server action runs:
    ```typescript
-   const step3Result = RenderCriticMarkupFromMDAstDiff(
-     parseMarkdown(originalMarkdown),
-     parseMarkdown(editedMarkdown)
-   );
-   // → This becomes expectedStep3Output
-   ```
+   // Step 3
+   const beforeAST = unified().use(remarkParse).parse(originalMarkdown);
+   const afterAST = unified().use(remarkParse).parse(editedMarkdown);
+   const step3Result = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
 
-3. **Run through Step 4 code:**
-   ```typescript
+   // Step 4
    const step4Result = preprocessCriticMarkup(step3Result);
-   // → This becomes expectedStep4Output
    ```
 
-4. **Manually verify outputs are correct:**
+3. **Review generated outputs in the UI:**
    - Check CriticMarkup syntax is valid
    - Check diff markers match expected changes
    - Check preprocessing normalized multiline patterns
 
-5. **Commit as golden fixture**
+4. **Fill in metadata** (name, description, category)
+
+5. **Click "Save Fixture"** to write JSON to `src/testing/fixtures/aiPipeline/cases/`
 
 No LLM needed - the diff algorithm is deterministic.
 
@@ -456,7 +546,14 @@ No LLM needed - the diff algorithm is deterministic.
 
 **URL**: `/fixtureManager`
 
-A debug page for creating and managing test fixtures.
+A debug page for creating and managing test fixtures. **This is the primary tool for generating fixtures** - build it FIRST, then use it to create all 30 fixtures.
+
+### Dev-Only File System Access
+
+The Fixture Manager uses Node.js `fs` module in server actions to read/write fixture JSON files. This works on local development because:
+- Next.js server actions run in Node.js environment
+- The `(debug)` route group is dev-only
+- Add safety check: `if (process.env.NODE_ENV !== 'development') throw new Error('Dev only')`
 
 ### Features
 
@@ -475,18 +572,18 @@ A debug page for creating and managing test fixtures.
 |------|---------|
 | `src/testing/fixtures/aiPipeline/types.ts` | `PipelineFixture` interface |
 | `src/testing/fixtures/aiPipeline/index.ts` | Fixture loader utilities |
-| `src/testing/fixtures/aiPipeline/actions.ts` | Server actions for CRUD + generate |
+| `src/testing/fixtures/aiPipeline/actions.ts` | Server actions for CRUD + generate (dev-only fs access) |
 | `src/app/(debug)/fixtureManager/page.tsx` | Fixture manager UI |
 
 ### Key Server Actions
 
 ```typescript
-listFixturesAction()                    // List all fixtures
-loadFixtureAction(path)                 // Load single fixture
-saveFixtureAction(fixture)              // Save fixture to JSON
-deleteFixtureAction(path)               // Delete fixture
-generateExpectedOutputsAction(original, edited)  // Run Step 3-4
-validateFixtureAction(fixture)          // Compare actual vs expected
+listFixturesAction()                    // List all fixtures (fs.readdir)
+loadFixtureAction(path)                 // Load single fixture (fs.readFile)
+saveFixtureAction(fixture)              // Save fixture to JSON (fs.writeFile)
+deleteFixtureAction(path)               // Delete fixture (fs.unlink)
+generateExpectedOutputsAction(original, edited)  // Run Step 3-4 (no fs)
+validateFixtureAction(fixture)          // Compare actual vs expected (no fs)
 ```
 
 ### Workflow
