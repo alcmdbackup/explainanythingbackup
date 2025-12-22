@@ -9,14 +9,14 @@ import Navigation from '@/components/Navigation';
 import ExploreTabs from '@/components/ExploreTabs';
 
 /**
- * ExplanationsTablePage component - Library Catalog
- * Midnight Scholar theme - Elegant table display for browsing explanations
+ * ExplanationsTablePage component
+ * Table display for browsing explanations
  */
 export default function ExplanationsTablePage({
     explanations,
     error,
     showNavigation = true,
-    pageTitle = 'The Archives',
+    pageTitle = 'Explore',
     sort,
     period,
 }: {
@@ -77,7 +77,7 @@ export default function ExplanationsTablePage({
                 <Navigation
                     showSearchBar={true}
                     searchBarProps={{
-                        placeholder: 'Search the archives...',
+                        placeholder: 'Search...',
                         maxLength: 100,
                         onSearch: (query: string) => {
                             if (!query.trim()) return;
@@ -115,13 +115,13 @@ export default function ExplanationsTablePage({
                         >
                             <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                        <p className="font-serif text-[var(--text-muted)] italic text-lg">Your library awaits its first manuscript.</p>
-                        <p className="font-sans text-sm text-[var(--text-muted)] mt-2">Save explanations to build your personal collection.</p>
+                        <p className="font-serif text-[var(--text-muted)] text-lg">Nothing saved yet</p>
+                        <p className="font-sans text-sm text-[var(--text-muted)] mt-2">Save explanations you want to revisit.</p>
                         <Link
                             href="/"
                             className="inline-flex items-center mt-6 px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-page shadow-warm hover:shadow-warm-md transition-all duration-200"
                         >
-                            Begin Exploring
+                            Start exploring
                         </Link>
                     </div>
                 ) : (

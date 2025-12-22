@@ -54,7 +54,7 @@ describe('Navigation', () => {
     it('should render all navigation links', () => {
       render(<Navigation />);
       expect(screen.getByText('Home')).toBeInTheDocument();
-      expect(screen.getByText('My Library')).toBeInTheDocument();
+      expect(screen.getByText('Saved')).toBeInTheDocument();
       expect(screen.getByText('Explore')).toBeInTheDocument();
     });
 
@@ -97,7 +97,7 @@ describe('Navigation', () => {
 
     it('should use default placeholder when not provided', () => {
       render(<Navigation showSearchBar={true} />);
-      expect(screen.getByText('Search the archives...')).toBeInTheDocument();
+      expect(screen.getByText('Search...')).toBeInTheDocument();
     });
 
     it('should forward searchBarProps to SearchBar component', () => {

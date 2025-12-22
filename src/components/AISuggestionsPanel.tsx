@@ -282,26 +282,6 @@ export default function AISuggestionsPanel({
           </div>
         )}
 
-        {/* Instructions - Scholarly tips */}
-        <div className="border-t border-[var(--border-default)] pt-4 mt-4">
-          <h4 className="text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
-            Scholarly Notes
-          </h4>
-          <ul className="text-xs font-serif text-[var(--text-muted)] space-y-1.5">
-            <li className="flex items-start gap-1.5">
-              <span className="text-[var(--accent-gold)]">•</span>
-              <span>Describe the improvements you&apos;d like to see</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="text-[var(--accent-gold)]">•</span>
-              <span>The AI will analyze and enhance your content</span>
-            </li>
-            <li className="flex items-start gap-1.5">
-              <span className="text-[var(--accent-gold)]">•</span>
-              <span>Changes will be applied directly to your manuscript</span>
-            </li>
-          </ul>
-        </div>
       </div>
     </div>
   );

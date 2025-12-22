@@ -855,7 +855,7 @@ function ResultsPageContent() {
             <Navigation
                 showSearchBar={true}
                 searchBarProps={{
-                    placeholder: "Search the archives...",
+                    placeholder: "Search...",
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
@@ -913,13 +913,13 @@ function ResultsPageContent() {
                                     <div className="mb-6">
                                         <div className="flex items-center justify-between">
                                             <h1 className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
-                                                Related Manuscripts
+                                                Related
                                             </h1>
                                             <button
                                                 onClick={() => setShowMatches(false)}
                                                 className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
                                             >
-                                                ← Return to manuscript
+                                                ← Back
                                             </button>
                                         </div>
                                         <div className="title-flourish mt-4"></div>
@@ -956,8 +956,8 @@ function ResultsPageContent() {
                                                 </div>
                                             ))
                                         ) : (
-                                            <p className="font-serif text-[var(--text-muted)] text-center italic py-8">
-                                                No related manuscripts found. Generate an explanation to discover connections.
+                                            <p className="font-serif text-[var(--text-muted)] text-center py-8">
+                                                No related explanations found.
                                             </p>
                                         )}
                                     </div>
@@ -1188,7 +1188,7 @@ function ResultsPageContent() {
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
                                                 <div className="ink-dots"></div>
-                                                <p className="text-sm font-serif italic text-[var(--text-muted)]">The scholar is composing...</p>
+                                                <p className="text-sm font-serif text-[var(--text-muted)]">Writing...</p>
                                             </div>
                                         ) : isMarkdownMode ? (
                                             <LexicalEditor
@@ -1268,7 +1268,7 @@ export default function ResultsPage() {
         <Suspense fallback={
             <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
                 <div className="ink-dots"></div>
-                <p className="text-sm font-serif italic text-[var(--text-muted)]">Opening the archives...</p>
+                <p className="text-sm font-serif text-[var(--text-muted)]">Loading...</p>
             </div>
         }>
             <ResultsPageContent />
