@@ -2,27 +2,26 @@
  * Fixture-based tests for RenderCriticMarkupFromMDAstDiff (Step 3)
  * Tests the deterministic diff algorithm with comprehensive fixtures
  *
- * NOTE: Uses mock AST nodes instead of real parsing to avoid ESM issues with unified.
- * The mock parser handles simple cases; complex fixtures that require real parsing
- * are tested via e2e and integration tests.
+ * NOTE: Tests requiring real markdown parsing (unified/remark-parse) have been
+ * migrated to markdownASTdiff.esm.test.ts which runs via `npm run test:esm`.
  *
- * Skipped tests: Fixtures requiring table/image/link parsing which the mock doesn't handle.
+ * This file contains:
+ * - Behavior verification tests using mock AST (Jest-compatible)
+ *
+ * For full fixture tests with real parsing, run:
+ *   npm run test:esm
  */
 
 import { RenderCriticMarkupFromMDAstDiff } from './markdownASTdiff';
 import {
-  getAllPipelineFixtures,
-  getPipelineFixturesByCategory,
   hasCriticInsertion,
   hasCriticDeletion,
-  countCriticOperations,
   createMockRoot,
   createMockParagraph,
   createMockHeading,
   createMockCodeBlock,
   createMockList,
   createMockListItem,
-  type PipelineFixture,
 } from '@/testing/utils/editor-test-helpers';
 
 // Suppress console logs during tests
@@ -86,121 +85,10 @@ function runStep3(original: string, edited: string): string {
   return RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
 }
 
-// ============= Full Fixture Suite =============
-// NOTE: These tests require real markdown parsing (unified/remark-parse) which has ESM issues.
-// The fixtures are validated via preprocessing.fixtures.test.ts which tests Step 4 using
-// the expectedStep3Output from fixtures directly.
-// Full integration testing with real parsing is done in e2e tests.
-
-describe.skip('Step 3: RenderCriticMarkupFromMDAstDiff - All Fixtures', () => {
-  const allFixtures = getAllPipelineFixtures();
-
-  describe.each(allFixtures)('$name', (fixture: PipelineFixture) => {
-    it(`generates CriticMarkup: ${fixture.description}`, () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-
-      // Check for expected diff types
-      if (fixture.expectedDiffTypes.includes('ins')) {
-        expect(hasCriticInsertion(result)).toBe(true);
-      }
-      if (fixture.expectedDiffTypes.includes('del')) {
-        expect(hasCriticDeletion(result)).toBe(true);
-      }
-
-      // Verify operation count matches expected
-      const operationCount = countCriticOperations(result);
-      expect(operationCount).toBe(fixture.expectedDiffNodeCount);
-    });
-  });
-});
-
-// ============= Category-Specific Tests =============
-// Skipped: Mock AST parser doesn't produce granular enough nodes for category-specific tests.
-// These are covered by the 63 tests in markdownASTdiff.test.ts which use proper mock AST nodes.
-
-describe.skip('Step 3: Insertions', () => {
-  const fixtures = getPipelineFixturesByCategory('insertion');
-
-  describe.each(fixtures)('$name', (fixture: PipelineFixture) => {
-    it('should produce only insertion markers', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      expect(hasCriticInsertion(result)).toBe(true);
-      expect(hasCriticDeletion(result)).toBe(false);
-    });
-
-    it('should contain the new content in insertion markers', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      expect(result).toMatch(/\{\+\+[\s\S]+?\+\+\}/);
-    });
-  });
-});
-
-describe.skip('Step 3: Deletions', () => {
-  const fixtures = getPipelineFixturesByCategory('deletion');
-
-  describe.each(fixtures)('$name', (fixture: PipelineFixture) => {
-    it('should produce only deletion markers', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      expect(hasCriticDeletion(result)).toBe(true);
-      expect(hasCriticInsertion(result)).toBe(false);
-    });
-
-    it('should contain the removed content in deletion markers', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      expect(result).toMatch(/\{--[\s\S]+?--\}/);
-    });
-  });
-});
-
-describe.skip('Step 3: Updates (Word Replacements)', () => {
-  const fixtures = getPipelineFixturesByCategory('update');
-
-  describe.each(fixtures)('$name', (fixture: PipelineFixture) => {
-    it('should produce both deletion and insertion markers', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      expect(hasCriticDeletion(result)).toBe(true);
-      expect(hasCriticInsertion(result)).toBe(true);
-    });
-
-    it('should have correct number of operations', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      const operationCount = countCriticOperations(result);
-      expect(operationCount).toBe(fixture.expectedDiffNodeCount);
-    });
-  });
-});
-
-describe.skip('Step 3: Mixed Operations', () => {
-  const fixtures = getPipelineFixturesByCategory('mixed');
-
-  describe.each(fixtures)('$name', (fixture: PipelineFixture) => {
-    it('should handle multiple operation types', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      const operationCount = countCriticOperations(result);
-      expect(operationCount).toBeGreaterThanOrEqual(2);
-    });
-  });
-});
-
-describe.skip('Step 3: Edge Cases', () => {
-  const fixtures = getPipelineFixturesByCategory('edge-case');
-
-  describe.each(fixtures)('$name', (fixture: PipelineFixture) => {
-    it(`handles: ${fixture.description}`, () => {
-      expect(() => {
-        runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      }).not.toThrow();
-    });
-
-    it('produces valid CriticMarkup', () => {
-      const result = runStep3(fixture.originalMarkdown, fixture.editedMarkdown);
-      const operationCount = countCriticOperations(result);
-      expect(operationCount).toBeGreaterThanOrEqual(1);
-    });
-  });
-});
-
-// ============= Specific Behavior Tests =============
+// ============= Behavior Verification Tests =============
+// These tests use mock AST and work with Jest.
+// For comprehensive fixture tests with real parsing, see:
+//   markdownASTdiff.esm.test.ts (run via `npm run test:esm`)
 
 describe('Step 3: Behavior Verification', () => {
   it('returns original unchanged when no edits', () => {

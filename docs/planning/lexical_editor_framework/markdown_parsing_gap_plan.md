@@ -108,6 +108,15 @@ This enables the 87 skipped tests with real parsing while keeping Jest unchanged
 
 ---
 
+## Implementation Status: COMPLETED
+
+Implementation completed on 2024-12. See:
+- `src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts` - 147 tests with real parsing
+- `npm run test:esm` - Runs ESM tests via tsx
+- `.github/workflows/ci.yml` - CI updated to run both test suites
+
+---
+
 ## Implementation Plan
 
 ### Phase 1: Create ESM Test File
@@ -140,9 +149,10 @@ npm run test:esm  # ESM tests (87 parsing tests)
 - `.github/workflows/*.yml` - Add ESM test step (if CI exists)
 
 ### Success Criteria
-- 87 previously-skipped tests now run and pass
-- No changes to existing Jest tests
-- Both test commands work: `npm test` and `npm run test:esm`
+- [x] 147 tests now run and pass via `npm run test:esm`
+- [x] No changes to existing Jest tests (67 suites, 1754 tests pass)
+- [x] Both test commands work: `npm test` and `npm run test:esm`
+- [x] CI updated to run ESM tests
 
 ---
 

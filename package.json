@@ -17,7 +17,8 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
-    "test:e2e:chromium": "playwright test --project=chromium"
+    "test:e2e:chromium": "playwright test --project=chromium",
+    "test:esm": "npx tsx --test --test-name-pattern='.*' src/editorFiles/markdownASTdiff/markdownASTdiff.esm.test.ts"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
