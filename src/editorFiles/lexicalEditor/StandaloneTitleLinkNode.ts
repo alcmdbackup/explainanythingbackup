@@ -1,6 +1,13 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-import { LinkNode } from '@lexical/link';
-import { type EditorConfig, type LexicalNode } from 'lexical';
+import { LinkNode, type SerializedLinkNode } from '@lexical/link';
+import { type EditorConfig, type LexicalNode, type Spread } from 'lexical';
+
+/**
+ * Serialized form of StandaloneTitleLinkNode
+ */
+export type SerializedStandaloneTitleLinkNode = Spread<
+  { type: 'standalone-title-link' },
+  SerializedLinkNode
+>;
 
 /**
  * Custom LinkNode that handles standalone title links with special click behavior
@@ -71,13 +78,17 @@ export class StandaloneTitleLinkNode extends LinkNode {
     }
   }
 
-  static importJSON(serializedNode: any): StandaloneTitleLinkNode {
+  static importJSON(serializedNode: SerializedStandaloneTitleLinkNode): StandaloneTitleLinkNode {
     const { url, rel, target, title } = serializedNode;
-    const node = $createStandaloneTitleLinkNode(url, { rel, target, title });
+    const node = $createStandaloneTitleLinkNode(url, {
+      rel: rel ?? undefined,
+      target: target ?? undefined,
+      title: title ?? undefined
+    });
     return node;
   }
 
-  exportJSON(): any {
+  exportJSON(): SerializedStandaloneTitleLinkNode {
     return {
       ...super.exportJSON(),
       type: 'standalone-title-link',

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import { runAllTests, formatTestResults } from '@/editorFiles/markdownASTdiff/testRunner';
+import { logger } from '@/lib/server_utilities';
 
 export async function GET() {
   try {
@@ -25,7 +26,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error('Error generating test responses:', error);
+    logger.error('Error generating test responses', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json(
       { error: 'Failed to generate test responses' },
       { status: 500 }

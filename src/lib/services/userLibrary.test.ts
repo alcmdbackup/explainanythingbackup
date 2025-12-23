@@ -8,6 +8,7 @@ import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
 import { userLibraryType } from '@/lib/schemas/schemas';
+import { logger } from '@/lib/server_utilities';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -22,16 +23,22 @@ jest.mock('@/lib/services/metrics', () => ({
   incrementExplanationSaves: jest.fn()
 }));
 
+jest.mock('@/lib/server_utilities', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn()
+  }
+}));
+
 describe('UserLibrary Service', () => {
   let mockSupabase: any;
-  let consoleErrorSpy: jest.SpyInstance;
+  const mockLogger = logger as jest.Mocked<typeof logger>;
 
   beforeEach(() => {
     // Reset all mocks before each test
     jest.clearAllMocks();
-
-    // Spy on console.error to verify error logging
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     // Create mock Supabase client with chainable methods
     mockSupabase = {
@@ -45,10 +52,6 @@ describe('UserLibrary Service', () => {
 
     // Setup the mock to return our mockSupabase
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
   });
 
   describe('saveExplanationToLibrary', () => {
@@ -102,7 +105,10 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(saveExplanationToLibrary(explanationId, userId)).rejects.toEqual(mockError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error saving explanation to user library:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error saving explanation to user library',
+        { error: 'Duplicate key violation' }
+      );
       expect(incrementExplanationSaves).not.toHaveBeenCalled();
     });
 
@@ -133,8 +139,8 @@ describe('UserLibrary Service', () => {
 
       // Wait for async metrics call to complete
       await new Promise(resolve => setTimeout(resolve, 10));
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Failed to update explanation metrics after save:',
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Failed to update explanation metrics after save',
         {
           explanationid: explanationId,
           error: 'Metrics service unavailable'
@@ -213,7 +219,10 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(getExplanationIdsForUser('user-123')).rejects.toEqual(mockError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching explanation IDs for user:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error fetching explanation IDs for user',
+        { error: 'Database error', userid: 'user-123' }
+      );
     });
 
     it('should handle empty result set gracefully', async () => {
@@ -428,7 +437,10 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(isExplanationSavedByUser(123, 'user-456')).rejects.toEqual(mockError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error checking if explanation is saved:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error checking if explanation is saved',
+        { error: 'Query failed', userid: 'user-456', explanationid: 123 }
+      );
     });
   });
 });

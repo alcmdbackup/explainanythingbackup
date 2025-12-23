@@ -1,7 +1,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
-//import {supabase} from '@/lib/supabase'
+import { logger } from '@/lib/server_utilities';
 import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
 /**
@@ -42,8 +42,7 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
     .single();
 
   if (error) {
-    console.error('Error creating explanation:', error);
-    console.error('Error details:', {
+    logger.error('Error creating explanation', {
       message: error.message,
       details: error.details,
       hint: error.hint,
@@ -111,7 +110,7 @@ export async function getRecentExplanations(
   const sort = options?.sort ?? 'new';
   const period = options?.period ?? 'week';
 
-  console.log('[getRecentExplanations] sort:', sort, 'period:', period);
+  logger.debug('getRecentExplanations', { sort, period });
 
   // For 'new' mode, use simple timestamp ordering
   if (sort === 'new') {
@@ -151,7 +150,7 @@ export async function getRecentExplanations(
         cutoffDate.setDate(cutoffDate.getDate() - 30);
         break;
     }
-    console.log('[getRecentExplanations] cutoffDate:', cutoffDate.toISOString());
+    logger.debug('getRecentExplanations cutoffDate', { cutoffDate: cutoffDate.toISOString() });
     viewCountsQuery = viewCountsQuery.gte('created_at', cutoffDate.toISOString());
   }
 
@@ -166,7 +165,7 @@ export async function getRecentExplanations(
     viewCounts.set(event.explanationid, count + 1);
   }
 
-  console.log('[getRecentExplanations] viewCounts size:', viewCounts.size, 'total events:', viewEvents?.length);
+  logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size, totalEvents: viewEvents?.length });
 
   // Step 2: Get all published explanations
   const { data: explanations, error: expError } = await supabase

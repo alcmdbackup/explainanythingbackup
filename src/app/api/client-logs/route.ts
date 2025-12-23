@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
+import { logger } from '@/lib/server_utilities';
 
 const clientLogFile = join(process.cwd(), 'client.log');
 
@@ -24,7 +25,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Failed to write client log:', error);
+    logger.error('Failed to write client log', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json({ error: 'Failed to write log' }, { status: 500 });
   }
 }

@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server'
+import { logger } from '@/lib/server_utilities'
 import { NextResponse } from 'next/server'
 
 export async function GET(request: Request) {
@@ -15,7 +16,7 @@ export async function GET(request: Request) {
     if (!error) {
       return NextResponse.redirect(`${origin}${next}`)
     } else {
-      console.error('Error exchanging code for session:', error)
+      logger.error('Error exchanging code for session', { error: error.message })
     }
   }
 

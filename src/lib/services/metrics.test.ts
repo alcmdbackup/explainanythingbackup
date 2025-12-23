@@ -18,6 +18,17 @@ jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn()
 }));
 
+jest.mock('@/lib/server_utilities', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn()
+  }
+}));
+
+import { logger } from '@/lib/server_utilities';
+
 type MockSupabaseClient = {
   from: jest.Mock;
   insert: jest.Mock;
@@ -29,13 +40,10 @@ type MockSupabaseClient = {
 
 describe('Metrics Service', () => {
   let mockSupabase: MockSupabaseClient;
+  const mockLogger = logger as jest.Mocked<typeof logger>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    // Mock console methods to avoid clutter in test output
-    jest.spyOn(console, 'error').mockImplementation(() => {});
-    jest.spyOn(console, 'log').mockImplementation(() => {});
 
     // Create mock Supabase client
     mockSupabase = {
@@ -49,10 +57,6 @@ describe('Metrics Service', () => {
 
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
   });
 
   describe('createUserExplanationEvent', () => {
@@ -96,7 +100,10 @@ describe('Metrics Service', () => {
 
       // Act & Assert
       await expect(createUserExplanationEvent(invalidEventData)).rejects.toThrow('Invalid event data');
-      expect(console.error).toHaveBeenCalledWith('Invalid event data:', expect.anything());
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Invalid event data',
+        expect.objectContaining({ error: expect.any(String) })
+      );
     });
 
     it('should throw error when database insertion fails', async () => {
@@ -115,7 +122,15 @@ describe('Metrics Service', () => {
 
       // Act & Assert
       await expect(createUserExplanationEvent(mockEventData)).rejects.toEqual(mockError);
-      expect(console.error).toHaveBeenCalledWith('Error creating user explanation event:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error creating user explanation event',
+        {
+          message: 'Database error',
+          details: 'Connection failed',
+          hint: 'Check connection',
+          code: '500'
+        }
+      );
     });
 
     it('should trigger background metrics update for view events', async () => {
@@ -296,7 +311,10 @@ describe('Metrics Service', () => {
 
       // Act & Assert
       await expect(refreshExplanationMetrics({ refreshAll: true })).rejects.toEqual(mockError);
-      expect(console.error).toHaveBeenCalledWith('Error refreshing all explanation metrics:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error refreshing all explanation metrics',
+        { error: 'RPC failed' }
+      );
     });
 
     it('should throw error when RPC returns non-array data', async () => {
@@ -481,7 +499,10 @@ describe('Metrics Service', () => {
       expect(mockSupabase.rpc).toHaveBeenCalledWith('increment_explanation_views', {
         p_explanation_id: 1
       });
-      expect(console.log).toHaveBeenCalledWith('Raw data from stored procedure:', expect.any(String));
+      expect(mockLogger.debug).toHaveBeenCalledWith(
+        'Raw data from stored procedure',
+        expect.objectContaining({ data: expect.anything() })
+      );
     });
 
     it('should throw error when RPC returns empty array', async () => {
@@ -519,9 +540,9 @@ describe('Metrics Service', () => {
 
       // Act & Assert
       await expect(incrementExplanationViews(1)).rejects.toThrow('Invalid metrics data');
-      expect(console.error).toHaveBeenCalledWith(
-        'Invalid metrics data returned from increment procedure:',
-        expect.anything()
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Invalid metrics data returned from increment procedure',
+        expect.objectContaining({ error: expect.any(String) })
       );
     });
 
@@ -535,7 +556,10 @@ describe('Metrics Service', () => {
 
       // Act & Assert
       await expect(incrementExplanationViews(1)).rejects.toEqual(mockError);
-      expect(console.error).toHaveBeenCalledWith('Error incrementing explanation views:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error incrementing explanation views',
+        { error: 'RPC failed' }
+      );
     });
   });
 
@@ -599,7 +623,10 @@ describe('Metrics Service', () => {
 
       // Act & Assert
       await expect(incrementExplanationSaves(1)).rejects.toEqual(mockError);
-      expect(console.error).toHaveBeenCalledWith('Error incrementing explanation saves:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error incrementing explanation saves',
+        { error: 'RPC failed' }
+      );
     });
   });
 });

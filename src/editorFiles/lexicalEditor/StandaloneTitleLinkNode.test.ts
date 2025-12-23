@@ -9,6 +9,7 @@ import {
   StandaloneTitleLinkNode,
   $createStandaloneTitleLinkNode,
   $isStandaloneTitleLinkNode,
+  type SerializedStandaloneTitleLinkNode,
 } from './StandaloneTitleLinkNode';
 
 // ============= Test Helpers =============
@@ -198,12 +199,17 @@ describe('StandaloneTitleLinkNode - Cloning & Serialization', () => {
 
   it('should import from JSON correctly', async () => {
     await editorUpdate(editor, () => {
-      const serialized = {
+      const serialized: SerializedStandaloneTitleLinkNode = {
         type: 'standalone-title-link',
         url: '/standalone-title?t=imported',
         rel: 'noopener',
         target: '_blank',
         title: 'Imported',
+        version: 1,
+        children: [],
+        direction: null,
+        format: '',
+        indent: 0,
       };
 
       const imported = StandaloneTitleLinkNode.importJSON(serialized);

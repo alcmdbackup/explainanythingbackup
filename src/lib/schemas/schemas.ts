@@ -23,6 +23,32 @@ export enum AnchorSet {
 }
 
 /**
+ * Metadata stored with vectors in Pinecone
+ * Used by: vectorsim.ts for upsert and search operations
+ */
+export interface VectorSearchMetadata {
+  text: string;
+  explanation_id: number;
+  topic_id: number;
+  startIdx: number;
+  length: number;
+  isAnchor: boolean;
+  anchorSet?: AnchorSet | null;
+}
+
+/**
+ * Structure of a vector search result from Pinecone
+ * Used by: vectorsim.ts, findMatches.ts for vector similarity operations
+ * Note: score is optional per Pinecone SDK, but always present in query results
+ */
+export interface VectorSearchResult {
+  id: string;
+  score?: number;
+  metadata: VectorSearchMetadata;
+  values?: number[];
+}
+
+/**
  * Enum for TagBar display modes
  * • Normal: Standard tag display without modification interface
  * • RewriteWithTags: Shows modification interface for rewriting explanations with tags

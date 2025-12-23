@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { logger } from '@/lib/server_utilities';
 import { type TagFullDbType, type TagInsertType, tagInsertSchema } from '@/lib/schemas/schemas';
 import { type TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/schemas/schemas';
 
@@ -70,7 +71,7 @@ export async function convertTagsToUIFormat(rawTags: TagFullDbType[]): Promise<T
         if (validation.success) {
           result.push(validation.data);
         } else {
-          console.error('Invalid simple tag UI data:', validation.error);
+          logger.error('Invalid simple tag UI data', { error: validation.error.message });
         }
       }
     } else {
@@ -93,7 +94,7 @@ export async function convertTagsToUIFormat(rawTags: TagFullDbType[]): Promise<T
       if (validation.success) {
         result.push(validation.data);
       } else {
-        console.error('Invalid preset tag UI data:', validation.error);
+        logger.error('Invalid preset tag UI data', { error: validation.error.message });
       }
     }
   }
@@ -143,7 +144,7 @@ export async function createTags(tags: TagInsertType[]): Promise<TagFullDbType[]
   for (const tag of tags) {
     const validationResult = tagInsertSchema.safeParse(tag);
     if (!validationResult.success) {
-      console.error('Invalid tag data:', validationResult.error);
+      logger.error('Invalid tag data', { error: validationResult.error.message });
       throw new Error(`Invalid tag data: ${validationResult.error.message}`);
     }
     validatedTags.push(validationResult.data);
@@ -217,7 +218,7 @@ export async function updateTag(
   // Validate partial updates - only validate provided fields
   const validationResult = tagInsertSchema.partial().safeParse(updates);
   if (!validationResult.success) {
-    console.error('Invalid tag update data:', validationResult.error);
+    logger.error('Invalid tag update data', { error: validationResult.error.message });
     throw new Error(`Invalid tag update data: ${validationResult.error.message}`);
   }
   

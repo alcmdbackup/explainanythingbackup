@@ -9,8 +9,23 @@ import {
 import { callOpenAIModel } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { MatchMode } from '@/lib/schemas/schemas';
+import { MatchMode, type VectorSearchResult } from '@/lib/schemas/schemas';
 import type { matchWithCurrentContentType } from '@/lib/schemas/schemas';
+
+// Helper to create mock VectorSearchResult with minimal required fields
+const createMockVectorResult = (overrides: { metadata: Partial<VectorSearchResult['metadata']> } & Partial<Omit<VectorSearchResult, 'metadata'>> = { metadata: {} }): VectorSearchResult => ({
+  id: overrides.id ?? 'mock-id',
+  score: overrides.score ?? 0,
+  metadata: {
+    text: 'mock text',
+    explanation_id: 1,
+    topic_id: 1,
+    startIdx: 0,
+    length: 100,
+    isAnchor: false,
+    ...overrides.metadata,
+  },
+});
 
 // Mock dependencies
 jest.mock('@/lib/services/llms');
@@ -282,34 +297,44 @@ describe('findMatches Service', () => {
   });
 
   describe('enhanceMatchesWithCurrentContentAndDiversity', () => {
-    const mockVectorResults = [
-      {
+    const mockVectorResults: VectorSearchResult[] = [
+      createMockVectorResult({
+        id: 'vec-1',
+        score: 0.95,
         metadata: {
           text: 'Vector match 1',
           explanation_id: 1,
-          topic_id: 10
-        },
-        score: 0.95
-      },
-      {
+          topic_id: 10,
+          startIdx: 0,
+          length: 100,
+          isAnchor: false
+        }
+      }),
+      createMockVectorResult({
+        id: 'vec-2',
+        score: 0.90,
         metadata: {
           text: 'Vector match 2',
           explanation_id: 2,
-          topic_id: 20
-        },
-        score: 0.90
-      }
+          topic_id: 20,
+          startIdx: 0,
+          length: 100,
+          isAnchor: false
+        }
+      })
     ];
 
-    const mockDiversityResults = [
-      {
-        metadata: { explanation_id: 1 },
-        score: 0.5
-      },
-      {
-        metadata: { explanation_id: 2 },
-        score: 0.7
-      }
+    const mockDiversityResults: VectorSearchResult[] = [
+      createMockVectorResult({
+        id: 'div-1',
+        score: 0.5,
+        metadata: { text: 'Diversity 1', explanation_id: 1, topic_id: 10, startIdx: 0, length: 100, isAnchor: false }
+      }),
+      createMockVectorResult({
+        id: 'div-2',
+        score: 0.7,
+        metadata: { text: 'Diversity 2', explanation_id: 2, topic_id: 20, startIdx: 0, length: 100, isAnchor: false }
+      })
     ];
 
     beforeEach(() => {
@@ -364,11 +389,12 @@ describe('findMatches Service', () => {
 
     it('should handle missing diversity match for specific explanation', async () => {
       // Arrange - diversity only for explanation_id 1
-      const partialDiversity = [
-        {
-          metadata: { explanation_id: 1 },
-          score: 0.5
-        }
+      const partialDiversity: VectorSearchResult[] = [
+        createMockVectorResult({
+          id: 'partial-div-1',
+          score: 0.5,
+          metadata: { text: 'Partial', explanation_id: 1, topic_id: 10, startIdx: 0, length: 100, isAnchor: false }
+        })
       ];
 
       // Act
@@ -428,14 +454,20 @@ describe('findMatches Service', () => {
 
     it('should process matches in parallel', async () => {
       // Arrange
-      const manyResults = Array(10).fill(null).map((_, i) => ({
-        metadata: {
-          text: `Match ${i}`,
-          explanation_id: i,
-          topic_id: i * 10
-        },
-        score: 0.9 - i * 0.05
-      }));
+      const manyResults: VectorSearchResult[] = Array(10).fill(null).map((_, i) =>
+        createMockVectorResult({
+          id: `many-${i}`,
+          score: 0.9 - i * 0.05,
+          metadata: {
+            text: `Match ${i}`,
+            explanation_id: i,
+            topic_id: i * 10,
+            startIdx: 0,
+            length: 100,
+            isAnchor: false
+          }
+        })
+      );
 
       // Act
       const startTime = Date.now();
