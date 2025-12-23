@@ -74,3 +74,50 @@ Feature to import AI-generated content from ChatGPT/Claude/Gemini into ExplainAn
 - `src/lib/services/vectorsim.ts` - `processContentToStoreEmbedding()`
 - `src/lib/services/tagEvaluation.ts` - `evaluateTags()`
 - `src/lib/services/headingLinks.ts` - `generateHeadingStandaloneTitles()`
+
+---
+
+## Phase 2: Test Coverage
+
+### Unit Tests
+
+**Service Tests:** `src/lib/services/importArticle.test.ts`
+- `detectSource()` - pattern matching for ChatGPT/Claude/Gemini/other
+- `validateImportContent()` - empty, too short, too long, valid
+- `cleanupAndReformat()` - LLM call mocking, response parsing
+
+**Action Tests:** `src/actions/importActions.test.ts`
+- `processImport()` - validation, detection, formatting flow
+- `publishImportedArticle()` - topic creation, explanation save, post-save hooks
+- `detectImportSource()` - lightweight detection wrapper
+
+**Component Tests:**
+- `src/components/import/ImportModal.test.tsx` - form state, auto-detect, processing
+- `src/components/import/ImportPreview.test.tsx` - preview rendering, publish flow
+
+### Integration Tests
+
+**`src/__tests__/integration/import-articles.integration.test.ts`**
+- Full import → publish flow with real database
+- Verifies topic creation, explanation save, vector embedding
+- Error handling and rollback scenarios
+
+### E2E Tests
+
+**`src/__tests__/e2e/specs/06-import/import-articles.spec.ts`**
+- User flow: open modal → paste content → process → preview → publish
+- Verifies redirect to article page after publish
+
+**Page Object:** `src/__tests__/e2e/helpers/pages/ImportPage.ts`
+
+### Test Files to Create
+
+| File | Type |
+|------|------|
+| `src/lib/services/importArticle.test.ts` | Unit |
+| `src/actions/importActions.test.ts` | Unit |
+| `src/components/import/ImportModal.test.tsx` | Unit |
+| `src/components/import/ImportPreview.test.tsx` | Unit |
+| `src/__tests__/integration/import-articles.integration.test.ts` | Integration |
+| `src/__tests__/e2e/specs/06-import/import-articles.spec.ts` | E2E |
+| `src/__tests__/e2e/helpers/pages/ImportPage.ts` | Helper |
