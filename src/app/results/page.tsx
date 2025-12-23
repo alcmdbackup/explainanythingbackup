@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
@@ -13,6 +13,7 @@ import TagBar from '@/components/TagBar';
 import FeedbackPanel from '@/components/FeedbackPanel';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
+import Bibliography from '@/components/sources/Bibliography';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import {
     pageLifecycleReducer,
@@ -49,6 +50,20 @@ function ResultsPageContent() {
     // Sources state for feedback/rewrite with sources
     const [sources, setSources] = useState<SourceChipType[]>([]);
     const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
+
+    // Convert sources to bibliography format (with index for citations)
+    const bibliographySources = useMemo(() =>
+        sources
+            .filter(s => s.status === 'success')
+            .map((s, idx) => ({
+                index: idx + 1,
+                title: s.title || s.domain,
+                domain: s.domain,
+                url: s.url,
+                favicon_url: s.favicon_url
+            })),
+        [sources]
+    );
 
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
     const [lifecycleState, dispatchLifecycle] = useReducer(pageLifecycleReducer, initialPageLifecycleState);
@@ -692,9 +707,9 @@ function ResultsPageContent() {
      */
     const handleSearchSubmit = async (query: string) => {
         if (!query.trim()) return;
-        
+
         if (!FORCE_REGENERATION_ON_NAV) {
-            await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null);
+            await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null, sources);
         } else {
             router.push(`/results?q=${encodeURIComponent(query)}`);
         }
@@ -776,11 +791,11 @@ function ResultsPageContent() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sources);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sources);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -1316,21 +1331,25 @@ function ResultsPageContent() {
                                                 <p className="text-sm font-serif text-[var(--text-muted)]">Writing...</p>
                                             </div>
                                         ) : isMarkdownMode ? (
-                                            <LexicalEditor
-                                                ref={editorRef}
-                                                placeholder="Content will appear here..."
-                                                className="w-full"
-                                                initialContent={formattedExplanation}
-                                                isMarkdownMode={true}
-                                                isEditMode={isEditMode && !isStreaming}
-                                                showEditorState={false}
-                                                showTreeView={false}
-                                                showToolbar={true}
-                                                hideEditingUI={isStreaming}
-                                                onContentChange={handleEditorContentChange}
-                                                isStreaming={isStreaming}
-                                                textRevealEffect={textRevealEffect}
-                                            />
+                                            <>
+                                                <LexicalEditor
+                                                    ref={editorRef}
+                                                    placeholder="Content will appear here..."
+                                                    className="w-full"
+                                                    initialContent={formattedExplanation}
+                                                    isMarkdownMode={true}
+                                                    isEditMode={isEditMode && !isStreaming}
+                                                    showEditorState={false}
+                                                    showTreeView={false}
+                                                    showToolbar={true}
+                                                    hideEditingUI={isStreaming}
+                                                    onContentChange={handleEditorContentChange}
+                                                    isStreaming={isStreaming}
+                                                    textRevealEffect={textRevealEffect}
+                                                    sources={bibliographySources}
+                                                />
+                                                <Bibliography sources={bibliographySources} />
+                                            </>
                                         ) : (
                                             <pre className="whitespace-pre-wrap text-sm font-mono text-[var(--text-secondary)] leading-relaxed">
                                                 {formattedExplanation}

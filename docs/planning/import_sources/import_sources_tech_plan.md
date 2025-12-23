@@ -652,3 +652,118 @@ Results Page Dropdown
 | `src/components/sources/FailedSourcesModal.tsx` | Create |
 | `src/lib/errorHandling.ts` | Modify |
 | Tests (unit, integration, e2e) | Create |
+
+---
+
+## Increment 6: Integration Fixes (Post-Implementation)
+
+### Problem Identified
+After initial implementation, sources added on home page were not appearing as citations or footnotes in generated articles.
+
+### Root Causes
+
+1. **Sources Not Passed to API on Initial Generation**
+   - Location: `src/app/results/page.tsx`
+   - Sources loaded from sessionStorage into state (line ~709-721)
+   - But initial generation calls `handleUserAction` with `null` for sources
+   - Only "Rewrite with Feedback" flow passes sources
+
+2. **CitationPlugin and Bibliography Never Integrated**
+   - Location: `src/editorFiles/lexicalEditor/LexicalEditor.tsx`
+   - CitationPlugin created but never imported/rendered
+   - Bibliography created but never rendered below content
+   - No source data passed to these components
+
+3. **No Source Metadata Flow to UI**
+   - LexicalEditor has no way to know what sources were used
+   - Even if backend generates `[n]` citations, frontend can't display them
+
+### Fix Tasks
+
+#### Task 6.1: Pass Sources to Initial Generation
+**File:** `src/app/results/page.tsx`
+
+Update initial generation flow to pass sources from state:
+```typescript
+// Before (sources not passed):
+await handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null);
+
+// After (sources passed):
+await handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sources);
+```
+
+Apply to all initial generation call sites (~line 697, ~783).
+
+#### Task 6.2: Integrate CitationPlugin into LexicalEditor
+**File:** `src/editorFiles/lexicalEditor/LexicalEditor.tsx`
+
+1. Add import:
+   ```typescript
+   import { CitationPlugin } from './CitationPlugin';
+   ```
+
+2. Add `sources` prop to LexicalEditorProps interface:
+   ```typescript
+   sources?: Array<{ index: number; title: string; domain: string; url: string; favicon_url?: string | null }>;
+   ```
+
+3. Add CitationPlugin to plugins section:
+   ```typescript
+   <CitationPlugin sources={sources || []} enabled={!isStreaming} />
+   ```
+
+#### Task 6.3: Add Bibliography Below Editor Content
+**File:** `src/app/results/page.tsx`
+
+1. Import Bibliography:
+   ```typescript
+   import { Bibliography } from '@/components/sources';
+   ```
+
+2. Render Bibliography below LexicalEditor when sources exist:
+   ```typescript
+   {sources.length > 0 && (
+     <Bibliography sources={sources.map((s, i) => ({
+       index: i + 1,
+       title: s.title || s.domain,
+       domain: s.domain,
+       url: s.url,
+       favicon_url: s.favicon_url
+     }))} />
+   )}
+   ```
+
+#### Task 6.4: Pass Sources to LexicalEditor
+**File:** `src/app/results/page.tsx`
+
+Pass sources prop to LexicalEditor component:
+```typescript
+<LexicalEditor
+  // ... existing props
+  sources={sources.filter(s => s.status === 'success').map((s, i) => ({
+    index: i + 1,
+    title: s.title || s.domain,
+    domain: s.domain,
+    url: s.url,
+    favicon_url: s.favicon_url
+  }))}
+/>
+```
+
+### Files Summary for Increment 6
+
+| Path | Action |
+|------|--------|
+| `src/app/results/page.tsx` | Modify - pass sources to handleUserAction, LexicalEditor, add Bibliography |
+| `src/editorFiles/lexicalEditor/LexicalEditor.tsx` | Modify - add sources prop, integrate CitationPlugin |
+
+### Verification Steps
+
+1. Add source URL on home page
+2. Submit search query
+3. Verify:
+   - API receives `sourceUrls` parameter (check network tab)
+   - Generated content includes `[n]` citations in text
+   - CitationPlugin makes citations interactive (hover shows tooltip)
+   - Bibliography appears below content with numbered source list
+   - Clicking citation scrolls to corresponding bibliography entry
