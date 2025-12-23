@@ -7,7 +7,7 @@ import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExpla
 import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
-import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
+import { useAuthenticatedRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import FeedbackPanel from '@/components/FeedbackPanel';
@@ -37,7 +37,7 @@ const FORCE_REGENERATION_ON_NAV = false;
 function ResultsPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { withRequestId } = useClientPassRequestId('anonymous');
+    const { withRequestId } = useAuthenticatedRequestId();
     const [prompt, setPrompt] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);

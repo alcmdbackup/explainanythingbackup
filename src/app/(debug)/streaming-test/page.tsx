@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from 'react';
 import { supabase_browser } from '@/lib/supabase';
-import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
+import { useAuthenticatedRequestId } from '@/hooks/clientPassRequestId';
 
 export default function StreamingTestPage() {
-    const { withRequestId } = useClientPassRequestId('anonymous');
+    const { withRequestId } = useAuthenticatedRequestId();
     const [prompt, setPrompt] = useState('');
     const [streamedText, setStreamedText] = useState('');
     const [isStreaming, setIsStreaming] = useState(false);

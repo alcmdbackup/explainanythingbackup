@@ -10,7 +10,7 @@ import {
 } from '@/actions/actions';
 import { ExplanationStatus, TagUIType, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
-import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
+import { useAuthenticatedRequestId } from '@/hooks/clientPassRequestId';
 
 const FILE_DEBUG = false;
 
@@ -88,7 +88,7 @@ export function useExplanationLoader(
     options: UseExplanationLoaderOptions = {}
 ): UseExplanationLoaderReturn {
     const { onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
-    const { withRequestId } = useClientPassRequestId('anonymous');
+    const { withRequestId } = useAuthenticatedRequestId();
 
     // State for the 7 explanation-related variables
     const [explanationId, setExplanationId] = useState<number | null>(null);
