@@ -2,7 +2,7 @@
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
-import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode } from '@/lib/schemas/schemas';
+import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode, type VectorSearchResult } from '@/lib/schemas/schemas';
 import { createMatchSelectionPrompt } from '@/lib/prompts';
 
 const FILE_DEBUG = true;
@@ -184,7 +184,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
  * - Used by generateAiExplanation to enrich source data with diversity metrics
  * - Calls getExplanationById for each source
  */
-export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts: any[], diversityComparison: any[] | null): Promise<matchWithCurrentContentType[]> {
+export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts: VectorSearchResult[], diversityComparison: VectorSearchResult[] | null): Promise<matchWithCurrentContentType[]> {
     logger.debug('Starting enhanceMatchesWithCurrentContentAndDiversity', {
         input_count: similarTexts?.length || 0,
         diversity_comparison_count: diversityComparison?.length || 0,
@@ -195,7 +195,7 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
         diversity_comparison_metadata_keys: diversityComparison?.[0]?.metadata ? Object.keys(diversityComparison[0].metadata) : []
     }, FILE_DEBUG);
 
-    return Promise.all(similarTexts.map(async (result: any) => {
+    return Promise.all(similarTexts.map(async (result: VectorSearchResult) => {
         logger.debug('Processing source', {
             metadata: result.metadata,
             score: result.score
@@ -211,11 +211,11 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
         // Find diversity score for this explanation
         let diversityScore: number | null = null;
         if (diversityComparison && diversityComparison.length > 0) {
-            const diversityMatch = diversityComparison.find((diversityResult: any) => 
+            const diversityMatch = diversityComparison.find((diversityResult: VectorSearchResult) =>
                 diversityResult.metadata.explanation_id === result.metadata.explanation_id
             );
             if (diversityMatch) {
-                diversityScore = diversityMatch.score;
+                diversityScore = diversityMatch.score ?? null;
                 logger.debug('Found diversity score', {
                     explanation_id: result.metadata.explanation_id,
                     diversity_score: diversityScore
@@ -223,7 +223,7 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
             } else {
                 logger.debug('No diversity match found for explanation', {
                     explanation_id: result.metadata.explanation_id,
-                    diversity_comparison_ids: diversityComparison.map((d: any) => d.metadata.explanation_id)
+                    diversity_comparison_ids: diversityComparison.map((d: VectorSearchResult) => d.metadata.explanation_id)
                 }, FILE_DEBUG);
             }
         } else {
@@ -241,7 +241,7 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
             current_title: explanation?.explanation_title || '',
             current_content: explanation?.content || '',
             ranking: {
-                similarity: result.score,
+                similarity: result.score ?? 0, // score is always present in query results
                 diversity_score: diversityScore
             }
         };

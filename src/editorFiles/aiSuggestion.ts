@@ -1,6 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import React from 'react';
 import { z } from 'zod';
 import { default_model } from '@/lib/services/llms';
+import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 
 /**
  * Schema for AI suggestion structured output
@@ -382,7 +384,7 @@ export async function runAISuggestionsPipeline(
  */
 export async function getAndApplyAISuggestions(
   currentContent: string,
-  editorRef: any, // LexicalEditorRef
+  editorRef: React.RefObject<LexicalEditorRef | null> | null,
   onProgress?: (step: string, progress: number) => void,
   sessionData?: {
     session_id?: string;
