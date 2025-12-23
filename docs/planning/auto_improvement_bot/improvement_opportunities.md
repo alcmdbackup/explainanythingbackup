@@ -102,14 +102,27 @@ This analysis identifies the most valuable improvement opportunities across thre
 
 **Issue:** 20+ instances of `any[]` and `any` types
 
-**Critical Locations:**
-- `src/lib/services/vectorsim.ts`: `async function calculateAllowedScores(anchorMatches: any[], ...)`
-- `src/lib/services/findMatches.ts`: Parameter types use `any[]`
-- Component props: `TagBar.tsx`, `AISuggestionsPanel.tsx`
+**Critical Locations (non-test files):**
 
-**Fix:** Create proper types: `PineconeMatch`, `VectorSearchResult`, `Embedding`
+| File | Line | Issue |
+|------|------|-------|
+| `vectorsim.ts` | 274, 390 | `searchForSimilarVectors` returns `Promise<any[]>` |
+| `vectorsim.ts` | 415 | `calculateAllowedScores(anchorMatches: any[], explanationMatches: any[])` |
+| `findMatches.ts` | 187 | `enhanceMatchesWithCurrentContentAndDiversity(similarTexts: any[], diversityComparison: any[])` |
+| `aiSuggestion.ts` | 385 | `editorRef: any` (LexicalEditorRef) |
+| `StandaloneTitleLinkNode.ts` | 74 | `importJSON(serializedNode: any)` |
+| `errorHandling.ts` | 122 | `errors.map((err: any) => ...)` |
 
-**Effort:** 3-4 hours
+**Fix Required:**
+1. Create proper types in `/src/lib/schemas/schemas.ts`:
+   - `PineconeMatch` - for vector search results
+   - `VectorSearchResult` - for similarity matches
+   - `Embedding` - for embedding vectors
+2. Update `vectorsim.ts` and `findMatches.ts` to use typed returns
+3. Fix component prop types (`TagBar.tsx`, `AISuggestionsPanel.tsx`)
+4. Use Lexical's proper types for editor refs
+
+**Effort:** 3-4 hours (mostly mechanical once types are defined)
 
 ---
 
@@ -199,13 +212,30 @@ Add Redis with 3-tier strategy:
 **Problem:** Server actions don't see authenticated users
 
 **Evidence (from docs/backend_explorations/RLS_issue.md):**
-- Client sees authenticated user
-- Server sees all users as anonymous
-- Current workaround: service role key (security risk)
+- Client sees authenticated user (e.g., `userid: "6bb207e0-ec32-4a92-a166-c6a3494930c5"`)
+- Server sees ALL users as `anonymous` in server.log
+- Current workaround: `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS entirely (security risk)
+- Only `userExplanationEvents` has the workaround - other tables may be affected
+
+**Root Cause:** `createSupabaseServerClient()` fails to read auth cookies. Possible issues:
+1. Cookie configuration mismatch between client/server
+2. Session not persisted to cookies correctly
+3. Middleware not forwarding cookies
+4. Cookie domain/path/sameSite settings
 
 **Location:** `/src/lib/utils/supabase/server.ts`
 
-**Impact:** RLS policies not enforced properly
+**Impact:** RLS policies not enforced properly - security vulnerability
+
+**Fix Required:**
+1. Debug cookie reading in `createSupabaseServerClient()`
+2. Verify `auth.getSession()` works in server actions
+3. Fix cookie configuration to match Supabase Next.js SSR requirements
+4. Remove service role key workaround from `metrics.ts` once fixed
+
+**Files:**
+- `/src/lib/utils/supabase/server.ts` - main fix location
+- `/src/lib/services/metrics.ts` - remove `createSupabaseServiceClient()` workaround after
 
 **Effort:** 4-6 hours
 
