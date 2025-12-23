@@ -18,6 +18,10 @@ export class ResultsPage extends BasePage {
   private rewriteDropdownToggle = '[data-testid="rewrite-dropdown-toggle"]';
   private rewriteWithTags = '[data-testid="rewrite-with-tags"]';
   private editWithTags = '[data-testid="edit-with-tags"]';
+  private formatToggleButton = '[data-testid="format-toggle-button"]';
+  private editButton = '[data-testid="edit-button"]';
+  private publishButton = '[data-testid="publish-button"]';
+  private modeSelect = '[data-testid="mode-select"]';
 
   // AI Suggestions Panel selectors
   private aiSuggestionsPanel = '[data-testid="ai-suggestions-panel"]';
@@ -361,5 +365,181 @@ export class ResultsPage extends BasePage {
     const diff = this.page.locator(this.diffNodes).nth(index);
     await diff.hover();
     return await diff.locator(this.rejectButton).isVisible();
+  }
+
+  // Format toggle methods
+  async clickFormatToggle() {
+    await this.page.click(this.formatToggleButton);
+  }
+
+  async isFormatToggleVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.formatToggleButton);
+  }
+
+  async getFormatToggleText(): Promise<string> {
+    const button = this.page.locator(this.formatToggleButton);
+    return await button.innerText();
+  }
+
+  async isMarkdownMode(): Promise<boolean> {
+    const text = await this.getFormatToggleText();
+    return text === 'Plain Text'; // Shows "Plain Text" when in markdown mode
+  }
+
+  async isPlainTextMode(): Promise<boolean> {
+    const text = await this.getFormatToggleText();
+    return text === 'Formatted'; // Shows "Formatted" when in plain text mode
+  }
+
+  // Edit mode methods
+  async clickEditButton() {
+    await this.page.click(this.editButton);
+  }
+
+  async isEditButtonVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.editButton);
+  }
+
+  async getEditButtonText(): Promise<string> {
+    const button = this.page.locator(this.editButton);
+    return await button.innerText();
+  }
+
+  async isInEditMode(): Promise<boolean> {
+    const text = await this.getEditButtonText();
+    return text === 'Done'; // Shows "Done" when in edit mode
+  }
+
+  // Publish button methods
+  async clickPublishButton() {
+    await this.page.click(this.publishButton);
+  }
+
+  async isPublishButtonVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.publishButton);
+  }
+
+  async isPublishButtonEnabled(): Promise<boolean> {
+    const button = this.page.locator(this.publishButton);
+    if (!(await button.isVisible())) return false;
+    return !(await button.isDisabled());
+  }
+
+  async getPublishButtonText(): Promise<string> {
+    const button = this.page.locator(this.publishButton);
+    return await button.innerText();
+  }
+
+  // Mode dropdown methods
+  async selectMode(mode: 'Normal' | 'Skip Match' | 'Force Match') {
+    await this.page.selectOption(this.modeSelect, { label: mode });
+  }
+
+  async getSelectedMode(): Promise<string> {
+    const select = this.page.locator(this.modeSelect);
+    return await select.inputValue();
+  }
+
+  async isModeSelectVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.modeSelect);
+  }
+
+  async isModeSelectEnabled(): Promise<boolean> {
+    const select = this.page.locator(this.modeSelect);
+    if (!(await select.isVisible())) return false;
+    return !(await select.isDisabled());
+  }
+
+  // Save button text getter
+  async getSaveButtonText(): Promise<string> {
+    const button = this.page.locator(this.saveToLibraryButton);
+    return await button.innerText();
+  }
+
+  // Wait for save to complete
+  async waitForSaveComplete(timeout = 10000) {
+    // Wait for button text to change to "Saved ✓"
+    await this.page.waitForFunction(
+      (selector) => {
+        const button = document.querySelector(selector);
+        return button?.textContent?.includes('Saved');
+      },
+      this.saveToLibraryButton,
+      { timeout }
+    );
+  }
+
+  // Tag addition methods
+  async clickAddTagTrigger() {
+    await this.page.click('[data-testid="add-tag-trigger"]');
+  }
+
+  async isAddTagInputVisible(): Promise<boolean> {
+    return await this.page.isVisible('[data-testid="tag-add-input"]');
+  }
+
+  async isTagDropdownVisible(): Promise<boolean> {
+    return await this.page.isVisible('[data-testid="tag-dropdown"]');
+  }
+
+  async getTagDropdownOptions(): Promise<string[]> {
+    const options = this.page.locator('[data-testid="tag-dropdown-option"]');
+    const count = await options.count();
+    const texts: string[] = [];
+    for (let i = 0; i < count; i++) {
+      texts.push(await options.nth(i).innerText());
+    }
+    return texts;
+  }
+
+  async filterTagDropdown(text: string) {
+    await this.page.fill('[data-testid="tag-add-input"]', text);
+  }
+
+  async selectTagFromDropdown(index: number) {
+    await this.page.locator('[data-testid="tag-dropdown-option"]').nth(index).click();
+  }
+
+  async clickCancelAddTag() {
+    await this.page.click('[data-testid="tag-cancel-button"]');
+  }
+
+  // Changes panel methods
+  async clickChangesPanelToggle() {
+    await this.page.click('[data-testid="changes-panel-toggle"]');
+  }
+
+  async isChangesPanelVisible(): Promise<boolean> {
+    return await this.page.isVisible('[data-testid="changes-panel"]');
+  }
+
+  async getAddedTags(): Promise<string[]> {
+    const items = this.page.locator('[data-testid="change-added"]');
+    const count = await items.count();
+    const texts: string[] = [];
+    for (let i = 0; i < count; i++) {
+      texts.push(await items.nth(i).innerText());
+    }
+    return texts;
+  }
+
+  async getRemovedTags(): Promise<string[]> {
+    const items = this.page.locator('[data-testid="change-removed"]');
+    const count = await items.count();
+    const texts: string[] = [];
+    for (let i = 0; i < count; i++) {
+      texts.push(await items.nth(i).innerText());
+    }
+    return texts;
+  }
+
+  async getSwitchedTags(): Promise<string[]> {
+    const items = this.page.locator('[data-testid="change-switched"]');
+    const count = await items.count();
+    const texts: string[] = [];
+    for (let i = 0; i < count; i++) {
+      texts.push(await items.nth(i).innerText());
+    }
+    return texts;
   }
 }

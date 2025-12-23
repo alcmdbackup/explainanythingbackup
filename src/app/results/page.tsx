@@ -1109,6 +1109,7 @@ function ResultsPageContent() {
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
                                                 disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
+                                                data-testid="publish-button"
                                                 className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
@@ -1117,6 +1118,7 @@ function ResultsPageContent() {
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
                                             disabled={isStreaming}
+                                            data-testid="format-toggle-button"
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
@@ -1124,6 +1126,7 @@ function ResultsPageContent() {
                                         <button
                                             onClick={handleEditModeToggle}
                                             disabled={isStreaming}
+                                            data-testid="edit-button"
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isEditMode ? 'Done' : 'Edit'}
@@ -1142,6 +1145,7 @@ function ResultsPageContent() {
                                                 setMode(e.target.value as MatchMode);
                                             }}
                                             disabled={isStreaming}
+                                            data-testid="mode-select"
                                             className="rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-3 py-1.5 text-sm font-sans text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             <option value={MatchMode.Normal}>Normal</option>

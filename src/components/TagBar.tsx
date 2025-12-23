@@ -437,6 +437,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             <button
                                 type="button"
                                 onClick={handleCancelAddTag}
+                                data-testid="tag-cancel-button"
                                 className="ml-1 px-2.5 py-1 text-xs font-ui font-medium text-[var(--text-muted)] bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-page transition-all duration-200 hover:border-[var(--accent-copper)]"
                             >
                                 Cancel
@@ -448,11 +449,13 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                     {showAvailableTagsDropdown && filteredAvailableTags.length > 0 && (
                         <div
                             ref={availableTagsDropdownRef}
+                            data-testid="tag-dropdown"
                             className="absolute top-full left-0 mt-1 z-50 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page shadow-warm-lg py-1 min-w-[200px] max-h-48 overflow-y-auto"
                         >
                             {filteredAvailableTags.map((tag) => (
                                 <button
                                     key={tag.id}
+                                    data-testid="tag-dropdown-option"
                                     className="w-full text-left px-3 py-2 text-sm font-ui transition-colors duration-150 text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] flex items-center justify-between"
                                     onClick={() => handleAddSelectedTag(tag)}
                                 >
@@ -471,6 +474,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
         ) : (
             <button
                 onClick={handleShowAddTagInput}
+                data-testid="add-tag-trigger"
                 className="bookmark-tag hover:border-[var(--accent-gold)]"
                 title="Add new tag"
             >
@@ -548,6 +552,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                     <div className="mt-3 pt-2 border-t border-[var(--border-default)]">
                         <button
                             onClick={() => setShowModifiedMenu(!showModifiedMenu)}
+                            data-testid="changes-panel-toggle"
                             className="text-xs font-ui text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors duration-200 flex items-center"
                         >
                             {showModifiedMenu ? 'Hide' : 'Show'} changes
@@ -556,7 +561,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             </svg>
                         </button>
                         {showModifiedMenu && (
-                            <div className="mt-2 p-3 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page">
+                            <div data-testid="changes-panel" className="mt-2 p-3 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page">
                                 <span className="text-sm font-ui font-medium text-[var(--text-secondary)] mb-2 block">
                                     What Changed:
                                 </span>
@@ -570,7 +575,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                         if ('tag_name' in tag) {
                                             if (tag.tag_active_current !== tag.tag_active_initial) {
                                                 return (
-                                                    <div key={tag.id} className="text-sm font-body text-[var(--text-muted)] flex items-center gap-1.5">
+                                                    <div key={tag.id} data-testid={tag.tag_active_current ? 'change-added' : 'change-removed'} className="text-sm font-body text-[var(--text-muted)] flex items-center gap-1.5">
                                                         <span className={tag.tag_active_current ? 'text-green-600' : 'text-[var(--accent-copper)]'}>
                                                             {tag.tag_active_current ? '+' : '-'}
                                                         </span>
@@ -583,7 +588,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                                                 const currentTag = tag.tags.find((t: TagFullDbType) => t.id === tag.currentActiveTagId);
                                                 const originalTag = tag.tags.find((t: TagFullDbType) => t.id === tag.originalTagId);
                                                 return (
-                                                    <div key={tag.originalTagId} className="text-sm font-body text-[var(--text-muted)] flex items-center gap-1.5">
+                                                    <div key={tag.originalTagId} data-testid="change-switched" className="text-sm font-body text-[var(--text-muted)] flex items-center gap-1.5">
                                                         <span className="text-[var(--accent-copper)]">~</span>
                                                         {originalTag?.tag_name} <span className="text-[var(--accent-gold)]">→</span> {currentTag?.tag_name}
                                                     </div>
