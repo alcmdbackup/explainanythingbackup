@@ -23,6 +23,10 @@ import {
 } from '../../helpers/api-mocks';
 import {
   triggerAISuggestionsViaAPI,
+  submitAISuggestionPrompt,
+  waitForSuggestionsSuccess,
+  waitForSuggestionsError,
+  waitForSuggestionsLoading,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions Pipeline', () => {
@@ -48,23 +52,72 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(isPanelVisible).toBe(true);
     });
 
-    // NOTE: The following tests require modifying AISuggestionsPanel to use the API route
-    // instead of server action. Currently skipped because the panel uses server action directly,
-    // which bypasses our API route mock. See docs for "Approach A with runtime switch" option.
+    // NOTE: These tests require NEXT_PUBLIC_USE_AI_API_ROUTE=true in the test environment
+    // so the panel uses the mockable API route instead of RSC server action.
 
-    test.skip('should show loading state when submitting suggestion', async () => {
-      // Requires AISuggestionsPanel to use API route (runtime env switch)
-      // The panel currently uses runAISuggestionsPipelineAction server action
+    test('should show loading state when submitting suggestion', async ({ authenticatedPage: page }, testInfo) => {
+      if (testInfo.retry === 0) test.slow();
+
+      const resultsPage = new ResultsPage(page);
+      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      // Add delay to observe loading state
+      await mockAISuggestionsPipelineAPI(page, {
+        success: true,
+        content: mockDiffContent.insertion,
+        delay: 1000,
+      });
+
+      await resultsPage.navigate('quantum entanglement');
+      await resultsPage.waitForStreamingComplete();
+
+      // Submit via the panel UI (not direct API call)
+      await submitAISuggestionPrompt(page, 'Add more details');
+
+      // Verify loading state appears
+      await waitForSuggestionsLoading(page);
+      expect(await page.locator('[data-testid="suggestions-loading"]').isVisible()).toBe(true);
     });
 
-    test.skip('should display success message after suggestions applied', async () => {
-      // Requires AISuggestionsPanel to use API route (runtime env switch)
-      // The panel currently uses runAISuggestionsPipelineAction server action
+    test('should display success message after suggestions applied', async ({ authenticatedPage: page }, testInfo) => {
+      if (testInfo.retry === 0) test.slow();
+
+      const resultsPage = new ResultsPage(page);
+      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      await mockAISuggestionsPipelineAPI(page, {
+        success: true,
+        content: mockDiffContent.insertion,
+      });
+
+      await resultsPage.navigate('quantum entanglement');
+      await resultsPage.waitForStreamingComplete();
+
+      // Submit via the panel UI
+      await submitAISuggestionPrompt(page, 'Add more details');
+
+      // Verify success state appears
+      await waitForSuggestionsSuccess(page);
+      expect(await page.locator('[data-testid="suggestions-success"]').isVisible()).toBe(true);
     });
 
-    test.skip('should handle suggestion error gracefully', async () => {
-      // Requires AISuggestionsPanel to use API route (runtime env switch)
-      // The panel currently uses runAISuggestionsPipelineAction server action
+    test('should handle suggestion error gracefully', async ({ authenticatedPage: page }, testInfo) => {
+      if (testInfo.retry === 0) test.slow();
+
+      const resultsPage = new ResultsPage(page);
+      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      await mockAISuggestionsPipelineAPI(page, {
+        success: false,
+        error: 'AI service temporarily unavailable',
+      });
+
+      await resultsPage.navigate('quantum entanglement');
+      await resultsPage.waitForStreamingComplete();
+
+      // Submit via the panel UI
+      await submitAISuggestionPrompt(page, 'Add more details');
+
+      // Verify error state appears
+      await waitForSuggestionsError(page);
+      expect(await page.locator('[data-testid="suggestions-error"]').isVisible()).toBe(true);
     });
   });
 

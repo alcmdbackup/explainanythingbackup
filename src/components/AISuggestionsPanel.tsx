@@ -72,11 +72,26 @@ export default function AISuggestionsPanel({
 
       handleProgressUpdate('Processing AI suggestions...', 50);
 
-      const result = await runAISuggestionsPipelineAction(
-        currentContent,
-        userPrompt.trim(),
-        sessionRequestData
-      );
+      // Use API route in E2E tests (mockable JSON), server action in production (RSC format)
+      let result;
+      if (process.env.NEXT_PUBLIC_USE_AI_API_ROUTE === 'true') {
+        const res = await fetch('/api/runAISuggestionsPipeline', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            currentContent,
+            userPrompt: userPrompt.trim(),
+            sessionData: sessionRequestData
+          })
+        });
+        result = await res.json();
+      } else {
+        result = await runAISuggestionsPipelineAction(
+          currentContent,
+          userPrompt.trim(),
+          sessionRequestData
+        );
+      }
 
       console.log('🎭 AISuggestionsPanel: runAISuggestionsPipelineAction result:', result);
 
@@ -95,10 +110,10 @@ export default function AISuggestionsPanel({
       // DIAGNOSTIC: Test if CriticMarkup regex would match
       if (result.content) {
         const criticMarkupRegex = /\{([+-~]{2})([\s\S]+?)\1\}/g;
-        const matches = Array.from(result.content.matchAll(criticMarkupRegex));
+        const matches = Array.from(result.content.matchAll(criticMarkupRegex)) as RegExpMatchArray[];
         console.log('🔍 DIAGNOSTIC: CriticMarkup regex test:', {
           matchCount: matches.length,
-          matches: matches.slice(0, 3).map(m => ({
+          matches: matches.slice(0, 3).map((m: RegExpMatchArray) => ({
             fullMatch: m[0].substring(0, 50),
             marks: m[1],
             innerPreview: m[2]?.substring(0, 30)
@@ -210,7 +225,7 @@ export default function AISuggestionsPanel({
 
         {/* Loading State with Progress - Parchment style */}
         {isLoading && progressState && (
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
+          <div data-testid="suggestions-loading" className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
             <div className="flex items-center mb-3">
               <Spinner variant="quill" size={20} className="mr-2" />
               <span className="text-sm font-sans font-medium text-[var(--accent-gold)]">

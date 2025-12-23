@@ -147,6 +147,13 @@ export async function waitForSuggestionsError(page: Page, timeout = 5000): Promi
 }
 
 /**
+ * Waits for the AI suggestions panel to show loading state.
+ */
+export async function waitForSuggestionsLoading(page: Page, timeout = 5000): Promise<void> {
+  await page.waitForSelector('[data-testid="suggestions-loading"]', { timeout });
+}
+
+/**
  * Verifies that diff nodes contain expected text patterns.
  */
 export async function verifyDiffContent(
