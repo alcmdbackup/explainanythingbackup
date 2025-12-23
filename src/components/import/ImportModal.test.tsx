@@ -2,7 +2,7 @@
  * Unit tests for ImportModal component
  */
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import ImportModal from './ImportModal';
 
@@ -133,17 +133,17 @@ describe('ImportModal', () => {
         });
 
         it('shows "Detecting..." indicator during detection', async () => {
-            const user = userEvent.setup();
-            // Make detection take some time
+            // Make detection take some time so we can catch the "Detecting..." state
             (detectImportSource as jest.Mock).mockImplementation(
                 () => new Promise((resolve) => setTimeout(() => resolve({ source: 'chatgpt', error: null }), 100))
             );
 
             render(<ImportModal {...defaultProps} />);
-            const textarea = screen.getByRole('textbox');
+            const textarea = screen.getByTestId('import-content');
 
+            // Use fireEvent.change for speed - user.type is too slow for 105 chars in CI
             const longContent = 'a'.repeat(105);
-            await user.type(textarea, longContent);
+            fireEvent.change(textarea, { target: { value: longContent } });
 
             await waitFor(() => {
                 expect(screen.getByText('Detecting...')).toBeInTheDocument();
