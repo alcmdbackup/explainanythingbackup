@@ -7,7 +7,9 @@ import {
   userExplanationEventsSchema,
   type UserExplanationEventsType,
   explanationMetricsSchema,
+  explanationMetricsTableSchema,
   type ExplanationMetricsType,
+  type ExplanationMetricsTableType,
   type ExplanationMetricsInsertType
 } from '@/lib/schemas/schemas';
 
@@ -170,11 +172,11 @@ export async function refreshExplanationMetrics(options: {
  * @param explanationIds - Array of explanation IDs to get metrics for
  * @returns Array of metrics records (null for missing explanations)
  */
-export async function getMultipleExplanationMetrics(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
+export async function getMultipleExplanationMetrics(explanationIds: number[]): Promise<(ExplanationMetricsTableType | null)[]> {
   if (explanationIds.length === 0) return [];
-  
+
   const supabase = await createSupabaseServerClient();
-  
+
   const { data, error } = await supabase
     .from('explanationMetrics')
     .select('*')
@@ -185,10 +187,10 @@ export async function getMultipleExplanationMetrics(explanationIds: number[]): P
     throw error;
   }
 
-  // Create a map for quick lookup
-  const metricsMap = new Map<number, ExplanationMetricsType>();
+  // Create a map for quick lookup (uses table schema with explanationid)
+  const metricsMap = new Map<number, ExplanationMetricsTableType>();
   data?.forEach(metric => {
-    metricsMap.set(metric.explanationid, metric);
+    metricsMap.set(metric.explanationid, metric as ExplanationMetricsTableType);
   });
 
   // Return results in the same order as input, with null for missing

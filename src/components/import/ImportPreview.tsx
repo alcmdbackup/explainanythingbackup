@@ -66,11 +66,10 @@ export default function ImportPreview({
 
             setState('success');
 
-            // Navigate to the new article
+            // Navigate to the new article (keep modal open to avoid flash)
             setTimeout(() => {
-                onOpenChange(false);
                 router.push(`/results?explanation_id=${result.explanationId}`);
-            }, 500);
+            }, 1000);
         } catch (err) {
             setState('error');
             setError(err instanceof Error ? err.message : 'An error occurred');
@@ -186,8 +185,9 @@ export default function ImportPreview({
 
                     {/* Success message */}
                     {state === 'success' && (
-                        <div data-testid="preview-success" className="text-sm text-green-600 bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-page">
-                            Article published successfully! Redirecting...
+                        <div data-testid="preview-success" className="text-sm text-green-600 bg-green-50 dark:bg-green-900/20 px-4 py-3 rounded-page text-center">
+                            <div className="font-medium">Article published successfully!</div>
+                            <div className="text-green-500 mt-1">Taking you to your new explanation...</div>
                         </div>
                     )}
                 </div>

@@ -623,9 +623,10 @@ export type MultipleStandaloneTitlesType = z.infer<typeof multipleStandaloneTitl
  *   last_updated: "2024-12-19T10:30:00.000Z"
  * }
  */
+// Schema for metrics returned from stored procedures (use explanation_id)
 export const explanationMetricsSchema = z.object({
   id: z.number().int().positive().optional(), // Primary key, auto-generated
-  explanationid: z.number().int().positive(), // DB column is `explanationid` (no underscore)
+  explanation_id: z.number().int().positive(), // Returned from DB functions as `explanation_id`
   total_saves: z.number().int().min(0).default(0),
   total_views: z.number().int().min(0).default(0),
   save_rate: z.number().min(0).max(1).default(0), // Ratio of saves/views (0.0 to 1.0)
@@ -638,7 +639,24 @@ export const explanationMetricsSchema = z.object({
   ]), // Accept multiple date formats
 });
 
+// Schema for metrics when querying table directly (uses explanationid - no underscore)
+export const explanationMetricsTableSchema = z.object({
+  id: z.number().int().positive().optional(),
+  explanationid: z.number().int().positive(), // Direct table column name
+  total_saves: z.number().int().min(0).default(0),
+  total_views: z.number().int().min(0).default(0),
+  save_rate: z.number().min(0).max(1).default(0),
+  last_updated: z.union([
+    z.string().datetime(),
+    z.date(),
+    z.string().refine((val) => !isNaN(Date.parse(val)), {
+      message: "Invalid date string"
+    })
+  ]),
+});
+
 export type ExplanationMetricsType = z.infer<typeof explanationMetricsSchema>;
+export type ExplanationMetricsTableType = z.infer<typeof explanationMetricsTableSchema>;
 
 /**
  * Schema for inserting new explanation metrics records

@@ -49,11 +49,22 @@ export class ImportPage extends BasePage {
 
     /**
      * Selects a source from the dropdown
+     * Uses text-based selectors for Radix UI Select component
      */
     async selectSource(source: 'chatgpt' | 'claude' | 'gemini' | 'other') {
+        const sourceLabels: Record<string, string> = {
+            chatgpt: 'ChatGPT',
+            claude: 'Claude',
+            gemini: 'Gemini',
+            other: 'Other AI',
+        };
+
         const select = this.page.locator(this.sourceSelect);
         await select.click();
-        await this.page.locator(`[data-value="${source}"]`).click();
+        // Wait for dropdown to open - Radix UI renders options with role="option"
+        await this.page.waitForSelector('[role="listbox"]', { state: 'visible', timeout: 5000 });
+        // Click the option by its text content
+        await this.page.getByRole('option', { name: sourceLabels[source] }).click();
     }
 
     /**

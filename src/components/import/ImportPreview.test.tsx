@@ -234,7 +234,7 @@ describe('ImportPreview', () => {
             });
         });
 
-        it('navigates to results page after 500ms delay on success', async () => {
+        it('navigates to results page after 1000ms delay on success (modal stays open)', async () => {
             const user = userEvent.setup({ advanceTimers: jest.advanceTimersByTime });
             const mockOnOpenChange = jest.fn();
             render(<ImportPreview {...defaultProps} onOpenChange={mockOnOpenChange} />);
@@ -247,13 +247,18 @@ describe('ImportPreview', () => {
                 expect(screen.getByText(/article published successfully/i)).toBeInTheDocument();
             });
 
-            // Advance timers by 500ms
-            jest.advanceTimersByTime(500);
+            // Modal should NOT be closed (no flash)
+            expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
+
+            // Advance timers by 1000ms
+            jest.advanceTimersByTime(1000);
 
             await waitFor(() => {
-                expect(mockOnOpenChange).toHaveBeenCalledWith(false);
                 expect(mockPush).toHaveBeenCalledWith('/results?explanation_id=456');
             });
+
+            // Modal still not explicitly closed - navigation handles the transition
+            expect(mockOnOpenChange).not.toHaveBeenCalledWith(false);
         });
     });
 

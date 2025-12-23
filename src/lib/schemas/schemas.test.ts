@@ -417,9 +417,11 @@ describe('schemas', () => {
   });
 
   describe('explanationMetricsSchema', () => {
+    // Note: explanationMetricsSchema uses explanation_id (with underscore)
+    // for consistency with stored procedure returns
     it('should validate correct explanation metrics data', () => {
       const validData = {
-        explanationid: 123,
+        explanation_id: 123,
         total_saves: 10,
         total_views: 100,
         save_rate: 0.1,
@@ -429,7 +431,7 @@ describe('schemas', () => {
       const result = explanationMetricsSchema.parse(validData);
 
       expect(result).toMatchObject({
-        explanationid: 123,
+        explanation_id: 123,
         total_saves: 10,
         total_views: 100,
         save_rate: 0.1,
@@ -438,7 +440,7 @@ describe('schemas', () => {
 
     it('should use default values', () => {
       const validData = {
-        explanationid: 123,
+        explanation_id: 123,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
@@ -451,13 +453,13 @@ describe('schemas', () => {
 
     it('should validate save_rate boundaries (0-1)', () => {
       const validData0 = {
-        explanationid: 123,
+        explanation_id: 123,
         save_rate: 0,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
       const validData1 = {
-        explanationid: 123,
+        explanation_id: 123,
         save_rate: 1,
         last_updated: '2024-03-20T10:30:00Z',
       };
@@ -468,13 +470,13 @@ describe('schemas', () => {
 
     it('should reject save_rate outside 0-1 range', () => {
       const invalidDataNegative = {
-        explanationid: 123,
+        explanation_id: 123,
         save_rate: -0.1,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
       const invalidDataTooHigh = {
-        explanationid: 123,
+        explanation_id: 123,
         save_rate: 1.1,
         last_updated: '2024-03-20T10:30:00Z',
       };
@@ -485,7 +487,7 @@ describe('schemas', () => {
 
     it('should reject negative total_saves and total_views', () => {
       const invalidData = {
-        explanationid: 123,
+        explanation_id: 123,
         total_saves: -1,
         total_views: 100,
         last_updated: '2024-03-20T10:30:00Z',
@@ -496,7 +498,7 @@ describe('schemas', () => {
 
     it('should accept ISO 8601 date strings', () => {
       const validData = {
-        explanationid: 123,
+        explanation_id: 123,
         last_updated: '2024-03-20T10:30:00Z',
       };
 
@@ -508,7 +510,7 @@ describe('schemas', () => {
     it('should accept Date objects', () => {
       const dateObj = new Date('2024-03-20T10:30:00Z');
       const validData = {
-        explanationid: 123,
+        explanation_id: 123,
         last_updated: dateObj,
       };
 
@@ -519,7 +521,7 @@ describe('schemas', () => {
 
     it('should accept parseable date strings', () => {
       const validData = {
-        explanationid: 123,
+        explanation_id: 123,
         last_updated: '2024-03-20',
       };
 
@@ -530,7 +532,7 @@ describe('schemas', () => {
 
     it('should reject invalid date strings', () => {
       const invalidData = {
-        explanationid: 123,
+        explanation_id: 123,
         last_updated: 'not-a-date',
       };
 
@@ -540,7 +542,7 @@ describe('schemas', () => {
     it('should accept optional id field', () => {
       const withId = {
         id: 456,
-        explanationid: 123,
+        explanation_id: 123,
         last_updated: '2024-03-20T10:30:00Z',
       };
 

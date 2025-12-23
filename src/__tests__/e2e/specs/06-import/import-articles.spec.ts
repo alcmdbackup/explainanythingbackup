@@ -1,6 +1,9 @@
 import { test, expect } from '../../fixtures/auth';
 import { ImportPage } from '../../helpers/pages/ImportPage';
 
+// These tests hit real LLM APIs so run them serially to avoid conflicts
+test.describe.configure({ mode: 'serial' });
+
 /**
  * E2E tests for Import Articles feature
  * Tests the full flow of importing AI-generated content as articles
@@ -73,7 +76,8 @@ This approach has both benefits and challenges that developers should carefully 
 
 test.describe('Import Articles Feature', () => {
     test.describe('Full Import Flow', () => {
-        test('should import ChatGPT content with auto-detection', async ({ authenticatedPage }) => {
+        // These tests hit real LLM APIs and DB operations
+        test('should import ChatGPT content with auto-detection', { timeout: 90000 }, async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             // Navigate to home page
@@ -119,7 +123,7 @@ test.describe('Import Articles Feature', () => {
             expect(authenticatedPage.url()).toContain('/results');
         });
 
-        test('should import with manual source selection', async ({ authenticatedPage }) => {
+        test('should import with manual source selection', { timeout: 90000 }, async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
@@ -171,10 +175,15 @@ test.describe('Import Articles Feature', () => {
             // Process button should now be enabled (validation happens server-side)
             await importPage.clickProcess();
 
-            // Should show error
-            await authenticatedPage.waitForTimeout(1000);
+            // Wait for error element to appear
+            await authenticatedPage.waitForSelector('[data-testid="import-error"]', {
+                state: 'visible',
+                timeout: 10000
+            });
+
             const error = await importPage.getImportError();
-            expect(error).toContain('too short');
+            // Check for either "too short" or "minimum 50 characters" as error messages
+            expect(error).toMatch(/too short|minimum.*characters/i);
         });
     });
 
