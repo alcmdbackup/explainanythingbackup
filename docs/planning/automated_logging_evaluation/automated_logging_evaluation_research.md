@@ -66,14 +66,17 @@ This document catalogs all files and plans related to logging and automated logg
 
 ---
 
-### Claude Code Auto-Wrapping Hook
+### Claude Code Auto-Wrapping Hook (Stop Hook - ACTIVE)
 
-**File:** `docs/backend_explorations/hooks_to_add_withLogging.md`
+**Plan File:** `docs/planning/automated_logging_evaluation/client_side_automated_logging_plan.md`
+**Implementation:** `.claude/settings.json` (Stop hook with prompt enforcement)
 
-- PostToolUse hook for automatic `withLogging` wrapping
-- Pattern-based function detection (AST + regex)
-- Two wrapping patterns (direct and with `serverReadRequestId`)
-- Server file filtering
+- Stop hook checks all modified files in session
+- Prompt-based enforcement for `withLogging` (server) and `withClientLogging` (client)
+- Rules for actions, services, hooks, and component async handlers
+- Skips test files, type definitions, and already-wrapped functions
+
+**Legacy:** `docs/backend_explorations/hooks_to_add_withLogging.md` (PostToolUse approach - superseded)
 
 ---
 
@@ -96,13 +99,16 @@ This document catalogs all files and plans related to logging and automated logg
 | `src/__tests__/integration/logging-infrastructure.integration.test.ts` | Entry/exit logging, performance, error handling tests |
 | `src/__tests__/integration/request-id-propagation.integration.test.ts` | Request ID context tests |
 
-### Client-Side Files
+### Client-Side Logging Infrastructure
 
-| File | Purpose |
-|------|---------|
-| `src/app/(debug)/test-client-logging/page.tsx` | Debug page for client logging |
-| `src/app/api/client-logs/route.ts` | API route to collect client logs |
-| `src/app/api/client-logs/route.test.ts` | Client logs API tests |
+| File | Purpose | Status |
+|------|---------|--------|
+| `src/lib/logging/client/clientLogging.ts` | Core `withClientLogging` wrapper function | **Active** |
+| `src/lib/logging/client/index.ts` | Export barrel | **Active** |
+| `src/lib/logging/client/__tests__/clientLogging.test.ts` | Unit tests | **Active** |
+| `src/app/(debug)/test-client-logging/page.tsx` | Debug page for client logging | Active |
+| `src/app/api/client-logs/route.ts` | API route to collect client logs | Active |
+| `src/app/api/client-logs/route.test.ts` | Client logs API tests | Active |
 
 ### Core Utilities
 
@@ -324,7 +330,11 @@ interface TracingConfig {
 
 ## Currently Unimplemented
 
-- **Client-side automatic logging:** Infrastructure designed but not activated (requires recursion prevention guards)
 - **OpenTelemetry export:** Tracing created but not exported to Jaeger/OTLP backend
 - **Log aggregation service:** Logs only written to local files
 - **Advanced sampling/filtering:** All logs of enabled type are written
+
+## Recently Implemented
+
+- **Client-side `withClientLogging` wrapper:** `src/lib/logging/client/clientLogging.ts` - mirrors server pattern with sanitization
+- **Stop hook enforcement:** `.claude/settings.json` - prompt-based enforcement for logging wrappers
