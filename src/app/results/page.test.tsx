@@ -48,6 +48,12 @@ jest.mock('@/hooks/clientPassRequestId', () => ({
       __requestId: { requestId: 'test-request-id', userId: 'test-user' }
     })
   }),
+  useAuthenticatedRequestId: () => ({
+    withRequestId: <T,>(data?: T) => ({
+      ...(data || {}),
+      __requestId: { requestId: 'test-request-id', userId: 'test-user' }
+    })
+  }),
 }));
 
 // Mock server actions

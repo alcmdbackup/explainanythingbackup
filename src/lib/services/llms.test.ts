@@ -9,7 +9,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 // Mock dependencies
 jest.mock('openai');
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServerClient: jest.fn()
+  createSupabaseServiceClient: jest.fn()
 }));
 jest.mock('@/lib/server_utilities', () => ({
   logger: {
@@ -29,7 +29,7 @@ jest.mock('../../../instrumentation', () => ({
 }));
 jest.mock('openai/helpers/zod');
 
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callOpenAIModel, default_model, lighter_model } from './llms';
 
@@ -71,7 +71,7 @@ describe('llms', () => {
       select: jest.fn().mockReturnThis(),
       single: jest.fn().mockResolvedValue({ data: {}, error: null })
     };
-    (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
 
     // Mock zodResponseFormat
     (zodResponseFormat as jest.Mock).mockReturnValue({ type: 'json_object' });
