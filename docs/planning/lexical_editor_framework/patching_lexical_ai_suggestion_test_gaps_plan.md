@@ -1,5 +1,14 @@
 # Patching Lexical AI Suggestion Test Gaps
 
+## Revision History
+
+| Date | Changes |
+|------|---------|
+| 2024-12-22 | **Analysis Update**: Verified existing coverage; clarified what's implemented vs missing |
+| Original | Initial plan with all phases |
+
+---
+
 ## Problem Statement
 
 The AI suggestion pipeline and diff system have solid unit/integration test coverage but **zero E2E tests** for critical user workflows:
@@ -12,16 +21,48 @@ The AI suggestion pipeline and diff system have solid unit/integration test cove
 
 ---
 
-## Current Test Coverage
+## Current Test Coverage (Updated 2024-12-22)
 
-| Component | Unit Tests | Integration | E2E |
-|-----------|-----------|-------------|-----|
-| DiffTagNode | ✅ 63 | ✅ | ❌ |
-| Accept/Reject Logic | ✅ | ✅ 14 | ❌ |
-| Hover Controls | ✅ 21 | ❌ | ❌ |
-| AI Suggestion Pipeline | ❌ | ❌ | ❌ |
-| Diff Visualization | ❌ | ❌ | ❌ |
-| Prompt-Specific Cases | ❌ | ❌ | ❌ |
+| Component | Unit Tests | Integration | E2E | Status |
+|-----------|-----------|-------------|-----|--------|
+| DiffTagNode | ✅ 63 | - | ❌ | Complete |
+| Accept/Reject Logic | - | ✅ 14 | ❌ | Complete |
+| Hover Controls | ✅ 21 | - | ❌ | Complete |
+| Inline Controls | ✅ 13 | - | ❌ | Complete |
+| ToolbarPlugin | ✅ 20 | - | ❌ | Complete |
+| LexicalEditor | - | ✅ 20 | ❌ | Complete |
+| importExportUtils | ✅ 52 | - | - | Complete |
+| preprocessing (30 fixtures) | ✅ 20 | - | - | Complete |
+| markdownASTdiff (30 fixtures) | ✅ 12 (ESM) | - | - | Complete |
+| AISuggestionsPanel | ✅ 60+ | - | ❌ | **No E2E** |
+| AI Pipeline E2E | - | - | ❌ | **Missing** |
+| Prompt-Specific Cases | ❌ | ❌ | ❌ | **Missing** |
+
+**Total existing tests: ~295**
+
+### What's Already Implemented
+
+The 30 comprehensive test cases from `testing_and_logging_for_lexical_plan.md` **ARE IMPLEMENTED** in `editor-test-helpers.ts`:
+- 5 insertions
+- 3 deletions
+- 3 updates
+- 3 mixed
+- 16 edge cases
+
+These fixtures are tested in:
+- `preprocessing.fixtures.test.ts` (20 tests)
+- `markdownASTdiff.esm.test.ts` (12 tests via Node.js test runner)
+
+### What's Missing
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| Phase 1: promptSpecific fixtures | **MISSING** | 3 fixtures not in AI_PIPELINE_FIXTURES |
+| Phase 2: promptSpecific integration tests | **MISSING** | File doesn't exist |
+| Phase 3: API mocks for AI suggestions | **MISSING** | No mockAISuggestionsPipeline |
+| Phase 4: ResultsPage POM extensions | **MISSING** | No AI suggestion methods |
+| Phase 5: E2E specs (23 tests) | **MISSING** | 06-ai-suggestions/ doesn't exist |
+| Phase 6: data-testid attributes | **PARTIAL** | #ai-prompt exists, others missing |
 
 ---
 
@@ -905,24 +946,35 @@ Add test ID to edit button:
 | Panel Interaction | - | - | 4 |
 | Diff Visualization | - | - | 3 |
 | Accept/Reject Generic | - | - | 7 |
-| Remove First Sentence | 3 | 3 | 3 |
-| Shorten First Paragraph | 3 | 3 | 3 |
-| Improve Entire Article | 3 | 4 | 3 |
-| **Total** | **9** | **10** | **23** |
+| Remove First Sentence | - | 3 | 3 |
+| Shorten First Paragraph | - | 3 | 3 |
+| Improve Entire Article | - | 4 | 3 |
+| **Total** | **0** | **10** | **23** |
 
-**Grand Total: 42 new tests**
+**Grand Total: 33 new tests**
+
+> **Note (2024-12-22)**: Unit tests for the 30 comprehensive fixture cases are already implemented. Only promptSpecific integration tests (10) and E2E tests (23) remain.
 
 ---
 
 ## Success Criteria
 
-- [ ] All 9 unit tests for prompt-specific fixtures pass
+### Already Complete (as of 2024-12-22)
+- [x] 30 comprehensive pipeline fixtures defined in `editor-test-helpers.ts`
+- [x] 20 preprocessing fixture tests passing
+- [x] 12 markdownASTdiff fixture tests passing (ESM)
+- [x] 14 accept/reject integration tests passing
+- [x] 60+ AISuggestionsPanel unit tests passing
+- [x] ~295 total tests in lexical editor suite
+
+### Remaining Work
+- [ ] Add 3 promptSpecific fixtures to `AI_PIPELINE_FIXTURES`
 - [ ] All 10 integration tests for prompt-specific cases pass
 - [ ] All 23 E2E tests pass locally
 - [ ] Tests pass in CI (GitHub Actions)
 - [ ] Mock API correctly simulates pipeline responses for each prompt type
-- [ ] Accept/reject buttons trigger correct editor mutations
-- [ ] Diff visualization shows correct colors/styling
+- [ ] Accept/reject buttons trigger correct editor mutations in E2E
+- [ ] Diff visualization shows correct colors/styling in E2E
 - [ ] No flaky tests (retry count stays at 0)
 
 ---
