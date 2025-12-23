@@ -275,17 +275,17 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
             <div className={`relative ${className}`}>
                 <div className="flex flex-wrap items-center gap-2 py-3">
                     <span className="text-sm font-ui font-medium text-[var(--text-muted)]">
-                        Bookmarks:
+                        Tags:
                     </span>
                     <button
                         disabled={true}
                         className="bookmark-tag opacity-50 cursor-not-allowed"
-                        title="Add bookmark (disabled during streaming)"
+                        title="Add tag (disabled during streaming)"
                     >
                         <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
-                        Add bookmark
+                        Add tag
                     </button>
                 </div>
             </div>
@@ -353,7 +353,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             }
                         }}
                         className="ml-1.5 hover:text-[var(--accent-gold)] transition-colors"
-                        title={isActive ? "Remove bookmark" : "Restore bookmark"}
+                        title={isActive ? "Remove tag" : "Restore tag"}
                     >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             {isActive ? (
@@ -407,7 +407,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                         value={newTagName}
                         onChange={(e) => filterAvailableTags(e.target.value)}
                         onKeyDown={handleAddTagKeyDown}
-                        placeholder="Search bookmarks..."
+                        placeholder="Search tags..."
                         className={`
                             px-3 py-1 text-xs font-body italic
                             border rounded-page
@@ -472,12 +472,12 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
             <button
                 onClick={handleShowAddTagInput}
                 className="bookmark-tag hover:border-[var(--accent-gold)]"
-                title="Add new bookmark"
+                title="Add new tag"
             >
                 <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                 </svg>
-                Add bookmark
+                Add tag
             </button>
         )
     );
@@ -493,16 +493,16 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             <svg className="w-4 h-4 text-[var(--accent-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                             </svg>
-                            {modeOverride === TagBarMode.Normal ? "Apply Bookmarks" :
-                             modeOverride === TagBarMode.RewriteWithTags ? "Rewrite with Bookmarks" :
-                             modeOverride === TagBarMode.EditWithTags ? "Edit with Bookmarks" : "Apply Bookmarks"}
+                            {modeOverride === TagBarMode.Normal ? "Apply Tags" :
+                             modeOverride === TagBarMode.RewriteWithTags ? "Rewrite with Tags" :
+                             modeOverride === TagBarMode.EditWithTags ? "Edit with Tags" : "Apply Tags"}
                         </h3>
                     </div>
 
                     <div className="flex items-center justify-between">
                         <div className="flex flex-wrap items-center gap-2">
                             <span className="text-sm font-ui font-medium text-[var(--text-muted)]">
-                                Bookmarks:
+                                Tags:
                             </span>
                             {tags.filter(tag => {
                                 if ('tag_name' in tag) {
@@ -601,7 +601,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                 /* Normal tags display */
                 <div className="flex flex-wrap items-center gap-2 py-3">
                     <span className="text-sm font-ui font-medium text-[var(--text-muted)]">
-                        Bookmarks:
+                        Tags:
                     </span>
                     {tags.filter(tag => {
                         if ('tag_name' in tag) {

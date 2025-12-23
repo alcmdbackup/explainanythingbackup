@@ -126,6 +126,10 @@
   --sidebar-accent-foreground: #1a1a2e;
   --sidebar-border: #e8e4dc;
   --sidebar-ring: #d4a853;
+
+  /* RGB values for animations (extracted from accent-gold #d4a853) */
+  --accent-gold-rgb: 212, 168, 83;
+  --accent-copper-rgb: 184, 115, 51;
 }
 
 /* ==========================================================================
@@ -196,6 +200,10 @@
   --sidebar-accent-foreground: #f5f0e6;
   --sidebar-border: #2a3a57;
   --sidebar-ring: #f0c674;
+
+  /* RGB values for animations (extracted from accent-gold #f0c674) */
+  --accent-gold-rgb: 240, 198, 116;
+  --accent-copper-rgb: 212, 168, 83;
 }
 
 /* ==========================================================================
@@ -1669,8 +1677,13 @@
 }
 
 .atlas-button:hover {
-  box-shadow: 0 4px 6px -1px rgba(180, 115, 51, 0.2), 0 2px 4px -2px rgba(180, 115, 51, 0.1);
+  box-shadow: 0 4px 8px -2px rgba(var(--accent-copper-rgb), 0.15);
   transform: translateY(-1px);
+}
+
+.atlas-button:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 3px 0 rgba(180, 115, 51, 0.1);
 }
 
 /* Atlas animations */
@@ -1760,5 +1773,74 @@
     filter: none !important;
     transform: none !important;
     clip-path: none !important;
+  }
+}
+
+/* ==========================================================================
+   ENHANCED MICRO-INTERACTIONS
+   Subtle, refined animations for a polished scholarly feel
+   ========================================================================== */
+
+/* Navigation link hover - very subtle */
+.scholar-nav-link {
+  position: relative;
+  transition: color 0.2s ease-out;
+}
+
+/* Search focus - subtle border glow, no animation */
+.search-focus-glow:focus {
+  box-shadow: 0 0 0 1px rgba(var(--accent-gold-rgb), 0.2);
+  border-color: var(--accent-gold) !important;
+}
+
+/* Card hover lift effect - minimal */
+.scholar-card-hover {
+  transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
+}
+
+.scholar-card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px -4px rgba(var(--accent-copper-rgb), 0.1);
+}
+
+/* Logo book icon animation - gentle */
+.logo-book {
+  transition: transform 0.25s ease-out;
+}
+
+.group:hover .logo-book {
+  transform: scale(1.05);
+}
+
+/* Staggered entrance animations - tighter timing */
+.stagger-1 { animation-delay: 0ms; }
+.stagger-2 { animation-delay: 40ms; }
+.stagger-3 { animation-delay: 80ms; }
+.stagger-4 { animation-delay: 120ms; }
+.stagger-5 { animation-delay: 160ms; }
+
+/* Table row hover - minimal accent */
+.scholar-table-row {
+  transition: background-color 0.15s ease-out, border-left-color 0.15s ease-out;
+  border-left: 2px solid transparent;
+}
+
+.scholar-table-row:hover {
+  background-color: var(--surface-elevated);
+  border-left-color: var(--accent-gold);
+}
+
+/* Reduced motion: disable animations */
+@media (prefers-reduced-motion: reduce) {
+  .scholar-nav-link,
+  .scholar-card-hover,
+  .logo-book,
+  .scholar-table-row {
+    transition: none !important;
+    transform: none !important;
+  }
+
+  .stagger-1, .stagger-2, .stagger-3, .stagger-4, .stagger-5 {
+    animation-delay: 0ms !important;
   }
 }

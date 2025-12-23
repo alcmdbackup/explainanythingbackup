@@ -175,7 +175,7 @@ export default function ExplanationsTablePage({
                                             data-testid="explanation-row"
                                             className={`
                                                 ${index % 2 === 0 ? 'bg-[var(--surface-secondary)]' : 'bg-[var(--surface-elevated)]/50'}
-                                                hover:bg-[var(--accent-gold)]/5 transition-colors cursor-pointer
+                                                scholar-table-row cursor-pointer
                                             `}
                                             onClick={() => window.location.href = `/results?explanation_id=${explanation.id}`}
                                         >

@@ -1080,7 +1080,7 @@ function ResultsPageContent() {
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Rewrite with bookmarks
+                                                                Rewrite with tags
                                                             </button>
                                                             <button
                                                                 data-testid="edit-with-tags"
@@ -1090,7 +1090,7 @@ function ResultsPageContent() {
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Edit with bookmarks
+                                                                Edit with tags
                                                             </button>
                                                         </div>
                                                     </div>

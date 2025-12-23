@@ -79,10 +79,10 @@ describe('TagBar', () => {
       });
       render(<TagBar {...props} />);
 
-      expect(screen.getByText('Bookmarks:')).toBeInTheDocument();
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      expect(screen.getByText('Tags:')).toBeInTheDocument();
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       expect(addButton).toBeDisabled();
-      expect(addButton).toHaveAttribute('title', 'Add bookmark (disabled during streaming)');
+      expect(addButton).toHaveAttribute('title', 'Add tag (disabled during streaming)');
     });
 
     it('should render empty (null) when not streaming and no tags', () => {
@@ -126,7 +126,7 @@ describe('TagBar', () => {
       // Check for themed container (modified state uses CSS variables)
       const themedContainer = container.querySelector('.bg-\\[var\\(--surface-elevated\\)\\]');
       expect(themedContainer).toBeInTheDocument();
-      expect(screen.getByText('Apply Bookmarks')).toBeInTheDocument();
+      expect(screen.getByText('Apply Tags')).toBeInTheDocument();
     });
 
     it('should display correct title based on mode - Normal', () => {
@@ -142,7 +142,7 @@ describe('TagBar', () => {
       });
       render(<TagBar {...props} />);
 
-      expect(screen.getByText('Apply Bookmarks')).toBeInTheDocument();
+      expect(screen.getByText('Apply Tags')).toBeInTheDocument();
     });
 
     it('should display correct title based on mode - RewriteWithTags', () => {
@@ -158,7 +158,7 @@ describe('TagBar', () => {
       });
       render(<TagBar {...props} />);
 
-      expect(screen.getByText('Rewrite with Bookmarks')).toBeInTheDocument();
+      expect(screen.getByText('Rewrite with Tags')).toBeInTheDocument();
     });
 
     it('should display correct title based on mode - EditWithTags', () => {
@@ -174,7 +174,7 @@ describe('TagBar', () => {
       });
       render(<TagBar {...props} />);
 
-      expect(screen.getByText('Edit with Bookmarks')).toBeInTheDocument();
+      expect(screen.getByText('Edit with Tags')).toBeInTheDocument();
     });
 
     it('should show apply and reset buttons in modified state', () => {
@@ -618,11 +618,11 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search bookmarks/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/search tags/i)).toBeInTheDocument();
       });
     });
 
@@ -649,7 +649,7 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       await waitFor(() => {
@@ -680,7 +680,7 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       // Wait for both tags to initially appear in the dropdown
@@ -689,7 +689,7 @@ describe('TagBar', () => {
         expect(screen.getByText('Python')).toBeInTheDocument();
       });
 
-      const searchInput = screen.getByPlaceholderText(/search bookmarks/i);
+      const searchInput = screen.getByPlaceholderText(/search tags/i);
       fireEvent.change(searchInput, { target: { value: 'Java' } });
 
       // Should show JavaScript but not Python after filtering
@@ -717,7 +717,7 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       const newTagElement = await screen.findByText('New Tag');
@@ -754,14 +754,14 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       const newTagElement = await screen.findByText('New Tag');
       fireEvent.click(newTagElement);
 
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search bookmarks/i)).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText(/search tags/i)).not.toBeInTheDocument();
       });
     });
 
@@ -774,18 +774,18 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search bookmarks/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/search tags/i)).toBeInTheDocument();
       });
 
       const cancelButton = screen.getByText('Cancel');
       fireEvent.click(cancelButton);
 
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search bookmarks/i)).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText(/search tags/i)).not.toBeInTheDocument();
       });
     });
 
@@ -798,18 +798,18 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search bookmarks/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/search tags/i)).toBeInTheDocument();
       });
 
-      const searchInput = screen.getByPlaceholderText(/search bookmarks/i);
+      const searchInput = screen.getByPlaceholderText(/search tags/i);
       fireEvent.keyDown(searchInput, { key: 'Escape' });
 
       await waitFor(() => {
-        expect(screen.queryByPlaceholderText(/search bookmarks/i)).not.toBeInTheDocument();
+        expect(screen.queryByPlaceholderText(/search tags/i)).not.toBeInTheDocument();
       });
     });
 
@@ -842,7 +842,7 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       await waitFor(() => {
@@ -863,12 +863,12 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       // Should not crash and input should still appear
       await waitFor(() => {
-        expect(screen.getByPlaceholderText(/search bookmarks/i)).toBeInTheDocument();
+        expect(screen.getByPlaceholderText(/search tags/i)).toBeInTheDocument();
       });
     });
 
@@ -882,18 +882,18 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       await user.click(addButton);
 
       // Verify input appears (focus behavior varies in jsdom)
       await waitFor(() => {
-        const searchInput = screen.getByPlaceholderText(/search bookmarks/i);
+        const searchInput = screen.getByPlaceholderText(/search tags/i);
         expect(searchInput).toBeInTheDocument();
       });
 
       // Focus should be on the input - the component's useEffect handles this
       // Note: jsdom focus is unreliable, so we verify the input is focusable
-      const searchInput = screen.getByPlaceholderText(/search bookmarks/i);
+      const searchInput = screen.getByPlaceholderText(/search tags/i);
       expect(searchInput).not.toBeDisabled();
     });
   });
@@ -1082,7 +1082,7 @@ describe('TagBar', () => {
 
       render(<TagBar {...props} />);
 
-      const addButton = screen.getByRole('button', { name: /add bookmark/i });
+      const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
       await screen.findByText('Available');
