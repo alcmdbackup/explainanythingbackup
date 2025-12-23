@@ -972,6 +972,23 @@
   margin-top: 1.75rem;
   color: var(--text-primary);
   letter-spacing: -0.01em;
+  position: relative;
+  padding-bottom: 0.75rem;
+}
+
+.lexical-editor h2::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 60%;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--accent-gold) 0%,
+    transparent 100%
+  );
+  opacity: 0.35;
 }
 
 .lexical-editor h3 {
@@ -2096,50 +2113,9 @@
 }
 
 /* ==========================================================================
-   PHASE 3: TYPOGRAPHY & DROP CAPS
-   Illuminated initials, ruled headings, decorative quotations
+   PHASE 3: TYPOGRAPHY ENHANCEMENTS
+   Decorative quotations, external link indicators
    ========================================================================== */
-
-/* Illuminated drop cap for first paragraph of explanations */
-.lexical-editor > p:first-of-type::first-letter,
-.drop-cap::first-letter {
-  float: left;
-  font-family: var(--font-playfair), Georgia, serif;
-  font-size: 3.75rem;
-  font-weight: 600;
-  line-height: 0.85;
-  padding-right: 0.625rem;
-  padding-top: 0.25rem;
-  color: var(--accent-gold);
-  text-shadow: 1px 1px 0 var(--accent-copper);
-}
-
-.dark .lexical-editor > p:first-of-type::first-letter,
-.dark .drop-cap::first-letter {
-  text-shadow: 0 0 15px rgba(240, 198, 116, 0.3),
-               1px 1px 0 var(--accent-copper);
-}
-
-/* Ruled lines under h2 headings */
-.lexical-editor h2 {
-  position: relative;
-  padding-bottom: 0.75rem;
-}
-
-.lexical-editor h2::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  width: 100%;
-  height: 1px;
-  background: linear-gradient(
-    90deg,
-    var(--accent-gold) 0%,
-    var(--accent-copper) 30%,
-    transparent 100%
-  );
-}
 
 /* Decorative blockquote quotation marks */
 .lexical-editor blockquote {
