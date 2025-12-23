@@ -851,3 +851,129 @@ export type CandidateOccurrenceFullType = z.infer<typeof candidateOccurrenceFull
 export const linkCandidatesExtractionSchema = z.object({
   candidates: z.array(z.string()),
 });
+
+// =============================================================================
+// SOURCE CACHE SYSTEM SCHEMAS
+// =============================================================================
+
+/**
+ * Enum for source fetch status
+ */
+export enum FetchStatus {
+  Pending = 'pending',
+  Success = 'success',
+  Failed = 'failed'
+}
+
+/**
+ * Schema for source cache insert data
+ * @example
+ * {
+ *   url: "https://example.com/article",
+ *   title: "Example Article",
+ *   favicon_url: "https://example.com/favicon.ico",
+ *   domain: "example.com",
+ *   extracted_text: "Article content...",
+ *   is_summarized: false,
+ *   original_length: 1500,
+ *   fetch_status: "success",
+ *   expires_at: "2024-03-27T10:30:00Z"
+ * }
+ */
+export const sourceCacheInsertSchema = z.object({
+  url: z.string().url(),
+  title: z.string().nullable(),
+  favicon_url: z.string().url().nullable(),
+  domain: z.string(),
+  extracted_text: z.string().nullable(),
+  is_summarized: z.boolean().default(false),
+  original_length: z.number().int().nullable(),
+  fetch_status: z.nativeEnum(FetchStatus).default(FetchStatus.Pending),
+  error_message: z.string().nullable(),
+  expires_at: z.string().datetime().nullable(),
+});
+
+/**
+ * Full source cache schema including database fields
+ */
+export const sourceCacheFullSchema = sourceCacheInsertSchema.extend({
+  id: z.number().int().positive(),
+  url_hash: z.string(),
+  fetched_at: z.string().datetime().nullable(),
+  created_at: z.string().datetime(),
+});
+
+export type SourceCacheInsertType = z.infer<typeof sourceCacheInsertSchema>;
+export type SourceCacheFullType = z.infer<typeof sourceCacheFullSchema>;
+
+/**
+ * Schema for article sources junction table insert
+ * @example
+ * {
+ *   explanation_id: 123,
+ *   source_cache_id: 456,
+ *   position: 1
+ * }
+ */
+export const articleSourceInsertSchema = z.object({
+  explanation_id: z.number().int().positive(),
+  source_cache_id: z.number().int().positive(),
+  position: z.number().int().min(1).max(5),
+});
+
+/**
+ * Full article source schema including database fields
+ */
+export const articleSourceFullSchema = articleSourceInsertSchema.extend({
+  id: z.number().int().positive(),
+  created_at: z.string().datetime(),
+});
+
+export type ArticleSourceInsertType = z.infer<typeof articleSourceInsertSchema>;
+export type ArticleSourceFullType = z.infer<typeof articleSourceFullSchema>;
+
+/**
+ * Schema for UI source chip display
+ * Used by SourceChip, SourceInput, SourceList components
+ * @example
+ * {
+ *   url: "https://example.com/article",
+ *   title: "Example Article",
+ *   favicon_url: "https://example.com/favicon.ico",
+ *   domain: "example.com",
+ *   status: "success",
+ *   error_message: null
+ * }
+ */
+export const sourceChipSchema = z.object({
+  url: z.string().url(),
+  title: z.string().nullable(),
+  favicon_url: z.string().nullable(),
+  domain: z.string(),
+  status: z.enum(['loading', 'success', 'failed']),
+  error_message: z.string().nullable(),
+});
+
+export type SourceChipType = z.infer<typeof sourceChipSchema>;
+
+/**
+ * Schema for source data passed to LLM prompts
+ * Used by createExplanationWithSourcesPrompt
+ * @example
+ * {
+ *   index: 1,
+ *   title: "Example Article",
+ *   domain: "example.com",
+ *   content: "Article content...",
+ *   isVerbatim: true
+ * }
+ */
+export const sourceForPromptSchema = z.object({
+  index: z.number().int().min(1).max(5),
+  title: z.string(),
+  domain: z.string(),
+  content: z.string(),
+  isVerbatim: z.boolean(),
+});
+
+export type SourceForPromptType = z.infer<typeof sourceForPromptSchema>;

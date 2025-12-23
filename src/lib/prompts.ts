@@ -237,6 +237,62 @@ Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
 `;
 }
 
+/**
+ * Creates a prompt for generating explanations with source citations
+ *
+ * • Takes user query and array of source content
+ * • Instructs LLM to use [n] notation for inline citations
+ * • Distinguishes between verbatim and summarized source content
+ * • Used by returnExplanationLogic when sources are provided
+ *
+ * @param title - The topic/title to explain
+ * @param sources - Array of source data with index, title, domain, content, isVerbatim
+ * @param additionalRules - Additional rules for content generation
+ * @returns A formatted prompt string for LLM processing
+ */
+export function createExplanationWithSourcesPrompt(
+  title: string,
+  sources: Array<{
+    index: number;
+    title: string;
+    domain: string;
+    content: string;
+    isVerbatim: boolean;
+  }>,
+  additionalRules: string[]
+): string {
+  const sourcesSection = sources.map(source => {
+    const sourceType = source.isVerbatim ? 'VERBATIM' : 'SUMMARIZED';
+    return `[Source ${source.index}] ${source.title} (${source.domain}) [${sourceType}]
+---
+${source.content}
+---`;
+  }).join('\n\n');
+
+  return `Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+Ground your explanation in the provided sources and cite them using [n] notation.
+
+Title: ${title}
+
+## Sources
+${sourcesSection}
+
+## Rules
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**
+- For inline math using single dollars: $\\frac{2}{5}$, for block math use double dollars
+- Use lists and bullets sparingly
+- IMPORTANT: Cite sources inline using [n] notation where n is the source number (e.g., [1], [2])
+- Place citations at the end of sentences or clauses that use information from that source
+- Prefer direct information from VERBATIM sources; use SUMMARIZED sources for supporting context
+- You may synthesize information across multiple sources
+- If sources conflict, note the discrepancy and cite both${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
+
+`;
+}
+
 export function editExplanationPrompt(userInput: string, additionalRules: string[], existingContent: string): string {
     const basePrompt = `You are editing an existing explanation. Please lightly modify the content below based on the topic and rules provided.
 

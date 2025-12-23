@@ -1,9 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import SearchBar from '@/components/SearchBar';
 import Navigation from '@/components/Navigation';
+import { type SourceChipType } from '@/lib/schemas/schemas';
 
 export default function Home() {
+    const [sources, setSources] = useState<SourceChipType[]>([]);
+
     return (
         <div className="min-h-screen bg-[var(--surface-primary)] flex flex-col vignette-overlay paper-texture">
             <Navigation showSearchBar={false} />
@@ -23,6 +27,8 @@ export default function Home() {
                                 variant="home"
                                 placeholder="What would you like to learn?"
                                 maxLength={150}
+                                sources={sources}
+                                onSourcesChange={setSources}
                             />
                         </div>
                     </div>
