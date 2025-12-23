@@ -330,6 +330,9 @@ export async function mockReturnExplanationStreamError(
 }
 
 // ============= AI Suggestions Pipeline Mocks =============
+// NOTE: Server-side LLM mocking is not possible with Playwright as the OpenAI SDK
+// makes requests from the Node.js server, not from the browser.
+// For diff visualization tests, use integration tests instead (see promptSpecific.integration.test.tsx)
 
 interface MockAISuggestionsOptions {
   content?: string;
@@ -340,14 +343,10 @@ interface MockAISuggestionsOptions {
 }
 
 /**
+ * @deprecated Use mockOpenAIAPI instead for the hybrid approach.
+ *
  * Mock the AI suggestions pipeline server action.
- * Intercepts Next.js server action calls to runAISuggestionsPipelineAction.
- *
- * Server actions are called via POST to the page URL with a 'next-action' header.
- * We intercept these calls when they go to /results (where the panel is used).
- *
- * IMPORTANT: This must be called BEFORE mockReturnExplanationAPI to ensure
- * proper route ordering (Playwright matches routes in reverse order).
+ * This doesn't work reliably because Next.js server actions use RSC wire format.
  */
 export async function mockAISuggestionsPipeline(
   page: Page,

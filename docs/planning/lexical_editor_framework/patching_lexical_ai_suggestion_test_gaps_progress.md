@@ -166,9 +166,33 @@ npx playwright test specs/06-ai-suggestions/suggestions.spec.ts --project=chromi
 |----------|--------|
 | 3 promptSpecific fixtures in AI_PIPELINE_FIXTURES | ✅ |
 | 10 integration tests passing | ✅ |
-| 23 E2E tests passing | ⚠️ 4 passing, 20 skipped |
+| 23 E2E tests | ⚠️ 1 passing, 22 skipped |
 | data-testid attributes in AISuggestionsPanel | ✅ |
-| No flaky tests | ✅ |
+| No flaky tests | ⚠️ 1 test with retry (SSE timing issue) |
+
+## Technical Investigation: LLM Mocking Approaches
+
+### Attempted: Server-Side Hybrid Approach (December 22, 2024)
+
+Attempted to implement a hybrid E2E testing approach:
+- Mock LLM at the application level using `/api/e2e-mock` endpoint
+- Set `E2E_MOCK_LLM=true` in playwright webServer config
+- Register mock responses via API, consume them in `callOpenAIModel`
+
+**Result**: Did not work reliably. The approach introduced complexity and broke existing tests due to timing issues with SSE streaming.
+
+### Root Cause
+
+The fundamental issue is that Playwright can only intercept browser-initiated requests. The OpenAI SDK makes HTTP requests from the Node.js server, not from the browser. Therefore:
+1. `page.route()` cannot intercept OpenAI API calls
+2. Server-side mocking requires application-level changes that affect all tests
+
+### Recommendation
+
+For diff visualization E2E testing, consider:
+1. **API Route Approach**: Replace server action with `/api/ai-suggestions` route that can be mocked at browser level
+2. **Integration Tests**: The current approach (integration tests for diff functionality) provides good coverage without E2E overhead
+3. **Dedicated Test Mode**: Create a test mode that bypasses LLM entirely and returns fixture data
 
 ## Recommendations
 
