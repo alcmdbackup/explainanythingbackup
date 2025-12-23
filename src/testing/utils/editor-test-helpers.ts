@@ -806,6 +806,117 @@ export const AI_PIPELINE_FIXTURES: Record<string, Record<string, PipelineFixture
       expectedDiffTypes: ['ins'],
     },
   },
+
+  // ========= Prompt-Specific Cases (3 cases) =========
+  promptSpecific: {
+    removeFirstSentence: {
+      name: 'remove-first-sentence',
+      description: 'Remove the first sentence from a paragraph',
+      category: 'deletion',
+      originalMarkdown: `# Understanding Quantum Physics
+
+This introductory sentence is outdated. Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.`,
+      editedMarkdown: `# Understanding Quantum Physics
+
+Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.`,
+      expectedStep3Output: `# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.`,
+      expectedStep4Output: `# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.`,
+      expectedDiffNodeCount: 1,
+      expectedDiffTypes: ['del'],
+    },
+
+    shortenFirstParagraph: {
+      name: 'shorten-first-paragraph',
+      description: 'Condense the first paragraph to key points',
+      category: 'mixed',
+      originalMarkdown: `# Machine Learning Basics
+
+Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.`,
+      editedMarkdown: `# Machine Learning Basics
+
+Machine learning builds systems that learn from data and improve over time without explicit programming.
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.`,
+      expectedStep3Output: `# Machine Learning Basics
+
+{--Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.--}{++Machine learning builds systems that learn from data and improve over time without explicit programming.++}
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.`,
+      expectedStep4Output: `# Machine Learning Basics
+
+{--Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.--}{++Machine learning builds systems that learn from data and improve over time without explicit programming.++}
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.`,
+      expectedDiffNodeCount: 2,
+      expectedDiffTypes: ['del', 'ins'],
+    },
+
+    improveEntireArticle: {
+      name: 'improve-entire-article',
+      description: 'Rewrite entire article for clarity and better structure',
+      category: 'mixed',
+      originalMarkdown: `# Climate Change
+
+Climate change is bad. It makes things hotter. The ice is melting and that's not good.
+
+## Effects
+
+There are many effects. Some are bad for animals. Some are bad for people.`,
+      editedMarkdown: `# Understanding Climate Change
+
+Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.
+
+## Environmental and Social Effects
+
+The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.`,
+      expectedStep3Output: `# {--Climate Change--}{++Understanding Climate Change++}
+
+{--Climate change is bad. It makes things hotter. The ice is melting and that's not good.--}{++Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.++}
+
+## {--Effects--}{++Environmental and Social Effects++}
+
+{--There are many effects. Some are bad for animals. Some are bad for people.--}{++The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.++}`,
+      expectedStep4Output: `# {--Climate Change--}{++Understanding Climate Change++}
+
+{--Climate change is bad. It makes things hotter. The ice is melting and that's not good.--}{++Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.++}
+
+## {--Effects--}{++Environmental and Social Effects++}
+
+{--There are many effects. Some are bad for animals. Some are bad for people.--}{++The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.++}`,
+      expectedDiffNodeCount: 8,
+      expectedDiffTypes: ['del', 'ins', 'del', 'ins', 'del', 'ins', 'del', 'ins'],
+    },
+  },
 };
 
 /**
@@ -833,4 +944,11 @@ export function getPipelineFixturesByCategory(
   const key = categoryMap[category];
   if (!key) return [];
   return Object.values(AI_PIPELINE_FIXTURES[key]);
+}
+
+/**
+ * Get prompt-specific pipeline fixtures (for testing common AI prompts)
+ */
+export function getPromptSpecificFixtures(): PipelineFixture[] {
+  return Object.values(AI_PIPELINE_FIXTURES.promptSpecific);
 }

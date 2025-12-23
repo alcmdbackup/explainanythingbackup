@@ -328,3 +328,113 @@ export async function mockReturnExplanationStreamError(
 
   console.log('[MOCK-DEBUG] Route registered for **/api/returnExplanation');
 }
+
+// ============= AI Suggestions Pipeline Mocks =============
+
+interface MockAISuggestionsOptions {
+  content?: string;
+  success?: boolean;
+  error?: string;
+  delay?: number;
+  session_id?: string;
+}
+
+/**
+ * Mock the AI suggestions pipeline server action.
+ * Intercepts Next.js server action calls to runAISuggestionsPipelineAction.
+ *
+ * Server actions are called via POST to the page URL with a 'next-action' header.
+ * We intercept these calls when they go to /results (where the panel is used).
+ *
+ * IMPORTANT: This must be called BEFORE mockReturnExplanationAPI to ensure
+ * proper route ordering (Playwright matches routes in reverse order).
+ */
+export async function mockAISuggestionsPipeline(
+  page: Page,
+  options: MockAISuggestionsOptions
+) {
+  // Server actions POST to the results page with Next-Action header
+  // Use URL pattern matching but filter by request properties in the handler
+  // Note: '**/results**' matches URLs with query params like '/results?q=...'
+  await page.route('**/results**', async (route, request) => {
+    const nextAction = request.headers()['next-action'];
+    const isServerAction = request.method() === 'POST' && nextAction;
+
+    if (!isServerAction) {
+      await route.continue();
+      return;
+    }
+
+    if (options.delay) {
+      await new Promise(r => setTimeout(r, options.delay));
+    }
+
+    const response = options.success === false
+      ? { success: false, error: options.error || 'Pipeline failed' }
+      : {
+          success: true,
+          content: options.content,
+          session_id: options.session_id || 'test-session-123',
+        };
+
+    // Server actions return RSC format (text/x-component)
+    await route.fulfill({
+      status: 200,
+      headers: { 'Content-Type': 'text/x-component' },
+      body: JSON.stringify(response),
+    });
+  });
+}
+
+/**
+ * Pre-built mock responses for generic diff cases.
+ */
+export const mockDiffContent = {
+  insertion: `# Title
+
+This is {++newly added++} content.`,
+
+  deletion: `# Title
+
+This is {--removed--} content that remains.`,
+
+  update: `# Title
+
+This is {--old--}{++new++} content.`,
+
+  mixed: `# Title
+
+{++Added paragraph.++}
+
+This has {--deleted--} and {--changed--}{++updated++} words.`,
+};
+
+/**
+ * Pre-built mock responses for prompt-specific cases.
+ * These match the fixtures in AI_PIPELINE_FIXTURES.promptSpecific
+ */
+export const mockPromptSpecificContent = {
+  removeFirstSentence: `# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.`,
+
+  shortenFirstParagraph: `# Machine Learning Basics
+
+{--Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.--}{++Machine learning builds systems that learn from data and improve over time without explicit programming.++}
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.`,
+
+  improveEntireArticle: `# {--Climate Change--}{++Understanding Climate Change++}
+
+{--Climate change is bad. It makes things hotter. The ice is melting and that's not good.--}{++Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.++}
+
+## {--Effects--}{++Environmental and Social Effects++}
+
+{--There are many effects. Some are bad for animals. Some are bad for people.--}{++The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.++}`,
+};

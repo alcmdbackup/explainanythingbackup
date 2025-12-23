@@ -134,7 +134,7 @@ export default function AISuggestionsPanel({
   }
 
   return (
-    <div className="bg-[var(--surface-secondary)] border-l border-[var(--border-default)] w-80 flex flex-col h-full shadow-warm-lg">
+    <div data-testid="ai-suggestions-panel" className="bg-[var(--surface-secondary)] border-l border-[var(--border-default)] w-80 flex flex-col h-full shadow-warm-lg">
       {/* Panel Header - Marginalia style */}
       <div className="p-4 border-b border-[var(--border-default)] flex items-center justify-between bg-[var(--surface-elevated)]">
         <div className="flex items-center gap-2">
@@ -234,7 +234,7 @@ export default function AISuggestionsPanel({
 
         {/* Error Display */}
         {error && (
-          <div className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page p-4">
+          <div data-testid="suggestions-error" className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page p-4">
             <div className="flex items-center">
               <svg className="w-5 h-5 text-[var(--destructive)] mr-2" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
@@ -251,7 +251,7 @@ export default function AISuggestionsPanel({
 
         {/* Success Message */}
         {lastResult?.success && !isLoading && (
-          <div className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page p-4">
+          <div data-testid="suggestions-success" className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page p-4">
             <div className="flex items-center">
               <svg className="w-5 h-5 text-[var(--accent-gold)] mr-2" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />

@@ -19,6 +19,21 @@ export class ResultsPage extends BasePage {
   private rewriteWithTags = '[data-testid="rewrite-with-tags"]';
   private editWithTags = '[data-testid="edit-with-tags"]';
 
+  // AI Suggestions Panel selectors
+  private aiSuggestionsPanel = '[data-testid="ai-suggestions-panel"]';
+  private aiPromptInput = '#ai-prompt';
+  private getSuggestionsButton = 'button:has-text("Get Suggestions")';
+  private suggestionsLoading = 'button:has-text("Composing...")';
+  private suggestionsSuccess = '[data-testid="suggestions-success"]';
+  private suggestionsError = '[data-testid="suggestions-error"]';
+
+  // Diff node selectors
+  private diffNodes = '[data-diff-key]';
+  private insertionNodes = '[data-diff-type="ins"]';
+  private deletionNodes = '[data-diff-type="del"]';
+  private acceptButton = '.diff-accept-btn';
+  private rejectButton = '.diff-reject-btn';
+
   constructor(page: Page) {
     super(page);
   }
@@ -251,5 +266,100 @@ export class ResultsPage extends BasePage {
 
   async clickEditWithTags() {
     await this.page.click(this.editWithTags);
+  }
+
+  // ============= AI Suggestions Panel Methods =============
+
+  async isAISuggestionsPanelVisible(): Promise<boolean> {
+    return await this.page.isVisible(this.aiSuggestionsPanel);
+  }
+
+  async submitAISuggestion(prompt: string) {
+    await this.page.fill(this.aiPromptInput, prompt);
+    await this.page.click(this.getSuggestionsButton);
+  }
+
+  async waitForSuggestionsLoading(timeout = 5000) {
+    await this.page.waitForSelector(this.suggestionsLoading, { timeout, state: 'visible' });
+  }
+
+  async waitForSuggestionsComplete(timeout = 30000) {
+    await this.page.waitForSelector(this.suggestionsSuccess, { timeout, state: 'visible' });
+  }
+
+  async waitForSuggestionsError(timeout = 10000) {
+    await this.page.waitForSelector(this.suggestionsError, { timeout, state: 'visible' });
+  }
+
+  async getSuggestionsErrorText(): Promise<string | null> {
+    try {
+      const errorElement = this.page.locator(this.suggestionsError);
+      await errorElement.waitFor({ state: 'visible', timeout: 2000 });
+      return await errorElement.innerText();
+    } catch {
+      return null;
+    }
+  }
+
+  // ============= Diff Interaction Methods =============
+
+  async getDiffCount(): Promise<number> {
+    return await this.page.locator(this.diffNodes).count();
+  }
+
+  async getInsertionCount(): Promise<number> {
+    return await this.page.locator(this.insertionNodes).count();
+  }
+
+  async getDeletionCount(): Promise<number> {
+    return await this.page.locator(this.deletionNodes).count();
+  }
+
+  async acceptDiff(index: number = 0) {
+    const diff = this.page.locator(this.diffNodes).nth(index);
+    await diff.hover();
+    await diff.locator(this.acceptButton).click();
+  }
+
+  async rejectDiff(index: number = 0) {
+    const diff = this.page.locator(this.diffNodes).nth(index);
+    await diff.hover();
+    await diff.locator(this.rejectButton).click();
+  }
+
+  async acceptAllDiffs() {
+    let count = await this.getDiffCount();
+    while (count > 0) {
+      await this.acceptDiff(0);
+      // Small delay for DOM to update
+      await this.page.waitForTimeout(100);
+      count = await this.getDiffCount();
+    }
+  }
+
+  async rejectAllDiffs() {
+    let count = await this.getDiffCount();
+    while (count > 0) {
+      await this.rejectDiff(0);
+      // Small delay for DOM to update
+      await this.page.waitForTimeout(100);
+      count = await this.getDiffCount();
+    }
+  }
+
+  async getDiffText(index: number = 0): Promise<string> {
+    return await this.page.locator(this.diffNodes).nth(index).innerText();
+  }
+
+  async isDiffAcceptButtonVisible(index: number = 0): Promise<boolean> {
+    const diff = this.page.locator(this.diffNodes).nth(index);
+    await diff.hover();
+    return await diff.locator(this.acceptButton).isVisible();
+  }
+
+  async isDiffRejectButtonVisible(index: number = 0): Promise<boolean> {
+    const diff = this.page.locator(this.diffNodes).nth(index);
+    await diff.hover();
+    return await diff.locator(this.rejectButton).isVisible();
   }
 }
