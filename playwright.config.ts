@@ -59,6 +59,10 @@ export default defineConfig({
     url: 'http://localhost:3008',
     reuseExistingServer: !process.env.CI,
     timeout: 120000,
+    env: {
+      // Enable API route for AI suggestions (mockable in E2E tests)
+      NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
+    },
   },
   timeout: process.env.CI ? 60000 : 30000,
   expect: {
