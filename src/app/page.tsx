@@ -5,7 +5,7 @@ import Navigation from '@/components/Navigation';
 
 export default function Home() {
     return (
-        <div className="min-h-screen bg-[var(--surface-primary)] flex flex-col">
+        <div className="min-h-screen bg-[var(--surface-primary)] flex flex-col vignette-overlay paper-texture">
             <Navigation showSearchBar={false} />
             <div className="flex-1 flex items-center justify-center">
                 <main className="container mx-auto px-8 max-w-2xl">
