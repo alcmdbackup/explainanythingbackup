@@ -1,5 +1,5 @@
 {
-  "numStartups": 103,
+  "numStartups": 109,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
@@ -12,15 +12,15 @@
     "shift-enter-setup": 2,
     "theme-command": 103,
     "status-line": 102,
-    "stickers-command": 84,
+    "stickers-command": 106,
     "# for memory": 41,
     "paste-images-mac": 102,
-    "double-esc-code-restore": 96,
-    "continue": 98,
+    "double-esc-code-restore": 106,
+    "continue": 108,
     "shift-tab": 102,
     "tab-toggle-thinking": 26,
     "prompt-queue": 15,
-    "todo-list": 84,
+    "todo-list": 106,
     "shift-enter": 100,
     "install-github-app": 100,
     "drag-and-drop-images": 101,
@@ -32,18 +32,18 @@
     "default-permission-mode-config": 103,
     "rename-conversation": 98,
     "colorterm-truecolor": 85,
-    "config-thinking-mode": 96,
+    "config-thinking-mode": 106,
     "guest-passes": 58,
     "frontend-design-plugin": 50,
-    "install-slack-app": 98,
-    "desktop-app": 92,
+    "install-slack-app": 108,
+    "desktop-app": 107,
     "web-app": 94,
     "mobile-app": 94,
     "git-worktrees": 81,
     "ide-upsell-external-terminal": 63,
     "btw-side-question": 96
   },
-  "promptQueueUseCount": 73,
+  "promptQueueUseCount": 74,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false,
@@ -1062,10 +1062,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1766419734579
+      "timestamp": 1766444300369
     }
   },
-  "lastPlanModeUse": 1766427622769,
+  "lastPlanModeUse": 1766444347279,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -1163,7 +1163,7 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/7COV20SfyA"
       },
-      "timestamp": 1766420130542
+      "timestamp": 1766444299889
     }
   },
   "passesUpsellSeenCount": 4,
