@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
-import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt } from '@/lib/prompts';
-import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema } from '@/lib/schemas/schemas';
+import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt, createExplanationWithSourcesPrompt } from '@/lib/prompts';
+import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema, type SourceCacheFullType, type SourceForPromptType } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
@@ -12,6 +12,7 @@ import { cleanupAfterEnhancements } from '@/lib/services/links';
 import { evaluateTags } from '@/lib/services/tagEvaluation';
 import { generateHeadingStandaloneTitles, saveHeadingLinks } from '@/lib/services/linkWhitelist';
 import { saveCandidatesFromLLM } from '@/lib/services/linkCandidates';
+import { linkSourcesToExplanation } from '@/lib/services/sourceCache';
 import {
   saveExplanationAndTopic,
   saveUserQuery,
@@ -216,7 +217,8 @@ export const generateNewExplanation = withLogging(
         userInputType: UserInputType,
         userid: string,
         existingContent?: string,
-        onStreamingText?: StreamingCallback
+        onStreamingText?: StreamingCallback,
+        sources?: SourceForPromptType[]
     ): Promise<{
         explanationData: explanationBaseType | null;
         error: ErrorResponse | null;
@@ -225,10 +227,18 @@ export const generateNewExplanation = withLogging(
         linkCandidates?: string[];
     }> {
         try {
-            // Choose prompt function based on userInputType
+            // Choose prompt function based on userInputType and sources
             let formattedPrompt: string;
-            
-            if (userInputType === UserInputType.EditWithTags && existingContent) {
+
+            if (sources && sources.length > 0) {
+                // Use sources prompt when sources are provided
+                formattedPrompt = createExplanationWithSourcesPrompt(titleResult, sources, additionalRules);
+                logger.debug('Using createExplanationWithSourcesPrompt with sources', {
+                    titleResult,
+                    additionalRulesCount: additionalRules.length,
+                    sourceCount: sources.length
+                });
+            } else if (userInputType === UserInputType.EditWithTags && existingContent) {
                 formattedPrompt = editExplanationPrompt(titleResult, additionalRules, existingContent);
                 logger.debug('Using editExplanationPrompt for EditWithTags mode', {
                     titleResult,
@@ -415,7 +425,8 @@ export const returnExplanationLogic = withLoggingAndTracing(
         onStreamingText?: StreamingCallback,
         existingContent?: string,
         previousExplanationViewedId?: number | null,
-        previousExplanationViewedVector?: { values: number[] } | null // Pinecone match object with embedding values for context in rewrite operations
+        previousExplanationViewedVector?: { values: number[] } | null, // Pinecone match object with embedding values for context in rewrite operations
+        sources?: SourceCacheFullType[] // Optional sources for citation-grounded explanations
     ): Promise<{
         originalUserInput: string,
         match_found: boolean | null,
@@ -555,6 +566,15 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 finalExplanationId = bestSourceResult.explanationId;
                 isMatchFound = true;
             } else {
+                // Convert sources to prompt format if provided
+                const sourcesForPrompt: SourceForPromptType[] | undefined = sources?.map((source, index) => ({
+                    index: index + 1,
+                    title: source.title || source.domain,
+                    domain: source.domain,
+                    content: source.extracted_text || '',
+                    isVerbatim: !source.is_summarized
+                })).filter(s => s.content.length > 0);
+
                 // Generate new explanation using the extracted function
                 const { explanationData: newExplanationData, error: generationError, tagEvaluation, headingTitles, linkCandidates } = await generateNewExplanation(
                     titleResult,
@@ -562,7 +582,8 @@ export const returnExplanationLogic = withLoggingAndTracing(
                     userInputType,
                     userid,
                     existingContent,
-                    onStreamingText
+                    onStreamingText,
+                    sourcesForPrompt
                 );
 
                 if (generationError) {
@@ -623,6 +644,17 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 // Save link candidates for admin approval queue
                 if (linkCandidates && linkCandidates.length > 0) {
                     await saveCandidatesFromLLM(newExplanationId, newExplanationData!.content, linkCandidates, FILE_DEBUG);
+                }
+
+                // Link sources to the explanation if provided
+                if (sources && sources.length > 0) {
+                    const sourceIds = sources.map(s => s.id);
+                    await linkSourcesToExplanation(newExplanationId, sourceIds);
+                    logger.debug('Linked sources to explanation', {
+                        explanationId: newExplanationId,
+                        sourceCount: sources.length,
+                        sourceIds
+                    });
                 }
             }
 

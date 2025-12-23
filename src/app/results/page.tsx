@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
-import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus } from '@/lib/schemas/schemas';
+import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
+import FeedbackPanel from '@/components/FeedbackPanel';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
+import Bibliography from '@/components/sources/Bibliography';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import {
     pageLifecycleReducer,
@@ -44,6 +46,24 @@ function ResultsPageContent() {
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [streamCompleted, setStreamCompleted] = useState(false);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
+
+    // Sources state for feedback/rewrite with sources
+    const [sources, setSources] = useState<SourceChipType[]>([]);
+    const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
+
+    // Convert sources to bibliography format (with index for citations)
+    const bibliographySources = useMemo(() =>
+        sources
+            .filter(s => s.status === 'success')
+            .map((s, idx) => ({
+                index: idx + 1,
+                title: s.title || s.domain,
+                domain: s.domain,
+                url: s.url,
+                favicon_url: s.favicon_url
+            })),
+        [sources]
+    );
 
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
     const [lifecycleState, dispatchLifecycle] = useReducer(pageLifecycleReducer, initialPageLifecycleState);
@@ -235,8 +255,8 @@ function ResultsPageContent() {
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: /api/returnExplanation, loadExplanation, saveUserQuery
      */
-    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null) => {
-        logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null, sourcesForRewrite?: SourceChipType[]) => {
+        logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules, sourcesCount: sourcesForRewrite?.length }, FILE_DEBUG);
         console.log('handleUserAction received matchMode:', matchMode);
         if (!userInput.trim()) return;
         
@@ -261,6 +281,10 @@ function ResultsPageContent() {
             console.log('Using additional rules for explanation generation:', additionalRules);
         }
         
+        // Prepare sources for the API - convert SourceChipType to the format expected by the API
+        // The API/service will handle fetching full source data via getOrCreateCachedSource
+        const validSourceUrls = sourcesForRewrite?.filter(s => s.status === 'success').map(s => s.url) || [];
+
         const requestBody = {
             userInput,
             savedId: systemSavedId,
@@ -270,7 +294,8 @@ function ResultsPageContent() {
             additionalRules,
             existingContent: userInputType === UserInputType.EditWithTags ? formattedExplanation : undefined,
             previousExplanationViewedId,
-            previousExplanationViewedVector
+            previousExplanationViewedVector,
+            sourceUrls: validSourceUrls.length > 0 ? validSourceUrls : undefined
         };
         console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
         
@@ -481,6 +506,55 @@ function ResultsPageContent() {
     };
 
     /**
+     * Handles apply from FeedbackPanel (tags + sources combined)
+     *
+     * Uses RewriteWithTags user input type with sources attached
+     */
+    const handleFeedbackPanelApply = async (tagDescriptions: string[], panelSources: SourceChipType[]) => {
+        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length });
+
+        const inputForRewrite = explanationTitle || prompt;
+        if (!inputForRewrite) {
+            dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
+            return;
+        }
+
+        // Close the feedback panel
+        setShowFeedbackPanel(false);
+
+        // Call handleUserAction with sources
+        await handleUserAction(
+            inputForRewrite,
+            UserInputType.RewriteWithTags,
+            mode,
+            userid,
+            tagDescriptions,
+            null,
+            null,
+            panelSources
+        );
+    };
+
+    /**
+     * Handles reset from FeedbackPanel
+     */
+    const handleFeedbackPanelReset = () => {
+        dispatchTagAction({ type: 'RESET_TAGS' });
+        setSources([]);
+    };
+
+    /**
+     * Opens the FeedbackPanel for rewrite with feedback
+     */
+    const handleOpenFeedbackPanel = async () => {
+        // Initialize temp tags like rewrite with tags does
+        await initializeTempTagsForRewriteWithTags();
+        setShowFeedbackPanel(true);
+        // Close the dropdown
+        dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
+    };
+
+    /**
      * Saves the current explanation to the user's library
      *
      * • Uses the userid from component state (fetched once upfront)
@@ -633,9 +707,9 @@ function ResultsPageContent() {
      */
     const handleSearchSubmit = async (query: string) => {
         if (!query.trim()) return;
-        
+
         if (!FORCE_REGENERATION_ON_NAV) {
-            await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null);
+            await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null, sources);
         } else {
             router.push(`/results?q=${encodeURIComponent(query)}`);
         }
@@ -645,6 +719,21 @@ function ResultsPageContent() {
     useEffect(() => {
         fetchUserid();
     }, [fetchUserid]);
+
+    // Load sources from sessionStorage on mount (passed from home page)
+    useEffect(() => {
+        try {
+            const pendingSourcesStr = sessionStorage.getItem('pendingSources');
+            if (pendingSourcesStr) {
+                const pendingSources = JSON.parse(pendingSourcesStr) as SourceChipType[];
+                setSources(pendingSources);
+                // Clear after loading
+                sessionStorage.removeItem('pendingSources');
+            }
+        } catch (error) {
+            logger.error('Failed to load pending sources from sessionStorage:', { error });
+        }
+    }, []);
 
     // NOTE: Auto-loading useEffect removed - lifecycle reducer handles phase transitions explicitly
 
@@ -702,11 +791,11 @@ function ResultsPageContent() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sources);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sources);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -1092,6 +1181,15 @@ function ResultsPageContent() {
                                                             >
                                                                 Edit with tags
                                                             </button>
+                                                            <div className="border-t border-[var(--border-default)] my-1"></div>
+                                                            <button
+                                                                data-testid="rewrite-with-feedback"
+                                                                disabled={isPageLoading || isStreaming}
+                                                                onClick={handleOpenFeedbackPanel}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                Rewrite with feedback
+                                                            </button>
                                                         </div>
                                                     </div>
                                                 )}
@@ -1156,28 +1254,44 @@ function ResultsPageContent() {
                                 </div>
                                 )}
                                 
-                                {/* Tags Bar - shown during streaming with only add tag button */}
+                                {/* Tags/Feedback section */}
                                 <div className="mb-2">
-                                    <TagBar
-                                        tagState={tagState}
-                                        dispatch={dispatchTagAction}
-                                        className="mb-2"
-                                        explanationId={explanationId}
-                                        onTagClick={(tag) => {
-                                            // Handle tag clicks here - you can implement search, filtering, etc.
-                                            console.log('Tag clicked:', tag);
-                                            // Example: could trigger a search for explanations with this tag
-                                            // or navigate to a tag-specific page
-                                        }}
-                                        tagBarApplyClickHandler={handleTagBarApplyClick}
-                                        isStreaming={isStreaming}
-                                    />
+                                    {showFeedbackPanel ? (
+                                        <FeedbackPanel
+                                            tagState={tagState}
+                                            dispatchTagAction={dispatchTagAction}
+                                            sources={sources}
+                                            onSourcesChange={setSources}
+                                            onApply={handleFeedbackPanelApply}
+                                            onReset={handleFeedbackPanelReset}
+                                            explanationId={explanationId}
+                                            isStreaming={isStreaming}
+                                            className="mb-2"
+                                        />
+                                    ) : (
+                                        <TagBar
+                                            tagState={tagState}
+                                            dispatch={dispatchTagAction}
+                                            className="mb-2"
+                                            explanationId={explanationId}
+                                            onTagClick={(tag) => {
+                                                // Handle tag clicks here - you can implement search, filtering, etc.
+                                                console.log('Tag clicked:', tag);
+                                                // Example: could trigger a search for explanations with this tag
+                                                // or navigate to a tag-specific page
+                                            }}
+                                            tagBarApplyClickHandler={handleTagBarApplyClick}
+                                            isStreaming={isStreaming}
+                                        />
+                                    )}
                                 </div>
                                 {/* Debug logging */}
                                 {(() => {
-                                    console.log('TagBar props:', {
+                                    console.log('TagBar/FeedbackPanel props:', {
+                                        showFeedbackPanel,
                                         tagState,
-                                        explanationId: explanationId
+                                        explanationId: explanationId,
+                                        sourcesCount: sources.length
                                     });
                                     return null;
                                 })()}
@@ -1217,21 +1331,25 @@ function ResultsPageContent() {
                                                 <p className="text-sm font-serif text-[var(--text-muted)]">Writing...</p>
                                             </div>
                                         ) : isMarkdownMode ? (
-                                            <LexicalEditor
-                                                ref={editorRef}
-                                                placeholder="Content will appear here..."
-                                                className="w-full"
-                                                initialContent={formattedExplanation}
-                                                isMarkdownMode={true}
-                                                isEditMode={isEditMode && !isStreaming}
-                                                showEditorState={false}
-                                                showTreeView={false}
-                                                showToolbar={true}
-                                                hideEditingUI={isStreaming}
-                                                onContentChange={handleEditorContentChange}
-                                                isStreaming={isStreaming}
-                                                textRevealEffect={textRevealEffect}
-                                            />
+                                            <>
+                                                <LexicalEditor
+                                                    ref={editorRef}
+                                                    placeholder="Content will appear here..."
+                                                    className="w-full"
+                                                    initialContent={formattedExplanation}
+                                                    isMarkdownMode={true}
+                                                    isEditMode={isEditMode && !isStreaming}
+                                                    showEditorState={false}
+                                                    showTreeView={false}
+                                                    showToolbar={true}
+                                                    hideEditingUI={isStreaming}
+                                                    onContentChange={handleEditorContentChange}
+                                                    isStreaming={isStreaming}
+                                                    textRevealEffect={textRevealEffect}
+                                                    sources={bibliographySources}
+                                                />
+                                                <Bibliography sources={bibliographySources} />
+                                            </>
                                         ) : (
                                             <pre className="whitespace-pre-wrap text-sm font-mono text-[var(--text-secondary)] leading-relaxed">
                                                 {formattedExplanation}

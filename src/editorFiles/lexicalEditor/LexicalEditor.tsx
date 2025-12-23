@@ -50,6 +50,7 @@ import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
 import { TextRevealPlugin } from './TextRevealPlugin';
 import { TextRevealEffect } from '@/lib/textRevealAnimations';
+import { CitationPlugin } from './CitationPlugin';
 import { getLinkDataForLexicalOverlayAction, type LexicalLinkOverlayData } from '@/actions/actions';
 
 /**
@@ -206,6 +207,17 @@ function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
   );
 }
 
+/**
+ * Source data for citation interactivity
+ */
+interface CitationSource {
+  index: number;
+  title: string;
+  domain: string;
+  url: string;
+  favicon_url?: string | null;
+}
+
 interface LexicalEditorProps {
   placeholder?: string;
   className?: string;
@@ -220,6 +232,8 @@ interface LexicalEditorProps {
   hideEditingUI?: boolean;
   isStreaming?: boolean;
   textRevealEffect?: TextRevealEffect;
+  /** Sources for citation [n] interactivity */
+  sources?: CitationSource[];
 }
 
 /**
@@ -256,7 +270,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   onEditModeToggle: _onEditModeToggle,
   hideEditingUI = false,
   isStreaming = false,
-  textRevealEffect = 'none'
+  textRevealEffect = 'none',
+  sources = []
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -738,6 +753,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <CheckListPlugin />
         <DiffTagHoverPlugin />
         <TextRevealPlugin isStreaming={isStreaming} animationEffect={textRevealEffect} />
+        <CitationPlugin sources={sources} enabled={sources.length > 0} />
         {showTreeView && <TreeViewPlugin />}
       </LexicalComposer>
       

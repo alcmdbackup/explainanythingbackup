@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { ChevronDownIcon, ChevronUpIcon } from '@heroicons/react/24/outline';
+import { type SourceChipType } from '@/lib/schemas/schemas';
+import { SourceList } from '@/components/sources';
 
 interface SearchBarProps {
     variant?: 'home' | 'nav';
@@ -9,8 +12,12 @@ interface SearchBarProps {
     maxLength?: number;
     className?: string;
     initialValue?: string;
-    onSearch?: (query: string) => void;
+    onSearch?: (query: string, sources?: SourceChipType[]) => void;
     disabled?: boolean;
+    // Source support (home variant only)
+    sources?: SourceChipType[];
+    onSourcesChange?: (sources: SourceChipType[]) => void;
+    showSourcesSection?: boolean;
 }
 
 /**
@@ -28,14 +35,25 @@ export default function SearchBar({
     className = '',
     initialValue = '',
     onSearch,
-    disabled = false
+    disabled = false,
+    sources = [],
+    onSourcesChange,
+    showSourcesSection = false
 }: SearchBarProps) {
     const [prompt, setPrompt] = useState(initialValue);
+    const [isSourcesExpanded, setIsSourcesExpanded] = useState(showSourcesSection);
     const router = useRouter();
 
     useEffect(() => {
         setPrompt(initialValue);
     }, [initialValue]);
+
+    // Expand sources section when sources are added
+    useEffect(() => {
+        if (sources.length > 0) {
+            setIsSourcesExpanded(true);
+        }
+    }, [sources.length]);
 
     const handlePromptChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         setPrompt(e.target.value);
@@ -45,8 +63,16 @@ export default function SearchBar({
         e.preventDefault();
         if (!prompt.trim() || disabled) return;
 
+        // Store sources in sessionStorage for results page
+        const validSources = sources.filter(s => s.status === 'success');
+        if (validSources.length > 0) {
+            sessionStorage.setItem('pendingSources', JSON.stringify(validSources));
+        } else {
+            sessionStorage.removeItem('pendingSources');
+        }
+
         if (onSearch) {
-            onSearch(prompt);
+            onSearch(prompt, validSources.length > 0 ? validSources : undefined);
         } else {
             router.push(`/results?q=${encodeURIComponent(prompt)}`);
         }
@@ -55,13 +81,32 @@ export default function SearchBar({
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            if (!prompt.trim() || disabled) return;
-            if (onSearch) {
-                onSearch(prompt);
-            } else {
-                router.push(`/results?q=${encodeURIComponent(prompt)}`);
-            }
+            handleSubmit(e);
         }
+    };
+
+    // Source handlers for home variant
+    const handleSourceAdded = (source: SourceChipType) => {
+        if (!onSourcesChange) return;
+
+        // Check if this is an update to an existing source (by URL)
+        const existingIndex = sources.findIndex(s => s.url === source.url);
+
+        if (existingIndex >= 0) {
+            // Update existing chip (loading -> success/failed, or any other update)
+            const newSources = [...sources];
+            newSources[existingIndex] = source;
+            onSourcesChange(newSources);
+        } else {
+            // Add new source chip
+            onSourcesChange([...sources, source]);
+        }
+    };
+
+    const handleSourceRemoved = (index: number) => {
+        if (!onSourcesChange) return;
+        const newSources = sources.filter((_, i) => i !== index);
+        onSourcesChange(newSources);
     };
 
     const isHomeVariant = variant === 'home';
@@ -69,7 +114,7 @@ export default function SearchBar({
     const inputProps = isHomeVariant ? { rows: 1 } : {};
 
     if (isHomeVariant) {
-        // Home variant - Large, prominent search
+        // Home variant - Large, prominent search with optional sources
         return (
             <form onSubmit={handleSubmit} className={`w-full max-w-2xl mx-auto ${className}`}>
                 <div className="relative group">
@@ -99,6 +144,42 @@ export default function SearchBar({
                         ) : 'Search'}
                     </button>
                 </div>
+
+                {/* Sources section - collapsible */}
+                {onSourcesChange && (
+                    <div className="mt-3">
+                        <button
+                            type="button"
+                            onClick={() => setIsSourcesExpanded(!isSourcesExpanded)}
+                            className="flex items-center gap-1 text-sm text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
+                        >
+                            {isSourcesExpanded ? (
+                                <ChevronUpIcon className="w-4 h-4" />
+                            ) : (
+                                <ChevronDownIcon className="w-4 h-4" />
+                            )}
+                            <span>
+                                {sources.length > 0
+                                    ? `${sources.length} source${sources.length === 1 ? '' : 's'} added`
+                                    : '+ Add sources'}
+                            </span>
+                        </button>
+
+                        {isSourcesExpanded && (
+                            <div className="mt-3 p-4 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page">
+                                <p className="text-xs text-[var(--text-muted)] mb-3">
+                                    Add URLs to ground the explanation with citations
+                                </p>
+                                <SourceList
+                                    sources={sources}
+                                    onSourceAdded={handleSourceAdded}
+                                    onSourceRemoved={handleSourceRemoved}
+                                    disabled={disabled}
+                                />
+                            </div>
+                        )}
+                    </div>
+                )}
             </form>
         );
     }
