@@ -89,18 +89,16 @@ export default function SearchBar({
     const handleSourceAdded = (source: SourceChipType) => {
         if (!onSourcesChange) return;
 
-        // Check if this is an update to an existing loading source
-        const existingIndex = sources.findIndex(
-            s => s.url === source.url && s.status === 'loading'
-        );
+        // Check if this is an update to an existing source (by URL)
+        const existingIndex = sources.findIndex(s => s.url === source.url);
 
-        if (existingIndex >= 0 && source.status !== 'loading') {
-            // Update existing loading chip
+        if (existingIndex >= 0) {
+            // Update existing chip (loading -> success/failed, or any other update)
             const newSources = [...sources];
             newSources[existingIndex] = source;
             onSourcesChange(newSources);
-        } else if (source.status === 'loading') {
-            // Add new loading chip
+        } else {
+            // Add new source chip
             onSourcesChange([...sources, source]);
         }
     };
