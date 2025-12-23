@@ -7,7 +7,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../../lib/services/testingPipeline';
-import { supabase } from '../../lib/supabase';
+import { createSupabaseServerClient } from '../../lib/utils/supabase/server';
 
 const FILE_DEBUG = true;
 
@@ -222,9 +222,10 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
     }> {
         try {
             // Get all records for this step from the database
+            const supabase = await createSupabaseServerClient();
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
-                .select('id, name, content, created_at')
+                .select('id, set_name, content, created_at')
                 .eq('step', step)
                 .order('created_at', { ascending: false });
 
@@ -237,9 +238,17 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
                 throw error;
             }
 
+            // Map set_name to name for backwards compatibility
+            const mappedData = data?.map(record => ({
+                id: record.id,
+                name: record.set_name,
+                content: record.content,
+                created_at: record.created_at
+            })) || [];
+
             return {
                 success: true,
-                data: data || [],
+                data: mappedData,
                 error: null
             };
         } catch (error) {
