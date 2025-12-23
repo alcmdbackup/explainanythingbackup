@@ -8,7 +8,36 @@
 
 ---
 
-## Part 1: Debug "Delete First Sentence" Issue
+## Critical Insight: Why Proposed Tests Won't Catch This Bug
+
+### The Testing Gap
+All proposed tests (E2E, integration, golden) use **mocked AI responses**. They assume the AI returns valid edits. But the bug is likely in the **real AI interaction**:
+
+| Test Type | What It Tests | Why It Misses The Bug |
+|-----------|---------------|----------------------|
+| Unit tests | Schema validation, prompts | Don't test actual LLM output |
+| Integration tests | Pipeline step handoffs | Use mocked LLM responses |
+| E2E tests | UI with mocked API | Mock returns known-good CriticMarkup |
+| Golden tests | Fixture verification | Fixtures are manually crafted |
+
+### The Real Problem (Hypothesis)
+1. **LLM doesn't understand "delete first sentence"** - returns no edits or wrong format
+2. **Step 3 AST diff finds no changes** - original and edited content identical
+3. **CriticMarkup is empty** - nothing to render in editor
+
+### What Would Actually Catch This
+```
+Real LLM Integration Test (expensive, flaky):
+1. Send actual content + "delete first sentence" to real OpenAI
+2. Verify response contains deletion edits
+3. Verify Step 3 produces {--...--} markup
+```
+
+This is impractical for CI, so **debugging first is the right approach**.
+
+---
+
+## Part 1: Debug "Delete First Sentence" Issue (PRIORITY)
 
 ### Likely Root Cause
 The `onContentChange` handler in `results/page.tsx:1355-1371` calls `editorRef.current.setContentFromMarkdown(newContent)` directly, which should work. The issue is likely:
@@ -163,9 +192,125 @@ For each fixture in AI_PIPELINE_FIXTURES:
 
 ---
 
+## Part 6: User Interaction Edge Cases (NEW)
+
+### File: `src/__tests__/e2e/specs/06-ai-suggestions/user-interactions.spec.ts`
+
+Tests for real-world user behavior patterns:
+
+```
+1. User types while loading → submit disabled, typing blocked or queued
+2. Rapid double-submit → second request ignored or queued
+3. Navigate away mid-pipeline → cleanup, no orphan state
+4. Close panel while loading → cancel request gracefully
+5. Submit empty content after clearing editor → proper error message
+6. Submit after accepting some diffs → works with modified content
+```
+
+---
+
+## Part 7: State Management Edge Cases (NEW)
+
+### File: `src/__tests__/e2e/specs/06-ai-suggestions/state-management.spec.ts`
+
+Tests for undo/redo and multi-round workflows:
+
+```
+1. Undo after accept → restores diff UI
+2. Redo after undo → re-applies accepted change
+3. Accept all → undo → shows all diffs again
+4. Reject all → undo → shows all diffs again
+5. Mixed accept/reject → undo sequence works correctly
+6. Multi-round: accept some → manual edit → suggest again → no CriticMarkup remnants
+7. Reject all → immediate new suggestion → clean state
+8. Partial accept → page refresh → only accepted changes persist
+```
+
+---
+
+## Part 8: Error Recovery Edge Cases (NEW)
+
+### File: `src/__tests__/e2e/specs/06-ai-suggestions/error-recovery.spec.ts`
+
+Tests for graceful error handling:
+
+```
+1. API 429 (rate limit) → show "Please wait" message
+2. API 500 → show generic error, allow retry
+3. API timeout → show timeout error, allow retry
+4. Network offline → show network error
+5. Step 1 fails → original content preserved
+6. Step 2 fails → original content preserved
+7. Step 3 fails → original content preserved
+8. Malformed API response → graceful error handling
+9. Retry after error → works correctly
+```
+
+---
+
+## Part 9: Content Boundary Tests (NEW)
+
+### File: `src/__tests__/e2e/specs/06-ai-suggestions/content-boundaries.spec.ts`
+
+Tests for edge case content:
+
+```
+1. Very long content (5k words) → handles or shows limit error
+2. Very long content (10k+ words) → clear token limit message
+3. Very long prompt (2k chars) → handles correctly
+4. Content with frontmatter (YAML) → preserved
+5. Content with HTML comments → preserved
+6. Content with only whitespace → proper error
+7. Content with only code blocks → suggestions work
+8. Content with deeply nested lists → suggestions work
+```
+
+### New Fixtures Needed in `editor-test-helpers.ts`
+- `longContentFixture` (5k words)
+- `frontmatterFixture` (with YAML header)
+- `htmlCommentFixture`
+- `deepNestedListFixture` (5+ levels)
+
+---
+
+## Updated Implementation Order
+
+### Phase 1: Debug (PRIORITY - before any tests)
+1. [ ] Add debug logging to reproduce issue
+2. [ ] Identify which pipeline step fails
+3. [ ] Fix root cause
+
+### Phase 2: Core E2E Tests
+4. [ ] Create `editor-integration.spec.ts`
+5. [ ] Add helper functions to `suggestions-test-helpers.ts`
+
+### Phase 3: User Edge Case Tests (NEW)
+6. [ ] Create `user-interactions.spec.ts`
+7. [ ] Create `state-management.spec.ts`
+8. [ ] Create `error-recovery.spec.ts`
+9. [ ] Create `content-boundaries.spec.ts`
+
+### Phase 4: Integration & Golden Tests
+10. [ ] Create `aiSuggestion.pipeline.test.ts`
+11. [ ] Create `aiSuggestion.golden.test.ts`
+12. [ ] Add new fixtures to `editor-test-helpers.ts`
+
+### Phase 5: Fix Skipped Tests
+13. [ ] Update skipped E2E tests to use library loading
+14. [ ] Remove `test.skip()` annotations
+15. [ ] Verify all tests pass
+
+---
+
 ## Success Criteria
 - [ ] "Delete first sentence" works in production
-- [ ] 6+ new E2E tests verify prompt→editor changes
-- [ ] 4+ new integration tests verify pipeline handoffs
-- [ ] 30+ golden tests prevent regressions
+- [ ] 6+ new E2E tests verify prompt→editor changes (Part 2)
+- [ ] 6+ new E2E tests for user interactions (Part 6)
+- [ ] 8+ new E2E tests for state management (Part 7)
+- [ ] 9+ new E2E tests for error recovery (Part 8)
+- [ ] 8+ new E2E tests for content boundaries (Part 9)
+- [ ] 4+ new integration tests verify pipeline handoffs (Part 3)
+- [ ] 30+ golden tests prevent regressions (Part 4)
 - [ ] 0 skipped tests in AI suggestions suite
+
+**Total new tests: ~70+** (expanded from original ~40)
