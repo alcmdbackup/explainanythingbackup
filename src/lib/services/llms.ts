@@ -3,7 +3,7 @@ import OpenAI from 'openai';
 import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { type LlmCallTrackingType, llmCallTrackingSchema, allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { createLLMSpan } from '../../../instrumentation';
 
@@ -28,7 +28,8 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
         // Validate input data against schema
         const validatedData = llmCallTrackingSchema.parse(trackingData);
         
-        const supabase = await createSupabaseServerClient();
+        // Use service client to bypass RLS - this is internal tracking data
+        const supabase = await createSupabaseServiceClient();
         
         const { data, error } = await supabase
             .from('llmCallTracking')
