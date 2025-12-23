@@ -9,8 +9,8 @@ jest.mock('@/lib/services/explanations', () => ({
 }));
 
 // Mock the component
-jest.mock('@/components/ExplanationsTablePage', () => {
-  return function MockExplanationsTablePage({
+jest.mock('@/components/explore', () => ({
+  ExploreGalleryPage: function MockExploreGalleryPage({
     explanations,
     error
   }: {
@@ -23,8 +23,8 @@ jest.mock('@/components/ExplanationsTablePage', () => {
         {error && <div data-testid="error-message">{error}</div>}
       </div>
     );
-  };
-});
+  },
+}));
 
 // Helper to create mock searchParams
 const createMockSearchParams = (params: { sort?: string; t?: string } = {}): Promise<{ sort?: string; t?: string }> => {

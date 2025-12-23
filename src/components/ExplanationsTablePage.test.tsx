@@ -602,8 +602,8 @@ describe('ExplanationsTablePage', () => {
       render(<ExplanationsTablePage explanations={mockExplanations} error={null} />);
 
       const row = screen.getAllByRole('row')[1]; // First data row
-      // Uses CSS variable gold accent hover effect
-      expect(row).toHaveClass('transition-colors', 'cursor-pointer');
+      // Uses CSS variable gold accent hover effect via scholar-table-row class
+      expect(row).toHaveClass('scholar-table-row', 'cursor-pointer');
     });
 
     it('should apply gradient to header', () => {
