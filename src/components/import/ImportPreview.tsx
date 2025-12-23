@@ -69,7 +69,7 @@ export default function ImportPreview({
             // Navigate to the new article
             setTimeout(() => {
                 onOpenChange(false);
-                router.push(`/explanations/${result.explanationId}`);
+                router.push(`/results?explanation_id=${result.explanationId}`);
             }, 500);
         } catch (err) {
             setState('error');
