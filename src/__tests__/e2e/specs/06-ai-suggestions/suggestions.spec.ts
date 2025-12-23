@@ -37,17 +37,22 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Panel Interaction Tests =============
 
   test.describe('Panel Interaction', () => {
-    // SKIP: SSE mock streaming is flaky with Playwright route.fulfill
-    // The panel is tested implicitly in action-buttons tests that load from library
-    test.skip('should display AI suggestions panel', async ({ authenticatedPage: page }, testInfo) => {
-      // SSE mocking can be slower on first run due to server warmup
+    // Uses library loading pattern instead of SSE mocking for reliability
+    test('should display AI suggestions panel', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
+      // Click View on first explanation
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const isPanelVisible = await resultsPage.isAISuggestionsPanelVisible();
       expect(isPanelVisible).toBe(true);

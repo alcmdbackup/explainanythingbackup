@@ -43,30 +43,38 @@ export async function triggerAISuggestionsViaAPI(
 
 /**
  * Waits for diff nodes (CriticMarkup) to appear in the editor after AI suggestions.
+ * Uses data-diff-key attribute which is set by DiffTagNodeInline.
  */
 export async function waitForDiffNodes(page: Page, timeout = 5000): Promise<void> {
-  await page.waitForSelector('[data-critic-markup]', { timeout });
+  await page.waitForSelector('[data-diff-key]', { timeout });
 }
 
 /**
  * Gets all diff nodes from the editor.
  */
 export async function getDiffNodes(page: Page): Promise<Locator[]> {
-  return await page.locator('[data-critic-markup]').all();
+  return await page.locator('[data-diff-key]').all();
 }
 
 /**
  * Gets insertion diff nodes from the editor.
  */
 export async function getInsertionDiffs(page: Page): Promise<Locator[]> {
-  return await page.locator('[data-critic-markup="insertion"]').all();
+  return await page.locator('[data-diff-type="ins"]').all();
 }
 
 /**
  * Gets deletion diff nodes from the editor.
  */
 export async function getDeletionDiffs(page: Page): Promise<Locator[]> {
-  return await page.locator('[data-critic-markup="deletion"]').all();
+  return await page.locator('[data-diff-type="del"]').all();
+}
+
+/**
+ * Gets update diff nodes from the editor.
+ */
+export async function getUpdateDiffs(page: Page): Promise<Locator[]> {
+  return await page.locator('[data-diff-type="update"]').all();
 }
 
 /**
@@ -174,4 +182,60 @@ export async function getAllDiffTexts(page: Page): Promise<string[]> {
     if (text) texts.push(text);
   }
   return texts;
+}
+
+/**
+ * Gets the text content from the editor (excluding diff controls).
+ */
+export async function getEditorTextContent(page: Page): Promise<string> {
+  const editor = page.locator('[contenteditable="true"]');
+  return await editor.textContent() ?? '';
+}
+
+/**
+ * Clicks the accept button (✓) on the first visible diff node.
+ */
+export async function clickAcceptOnFirstDiff(page: Page): Promise<void> {
+  await page.locator('button:has-text("✓")').first().click();
+}
+
+/**
+ * Clicks the reject button (✕) on the first visible diff node.
+ */
+export async function clickRejectOnFirstDiff(page: Page): Promise<void> {
+  await page.locator('button:has-text("✕")').first().click();
+}
+
+/**
+ * Gets the count of each diff type in the editor.
+ */
+export async function getDiffCounts(page: Page): Promise<{
+  insertions: number;
+  deletions: number;
+  updates: number;
+  total: number;
+}> {
+  const insertions = await page.locator('[data-diff-type="ins"]').count();
+  const deletions = await page.locator('[data-diff-type="del"]').count();
+  const updates = await page.locator('[data-diff-type="update"]').count();
+  return {
+    insertions,
+    deletions,
+    updates,
+    total: insertions + deletions + updates,
+  };
+}
+
+/**
+ * Waits for the editor to be in edit mode (after AI suggestions).
+ */
+export async function waitForEditMode(page: Page, timeout = 10000): Promise<void> {
+  await page.waitForSelector('button:has-text("Done")', { timeout });
+}
+
+/**
+ * Clicks the Done button to exit edit mode.
+ */
+export async function clickDoneButton(page: Page): Promise<void> {
+  await page.locator('button:has-text("Done")').click();
 }
