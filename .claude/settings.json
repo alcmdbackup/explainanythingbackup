@@ -19,21 +19,6 @@
           }
         ]
       }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "(npx tsc --noEmit && npm run lint && npm test) 1>&2; true"
-          },
-          {
-            "type": "prompt",
-            "prompt": "LOGGING & REQUEST ID ENFORCEMENT\n\nCheck files modified in this session:\n\n$ARGUMENTS\n\nRULES:\n1. Server actions (src/actions/*.ts): exported functions must use BOTH wrappers for request ID tracing:\n   - Inner: `const _fn = withLogging(async function _fn(...) {...}, '_fn')`\n   - Export: `export const fn = serverReadRequestId(_fn)`\n   - This ensures all logs include the client's requestId for distributed tracing\n2. Services (src/lib/services/*.ts): exported async functions must use `withLogging`\n3. Client hooks (src/hooks/*.ts): async callbacks must use `withClientLogging`\n4. Components calling server actions: must use `withRequestId()` from `useClientPassRequestId` hook\n\nSKIP: test files, type definitions, re-exports, sync utilities, already-wrapped functions\n\nRespond JSON:\n- All correct: {\"decision\": \"approve\"}\n- Issues found: {\"decision\": \"approve\", \"reason\": \"WARNING: [issue description]\"}",
-            "timeout": 60
-          }
-        ]
-      }
     ]
   }
 }
