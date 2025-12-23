@@ -1,5 +1,5 @@
 import { getRecentExplanations } from '@/lib/services/explanations';
-import ExplanationsTablePage from '@/components/ExplanationsTablePage';
+import { ExploreGalleryPage } from '@/components/explore';
 import { type ExplanationFullDbType, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
 // Disable caching to ensure time period filter affects query results
@@ -23,7 +23,7 @@ export default async function ExplanationsPage({ searchParams }: ExplanationsPag
     }
 
     return (
-        <ExplanationsTablePage
+        <ExploreGalleryPage
             explanations={recentExplanations}
             error={error}
             sort={sort}

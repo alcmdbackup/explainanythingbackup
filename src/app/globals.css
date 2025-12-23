@@ -63,6 +63,12 @@
 :root {
   --radius: 0.5rem;
 
+  /* RGB values for alpha compositing (gallery cards) */
+  --surface-secondary-rgb: 255, 255, 255;
+  --border-default-rgb: 232, 228, 220;
+  --accent-gold-rgb: 212, 168, 83;
+  --accent-copper-rgb: 184, 115, 51;
+
   /* Core backgrounds */
   --background: #faf7f2;
   --foreground: #1a1a2e;
@@ -138,6 +144,12 @@
    ========================================================================== */
 
 .dark {
+  /* RGB values for alpha compositing (gallery cards) - dark mode */
+  --surface-secondary-rgb: 18, 31, 54;
+  --border-default-rgb: 42, 58, 87;
+  --accent-gold-rgb: 240, 198, 116;
+  --accent-copper-rgb: 212, 168, 83;
+
   --background: #0a1628;
   --foreground: #f5f0e6;
 
@@ -2314,4 +2326,119 @@
     0 4px 12px rgba(0, 0, 0, 0.25),
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 0 15px rgba(240, 198, 116, 0.04);
+}
+
+/* ==========================================================================
+   GALLERY CARD SYSTEM
+   Glassmorphism cards with depth and motion for explore page
+   ========================================================================== */
+
+.gallery-card {
+  position: relative;
+  background: rgba(var(--surface-secondary-rgb), 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(var(--border-default-rgb), 0.5);
+  border-radius: 1rem;
+  box-shadow:
+    0 4px 24px rgba(var(--accent-copper-rgb), 0.08),
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.gallery-card::before {
+  content: '';
+  position: absolute;
+  inset-x: 0;
+  top: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent-gold), var(--accent-copper));
+  opacity: 0;
+  transition: opacity 0.3s ease-out;
+}
+
+.gallery-card:hover {
+  transform: translateY(-8px) scale(1.01);
+  box-shadow:
+    0 20px 40px rgba(var(--accent-copper-rgb), 0.15),
+    0 8px 16px rgba(0, 0, 0, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.gallery-card:hover::before {
+  opacity: 1;
+}
+
+.dark .gallery-card {
+  background: rgba(var(--surface-secondary-rgb), 0.8);
+  border: 1px solid rgba(var(--border-default-rgb), 0.6);
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.2),
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.dark .gallery-card:hover {
+  box-shadow:
+    0 20px 40px rgba(0, 0, 0, 0.3),
+    0 8px 16px rgba(0, 0, 0, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Card entrance animation */
+@keyframes cardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(30px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.gallery-card-enter {
+  animation: cardEntrance 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation-delay: calc(var(--card-index, 0) * 0.08s);
+  opacity: 0;
+}
+
+/* Skeleton loading animation */
+@keyframes skeletonPulse {
+  0%, 100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.gallery-skeleton {
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    var(--surface-elevated) 0%,
+    var(--surface-secondary) 50%,
+    var(--surface-elevated) 100%
+  );
+  background-size: 200% 100%;
+}
+
+/* Reduced motion support for gallery */
+@media (prefers-reduced-motion: reduce) {
+  .gallery-card {
+    transition: box-shadow 0.2s ease-out;
+  }
+
+  .gallery-card:hover {
+    transform: none;
+  }
+
+  .gallery-card-enter {
+    animation: none;
+    opacity: 1;
+  }
 }
