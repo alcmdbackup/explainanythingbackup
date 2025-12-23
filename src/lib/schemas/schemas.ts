@@ -77,6 +77,21 @@ export enum ExplanationStatus {
 }
 
 /**
+ * Enum for import source tracking
+ * • chatgpt: Imported from ChatGPT
+ * • claude: Imported from Claude
+ * • gemini: Imported from Gemini
+ * • other: Imported from other AI source
+ * • generated: Created via ExplainAnything generation flow
+ * • null: Legacy content (no source tracking)
+ *
+ * Used by: Import feature to track content origin
+ * Calls: None (enum definition)
+ */
+export const ImportSourceSchema = z.enum(['chatgpt', 'claude', 'gemini', 'other', 'generated']);
+export type ImportSource = z.infer<typeof ImportSourceSchema>;
+
+/**
  * Sort mode for discovery/explore tab
  * • new: Sort by creation timestamp (newest first)
  * • top: Sort by view count during selected time period
@@ -225,7 +240,8 @@ export const userQueryInsertSchema = z.object({
 export const explanationInsertSchema = explanationBaseSchema.extend({
     primary_topic_id: z.number(),
     secondary_topic_id: z.number().optional(),
-    status: z.nativeEnum(ExplanationStatus).default(ExplanationStatus.Published)
+    status: z.nativeEnum(ExplanationStatus).default(ExplanationStatus.Published),
+    source: ImportSourceSchema.optional()
 });
 
 /**
