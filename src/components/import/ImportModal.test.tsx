@@ -107,13 +107,12 @@ describe('ImportModal', () => {
         });
 
         it('calls detectImportSource when content exceeds 100 chars', async () => {
-            const user = userEvent.setup();
             render(<ImportModal {...defaultProps} />);
-            const textarea = screen.getByRole('textbox');
+            const textarea = screen.getByTestId('import-content');
 
-            // Type content over 100 chars
+            // Use fireEvent.change for speed - user.type is too slow for 105 chars in CI
             const longContent = 'a'.repeat(105);
-            await user.type(textarea, longContent);
+            fireEvent.change(textarea, { target: { value: longContent } });
 
             await waitFor(() => {
                 expect(detectImportSource).toHaveBeenCalledWith(longContent);
@@ -151,14 +150,14 @@ describe('ImportModal', () => {
         });
 
         it('detection errors are silently ignored', async () => {
-            const user = userEvent.setup();
             (detectImportSource as jest.Mock).mockRejectedValue(new Error('Detection failed'));
 
             render(<ImportModal {...defaultProps} />);
-            const textarea = screen.getByRole('textbox');
+            const textarea = screen.getByTestId('import-content');
 
+            // Use fireEvent.change for speed - user.type is too slow for 105 chars in CI
             const longContent = 'a'.repeat(105);
-            await user.type(textarea, longContent);
+            fireEvent.change(textarea, { target: { value: longContent } });
 
             // Should not show error - detection errors are ignored
             await waitFor(() => {
