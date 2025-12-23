@@ -78,7 +78,7 @@ export default function SearchBar({
                         onChange={handlePromptChange}
                         onKeyDown={handleKeyDown}
                         data-testid="search-input"
-                        className="w-full bg-[var(--surface-primary)] dark:bg-[var(--surface-primary)] border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-6 py-4 text-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-body resize-none rounded-none"
+                        className="w-full bg-[var(--surface-primary)] dark:bg-[var(--surface-primary)] border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-6 py-4 text-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-body resize-none rounded-none search-focus-glow"
                         placeholder={placeholder}
                         maxLength={maxLength}
                         disabled={disabled}
@@ -112,7 +112,7 @@ export default function SearchBar({
                     value={prompt}
                     onChange={handlePromptChange}
                     data-testid="search-input"
-                    className="w-full bg-transparent border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-ui rounded-full"
+                    className="w-full bg-transparent border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-ui rounded-full search-focus-glow"
                     placeholder={placeholder}
                     maxLength={maxLength}
                     disabled={disabled}

@@ -30,7 +30,7 @@ export default function Navigation({
                     <Link href="/" className="group flex items-center gap-2">
                         {/* Decorative book icon */}
                         <svg
-                            className="w-7 h-7 text-[var(--accent-gold)] transition-transform duration-300 group-hover:scale-110"
+                            className="logo-book w-7 h-7 text-[var(--accent-gold)]"
                             viewBox="0 0 24 24"
                             fill="none"
                             stroke="currentColor"
