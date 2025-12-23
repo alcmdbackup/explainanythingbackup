@@ -511,3 +511,144 @@ npm install @mozilla/readability linkedom
 2. **Summarization model** - Use `gpt-4.1-nano` for cost-efficient summarization of long content.
 
 3. **No manual cache refresh** - Sources auto-expire after 7 days per spec. Simpler UX.
+
+4. **FeedbackPanel as separate component** - New dropdown option, not replacing TagBar.
+
+5. **Both Rewrite and Edit support sources** - Same FeedbackPanel, different handlers.
+
+6. **Max sources** - 5 per explanation.
+
+7. **Fetch timeout** - 10 seconds per URL.
+
+---
+
+## Phased Implementation (5 Increments)
+
+### Increment 1: Database + Schemas + Backend Services
+**Scope:** Foundation layer - no UI changes
+
+- Database migration (source_cache, article_sources tables)
+- Zod schemas (FetchStatus enum, insert/full schemas, types)
+- Backend services (sourceFetcher, sourceCache, sourceSummarizer)
+- Dependencies: `npm install @mozilla/readability linkedom`
+
+**Deliverable:** Backend ready to fetch/cache URLs, no UI yet
+
+### Increment 2: API Routes + Prompts
+**Scope:** API layer connecting backend to frontend
+
+- New API route: `src/app/api/fetchSourceMetadata/route.ts`
+- Update prompts: `createExplanationWithSourcesPrompt()`
+- Modify returnExplanation service to accept sources param
+- Modify returnExplanation API route to accept sources in body
+
+**Deliverable:** API can receive sources and generate citations
+
+### Increment 3: UI Components + Home Page
+**Scope:** Source input UI, home page integration
+
+- Source components: SourceChip, SourceInput, SourceList
+- SearchBar modification: "+ Add Sources" expandable (home variant)
+- Home page: sources state, sessionStorage for results page
+
+**Deliverable:** Can add sources on home page, generates with citations
+
+### Increment 4: Results Page + FeedbackPanel
+**Scope:** Rewrite/Edit with sources, combined feedback panel
+
+- FeedbackPanel component (tags section + sources section)
+- Results page: sources state, "Rewrite with Feedback" dropdown
+- TagBar extension: `tagBarApplyClickHandler(tagDescriptions, sources?)`
+- Both RewriteWithTags and EditWithTags support sources
+
+**Deliverable:** Can rewrite/edit with tags + sources on results page
+
+### Increment 5: Citation Display + Error Handling + Tests
+**Scope:** Polish, bibliography, tooltips, tests
+
+- Citation display: Bibliography, CitationTooltip, CitationPlugin
+- Error handling: FailedSourcesModal, SOURCE_* error codes
+- Tests: unit, integration, e2e
+
+**Deliverable:** Complete feature with citations, error handling, tests
+
+---
+
+## FeedbackPanel Flow
+
+```
+Results Page Dropdown
+  ├── Rewrite (existing - no changes)
+  ├── Rewrite with Tags (existing - no changes)
+  ├── Rewrite with Feedback (NEW) ─────┐
+  │                                     │
+  │   ┌─────────────────────────────────┴───────────┐
+  │   │ FeedbackPanel                               │
+  │   ├─────────────────────────────────────────────┤
+  │   │ Tags Section                                │
+  │   │ ┌─────────────────────────────────────────┐ │
+  │   │ │ [Tag chips from TagBar modification UI] │ │
+  │   │ │ + Add Tag                               │ │
+  │   │ └─────────────────────────────────────────┘ │
+  │   ├─────────────────────────────────────────────┤
+  │   │ Sources Section                             │
+  │   │ ┌─────────────────────────────────────────┐ │
+  │   │ │ [SourceChip] [SourceChip] [SourceChip]  │ │
+  │   │ │ ┌─────────────────────────────────────┐ │ │
+  │   │ │ │ URL input + Add button              │ │ │
+  │   │ │ └─────────────────────────────────────┘ │ │
+  │   │ └─────────────────────────────────────────┘ │
+  │   ├─────────────────────────────────────────────┤
+  │   │ [Reset]                          [Apply]    │
+  │   └─────────────────────────────────────────────┘
+  │
+  ├── Edit with Feedback (NEW) ─── Same FeedbackPanel
+  └── Edit with Tags (existing - could point to FeedbackPanel)
+```
+
+---
+
+## Files Summary by Increment
+
+### Increment 1
+| Path | Action |
+|------|--------|
+| `supabase/migrations/*_source_tables.sql` | Create |
+| `src/lib/schemas/schemas.ts` | Modify |
+| `src/lib/services/sourceFetcher.ts` | Create |
+| `src/lib/services/sourceCache.ts` | Create |
+| `src/lib/services/sourceSummarizer.ts` | Create |
+
+### Increment 2
+| Path | Action |
+|------|--------|
+| `src/app/api/fetchSourceMetadata/route.ts` | Create |
+| `src/lib/prompts.ts` | Modify |
+| `src/lib/services/returnExplanation.ts` | Modify |
+| `src/app/api/returnExplanation/route.ts` | Modify |
+
+### Increment 3
+| Path | Action |
+|------|--------|
+| `src/components/sources/SourceChip.tsx` | Create |
+| `src/components/sources/SourceInput.tsx` | Create |
+| `src/components/sources/SourceList.tsx` | Create |
+| `src/components/SearchBar.tsx` | Modify |
+| `src/app/page.tsx` | Modify |
+
+### Increment 4
+| Path | Action |
+|------|--------|
+| `src/components/FeedbackPanel.tsx` | Create |
+| `src/app/results/page.tsx` | Modify |
+| `src/components/TagBar.tsx` | Modify |
+
+### Increment 5
+| Path | Action |
+|------|--------|
+| `src/components/sources/Bibliography.tsx` | Create |
+| `src/components/sources/CitationTooltip.tsx` | Create |
+| `src/editorFiles/lexicalEditor/plugins/CitationPlugin.tsx` | Create |
+| `src/components/sources/FailedSourcesModal.tsx` | Create |
+| `src/lib/errorHandling.ts` | Modify |
+| Tests (unit, integration, e2e) | Create |
