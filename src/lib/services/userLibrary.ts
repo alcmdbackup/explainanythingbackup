@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { logger } from '@/lib/server_utilities';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
@@ -30,13 +31,13 @@ export async function saveExplanationToLibrary(
     .single();
 
   if (error) {
-    console.error('Error saving explanation to user library:', error);
+    logger.error('Error saving explanation to user library', { error: error.message });
     throw error;
   }
 
   // Update aggregate metrics (run in background, don't wait)
   incrementExplanationSaves(explanationid).catch(metricsError => {
-    console.error('Failed to update explanation metrics after save:', {
+    logger.error('Failed to update explanation metrics after save', {
       explanationid,
       error: metricsError instanceof Error ? metricsError.message : String(metricsError)
     });
@@ -71,7 +72,7 @@ export async function getExplanationIdsForUser(
     .eq('userid', userid);
 
   if (error) {
-    console.error('Error fetching explanation IDs for user:', error);
+    logger.error('Error fetching explanation IDs for user', { error: error.message, userid });
     throw error;
   }
 
@@ -142,7 +143,7 @@ export async function isExplanationSavedByUser(
     .maybeSingle();
 
   if (error) {
-    console.error('Error checking if explanation is saved:', error);
+    logger.error('Error checking if explanation is saved', { error: error.message, userid, explanationid });
     throw error;
   }
 

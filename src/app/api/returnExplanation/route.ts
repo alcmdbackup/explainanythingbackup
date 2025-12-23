@@ -93,14 +93,12 @@ export async function POST(request: NextRequest) {
 
                     // Streaming callback that forwards content to the client
                     const streamingCallback = (content: string) => {
-                        console.log('API route streamingCallback called with content:', content);
-                        logger.debug('API route streamingCallback called with content', { content }, FILE_DEBUG);
+                        logger.debug('API route streamingCallback called', { contentLength: content?.length }, FILE_DEBUG);
                         try {
                             // Check if this is a progress event (JSON string)
                             const parsedContent = JSON.parse(content);
                             if (parsedContent.type === 'progress') {
                                 // Forward progress events directly
-                                console.log('API route forwarding progress event:', parsedContent);
                                 logger.debug('API route forwarding progress event', parsedContent, FILE_DEBUG);
                                 const data = JSON.stringify({ 
                                     type: 'progress',
@@ -201,7 +199,7 @@ export async function POST(request: NextRequest) {
         }); // Close RequestIdContext.run()
 
     } catch (error) {
-        console.error('Error in returnExplanation API:', error);
+        logger.error('Error in returnExplanation API', { error: error instanceof Error ? error.message : String(error) });
         return Response.json(
             { error: 'Internal server error' },
             { status: 500 }

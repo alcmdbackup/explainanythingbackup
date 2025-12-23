@@ -1,6 +1,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { logger } from '@/lib/server_utilities';
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import {
@@ -16,7 +17,6 @@ import {
   type WhitelistCacheEntryType,
   type LinkWhitelistSnapshotType
 } from '@/lib/schemas/schemas';
-import { logger } from '@/lib/server_utilities';
 
 /**
  * Service for managing the link whitelist system
@@ -189,7 +189,7 @@ export async function addAliases(
 
     const validationResult = linkAliasInsertSchema.safeParse(aliasData);
     if (!validationResult.success) {
-      console.error('Invalid alias data:', validationResult.error);
+      logger.error('Invalid alias data', { error: validationResult.error.message });
       throw new Error(`Invalid alias data: ${validationResult.error.message}`);
     }
 

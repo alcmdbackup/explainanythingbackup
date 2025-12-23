@@ -37,27 +37,27 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
             .single();
 
         if (error) {
-            console.error('Error saving LLM call tracking:', error);
-            console.error('Error details:', {
+            logger.error('Error saving LLM call tracking', {
                 message: error.message,
                 details: error.details,
                 hint: error.hint,
                 code: error.code
             });
-            console.error('Full tracking data:', validatedData);
             throw error;
         }
-        
 
     } catch (error) {
         if (error instanceof z.ZodError) {
-            console.error('LLM call tracking validation failed:', error.errors);
-            console.error('Invalid data:', trackingData);
-            console.error('Call source:', trackingData.call_source);
+            logger.error('LLM call tracking validation failed', {
+                errors: error.errors,
+                callSource: trackingData.call_source
+            });
         } else {
-            console.error('Failed to save LLM call tracking:', error);
-            console.error('Call source:', trackingData.call_source);
-            console.error('User ID:', trackingData.userid);
+            logger.error('Failed to save LLM call tracking', {
+                error: error instanceof Error ? error.message : String(error),
+                callSource: trackingData.call_source,
+                userId: trackingData.userid
+            });
         }
         // Don't throw here to avoid breaking the main LLM call flow
     }

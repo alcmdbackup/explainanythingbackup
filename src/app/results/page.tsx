@@ -160,10 +160,10 @@ function ResultsPageContent() {
                 // Dispatch action to enter rewrite mode with temp tags
                 dispatchTagAction({ type: 'ENTER_REWRITE_MODE', tempTags: result.data });
             } else {
-                console.error('Failed to fetch temp tags for rewrite with tags:', result.error);
+                logger.error('Failed to fetch temp tags for rewrite with tags', { error: result.error });
             }
         } catch (error) {
-            console.error('Error initializing temp tags for rewrite with tags:', error);
+            logger.error('Error initializing temp tags for rewrite with tags', { error: error instanceof Error ? error.message : String(error) });
         }
     };
 
@@ -257,7 +257,6 @@ function ResultsPageContent() {
      */
     const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null, sourcesForRewrite?: SourceChipType[]) => {
         logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules, sourcesCount: sourcesForRewrite?.length }, FILE_DEBUG);
-        console.log('handleUserAction received matchMode:', matchMode);
         if (!userInput.trim()) return;
         
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
@@ -276,9 +275,9 @@ function ResultsPageContent() {
         setExplanationVector(null); // Reset vector when generating new explanation
         setExplanationStatus(null); // Reset explanation status when generating new explanation
 
-        // Add console debugging for tag rules
+        // Debug logging for tag rules
         if (additionalRules.length > 0) {
-            console.log('Using additional rules for explanation generation:', additionalRules);
+            logger.debug('Using additional rules for explanation generation', { additionalRules }, FILE_DEBUG);
         }
         
         // Prepare sources for the API - convert SourceChipType to the format expected by the API
@@ -297,7 +296,7 @@ function ResultsPageContent() {
             previousExplanationViewedVector,
             sourceUrls: validSourceUrls.length > 0 ? validSourceUrls : undefined
         };
-        console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
+        logger.debug('Sending request to API', { matchMode, requestBody }, FILE_DEBUG);
         
         // Add debug logging for rewrite operations
         if (userInputType === UserInputType.Rewrite) {
@@ -332,7 +331,7 @@ function ResultsPageContent() {
         if (!reader) {
             throw new Error('Failed to get response reader');
         }
-        console.log('[SSE-DEBUG] Got response reader, starting to read SSE stream');
+        logger.debug('Got response reader, starting to read SSE stream', null, FILE_DEBUG);
 
         const decoder = new TextDecoder();
         let finalResult: unknown = null;
@@ -342,28 +341,24 @@ function ResultsPageContent() {
             const { done, value } = await reader.read();
 
             if (done) {
-                console.log('[SSE-DEBUG] Stream done, total chunks received:', chunkCount);
+                logger.debug('Stream done', { totalChunks: chunkCount }, FILE_DEBUG);
                 break;
             }
 
             chunkCount++;
             const chunk = decoder.decode(value);
-            console.log('[SSE-DEBUG] Chunk', chunkCount, 'received, length:', chunk.length);
-            logger.debug('Client received chunk:', { chunkLength: chunk.length, chunk: chunk.substring(0, 200) }, FILE_DEBUG);
+            logger.debug('Chunk received', { chunkCount, length: chunk.length }, FILE_DEBUG);
             const lines = chunk.split('\n');
 
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
-                        console.log('Client received streaming data:', data);
-                        logger.debug('Client received streaming data:', { data }, FILE_DEBUG);
-                        
+                        logger.debug('Client received streaming data', { data }, FILE_DEBUG);
+
                         if (data.type === 'error') {
-                            console.log('[SSE-DEBUG] Error event received:', data.error);
-                            console.log('[SSE-DEBUG] Dispatching ERROR action to lifecycle reducer');
+                            logger.debug('Error event received, dispatching ERROR action', { error: data.error }, FILE_DEBUG);
                             dispatchLifecycle({ type: 'ERROR', error: data.error });
-                            console.log('[SSE-DEBUG] ERROR action dispatched, resetting vector and status');
                             setExplanationVector(null); // Reset vector on error
                             setExplanationStatus(null); // Reset status on error
                             return;
@@ -384,8 +379,7 @@ function ResultsPageContent() {
 
                         if (data.type === 'progress') {
                             // Handle progress events
-                            console.log('Client received progress data:', data);
-                            logger.debug('Received progress data:', { data }, FILE_DEBUG);
+                            logger.debug('Received progress data', { data }, FILE_DEBUG);
                             if (data.stage === 'title_generated' && data.title) {
                                 dispatchLifecycle({ type: 'STREAM_TITLE', title: data.title });
                                 setExplanationTitle(data.title); // Also update useExplanationLoader
@@ -479,29 +473,21 @@ function ResultsPageContent() {
      * Calls: handleUserAction
      */
     const handleTagBarApplyClick = async (tagDescriptions: string[]) => {
-        console.log('handleTagBarApplyClick called with tagDescriptions:', tagDescriptions);
-        console.log('tagState.mode:', tagState.mode);
-        console.log('prompt:', prompt);
-        console.log('explanationTitle:', explanationTitle);
-        console.log('userid:', userid);
+        logger.debug('handleTagBarApplyClick called', { tagDescriptions, tagStateMode: tagState.mode, prompt, explanationTitle, userid }, FILE_DEBUG);
 
         // Handle apply button click in rewrite or edit mode
         if (tagState.mode === 'rewriteWithTags') {
-            console.log('Calling handleUserAction with RewriteWithTags');
-            console.log('Current mode:', mode);
             // For rewrite with tags, use the current explanation title as input
             const inputForRewrite = explanationTitle || prompt;
-            console.log('Using input for rewrite:', inputForRewrite);
+            logger.debug('Calling handleUserAction with RewriteWithTags', { mode, inputForRewrite }, FILE_DEBUG);
             await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null, null);
         } else if (tagState.mode === 'editWithTags') {
-            console.log('Calling handleUserAction with EditWithTags');
-            console.log('Current mode:', mode);
             // For edit with tags, use the current explanation title as input
             const inputForEdit = explanationTitle || prompt;
-            console.log('Using input for edit:', inputForEdit);
+            logger.debug('Calling handleUserAction with EditWithTags', { mode, inputForEdit }, FILE_DEBUG);
             await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null, null);
         } else {
-            console.log('No matching mode found, tagState.mode:', tagState.mode);
+            logger.debug('No matching mode found', { tagStateMode: tagState.mode }, FILE_DEBUG);
         }
     };
 
@@ -667,30 +653,27 @@ function ResultsPageContent() {
      * feedback loop that resets cursor. Content is synced when exiting edit mode.
      */
     const handleEditorContentChange = (newContent: string) => {
-        console.log('🔄 handleEditorContentChange called');
-        console.log('📝 newContent type:', typeof newContent);
-        console.log('📝 newContent length:', newContent?.length || 'undefined');
-        console.log('🎛️ isEditMode:', isEditMode);
-        console.log('🏁 isInitialLoadRef.current:', isInitialLoadRef.current);
+        logger.debug('handleEditorContentChange called', {
+            contentLength: newContent?.length,
+            isEditMode,
+            isInitialLoad: isInitialLoadRef.current
+        }, FILE_DEBUG);
 
         // Clear initial load flag on first user edit (when in edit mode)
         if (isEditMode && isInitialLoadRef.current) {
-            console.log('🏁 Clearing isInitialLoadRef.current on user edit');
+            logger.debug('Clearing isInitialLoadRef.current on user edit', null, FILE_DEBUG);
             isInitialLoadRef.current = false;
         }
 
         const shouldCallParent = isEditMode && !isInitialLoadRef.current;
-        console.log('🤔 shouldCall parent:', shouldCallParent);
 
         // Only propagate changes if user is in edit mode and this is not initial load
         if (shouldCallParent) {
-            console.log('✅ Content change from user edit (tracked by editor)');
+            logger.debug('Content change from user edit (tracked by editor)', null, FILE_DEBUG);
             // Don't update lifecycle state during editing - prevents cursor jumping
             // Content will be synced to lifecycle state when user exits edit mode or saves
         } else {
-            console.log('❌ NOT propagating content change because:');
-            if (!isEditMode) console.log('  - Not in edit mode (isEditMode = false)');
-            if (isInitialLoadRef.current) console.log('  - Still in initial load (isInitialLoadRef.current = true)');
+            logger.debug('NOT propagating content change', { isEditMode, isInitialLoad: isInitialLoadRef.current }, FILE_DEBUG);
         }
     };
 
@@ -883,7 +866,7 @@ function ResultsPageContent() {
                         }, 0);
                     }
                 } catch (error) {
-                    console.error('Error updating editor content during streaming:', error);
+                    logger.error('Error updating editor content during streaming', { error: error instanceof Error ? error.message : String(error) });
                 }
             }
         }, isStreaming ? 100 : 0);
@@ -893,7 +876,7 @@ function ResultsPageContent() {
     useEffect(() => {
         // Early return if editor ref is not yet initialized
         if (!editorRef.current) {
-            console.log('⏳ Editor ref not yet initialized, skipping content sync');
+            logger.debug('Editor ref not yet initialized, skipping content sync', null, FILE_DEBUG);
             return;
         }
 
@@ -903,23 +886,24 @@ function ResultsPageContent() {
         // On first run, just sync the state without updating the editor
         // LexicalEditor handles initialContent on its own
         if (!hasInitializedContent.current) {
-            console.log('📝 First content sync - initializing state only');
+            logger.debug('First content sync - initializing state only', null, FILE_DEBUG);
             setEditorCurrentContent(currentPageContent);
             hasInitializedContent.current = true;
             return;
         }
 
-        console.log('🔄 useEffect triggered - content comparison');
-        console.log('🔍 content length:', currentPageContent?.length || 'undefined');
-        console.log('🔍 editorCurrentContent length:', editorCurrentContent?.length || 'undefined');
-        console.log('🔍 content !== editorCurrentContent:', currentPageContent !== editorCurrentContent);
-        console.log('🔍 isEditMode:', isEditMode);
+        logger.debug('Content comparison useEffect', {
+            contentLength: currentPageContent?.length,
+            editorContentLength: editorCurrentContent?.length,
+            contentChanged: currentPageContent !== editorCurrentContent,
+            isEditMode
+        }, FILE_DEBUG);
 
         if (currentPageContent !== editorCurrentContent) {
             // IMPORTANT: Don't overwrite editor content during edit mode
             // This prevents AI suggestions from being destroyed
             if (isEditMode && !isStreaming) {
-                console.log('⚠️ Skipping content update - editor is in edit mode');
+                logger.debug('Skipping content update - editor is in edit mode', null, FILE_DEBUG);
                 return;
             }
 
@@ -936,14 +920,11 @@ function ResultsPageContent() {
 
             // After first content update, mark as no longer initial load
             if (isInitialLoadRef.current) {
-                console.log('🏁 About to clear isInitialLoadRef, isStreaming:', isStreaming);
+                logger.debug('About to clear isInitialLoadRef', { isStreaming }, FILE_DEBUG);
                 if (!isStreaming) {
-                    console.log('🏁 Setting isInitialLoadRef.current = false immediately (non-streaming)');
                     isInitialLoadRef.current = false;
                 } else {
-                    console.log('🏁 Setting isInitialLoadRef.current = false via setTimeout (streaming)');
                     setTimeout(() => {
-                        console.log('🏁 setTimeout executed: setting isInitialLoadRef.current = false');
                         isInitialLoadRef.current = false;
                     }, 0);
                 }
@@ -1276,7 +1257,7 @@ function ResultsPageContent() {
                                             explanationId={explanationId}
                                             onTagClick={(tag) => {
                                                 // Handle tag clicks here - you can implement search, filtering, etc.
-                                                console.log('Tag clicked:', tag);
+                                                logger.debug('Tag clicked', { tag }, FILE_DEBUG);
                                                 // Example: could trigger a search for explanations with this tag
                                                 // or navigate to a tag-specific page
                                             }}
@@ -1287,12 +1268,12 @@ function ResultsPageContent() {
                                 </div>
                                 {/* Debug logging */}
                                 {(() => {
-                                    console.log('TagBar/FeedbackPanel props:', {
+                                    logger.debug('TagBar/FeedbackPanel props', {
                                         showFeedbackPanel,
                                         tagState,
-                                        explanationId: explanationId,
+                                        explanationId,
                                         sourcesCount: sources.length
-                                    });
+                                    }, FILE_DEBUG);
                                     return null;
                                 })()}
                                 
@@ -1372,27 +1353,25 @@ function ResultsPageContent() {
                             currentContent={content}
                             editorRef={editorRef}
                             onContentChange={(newContent) => {
-                                console.log('🎭 results/page.tsx: AISuggestionsPanel onContentChange called', {
+                                logger.debug('AISuggestionsPanel onContentChange called', {
                                     contentLength: newContent?.length || 0,
-                                    hasEditorRef: !!editorRef.current,
-                                    contentPreview: newContent?.substring(0, 100)
-                                });
+                                    hasEditorRef: !!editorRef.current
+                                }, FILE_DEBUG);
 
                                 setContent(newContent);
 
                                 // CRITICAL: Directly update the editor with the new content
                                 if (editorRef.current) {
-                                    console.log('🎭 results/page.tsx: Calling editorRef.current.setContentFromMarkdown');
+                                    logger.debug('Updating editor with new content from AI suggestions', null, FILE_DEBUG);
                                     // Update both internal state and editor content
                                     setEditorCurrentContent(newContent);
                                     editorRef.current.setContentFromMarkdown(newContent);
-                                    console.log('🎭 results/page.tsx: editorRef.current.setContentFromMarkdown called successfully');
                                 } else {
-                                    console.error('🎭 results/page.tsx: editorRef.current is null - cannot update editor');
+                                    logger.error('editorRef.current is null - cannot update editor');
                                 }
                             }}
                             onEnterEditMode={() => {
-                                console.log('🎭 results/page.tsx: Entering edit mode via AI suggestions');
+                                logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
                                 dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
                             }}
                             sessionData={explanationId && explanationTitle ? {

@@ -179,7 +179,7 @@ export async function checkAndSaveTestingPipelineRecord(
   content: string,
   sessionData?: SessionData
 ): Promise<{ saved: boolean; record?: TestingPipelineRecord }> {
-  console.log('🔧 SERVICE: checkAndSaveTestingPipelineRecord called with:', {
+  logger.debug('checkAndSaveTestingPipelineRecord called', {
     setName,
     step,
     contentLength: content.length,
@@ -188,14 +188,12 @@ export async function checkAndSaveTestingPipelineRecord(
   });
 
   try {
-    console.log('🔧 SERVICE: About to check if record exists');
     // Check if exact match already exists
     const exists = await checkTestingPipelineExists(setName, step, content);
-    console.log('🔧 SERVICE: Record exists check result:', exists);
+    logger.debug('Record exists check result', { exists, setName, step });
 
     if (exists) {
-      console.log('🔧 SERVICE: Record already exists, skipping save');
-      logger.debug('Testing pipeline record already exists, skipping save:', {
+      logger.debug('Testing pipeline record already exists, skipping save', {
         setName,
         step,
         contentLength: content.length,
@@ -203,8 +201,6 @@ export async function checkAndSaveTestingPipelineRecord(
       });
       return { saved: false };
     }
-
-    console.log('🔧 SERVICE: Record does not exist, about to save new record');
 
     // Prepare record data
     const recordData: TestingPipelineInsert = {
@@ -225,9 +221,8 @@ export async function checkAndSaveTestingPipelineRecord(
 
     // Save new record
     const record = await saveTestingPipelineRecord(recordData);
-    console.log('🔧 SERVICE: Save completed, record:', record);
 
-    logger.debug('New testing pipeline record saved:', {
+    logger.debug('New testing pipeline record saved', {
       id: record.id,
       setName: record.set_name,
       step: record.step,
@@ -235,11 +230,9 @@ export async function checkAndSaveTestingPipelineRecord(
       sessionId: record.session_id
     });
 
-    console.log('🔧 SERVICE: Returning success result');
     return { saved: true, record };
   } catch (error) {
-    console.log('🔧 SERVICE: Exception caught in checkAndSaveTestingPipelineRecord:', error);
-    logger.error('Error in checkAndSaveTestingPipelineRecord:', {
+    logger.error('Error in checkAndSaveTestingPipelineRecord', {
       error: error instanceof Error ? error.message : String(error),
       setName,
       step,
