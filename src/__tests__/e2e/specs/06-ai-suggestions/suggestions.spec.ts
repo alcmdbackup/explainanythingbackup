@@ -14,6 +14,7 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
+import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockReturnExplanationAPI,
   mockAISuggestionsPipelineAPI,
@@ -52,14 +53,20 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(isPanelVisible).toBe(true);
     });
 
-    // NOTE: These tests require NEXT_PUBLIC_USE_AI_API_ROUTE=true in the test environment
-    // so the panel uses the mockable API route instead of RSC server action.
+    // NOTE: These tests use library loading pattern instead of SSE mocking for reliability.
+    // They require NEXT_PUBLIC_USE_AI_API_ROUTE=true so the panel uses mockable API route.
 
     test('should show loading state when submitting suggestion', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       // Add delay to observe loading state
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
@@ -67,8 +74,10 @@ test.describe('AI Suggestions Pipeline', () => {
         delay: 1000,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      // Click View on first explanation
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Submit via the panel UI (not direct API call)
       await submitAISuggestionPrompt(page, 'Add more details');
@@ -82,14 +91,22 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      // Click View on first explanation
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Submit via the panel UI
       await submitAISuggestionPrompt(page, 'Add more details');
@@ -103,14 +120,22 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: false,
         error: 'AI service temporarily unavailable',
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      // Click View on first explanation
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Submit via the panel UI
       await submitAISuggestionPrompt(page, 'Add more details');
