@@ -3,7 +3,7 @@
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, type ExplanationMetricsTableType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding, loadFromPineconeUsingExplanationId } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
 import { userQueryInsertSchema } from '@/lib/schemas/schemas';
@@ -954,7 +954,7 @@ export const getTempTagsForRewriteWithTagsAction = serverReadRequestId(_getTempT
  * • Calls: getMultipleExplanationMetrics
  * • Used by: UI components displaying explanation performance data
  */
-const _getExplanationMetricsAction = async function(explanationId: number): Promise<ExplanationMetricsType | null> {
+const _getExplanationMetricsAction = async function(explanationId: number): Promise<ExplanationMetricsTableType | null> {
     const results = await getMultipleExplanationMetrics([explanationId]);
     return results[0];
 };
@@ -970,7 +970,7 @@ export const getExplanationMetricsAction = serverReadRequestId(_getExplanationMe
  * • Calls: getMultipleExplanationMetrics
  * • Used by: List views, dashboard components showing multiple explanation stats
  */
-const _getMultipleExplanationMetricsAction = async function(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
+const _getMultipleExplanationMetricsAction = async function(explanationIds: number[]): Promise<(ExplanationMetricsTableType | null)[]> {
     return await getMultipleExplanationMetrics(explanationIds);
 };
 

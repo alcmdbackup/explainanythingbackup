@@ -1,8 +1,12 @@
 'use client';
 
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { signOut } from '@/app/login/actions';
 import SearchBar from '@/components/SearchBar';
+import ImportModal from '@/components/import/ImportModal';
+import ImportPreview from '@/components/import/ImportPreview';
+import { type ImportSource } from '@/lib/schemas/schemas';
 
 interface NavigationProps {
     showSearchBar?: boolean;
@@ -15,6 +19,12 @@ interface NavigationProps {
     };
 }
 
+interface ImportData {
+    title: string;
+    content: string;
+    source: ImportSource;
+}
+
 /**
  * Reusable navigation component with optional search bar
  */
@@ -22,6 +32,25 @@ export default function Navigation({
     showSearchBar = true,
     searchBarProps = {}
 }: NavigationProps) {
+    const [importModalOpen, setImportModalOpen] = useState(false);
+    const [previewData, setPreviewData] = useState<ImportData | null>(null);
+
+    const handleProcessed = useCallback((data: ImportData) => {
+        setPreviewData(data);
+        setImportModalOpen(false);
+    }, []);
+
+    const handlePreviewBack = useCallback(() => {
+        setPreviewData(null);
+        setImportModalOpen(true);
+    }, []);
+
+    const handlePreviewClose = useCallback((open: boolean) => {
+        if (!open) {
+            setPreviewData(null);
+        }
+    }, []);
+
     return (
         <nav className="scholar-nav bg-[var(--surface-secondary)] border-b border-[var(--border-default)] relative">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -83,6 +112,13 @@ export default function Navigation({
                             Settings
                         </Link>
                         <button
+                            data-testid="import-button"
+                            onClick={() => setImportModalOpen(true)}
+                            className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
+                        >
+                            Import
+                        </button>
+                        <button
                             onClick={() => signOut()}
                             data-testid="logout-button"
                             className="text-[var(--text-muted)] hover:text-[var(--destructive)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)] focus-visible:ring-offset-2 rounded px-1"
@@ -94,6 +130,25 @@ export default function Navigation({
             </div>
             {/* Gold accent line at bottom */}
             <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--accent-gold)] to-transparent opacity-60"></div>
+
+            {/* Import Modal */}
+            <ImportModal
+                open={importModalOpen}
+                onOpenChange={setImportModalOpen}
+                onProcessed={handleProcessed}
+            />
+
+            {/* Import Preview */}
+            {previewData && (
+                <ImportPreview
+                    open={!!previewData}
+                    onOpenChange={handlePreviewClose}
+                    onBack={handlePreviewBack}
+                    title={previewData.title}
+                    content={previewData.content}
+                    source={previewData.source}
+                />
+            )}
         </nav>
     );
 }

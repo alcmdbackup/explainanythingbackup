@@ -10,7 +10,7 @@ import {
   incrementExplanationSaves
 } from './metrics';
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import type { UserExplanationEventsType, ExplanationMetricsType } from '@/lib/schemas/schemas';
+import type { UserExplanationEventsType, ExplanationMetricsType, ExplanationMetricsTableType } from '@/lib/schemas/schemas';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -238,7 +238,7 @@ describe('Metrics Service', () => {
     it('should refresh specific metrics by single ID', async () => {
       // Arrange
       const mockMetrics: ExplanationMetricsType[] = [{
-        explanationid: 1,
+        explanation_id: 1,
         total_views: 10,
         total_saves: 5,
         save_rate: 0.5,
@@ -264,14 +264,14 @@ describe('Metrics Service', () => {
       // Arrange
       const mockMetrics: ExplanationMetricsType[] = [
         {
-          explanationid: 1,
+          explanation_id: 1,
           total_views: 10,
           total_saves: 5,
           save_rate: 0.5,
           last_updated: '2024-01-01T00:00:00Z'
         },
         {
-          explanationid: 2,
+          explanation_id: 2,
           total_views: 20,
           total_saves: 10,
           save_rate: 0.5,
@@ -477,9 +477,9 @@ describe('Metrics Service', () => {
 
   describe('incrementExplanationViews', () => {
     it('should increment views successfully', async () => {
-      // Arrange
+      // Arrange - stored procedure returns explanation_id (with underscore)
       const mockMetrics: ExplanationMetricsType = {
-        explanationid: 1,
+        explanation_id: 1,
         total_views: 11,
         total_saves: 5,
         save_rate: 0.45,
@@ -565,9 +565,9 @@ describe('Metrics Service', () => {
 
   describe('incrementExplanationSaves', () => {
     it('should increment saves successfully', async () => {
-      // Arrange
+      // Arrange - stored procedure returns explanation_id (with underscore)
       const mockMetrics: ExplanationMetricsType = {
-        explanationid: 1,
+        explanation_id: 1,
         total_views: 10,
         total_saves: 6,
         save_rate: 0.6,
