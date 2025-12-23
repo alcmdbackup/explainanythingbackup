@@ -343,6 +343,36 @@ interface MockAISuggestionsOptions {
 }
 
 /**
+ * Mock the AI suggestions pipeline API route.
+ * This mocks the test-only API route `/api/runAISuggestionsPipeline` which returns standard JSON.
+ * Use this for E2E tests that need to test diff visualization and accept/reject interactions.
+ */
+export async function mockAISuggestionsPipelineAPI(
+  page: Page,
+  options: MockAISuggestionsOptions
+) {
+  await page.route('**/api/runAISuggestionsPipeline', async (route) => {
+    if (options.delay) {
+      await new Promise(r => setTimeout(r, options.delay));
+    }
+
+    const response = options.success === false
+      ? { success: false, error: options.error || 'Pipeline failed' }
+      : {
+          success: true,
+          content: options.content,
+          session_id: options.session_id || 'test-session-123',
+        };
+
+    await route.fulfill({
+      status: options.success === false ? 500 : 200,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(response),
+    });
+  });
+}
+
+/**
  * @deprecated Use mockOpenAIAPI instead for the hybrid approach.
  *
  * Mock the AI suggestions pipeline server action.
