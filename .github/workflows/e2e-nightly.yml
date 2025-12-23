@@ -27,6 +27,8 @@ jobs:
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
       PINECONE_INDEX: ${{ secrets.PINECONE_INDEX }}
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
+      # Enable API route for AI suggestions (mockable in E2E tests)
+      NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
