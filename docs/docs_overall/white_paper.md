@@ -6,9 +6,12 @@ ExplainAnything is an publishing and discovery platform for AI generated content
 
 ## Key feedback loop
 AI generates content --> human feedback --> better content --> etc
-(TO DO) How to think about ranking?
 
-Objective is to maximize this feedback loop to the maximum extent, to create content that is as high-quality as possible. Even if this is unusual and uncomfortable from a UX perspective, this is worth pursuing. 
+This feedback loop operates on two levels:
+- Feedback on individual pieces of content (e.g. proposed edits or questions from users) that can be used to improve that specific piece of content
+- Feedback on the best existing content, so that resources can be focused on improving those specifically, leading to higher overall ecosystem quality
+
+Objective is to maximize this feedback loop to the maximum extent. Even if this is unusual and uncomfortable from a UX perspective, this is worth pursuing. 
 
 ## Key principles
 1. **AI driven content generation** - Rely on LLM-based content generation rather than human writing & editing, since it is significantly faster and cheaper. It is easier for AI to generate/edit and have humans provide feedback, rather than humans do this directly.
