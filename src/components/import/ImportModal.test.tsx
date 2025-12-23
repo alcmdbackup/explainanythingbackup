@@ -145,7 +145,9 @@ describe('ImportModal', () => {
             const longContent = 'a'.repeat(105);
             await user.type(textarea, longContent);
 
-            expect(screen.getByText('Detecting...')).toBeInTheDocument();
+            await waitFor(() => {
+                expect(screen.getByText('Detecting...')).toBeInTheDocument();
+            });
         });
 
         it('detection errors are silently ignored', async () => {

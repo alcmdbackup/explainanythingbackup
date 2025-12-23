@@ -77,7 +77,8 @@ This approach has both benefits and challenges that developers should carefully 
 test.describe('Import Articles Feature', () => {
     test.describe('Full Import Flow', () => {
         // These tests hit real LLM APIs and DB operations
-        test('should import ChatGPT content with auto-detection', { timeout: 90000 }, async ({ authenticatedPage }) => {
+        test('should import ChatGPT content with auto-detection', async ({ authenticatedPage }) => {
+            test.setTimeout(90000);
             const importPage = new ImportPage(authenticatedPage);
 
             // Navigate to home page
@@ -123,7 +124,8 @@ test.describe('Import Articles Feature', () => {
             expect(authenticatedPage.url()).toContain('/results');
         });
 
-        test('should import with manual source selection', { timeout: 90000 }, async ({ authenticatedPage }) => {
+        test('should import with manual source selection', async ({ authenticatedPage }) => {
+            test.setTimeout(90000);
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
