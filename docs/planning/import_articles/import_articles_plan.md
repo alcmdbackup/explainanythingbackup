@@ -1,0 +1,50 @@
+# Import Articles Feature - Implementation Plan
+
+## Summary
+
+Feature to import AI-generated content from ChatGPT/Claude/Gemini into ExplainAnything as formatted articles.
+
+**Brainstorm doc:** `import_articles_brainstorm.md`
+
+---
+
+## Phase 1: MVP Implementation
+
+### 1. Database Migration
+- Add `source` column to `explanations` table
+- Values: `chatgpt | claude | gemini | other | generated | null`
+
+### 2. Import Service (`src/lib/services/importArticle.ts`)
+- `detectSource(content: string)` - heuristic source detection
+- `cleanupAndReformat(content, source)` - LLM call for processing
+- Zod schemas for input/output validation
+
+### 3. Server Actions (`src/actions/importActions.ts`)
+- `processImport(content, source?)` - cleanup and return formatted
+- `publishImportedArticle(title, content, source)` - save via existing pipeline
+
+### 4. UI Components
+- `ImportModal.tsx` - paste textarea, source dropdown, process button
+- `ImportPreview.tsx` - Lexical editor preview, publish button
+- Add import buttons to nav and home page
+
+### 5. Integration
+- Wire modal to navigation header
+- Add button to home page
+- Connect preview to existing publish flow
+
+---
+
+## Files to Create/Modify
+
+**New:**
+- `src/lib/services/importArticle.ts`
+- `src/actions/importActions.ts`
+- `src/components/import/ImportModal.tsx`
+- `src/components/import/ImportPreview.tsx`
+- `supabase/migrations/XXXXXX_add_source_column.sql`
+
+**Modify:**
+- `src/components/Header.tsx` (or nav component) - add import button
+- `src/app/page.tsx` - add import button on home
+- `src/lib/schemas/schemas.ts` - add source enum/schema
