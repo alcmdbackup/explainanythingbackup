@@ -53,35 +53,62 @@ export interface VectorSearchResult {
 }
 ```
 
-### Verification Results
+### Verification Results (after logger test fix)
 
 | Test Type | Result |
 |-----------|--------|
 | Build | Pass |
 | Lint | Pass (2 warnings, 0 errors) |
 | TSC | Pass (0 errors) |
-| Unit Tests | 1752 passed, 15 failed*, 13 skipped |
+| Unit Tests | 1767 passed, 0 failed, 13 skipped |
 | Integration Tests | 80 passed |
 | E2E (chromium-unauth) | 7 passed |
 | E2E (chromium) | 38 passed, 44 skipped |
 
-*The 15 unit test failures are pre-existing issues from commit `5e93d82` ("refactor: replace console.log/error with logger utility") - tests expect `console.error` but code now uses `logger`. Unrelated to this change.
-
 ---
 
-## Pre-existing Issues Discovered
+## Fix: Unit Test Logger Mocking
 
-### Unit Test Failures (15 tests)
+**Status:** Completed
+**Date:** 2025-12-23
+**Branch:** `git_worktree_28_2`
 
-Tests in `userLibrary.test.ts` fail because they expect `console.error` calls but the code now uses the structured `logger` utility. These need to be updated to mock/assert against `logger.error` instead.
+### Problem
 
-**Files affected:**
-- `src/lib/services/userLibrary.test.ts`
+After the `console.log` → `logger` refactor (commit `5e93d82`), 15 unit tests were failing because they were:
+1. Spying on `console.error` instead of mocking `logger`
+2. Asserting against the old `console.error(message, data)` format instead of `logger.error(message, { ...data })`
 
-**Example failure:**
+### Files Updated
+
+| File | Changes |
+|------|---------|
+| `src/lib/services/userLibrary.test.ts` | Added `logger` mock, removed `consoleErrorSpy`, updated 4 assertions |
+| `src/app/auth/callback/route.test.ts` | Added `logger` mock, removed `consoleErrorSpy`, updated 1 assertion |
+| `src/app/auth/confirm/route.test.ts` | Added `logger` mock, removed `consoleErrorSpy`, updated 1 assertion |
+| `src/lib/services/llms.test.ts` | Updated 2 assertions to use existing `logger` mock |
+| `src/lib/services/metrics.test.ts` | Added `logger` mock, removed console spies, updated 6 assertions |
+
+### Pattern Applied
+
+**Before:**
+```typescript
+consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+// ...
+expect(consoleErrorSpy).toHaveBeenCalledWith('Error message:', error);
 ```
-Expected: "Error fetching explanation IDs for user:", {...}
-Received: "[ERROR] Error fetching explanation IDs for user", {...with different structure...}
+
+**After:**
+```typescript
+jest.mock('@/lib/server_utilities', () => ({
+  logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn(), debug: jest.fn() }
+}));
+import { logger } from '@/lib/server_utilities';
+const mockLogger = logger as jest.Mocked<typeof logger>;
+// ...
+expect(mockLogger.error).toHaveBeenCalledWith('Error message', { error: error.message });
 ```
 
-**Recommendation:** Update tests to mock `logger` instead of `console.error`.
+### Verification
+
+All 1767 unit tests now pass with 0 failures.

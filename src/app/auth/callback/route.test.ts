@@ -15,24 +15,30 @@ jest.mock('next/server', () => {
     NextRequest: mocks.NextRequest,
   };
 });
+jest.mock('@/lib/server_utilities', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn()
+  }
+}));
 
 import { GET } from './route';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { NextResponse } from 'next/server';
 import { createMockRequestWithParams, createSupabaseError } from '@/testing/utils/phase9-test-helpers';
+import { logger } from '@/lib/server_utilities';
 
 const mockCreateSupabaseServerClient = createSupabaseServerClient as jest.MockedFunction<typeof createSupabaseServerClient>;
 
 describe('OAuth Callback Route - GET', () => {
   let mockExchangeCodeForSession: jest.Mock;
   let mockSupabaseClient: any;
-  let consoleErrorSpy: jest.SpyInstance;
+  const mockLogger = logger as jest.Mocked<typeof logger>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    // Spy on console.error
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     // Setup default mock
     mockExchangeCodeForSession = jest.fn().mockResolvedValue({
@@ -47,10 +53,6 @@ describe('OAuth Callback Route - GET', () => {
     };
 
     mockCreateSupabaseServerClient.mockResolvedValue(mockSupabaseClient);
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
   });
 
   describe('Successful Authentication', () => {
@@ -137,7 +139,10 @@ describe('OAuth Callback Route - GET', () => {
       const response = await GET(request);
 
       expect(mockExchangeCodeForSession).toHaveBeenCalledWith('invalid-code');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error exchanging code for session:', error.error);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error exchanging code for session',
+        { error: 'Invalid code' }
+      );
       expect(response.headers.get('Location')).toBe('http://localhost:3000/error');
     });
 
