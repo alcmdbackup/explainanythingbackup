@@ -137,6 +137,7 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
                         </label>
                         <textarea
                             id="import-content"
+                            data-testid="import-content"
                             value={content}
                             onChange={(e) => handleContentChange(e.target.value)}
                             placeholder="Paste AI-generated content here..."
@@ -155,7 +156,7 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
                             onValueChange={(value) => setSource(value as ImportSource)}
                             disabled={isProcessing}
                         >
-                            <SelectTrigger className="w-40 bg-[var(--surface-secondary)] border-[var(--border-default)] text-[var(--text-primary)]">
+                            <SelectTrigger data-testid="import-source" className="w-40 bg-[var(--surface-secondary)] border-[var(--border-default)] text-[var(--text-primary)]">
                                 <SelectValue />
                             </SelectTrigger>
                             <SelectContent className="bg-[var(--surface-elevated)] border-[var(--border-default)]">
@@ -174,7 +175,7 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
                             </SelectContent>
                         </Select>
                         {state === 'detecting' && (
-                            <span className="text-xs text-[var(--text-muted)] flex items-center gap-1">
+                            <span data-testid="import-detecting" className="text-xs text-[var(--text-muted)] flex items-center gap-1">
                                 <Spinner variant="circle" size={12} />
                                 Detecting...
                             </span>
@@ -183,7 +184,7 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
 
                     {/* Error message */}
                     {error && (
-                        <div className="text-sm text-[var(--destructive)] bg-[var(--destructive)]/10 px-4 py-2 rounded-page">
+                        <div data-testid="import-error" className="text-sm text-[var(--destructive)] bg-[var(--destructive)]/10 px-4 py-2 rounded-page">
                             {error}
                         </div>
                     )}
@@ -191,6 +192,7 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
 
                 <DialogFooter className="gap-2">
                     <Button
+                        data-testid="import-cancel-btn"
                         variant="outline"
                         onClick={handleClose}
                         disabled={isProcessing}
@@ -198,6 +200,7 @@ export default function ImportModal({ open, onOpenChange, onProcessed }: ImportM
                         Cancel
                     </Button>
                     <Button
+                        data-testid="import-process-btn"
                         onClick={handleProcess}
                         disabled={isProcessing || !content.trim()}
                     >

@@ -112,6 +112,7 @@ export default function Navigation({
                             Settings
                         </Link>
                         <button
+                            data-testid="import-button"
                             onClick={() => setImportModalOpen(true)}
                             className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
                         >

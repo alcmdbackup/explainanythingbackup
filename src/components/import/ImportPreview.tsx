@@ -104,7 +104,7 @@ export default function ImportPreview({
                     </DialogTitle>
                     <DialogDescription className="text-[var(--text-muted)]">
                         Review the formatted article before publishing.
-                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs bg-[var(--surface-elevated)] text-[var(--text-secondary)]">
+                        <span data-testid="preview-source" className="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs bg-[var(--surface-elevated)] text-[var(--text-secondary)]">
                             Source: {SOURCE_LABELS[source]}
                         </span>
                     </DialogDescription>
@@ -116,7 +116,7 @@ export default function ImportPreview({
                         <label className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wider">
                             Title
                         </label>
-                        <h2 className="text-xl font-display text-[var(--text-primary)]">
+                        <h2 data-testid="preview-title" className="text-xl font-display text-[var(--text-primary)]">
                             {title}
                         </h2>
                     </div>
@@ -126,7 +126,7 @@ export default function ImportPreview({
                         <label className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wider">
                             Content
                         </label>
-                        <div className="p-4 rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)]">
+                        <div data-testid="preview-content" className="p-4 rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)]">
                             <div className="prose prose-sm max-w-none text-[var(--text-primary)]">
                                 {/* Simple markdown-like rendering */}
                                 {content.split('\n').map((line, index) => {
@@ -179,14 +179,14 @@ export default function ImportPreview({
 
                     {/* Error message */}
                     {error && (
-                        <div className="text-sm text-[var(--destructive)] bg-[var(--destructive)]/10 px-4 py-2 rounded-page">
+                        <div data-testid="preview-error" className="text-sm text-[var(--destructive)] bg-[var(--destructive)]/10 px-4 py-2 rounded-page">
                             {error}
                         </div>
                     )}
 
                     {/* Success message */}
                     {state === 'success' && (
-                        <div className="text-sm text-green-600 bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-page">
+                        <div data-testid="preview-success" className="text-sm text-green-600 bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-page">
                             Article published successfully! Redirecting...
                         </div>
                     )}
@@ -194,6 +194,7 @@ export default function ImportPreview({
 
                 <DialogFooter className="gap-2">
                     <Button
+                        data-testid="back-btn"
                         variant="outline"
                         onClick={handleBack}
                         disabled={isPublishing}
@@ -201,6 +202,7 @@ export default function ImportPreview({
                         Back
                     </Button>
                     <Button
+                        data-testid="publish-btn"
                         onClick={handlePublish}
                         disabled={isPublishing || state === 'success'}
                     >
