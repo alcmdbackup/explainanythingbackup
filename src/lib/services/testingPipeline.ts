@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { supabase } from '../supabase';
+import { createSupabaseServerClient } from '../utils/supabase/server';
 import { logger } from '../client_utilities';
 
 export interface TestingPipelineRecord {
@@ -57,6 +57,7 @@ export async function checkTestingPipelineExists(
       contentLength: content.length
     });
 
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .select('id')
@@ -124,6 +125,7 @@ export async function saveTestingPipelineRecord(
       insertData.session_metadata = record.session_metadata;
     }
 
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .insert(insertData)
@@ -260,6 +262,7 @@ export async function updateTestingPipelineRecordSetName(
       newSetName
     });
 
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .update({ set_name: newSetName })
@@ -307,6 +310,7 @@ export async function getTestingPipelineRecords(
   setName: string
 ): Promise<TestingPipelineRecord[]> {
   try {
+    const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from('testing_edits_pipeline')
       .select('*')

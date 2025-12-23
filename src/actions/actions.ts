@@ -23,7 +23,7 @@ import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation 
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
-import { supabase } from '../lib/supabase';
+import { createSupabaseServerClient } from '../lib/utils/supabase/server';
 import { resolveLinksForArticle, applyLinksToContent, getOverridesForArticle, setOverride, removeOverride } from '@/lib/services/linkResolver';
 import {
   createWhitelistTerm,
@@ -1310,6 +1310,7 @@ const _getTestingPipelineRecordsByStepAction = withLogging(
     }> {
         try {
             // Get all records for this step from the database
+            const supabase = await createSupabaseServerClient();
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
                 .select('id, set_name, content, created_at')
@@ -1432,6 +1433,7 @@ const _getAISuggestionSessionsAction = withLogging(
         error: ErrorResponse | null;
     }> {
         try {
+            const supabase = await createSupabaseServerClient();
             let query = supabase
                 .from('testing_edits_pipeline')
                 .select('session_id, explanation_id, explanation_title, user_prompt, created_at')
@@ -1517,6 +1519,7 @@ const _loadAISuggestionSessionAction = withLogging(
         error: ErrorResponse | null;
     }> {
         try {
+            const supabase = await createSupabaseServerClient();
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
                 .select('step, content, session_id, explanation_id, explanation_title, user_prompt, source_content, session_metadata, created_at')
