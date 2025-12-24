@@ -28,6 +28,8 @@ import {
   waitForSuggestionsSuccess,
   waitForSuggestionsError,
   waitForSuggestionsLoading,
+  waitForDiffNodes,
+  waitForEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions Pipeline', () => {
@@ -250,6 +252,40 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(result.success).toBe(true);
       // Verify CriticMarkup format is returned
       expect(result.content).toMatch(/\{\+\+.*\+\+\}|\{--.*--\}/);
+    });
+
+    test('should render accept/reject buttons after AI suggestions applied', async ({ authenticatedPage: page }, testInfo) => {
+      if (testInfo.retry === 0) test.slow();
+
+      const resultsPage = new ResultsPage(page);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
+      await mockAISuggestionsPipelineAPI(page, {
+        success: true,
+        content: mockDiffContent.insertion,
+      });
+
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
+
+      // Submit AI suggestion via panel UI
+      await submitAISuggestionPrompt(page, 'Add more details');
+      await waitForSuggestionsSuccess(page);
+      await waitForEditMode(page);
+      await waitForDiffNodes(page);
+
+      // Explicit assertion: accept/reject buttons must be visible
+      const acceptButton = page.locator('button:has-text("✓")').first();
+      const rejectButton = page.locator('button:has-text("✕")').first();
+
+      await expect(acceptButton).toBeVisible({ timeout: 5000 });
+      await expect(rejectButton).toBeVisible({ timeout: 5000 });
     });
 
     test('should return insertion content for accept scenario', async ({ authenticatedPage: page }, testInfo) => {
