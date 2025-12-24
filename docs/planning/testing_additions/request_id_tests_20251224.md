@@ -1,7 +1,7 @@
-# Plan: Ensure Request ID is Always Populated (Never Unknown/Anonymous)
+# Plan: Ensure Request ID is Always Populated (Never Unknown)
 
 ## Goal
-Ensure `requestId` and `userId` are always populated with real values - never falling back to `'unknown'` or `'anonymous'`.
+Ensure `requestId` is always populated with a real value - never falling back to `'unknown'`.
 
 ## Completed Fixes
 
@@ -21,9 +21,8 @@ The following API routes were missing `RequestIdContext` and have been fixed:
 
 ### Fallback Pattern (now only for edge cases)
 - `getRequestId()` returns `'unknown'` if context not set
-- `getUserId()` returns `'anonymous'` if context not set
 
-These fallbacks should now only trigger in truly exceptional circumstances (e.g., logging before context initialization).
+This fallback should now only trigger in truly exceptional circumstances (e.g., logging before context initialization).
 
 ## Test Plan
 
@@ -31,15 +30,12 @@ These fallbacks should now only trigger in truly exceptional circumstances (e.g.
 
 **Existing coverage (keep):**
 - Lines 81-85: `getRequestId()` returns `'unknown'` when context not set
-- Lines 89-93: `getUserId()` returns `'anonymous'` when context not set
 
 **Add tests to verify real values are always used:**
 ```typescript
 describe('real value enforcement', () => {
   it('run() should reject empty string requestId')
-  it('run() should reject empty string userId')
   it('setClient() should reject empty string requestId')
-  it('setClient() should reject empty string userId')
 })
 ```
 
@@ -49,7 +45,6 @@ describe('real value enforcement', () => {
 ```typescript
 describe('requestId always populated', () => {
   it('should never log with requestId="unknown"')
-  it('should never log with userId="anonymous"')
   it('file output should always have valid UUID format requestId')
 })
 ```
@@ -85,10 +80,6 @@ Keep current behavior but add tests that fail if fallbacks are ever used in prod
 
 | File | Change |
 |------|--------|
-| `src/lib/requestIdContext.ts` | Add validation for empty/invalid values |
+| `src/lib/requestIdContext.ts` | Add validation for empty/invalid requestId |
 | `src/lib/requestIdContext.test.ts` | Add validation tests |
-| `src/lib/server_utilities.test.ts` | Add tests verifying no unknown/anonymous in logs |
-
-## Console vs File Output Structure Reference
-- **Console**: `{ requestId, userId, ...data }` (flat)
-- **File**: `{ ..., requestId: { requestId, userId } }` (nested)
+| `src/lib/server_utilities.test.ts` | Add tests verifying no "unknown" in logs |
