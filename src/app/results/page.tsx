@@ -55,6 +55,9 @@ function ResultsPageContent() {
     const [sources, setSources] = useState<SourceChipType[]>([]);
     const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
 
+    // Track pending AI suggestions (blocks save when true)
+    const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
+
     // Convert sources to bibliography format (with index for citations)
     const bibliographySources = useMemo(() =>
         sources
@@ -1181,8 +1184,9 @@ function ResultsPageContent() {
                                         )}
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming || hasPendingSuggestions}
                                             data-testid="save-to-library"
+                                            title={hasPendingSuggestions ? "Accept or reject AI suggestions before saving" : undefined}
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isSaving ? 'Saving...' : userSaved ? 'Saved ✓' : 'Save'}
@@ -1190,8 +1194,9 @@ function ResultsPageContent() {
                                         {(hasUnsavedChanges || explanationStatus === ExplanationStatus.Draft) && (
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
-                                                disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
+                                                disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming || hasPendingSuggestions}
                                                 data-testid="publish-button"
+                                                title={hasPendingSuggestions ? "Accept or reject AI suggestions before publishing" : undefined}
                                                 className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
@@ -1331,6 +1336,7 @@ function ResultsPageContent() {
                                                     isStreaming={isStreaming}
                                                     textRevealEffect={textRevealEffect}
                                                     sources={bibliographySources}
+                                                    onPendingSuggestionsChange={setHasPendingSuggestions}
                                                 />
                                                 <Bibliography sources={bibliographySources} />
                                             </>
