@@ -393,6 +393,64 @@ describe('UserLibrary Service', () => {
     });
   });
 
+  describe('userId validation', () => {
+    describe('saveExplanationToLibrary', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(saveExplanationToLibrary(123, null as any)).rejects.toThrow('userId is required for saveExplanationToLibrary');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(saveExplanationToLibrary(123, undefined as any)).rejects.toThrow('userId is required for saveExplanationToLibrary');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(saveExplanationToLibrary(123, '')).rejects.toThrow('userId is required for saveExplanationToLibrary');
+      });
+    });
+
+    describe('getExplanationIdsForUser', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(getExplanationIdsForUser(null as any)).rejects.toThrow('userId is required for getExplanationIdsForUser');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(getExplanationIdsForUser(undefined as any)).rejects.toThrow('userId is required for getExplanationIdsForUser');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(getExplanationIdsForUser('')).rejects.toThrow('userId is required for getExplanationIdsForUser');
+      });
+    });
+
+    describe('getUserLibraryExplanations', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(getUserLibraryExplanations(null as any)).rejects.toThrow('userId is required for getUserLibraryExplanations');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(getUserLibraryExplanations(undefined as any)).rejects.toThrow('userId is required for getUserLibraryExplanations');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(getUserLibraryExplanations('')).rejects.toThrow('userId is required for getUserLibraryExplanations');
+      });
+    });
+
+    describe('isExplanationSavedByUser', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(isExplanationSavedByUser(123, null as any)).rejects.toThrow('userId is required for isExplanationSavedByUser');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(isExplanationSavedByUser(123, undefined as any)).rejects.toThrow('userId is required for isExplanationSavedByUser');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(isExplanationSavedByUser(123, '')).rejects.toThrow('userId is required for isExplanationSavedByUser');
+      });
+    });
+  });
+
   describe('isExplanationSavedByUser', () => {
     it('should return true when explanation is saved', async () => {
       // Arrange

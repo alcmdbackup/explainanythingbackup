@@ -4,6 +4,7 @@ import { logger } from '@/lib/server_utilities';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
+import { assertUserId } from '@/lib/utils/validation';
 
 //const supabase = await createClient()
 
@@ -22,6 +23,7 @@ export async function saveExplanationToLibrary(
   explanationid: number,
   userid: string
 ): Promise<userLibraryType> {
+  assertUserId(userid, 'saveExplanationToLibrary');
   const supabase = await createSupabaseServerClient()
 
   const { data, error } = await supabase
@@ -63,6 +65,7 @@ export async function getExplanationIdsForUser(
   userid: string,
   getCreateDate: boolean = false
 ): Promise<number[] | { explanationid: number; created: string }[]> {
+  assertUserId(userid, 'getExplanationIdsForUser');
   const supabase = await createSupabaseServerClient()
   
   const selectFields = getCreateDate ? 'explanationid, created' : 'explanationid';
@@ -100,6 +103,7 @@ export async function getExplanationIdsForUser(
  * It calls getExplanationIdsForUser and getExplanationsByIds.
  */
 export async function getUserLibraryExplanations(userid: string) {
+  assertUserId(userid, 'getUserLibraryExplanations');
   const idCreatedArr = await getExplanationIdsForUser(userid, true) as { explanationid: number; created: string }[];
   if (!idCreatedArr.length) return [];
   const explanations = await getExplanationsByIds(idCreatedArr.map(x => x.explanationid));
@@ -133,6 +137,7 @@ export async function isExplanationSavedByUser(
   explanationid: number,
   userid: string
 ): Promise<boolean> {
+  assertUserId(userid, 'isExplanationSavedByUser');
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase

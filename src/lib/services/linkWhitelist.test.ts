@@ -362,6 +362,20 @@ describe('LinkWhitelist Service', () => {
   // AI HEADING TITLE GENERATION
   // ============================================================================
 
+  describe('generateHeadingStandaloneTitles userId validation', () => {
+    it('should throw error when userid is null', async () => {
+      await expect(generateHeadingStandaloneTitles('## Test', 'Article', null as any)).rejects.toThrow('userId is required for generateHeadingStandaloneTitles');
+    });
+
+    it('should throw error when userid is undefined', async () => {
+      await expect(generateHeadingStandaloneTitles('## Test', 'Article', undefined as any)).rejects.toThrow('userId is required for generateHeadingStandaloneTitles');
+    });
+
+    it('should throw error when userid is empty string', async () => {
+      await expect(generateHeadingStandaloneTitles('## Test', 'Article', '')).rejects.toThrow('userId is required for generateHeadingStandaloneTitles');
+    });
+  });
+
   describe('generateHeadingStandaloneTitles', () => {
     it('should return empty object when no headings found', async () => {
       const content = 'This is plain text without any headings.';
