@@ -93,6 +93,7 @@ function ResultsPageContent() {
         loadExplanation,
         clearSystemSavedId
     } = useExplanationLoader({
+        userId: userid || undefined,
         onTagsLoad: (tags) => dispatchTagAction({ type: 'LOAD_TAGS', tags }),
         onMatchesLoad: (matches) => setMatches(matches),
         onClearPrompt: () => setPrompt(''),
@@ -106,9 +107,6 @@ function ResultsPageContent() {
             });
         }
     });
-
-    // Initialize user authentication hook
-    const { userid, fetchUserid } = useUserAuth();
 
     // Text reveal animation settings
     const { effect: textRevealEffect } = useTextRevealSettings();
@@ -743,9 +741,12 @@ function ResultsPageContent() {
             }
             processedParamsRef.current = paramsFingerprint;
 
-            // Initialize request ID for page load
+            // Get effective user ID first for request context
+            const effectiveUserid = userid || await fetchUserid();
+
+            // Initialize request ID for page load with actual user ID
             const pageLoadRequestId = `page-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: 'anonymous' });
+            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: effectiveUserid || 'anonymous' });
 
             // Reset lifecycle to idle when processing new URL parameters
             dispatchLifecycle({ type: 'RESET' });
@@ -764,8 +765,6 @@ function ResultsPageContent() {
             if (initialMode !== mode) {
                 setMode(initialMode);
             }
-
-            const effectiveUserid = userid || await fetchUserid();
             
             if (query) {
                 setPrompt(query);

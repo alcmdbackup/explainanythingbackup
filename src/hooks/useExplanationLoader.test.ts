@@ -13,19 +13,10 @@ import { logger } from '@/lib/client_utilities';
 // Mock all dependencies
 jest.mock('@/actions/actions');
 jest.mock('@/lib/client_utilities');
-jest.mock('./clientPassRequestId', () => ({
-    useClientPassRequestId: () => ({
-        withRequestId: <T>(data?: T) => ({
-            ...(data || {}),
-            __requestId: { requestId: 'test-request-id', userId: 'test-user' }
-        })
-    }),
-    useAuthenticatedRequestId: () => ({
-        withRequestId: <T>(data?: T) => ({
-            ...(data || {}),
-            __requestId: { requestId: 'test-request-id', userId: 'test-user' }
-        })
-    })
+jest.mock('@/lib/requestIdContext', () => ({
+    RequestIdContext: {
+        setClient: jest.fn()
+    }
 }));
 
 const mockGetExplanationByIdAction = getExplanationByIdAction as jest.MockedFunction<typeof getExplanationByIdAction>;
@@ -129,6 +120,20 @@ describe('useExplanationLoader', () => {
 
             expect(typeof result.current.loadExplanation).toBe('function');
             expect(typeof result.current.clearSystemSavedId).toBe('function');
+        });
+
+        it('should pass userId to useClientPassRequestId when provided', () => {
+            mockUseClientPassRequestId.mockClear();
+            renderHook(() => useExplanationLoader({ userId: 'test-user-123' }));
+
+            expect(mockUseClientPassRequestId).toHaveBeenCalledWith('test-user-123');
+        });
+
+        it('should use anonymous when userId is not provided', () => {
+            mockUseClientPassRequestId.mockClear();
+            renderHook(() => useExplanationLoader());
+
+            expect(mockUseClientPassRequestId).toHaveBeenCalledWith('anonymous');
         });
     });
 
