@@ -335,8 +335,13 @@ export class ResultsPage extends BasePage {
     let count = await this.getDiffCount();
     while (count > 0) {
       await this.acceptDiff(0);
-      // Small delay for DOM to update
-      await this.page.waitForTimeout(100);
+      // Wait for diff count to actually change
+      const previousCount = count;
+      await this.page.waitForFunction(
+        (prev) => document.querySelectorAll('[data-diff-key]').length < prev,
+        previousCount,
+        { timeout: 5000 }
+      ).catch(() => {});
       count = await this.getDiffCount();
     }
   }
@@ -345,8 +350,13 @@ export class ResultsPage extends BasePage {
     let count = await this.getDiffCount();
     while (count > 0) {
       await this.rejectDiff(0);
-      // Small delay for DOM to update
-      await this.page.waitForTimeout(100);
+      // Wait for diff count to actually change
+      const previousCount = count;
+      await this.page.waitForFunction(
+        (prev) => document.querySelectorAll('[data-diff-key]').length < prev,
+        previousCount,
+        { timeout: 5000 }
+      ).catch(() => {});
       count = await this.getDiffCount();
     }
   }

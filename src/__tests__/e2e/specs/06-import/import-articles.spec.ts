@@ -205,7 +205,7 @@ test.describe('Import Articles Feature', () => {
             await importPage.clickCancel();
 
             // Wait for modal to close
-            await authenticatedPage.waitForTimeout(500);
+            await authenticatedPage.locator('[data-testid="import-modal"]').waitFor({ state: 'hidden' }).catch(() => {});
 
             // Reopen modal
             await importPage.openModal();

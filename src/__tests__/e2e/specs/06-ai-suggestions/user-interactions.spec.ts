@@ -101,8 +101,7 @@ test.describe('AI Suggestions User Interactions', () => {
     const submitButton = page.locator('button:has-text("Get Suggestions")');
     await submitButton.click();
 
-    // Try clicking again (should be disabled or ignored)
-    await page.waitForTimeout(100);
+    // Try clicking again immediately (should be disabled or ignored)
     if (await submitButton.isEnabled()) {
       await submitButton.click();
     }

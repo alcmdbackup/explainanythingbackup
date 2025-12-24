@@ -21,6 +21,7 @@ import {
   submitAISuggestionPrompt,
   waitForSuggestionsError,
   waitForSuggestionsSuccess,
+  waitForSuggestionsLoading,
   waitForDiffNodes,
   getDiffCounts,
   getEditorTextContent,
@@ -173,8 +174,8 @@ test.describe('AI Suggestions Error Recovery', () => {
 
     await submitAISuggestionPrompt(page, 'Make changes');
 
-    // Should show error or handle gracefully
-    await page.waitForTimeout(3000);
+    // Should show error or handle gracefully - wait for error state
+    await waitForSuggestionsError(page).catch(() => {});
 
     // Content should be unchanged
     const contentAfter = await getEditorTextContent(page);
@@ -245,8 +246,8 @@ test.describe('AI Suggestions Error Recovery', () => {
 
     await submitAISuggestionPrompt(page, 'Add content');
 
-    // Wait a reasonable time - the UI should handle the long wait
-    await page.waitForTimeout(5000);
+    // Wait for loading state to appear (verifies UI is handling the slow request)
+    await waitForSuggestionsLoading(page).catch(() => {});
 
     // Content should still be intact regardless of loading state
     const contentAfterTimeout = await getEditorTextContent(page);
