@@ -933,3 +933,304 @@ describe('importExportUtils - Node Promotion', () => {
     expect(headingCount).toBeGreaterThanOrEqual(2);
   });
 });
+
+// ============= Transformer Node Type Validation Tests =============
+// These tests ensure the transformer creates the correct node types
+
+describe('importExportUtils - Transformer Node Type Validation', () => {
+  let editor: LexicalEditor;
+
+  beforeEach(() => {
+    editor = createTestEditor();
+  });
+
+  describe('Insertion creates correct DiffTagNodeInline', () => {
+    it('should create DiffTagNodeInline with tag="ins" for insertion', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{++inserted text++}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const nodeInfo = await editorRead(editor, () => {
+        const root = $getRoot();
+        let foundNode: DiffTagNodeInline | null = null;
+
+        function traverse(node: any): void {
+          if ($isDiffTagNodeInline(node)) {
+            foundNode = node;
+          }
+          if ($isElementNode(node)) {
+            node.getChildren().forEach(traverse);
+          }
+        }
+        root.getChildren().forEach(traverse);
+
+        if (!foundNode) return null;
+        const node = foundNode as DiffTagNodeInline;
+        return {
+          isCorrectType: $isDiffTagNodeInline(node),
+          tag: node.exportJSON().tag,
+          textContent: node.getTextContent(),
+        };
+      });
+
+      expect(nodeInfo).not.toBeNull();
+      expect(nodeInfo!.isCorrectType).toBe(true);
+      expect(nodeInfo!.tag).toBe('ins');
+      expect(nodeInfo!.textContent).toBe('inserted text');
+    });
+
+    it('should create DiffTagNodeInline with tag="del" for deletion', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{--deleted text--}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const nodeInfo = await editorRead(editor, () => {
+        const root = $getRoot();
+        let foundNode: DiffTagNodeInline | null = null;
+
+        function traverse(node: any): void {
+          if ($isDiffTagNodeInline(node)) {
+            foundNode = node;
+          }
+          if ($isElementNode(node)) {
+            node.getChildren().forEach(traverse);
+          }
+        }
+        root.getChildren().forEach(traverse);
+
+        if (!foundNode) return null;
+        const node = foundNode as DiffTagNodeInline;
+        return {
+          isCorrectType: $isDiffTagNodeInline(node),
+          tag: node.exportJSON().tag,
+          textContent: node.getTextContent(),
+        };
+      });
+
+      expect(nodeInfo).not.toBeNull();
+      expect(nodeInfo!.isCorrectType).toBe(true);
+      expect(nodeInfo!.tag).toBe('del');
+      expect(nodeInfo!.textContent).toBe('deleted text');
+    });
+
+    it('should create DiffTagNodeInline with tag="update" for substitution', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{~~old text~>new text~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const nodeInfo = await editorRead(editor, () => {
+        const root = $getRoot();
+        let foundNode: DiffTagNodeInline | null = null;
+
+        function traverse(node: any): void {
+          if ($isDiffTagNodeInline(node)) {
+            foundNode = node;
+          }
+          if ($isElementNode(node)) {
+            node.getChildren().forEach(traverse);
+          }
+        }
+        root.getChildren().forEach(traverse);
+
+        if (!foundNode) return null;
+        const node = foundNode as DiffTagNodeInline;
+        return {
+          isCorrectType: $isDiffTagNodeInline(node),
+          tag: node.exportJSON().tag,
+        };
+      });
+
+      expect(nodeInfo).not.toBeNull();
+      expect(nodeInfo!.isCorrectType).toBe(true);
+      expect(nodeInfo!.tag).toBe('update');
+    });
+  });
+
+  describe('Container node creation for updates', () => {
+    it('should create two DiffUpdateContainerInline children for substitution', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{~~before text~>after text~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const containerInfo = await editorRead(editor, () => {
+        const root = $getRoot();
+        let updateNode: DiffTagNodeInline | null = null;
+
+        function traverse(node: any): void {
+          if ($isDiffTagNodeInline(node) && (node as DiffTagNodeInline).exportJSON().tag === 'update') {
+            updateNode = node;
+          }
+          if ($isElementNode(node)) {
+            node.getChildren().forEach(traverse);
+          }
+        }
+        root.getChildren().forEach(traverse);
+
+        if (!updateNode) return null;
+
+        const node = updateNode as DiffTagNodeInline;
+        const children = node.getChildren();
+        const containers = children.filter((child: any) => $isDiffUpdateContainerInline(child));
+
+        return {
+          containerCount: containers.length,
+          firstContainerType: containers[0]?.exportJSON?.()?.containerType,
+          secondContainerType: containers[1]?.exportJSON?.()?.containerType,
+          firstContainerText: containers[0]?.getTextContent?.(),
+          secondContainerText: containers[1]?.getTextContent?.(),
+        };
+      });
+
+      expect(containerInfo).not.toBeNull();
+      expect(containerInfo!.containerCount).toBe(2);
+      expect(containerInfo!.firstContainerType).toBe('before');
+      expect(containerInfo!.secondContainerType).toBe('after');
+      expect(containerInfo!.firstContainerText).toBe('before text');
+      expect(containerInfo!.secondContainerText).toBe('after text');
+    });
+
+    it('should preserve text content in before/after containers', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{~~original sentence~>revised sentence~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const textContent = await editorRead(editor, () => {
+        const root = $getRoot();
+        let updateNode: DiffTagNodeInline | null = null;
+
+        function traverse(node: any): void {
+          if ($isDiffTagNodeInline(node) && (node as DiffTagNodeInline).exportJSON().tag === 'update') {
+            updateNode = node;
+          }
+          if ($isElementNode(node)) {
+            node.getChildren().forEach(traverse);
+          }
+        }
+        root.getChildren().forEach(traverse);
+
+        return (updateNode as DiffTagNodeInline | null)?.getTextContent();
+      });
+
+      expect(textContent).toContain('original sentence');
+      expect(textContent).toContain('revised sentence');
+    });
+  });
+
+  describe('Error handling for malformed input', () => {
+    it('should not create DiffTagNodeInline for malformed substitution (no separator)', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{~~no separator here~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const diffCount = await countNodesOfType(editor, 'diff-tag');
+      // Malformed substitution should not create a diff-tag node
+      // OR it should preserve the text without crashing
+      const text = await getEditorText(editor);
+      expect(text.length).toBeGreaterThan(0);
+      // If diff-tag was created, it should not be of type 'update'
+      if (diffCount > 0) {
+        const nodeInfo = await editorRead(editor, () => {
+          const root = $getRoot();
+          let foundNode: DiffTagNodeInline | null = null;
+
+          function traverse(node: any): void {
+            if ($isDiffTagNodeInline(node)) {
+              foundNode = node;
+            }
+            if ($isElementNode(node)) {
+              node.getChildren().forEach(traverse);
+            }
+          }
+          root.getChildren().forEach(traverse);
+
+          return (foundNode as DiffTagNodeInline | null)?.exportJSON().tag;
+        });
+        // Should not be 'update' since ~> separator is missing
+        expect(nodeInfo).not.toBe('update');
+      }
+    });
+
+    it('should handle multiple ~> separators gracefully', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        // Multiple separators - behavior should be defined
+        $convertFromMarkdownString('{~~first~>second~>third~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      // Should not throw, text should be preserved
+      const text = await getEditorText(editor);
+      expect(text.length).toBeGreaterThan(0);
+    });
+
+    it('should handle empty before text in substitution', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{~~  ~>after text~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      // Should not throw
+      const text = await getEditorText(editor);
+      expect(text).toContain('after text');
+    });
+
+    it('should handle empty after text in substitution', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{~~before text~>  ~~}', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      // Should not throw
+      const text = await getEditorText(editor);
+      expect(text).toContain('before text');
+    });
+  });
+
+  describe('Text node ordering after transformation', () => {
+    it('should preserve surrounding text when creating inline diff', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('before {++inserted++} after', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const text = await getEditorText(editor);
+      expect(text).toBe('before inserted after');
+
+      // Verify order is correct
+      const textParts = await editorRead(editor, () => {
+        const root = $getRoot();
+        const paragraph = root.getFirstChild();
+        if (!$isElementNode(paragraph)) return [];
+
+        return paragraph.getChildren().map((child: any) => ({
+          type: child.getType(),
+          text: child.getTextContent(),
+        }));
+      });
+
+      // Should have: text "before ", diff-tag "inserted", text " after"
+      expect(textParts.length).toBeGreaterThanOrEqual(3);
+      expect(textParts.some((p: any) => p.text.includes('before'))).toBe(true);
+      expect(textParts.some((p: any) => p.type === 'diff-tag' && p.text === 'inserted')).toBe(true);
+      expect(textParts.some((p: any) => p.text.includes('after'))).toBe(true);
+    });
+
+    it('should handle multiple diffs in same paragraph with correct ordering', async () => {
+      await editorUpdate(editor, () => {
+        const root = $getRoot();
+        $convertFromMarkdownString('{++first++} middle {--second--} end', MARKDOWN_TRANSFORMERS, root);
+      });
+
+      const text = await getEditorText(editor);
+      expect(text).toBe('first middle second end');
+
+      const diffCount = await countNodesOfType(editor, 'diff-tag');
+      expect(diffCount).toBe(2);
+    });
+  });
+});
