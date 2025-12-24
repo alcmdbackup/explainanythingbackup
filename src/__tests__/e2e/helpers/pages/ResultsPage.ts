@@ -53,12 +53,12 @@ export class ResultsPage extends BasePage {
   // Streaming state methods
   async waitForStreamingStart(timeout = 30000) {
     // Wait for title to appear (indicates streaming has started)
-    await this.page.waitForSelector(this.explanationTitle, { timeout });
+    await this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout });
   }
 
   async waitForStreamingComplete(timeout = 60000) {
     // Wait for element to be attached (not visible, since it has hidden class)
-    await this.page.waitForSelector(this.streamCompleteIndicator, { timeout, state: 'attached' });
+    await this.page.locator(this.streamCompleteIndicator).waitFor({ state: 'attached', timeout });
   }
 
   async isStreamComplete() {
@@ -90,7 +90,7 @@ export class ResultsPage extends BasePage {
 
   // Tag methods
   async getTags() {
-    await this.page.waitForSelector(this.tagItem, { timeout: 10000 }).catch(() => null);
+    await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
     const tags = this.page.locator(this.tagItem);
     const count = await tags.count();
     const tagTexts: string[] = [];
@@ -101,7 +101,7 @@ export class ResultsPage extends BasePage {
   }
 
   async getTagCount() {
-    await this.page.waitForSelector(this.tagItem, { timeout: 10000 }).catch(() => null);
+    await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
     return await this.page.locator(this.tagItem).count();
   }
 
@@ -160,7 +160,7 @@ export class ResultsPage extends BasePage {
   }
 
   async waitForLoadingToFinish(timeout = 30000) {
-    await this.page.waitForSelector(this.loadingIndicator, { state: 'hidden', timeout }).catch(() => null);
+    await this.page.locator(this.loadingIndicator).waitFor({ state: 'hidden', timeout }).catch(() => null);
   }
 
   // URL parameter helpers
@@ -189,8 +189,8 @@ export class ResultsPage extends BasePage {
   async waitForExplanationToLoad(timeout = 60000) {
     // Wait for either title or content to appear (whichever comes first)
     await Promise.race([
-      this.page.waitForSelector(this.explanationTitle, { timeout, state: 'visible' }),
-      this.page.waitForSelector(this.explanationContent, { timeout, state: 'visible' }),
+      this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout }),
+      this.page.locator(this.explanationContent).waitFor({ state: 'visible', timeout }),
     ]);
   }
 
@@ -200,8 +200,8 @@ export class ResultsPage extends BasePage {
     // This is more robust than checking loading indicator first, since the title
     // only renders when BOTH the data is loaded AND isPageLoading is false in React state
     await Promise.race([
-      this.page.waitForSelector(this.explanationTitle, { timeout, state: 'visible' }),
-      this.page.waitForSelector(this.explanationContent, { timeout, state: 'visible' }),
+      this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout }),
+      this.page.locator(this.explanationContent).waitFor({ state: 'visible', timeout }),
     ]).catch(async (error) => {
       // If page was closed, just re-throw the original error
       if (error.message?.includes('closed') || error.message?.includes('Target')) {
@@ -209,7 +209,7 @@ export class ResultsPage extends BasePage {
       }
       // If neither appears, check if there's an error state or empty state
       try {
-        const hasError = await this.page.locator('.bg-red-100').count() > 0;
+        const hasError = await this.page.locator('[data-testid="error-message"]').count() > 0;
         if (hasError) {
           throw new Error('Page loaded with error state instead of content');
         }
@@ -234,7 +234,7 @@ export class ResultsPage extends BasePage {
   }
 
   async waitForError(timeout = 30000) {
-    await this.page.waitForSelector(this.errorMessage, { timeout, state: 'visible' });
+    await this.page.locator(this.errorMessage).waitFor({ state: 'visible', timeout });
   }
 
   async isErrorVisible(): Promise<boolean> {
@@ -284,15 +284,15 @@ export class ResultsPage extends BasePage {
   }
 
   async waitForSuggestionsLoading(timeout = 5000) {
-    await this.page.waitForSelector(this.suggestionsLoading, { timeout, state: 'visible' });
+    await this.page.locator(this.suggestionsLoading).waitFor({ state: 'visible', timeout });
   }
 
   async waitForSuggestionsComplete(timeout = 30000) {
-    await this.page.waitForSelector(this.suggestionsSuccess, { timeout, state: 'visible' });
+    await this.page.locator(this.suggestionsSuccess).waitFor({ state: 'visible', timeout });
   }
 
   async waitForSuggestionsError(timeout = 10000) {
-    await this.page.waitForSelector(this.suggestionsError, { timeout, state: 'visible' });
+    await this.page.locator(this.suggestionsError).waitFor({ state: 'visible', timeout });
   }
 
   async getSuggestionsErrorText(): Promise<string | null> {

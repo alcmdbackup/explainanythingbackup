@@ -26,6 +26,7 @@ export async function waitForState<T extends string>(
         // State check failed, continue polling
       }
     }
+    // Intentional polling interval - this is a wait utility, not a fixed sleep
     await page.waitForTimeout(pollInterval);
   }
   return 'timeout';

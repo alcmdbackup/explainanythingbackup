@@ -78,6 +78,7 @@ test.describe('AI Suggestions User Interactions', () => {
     let requestCount = 0;
     await page.route('**/api/runAISuggestionsPipeline', async (route) => {
       requestCount++;
+      // Intentional delay to simulate slow API response for debounce testing
       await new Promise(r => setTimeout(r, 1000));
       await route.fulfill({
         status: 200,

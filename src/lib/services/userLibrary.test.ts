@@ -86,8 +86,8 @@ describe('UserLibrary Service', () => {
       expect(mockSupabase.select).toHaveBeenCalledWith('id, explanationid, userid, created');
       expect(mockSupabase.single).toHaveBeenCalled();
 
-      // Verify metrics are updated (async, not awaited)
-      // Wait a bit for the async call to complete
+      // Verify metrics are updated (async, not awaited in production code)
+      // Intentional wait for fire-and-forget async call to complete for testing
       await new Promise(resolve => setTimeout(resolve, 10));
       expect(incrementExplanationSaves).toHaveBeenCalledWith(explanationId);
     });
@@ -137,7 +137,7 @@ describe('UserLibrary Service', () => {
       // Assert - Should still return successfully even if metrics fail
       expect(result).toEqual(expectedData);
 
-      // Wait for async metrics call to complete
+      // Intentional wait for fire-and-forget async call to complete for testing
       await new Promise(resolve => setTimeout(resolve, 10));
       expect(mockLogger.error).toHaveBeenCalledWith(
         'Failed to update explanation metrics after save',

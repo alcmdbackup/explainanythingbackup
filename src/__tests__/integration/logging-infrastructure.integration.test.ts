@@ -165,7 +165,7 @@ describe('Logging Infrastructure Integration Tests', () => {
         return wrappedFn();
       });
 
-      // Wait for async completion
+      // Intentional wait for async callback completion - needed for RequestIdContext to propagate
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Assert - all logs should have requestId

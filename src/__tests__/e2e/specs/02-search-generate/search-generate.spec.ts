@@ -164,7 +164,7 @@ test.describe('Search and Generate Flow', () => {
 
       // Wait for error or content state to appear
       const state = await waitForState(page, {
-        error: async () => await page.locator('.bg-red-100').isVisible(),
+        error: async () => await page.locator('[data-testid="error-message"]').isVisible(),
         content: async () => await resultsPage.hasContent(),
       }, { timeout: 10000 });
 

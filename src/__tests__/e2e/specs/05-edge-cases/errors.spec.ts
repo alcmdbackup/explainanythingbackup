@@ -27,7 +27,7 @@ test.describe('Error Handling', () => {
 
       // Wait for either error or content to appear (or neither)
       const state = await waitForState(page, {
-        error: async () => await page.locator('.bg-red-100').isVisible(),
+        error: async () => await page.locator('[data-testid="error-message"]').isVisible(),
         content: async () => await resultsPage.hasContent(),
       });
 
@@ -104,7 +104,7 @@ test.describe('Error Handling', () => {
 
       // Wait for error or content to appear
       const state = await waitForState(page, {
-        error: async () => await page.locator('.bg-red-100').isVisible(),
+        error: async () => await page.locator('[data-testid="error-message"]').isVisible(),
         content: async () => await resultsPage.hasContent(),
       });
 
@@ -150,7 +150,7 @@ test.describe('Error Handling', () => {
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
       // Wait for input to become enabled (error state should re-enable it)
-      await page.waitForSelector('[data-testid="search-input"]:not([disabled])', { timeout: 10000 });
+      await page.locator('[data-testid="search-input"]:not([disabled])').waitFor({ state: 'visible', timeout: 10000 });
 
       // Submit new query using the search bar (nav variant uses Enter key, no submit button)
       await page.fill('[data-testid="search-input"]', 'successful query');

@@ -30,8 +30,8 @@ test.describe('User Library Management', () => {
 
     // Should show either content table, empty state, OR error message
     const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    const hasEmptyState = await authenticatedPage.locator('.scholar-card:has-text("Start exploring")').isVisible().catch(() => false);
-    const hasError = await authenticatedPage.locator('.bg-red-100').isVisible().catch(() => false);
+    const hasEmptyState = await authenticatedPage.locator('[data-testid="library-empty-state"]').isVisible().catch(() => false);
+    const hasError = await authenticatedPage.locator('[data-testid="library-error"]').isVisible().catch(() => false);
 
     // Page should render something after loading
     expect(hasTable || hasEmptyState || hasError).toBe(true);
