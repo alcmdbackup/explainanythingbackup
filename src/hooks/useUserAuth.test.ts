@@ -27,16 +27,70 @@ describe('useUserAuth', () => {
     });
 
     describe('Initial State', () => {
-        it('should initialize with null userid', () => {
+        it('should initialize with null userid and isLoading true', () => {
+            mockGetUser.mockResolvedValue({
+                data: { user: null },
+                error: null
+            } as any);
+
             const { result } = renderHook(() => useUserAuth());
 
             expect(result.current.userid).toBeNull();
+            expect(result.current.isLoading).toBe(true);
         });
 
-        it('should expose fetchUserid function', () => {
+        it('should expose fetchUserid function and isLoading state', () => {
+            mockGetUser.mockResolvedValue({
+                data: { user: null },
+                error: null
+            } as any);
+
             const { result } = renderHook(() => useUserAuth());
 
             expect(typeof result.current.fetchUserid).toBe('function');
+            expect(typeof result.current.isLoading).toBe('boolean');
+        });
+
+        it('should automatically fetch user on mount', async () => {
+            const mockUserId = 'auto-fetched-user';
+            mockGetUser.mockResolvedValue({
+                data: {
+                    user: {
+                        id: mockUserId,
+                        email: 'test@example.com',
+                        aud: 'authenticated',
+                        role: 'authenticated',
+                        created_at: new Date().toISOString(),
+                        app_metadata: {},
+                        user_metadata: {}
+                    }
+                },
+                error: null
+            } as any);
+
+            const { result } = renderHook(() => useUserAuth());
+
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
+            });
+
+            expect(result.current.userid).toBe(mockUserId);
+            expect(mockGetUser).toHaveBeenCalledTimes(1);
+        });
+
+        it('should set isLoading to false after fetch completes', async () => {
+            mockGetUser.mockResolvedValue({
+                data: { user: null },
+                error: null
+            } as any);
+
+            const { result } = renderHook(() => useUserAuth());
+
+            expect(result.current.isLoading).toBe(true);
+
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
+            });
         });
     });
 
@@ -69,7 +123,7 @@ describe('useUserAuth', () => {
             expect(returnedUserId).toBe(mockUserId);
         });
 
-        it('should call supabase_browser.auth.getUser', async () => {
+        it('should call supabase_browser.auth.getUser on manual fetch', async () => {
             mockGetUser.mockResolvedValue({
                 data: {
                     user: {
@@ -87,11 +141,18 @@ describe('useUserAuth', () => {
 
             const { result } = renderHook(() => useUserAuth());
 
+            // Wait for auto-fetch on mount
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
+            });
+
+            // Call again manually
             await act(async () => {
                 await result.current.fetchUserid();
             });
 
-            expect(mockGetUser).toHaveBeenCalledTimes(1);
+            // Called twice: once on mount, once manually
+            expect(mockGetUser).toHaveBeenCalledTimes(2);
         });
 
         it('should extract userid from auth response correctly', async () => {
@@ -291,7 +352,7 @@ describe('useUserAuth', () => {
             const firstUserId = 'user-1';
             const secondUserId = 'user-2';
 
-            // First call
+            // First mock for auto-fetch on mount
             mockGetUser.mockResolvedValueOnce({
                 data: {
                     user: {
@@ -309,8 +370,9 @@ describe('useUserAuth', () => {
 
             const { result } = renderHook(() => useUserAuth());
 
-            await act(async () => {
-                await result.current.fetchUserid();
+            // Wait for auto-fetch on mount
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
             });
 
             expect(result.current.userid).toBe(firstUserId);
@@ -339,7 +401,7 @@ describe('useUserAuth', () => {
         });
 
         it('should allow userid to be cleared on logout', async () => {
-            // First, set a user
+            // First, set a user (this mock is consumed by auto-fetch on mount)
             mockGetUser.mockResolvedValueOnce({
                 data: {
                     user: {
@@ -357,8 +419,9 @@ describe('useUserAuth', () => {
 
             const { result } = renderHook(() => useUserAuth());
 
-            await act(async () => {
-                await result.current.fetchUserid();
+            // Wait for auto-fetch on mount to complete
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
             });
 
             expect(result.current.userid).toBe('user-123');
@@ -378,8 +441,17 @@ describe('useUserAuth', () => {
     });
 
     describe('Callback Stability', () => {
-        it('should maintain stable fetchUserid reference across re-renders', () => {
+        it('should maintain stable fetchUserid reference across re-renders', async () => {
+            mockGetUser.mockResolvedValue({
+                data: { user: null },
+                error: null
+            } as any);
+
             const { result, rerender } = renderHook(() => useUserAuth());
+
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
+            });
 
             const firstFetchUserid = result.current.fetchUserid;
 
@@ -440,6 +512,11 @@ describe('useUserAuth', () => {
 
             const { result } = renderHook(() => useUserAuth());
 
+            // Wait for auto-fetch on mount
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
+            });
+
             await act(async () => {
                 const promises = [
                     result.current.fetchUserid(),
@@ -450,13 +527,26 @@ describe('useUserAuth', () => {
             });
 
             expect(result.current.userid).toBe(mockUserId);
-            expect(mockGetUser).toHaveBeenCalledTimes(3);
+            // 1 from mount + 3 concurrent = 4
+            expect(mockGetUser).toHaveBeenCalledTimes(4);
         });
 
-        it('should handle rejected promises from getUser', async () => {
-            mockGetUser.mockRejectedValue(new Error('Network error'));
+        it('should handle rejected promises from manual getUser call', async () => {
+            // First mock for auto-fetch on mount (success)
+            mockGetUser.mockResolvedValueOnce({
+                data: { user: null },
+                error: null
+            } as any);
 
             const { result } = renderHook(() => useUserAuth());
+
+            // Wait for mount to complete
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
+            });
+
+            // Then mock rejection for manual call
+            mockGetUser.mockRejectedValueOnce(new Error('Network error'));
 
             await expect(act(async () => {
                 await result.current.fetchUserid();
@@ -472,10 +562,12 @@ describe('useUserAuth', () => {
 
             const { result } = renderHook(() => useUserAuth());
 
-            await act(async () => {
-                await result.current.fetchUserid();
+            // Wait for mount
+            await waitFor(() => {
+                expect(result.current.isLoading).toBe(false);
             });
 
+            // fetchUserid is called on mount, so check that it was logged
             expect(consoleSpy).toHaveBeenCalledWith('[useUserAuth] fetchUserid called');
         });
     });

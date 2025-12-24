@@ -1,13 +1,14 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { supabase_browser } from '@/lib/supabase';
 
 /**
  * Custom hook for managing user authentication state
  *
  * • Manages userid state from Supabase authentication
- * • Provides method to fetch current authenticated user
+ * • Automatically fetches user on mount
+ * • Provides method to manually refresh user if needed
  * • Handles authentication errors and missing user data
  * • Returns userid for use in other components
  *
@@ -16,6 +17,7 @@ import { supabase_browser } from '@/lib/supabase';
  */
 export function useUserAuth() {
     const [userid, setUserid] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
 
     /**
      * Fetches the current user's ID from authentication
@@ -49,8 +51,14 @@ export function useUserAuth() {
         return userData.user.id;
     }, []);
 
+    // Fetch user on mount
+    useEffect(() => {
+        fetchUserid().finally(() => setIsLoading(false));
+    }, [fetchUserid]);
+
     return {
         userid,
+        isLoading,
         fetchUserid
     };
 }
