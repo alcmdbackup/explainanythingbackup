@@ -10,7 +10,7 @@ import {
 } from '@/actions/actions';
 import { ExplanationStatus, TagUIType, matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
-import { RequestIdContext } from '@/lib/requestIdContext';
+import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 
 const FILE_DEBUG = false;
 
@@ -93,7 +93,8 @@ export interface UseExplanationLoaderReturn {
 export function useExplanationLoader(
     options: UseExplanationLoaderOptions = {}
 ): UseExplanationLoaderReturn {
-    const { onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
+    const { userId, onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
+    const { withRequestId } = useClientPassRequestId(userId || 'anonymous');
 
     // State for the 7 explanation-related variables
     const [explanationId, setExplanationId] = useState<number | null>(null);
@@ -119,22 +120,14 @@ export function useExplanationLoader(
     const checkUserSaved = useCallback(async (targetExplanationId: number, userid: string) => {
         if (!targetExplanationId || !userid) return;
         try {
-            // Create fresh request context using the passed userid parameter
-            // This avoids the React closure capture issue where hook-based withRequestId
-            // would capture 'anonymous' during initial render before async auth completes
-            const requestId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-            RequestIdContext.setClient({ requestId, userId: userid });
-
-            const saved = await isExplanationSavedByUserAction({
-                explanationid: targetExplanationId,
-                userid,
-                __requestId: { requestId, userId: userid }
-            } as any);
+            const saved = await isExplanationSavedByUserAction(
+                withRequestId({ explanationid: targetExplanationId, userid })
+            );
             setUserSaved(saved);
         } catch {
             setUserSaved(false);
         }
-    }, []);
+    }, [withRequestId]);
 
     /**
      * Loads an explanation by ID and updates the state
@@ -162,22 +155,9 @@ export function useExplanationLoader(
             setIsLoading(true);
             setError(null);
 
-            // Create fresh request context using the passed userid parameter
-            // This avoids the React closure capture issue where hook-based withRequestId
-            // would capture 'anonymous' during initial render before async auth completes
-            const effectiveUserId = userid || 'anonymous';
-            const requestId = `client-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-            RequestIdContext.setClient({ requestId, userId: effectiveUserId });
-
-            // Helper to create request payload with fresh context
-            const createRequestPayload = <T extends Record<string, unknown> = Record<string, unknown>>(data?: T) => ({
-                ...(data || {} as T),
-                __requestId: { requestId, userId: effectiveUserId }
-            } as T & { __requestId: { requestId: string; userId: string } });
-
             logger.debug('[loadExplanation] Calling getExplanationByIdAction...', null, FILE_DEBUG);
             const explanation = await getExplanationByIdAction(
-                createRequestPayload({ id: targetExplanationId })
+                withRequestId({ id: targetExplanationId })
             );
             logger.debug('[loadExplanation] getExplanationByIdAction returned:', { found: !!explanation }, FILE_DEBUG);
 
@@ -195,7 +175,7 @@ export function useExplanationLoader(
             logger.debug('[loadExplanation] Calling resolveLinksForDisplayAction...', { contentLength: explanation.content.length }, FILE_DEBUG);
             try {
                 contentToDisplay = await resolveLinksForDisplayAction(
-                    createRequestPayload({ explanationId: explanation.id, content: explanation.content })
+                    withRequestId({ explanationId: explanation.id, content: explanation.content })
                 );
                 logger.debug('[loadExplanation] resolveLinksForDisplayAction returned:', {
                     resultLength: contentToDisplay.length,
@@ -237,7 +217,7 @@ export function useExplanationLoader(
 
             // Fetch tags for the explanation
             const tagsResult = await getTagsForExplanationAction(
-                createRequestPayload({ explanationId: explanation.id })
+                withRequestId({ explanationId: explanation.id })
             );
 
             if (tagsResult.success && tagsResult.data) {
@@ -258,7 +238,7 @@ export function useExplanationLoader(
             }, FILE_DEBUG);
 
             const vectorResult = await loadFromPineconeUsingExplanationIdAction(
-                createRequestPayload({ explanationId: explanation.id })
+                withRequestId({ explanationId: explanation.id })
             );
 
             if (vectorResult.success) {
@@ -325,7 +305,7 @@ export function useExplanationLoader(
             logger.error('Failed to load explanation:', { error: errorMessage });
             setIsLoading(false);
         }
-    }, [checkUserSaved, onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues]);
+    }, [withRequestId, checkUserSaved, onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues]);
 
     /**
      * Clears the systemSavedId
