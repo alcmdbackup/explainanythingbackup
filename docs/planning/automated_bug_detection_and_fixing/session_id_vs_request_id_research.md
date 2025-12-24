@@ -1,14 +1,28 @@
 # Session ID vs Request ID: Research Document
 
+> **Status**: Draft - Needs implementation decisions
+> **Last Updated**: 2024-12-24
+
+## Executive Summary
+
+This document analyzes adding `session_id` to complement existing `request_id` tracking. Key findings:
+
+- **request_id**: Per-request tracing (works well, already implemented)
+- **session_id**: Cross-request user journey tracking (proposed)
+
+**Recommendation**: Implement hybrid approach - auth-derived session for logged-in users, client-generated for anonymous.
+
+---
+
 ## Current State: Request ID Implementation
 
 ### What request_id Does Today
 
-A `request_id` uniquely identifies a **single client-to-server request**. It's generated per action/API call.
+A `request_id` uniquely identifies a **single client-to-server request**.
 
-| Aspect | Current Implementation |
-|--------|------------------------|
-| **Scope** | One request (e.g., one button click, one API call) |
+| Aspect | Implementation |
+|--------|----------------|
+| **Scope** | One request (button click, API call) |
 | **Lifetime** | Generated → Sent → Logged → Discarded |
 | **Format** | `client-{timestamp}-{random6}` or `api-{uuid}` |
 | **Storage** | `AsyncLocalStorage` (server), module var (client) |
@@ -39,29 +53,26 @@ Logger
 
 ---
 
-## What session_id Would Represent
+## What session_id Would Add
 
-A `session_id` would track a **logical user session** spanning multiple requests.
+A `session_id` tracks a **logical user session** spanning multiple requests.
 
 ### Semantic Difference
 
 | Concept | Scope | Example |
 |---------|-------|---------|
 | **request_id** | Single API call | "Fetch explanation #42" |
-| **session_id** | User activity window | "User's entire editing session on canvas X" |
+| **session_id** | User activity window | "User's entire editing session" |
 
-### Candidate Session Boundaries
+### Relationship Model
 
-| Session Type | Start | End | Use Case |
-|--------------|-------|-----|----------|
-| **Auth session** | Login | Logout/expire | User accountability |
-| **Tab session** | Page load | Tab close | Debug user journey |
-| **Canvas session** | Open canvas | Close canvas | Track canvas lifecycle |
-| **Browser session** | First visit | Browser close | General analytics |
-
----
-
-## How session_id Would Fit Alongside request_id
+```
+Session (sessionId: "auth-a1b2c3d4e5f6")
+├── Request 1 (requestId: "client-001-xyz")
+├── Request 2 (requestId: "client-002-abc")
+├── Request 3 (requestId: "api-uuid-1")
+└── Request 4 (requestId: "client-003-def")
+```
 
 ### Extended Context Structure
 
@@ -70,89 +81,136 @@ A `session_id` would track a **logical user session** spanning multiple requests
 { requestId: string; userId: string }
 
 // Extended:
-{ requestId: string; userId: string; sessionId?: string }
-```
-
-### Relationship Model
-
-```
-Session (sessionId: "sess-abc123")
-├── Request 1 (requestId: "client-001-xyz")
-├── Request 2 (requestId: "client-002-abc")
-├── Request 3 (requestId: "api-uuid-1")
-└── Request 4 (requestId: "client-003-def")
-```
-
-Each request belongs to exactly one session. Multiple requests share the same session ID.
-
----
-
-## Implementation Options
-
-### Option A: Supabase Auth Session Token
-
-Use Supabase's existing session token as `sessionId`.
-
-**Pros:**
-- Already exists (no new generation logic)
-- Tied to authentication lifecycle
-- Persists across page refreshes
-
-**Cons:**
-- Anonymous users have no session
-- Token may be long/opaque
-- Session = auth session (might be too coarse)
-
-**Implementation:**
-```typescript
-// In useAuthenticatedRequestId():
-const session = await supabase.auth.getSession();
-const sessionId = session?.data?.session?.access_token?.slice(0, 16); // truncated
-```
-
-### Option B: Client-Generated Session ID
-
-Generate a session ID on page load, store in sessionStorage.
-
-**Pros:**
-- Works for anonymous users
-- Fresh per browser tab
-- Simple to implement
-
-**Cons:**
-- Lost on page refresh (unless using localStorage)
-- Not tied to auth
-
-**Implementation:**
-```typescript
-// src/lib/sessionId.ts
-export function getSessionId(): string {
-  let sessionId = sessionStorage.getItem('sessionId');
-  if (!sessionId) {
-    sessionId = `sess-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    sessionStorage.setItem('sessionId', sessionId);
-  }
-  return sessionId;
+{
+  requestId: string;
+  userId: string;
+  sessionId: string;
+  previousSessionId?: string;  // For auth transitions
 }
 ```
 
-### Option C: Hybrid Approach
+---
 
-Use auth session ID when authenticated, client-generated when anonymous.
+## Recommended Implementation
 
-**Pros:**
-- Works for all users
-- Maintains identity continuity for logged-in users
+### Session ID Generation
 
-**Implementation:**
+Use **hybrid approach** with auth sessions taking precedence:
+
 ```typescript
+// src/lib/sessionId.ts
+import { createHash } from 'crypto';
+
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+interface StoredSession {
+  id: string;
+  lastActivity: number;
+}
+
+/**
+ * Get or create session ID.
+ * Auth sessions take precedence over anonymous.
+ */
 export async function getSessionId(): Promise<string> {
-  const { data } = await supabase.auth.getSession();
-  if (data?.session?.access_token) {
-    // Hash or truncate to reasonable length
-    return `auth-${hashFirst16Chars(data.session.access_token)}`;
+  const { data, error } = await supabase.auth.getSession();
+
+  if (!error && data?.session) {
+    return deriveAuthSessionId(data.session);
   }
-  return getClientGeneratedSessionId(); // Option B fallback
+
+  return getOrCreateAnonymousSessionId();
+}
+
+/**
+ * Derive deterministic session ID from auth session.
+ * Uses non-secret metadata (NOT access token).
+ */
+function deriveAuthSessionId(session: Session): string {
+  // SECURITY: Never use access_token - it's a secret
+  const input = `${session.user.id}-${session.created_at || session.expires_at}`;
+  return `auth-${createHash('sha256').update(input).digest('hex').slice(0, 12)}`;
+}
+
+/**
+ * Get or create anonymous session with timeout.
+ * Uses localStorage for cross-tab persistence.
+ */
+function getOrCreateAnonymousSessionId(): string {
+  const stored = localStorage.getItem('session');
+  const now = Date.now();
+
+  if (stored) {
+    const { id, lastActivity } = JSON.parse(stored) as StoredSession;
+    if (now - lastActivity < SESSION_TIMEOUT_MS) {
+      // Refresh sliding window
+      localStorage.setItem('session', JSON.stringify({ id, lastActivity: now }));
+      return id;
+    }
+    // Session expired - will create new one below
+  }
+
+  // Create new session with full UUID (collision-safe)
+  const newSession: StoredSession = {
+    id: `sess-${crypto.randomUUID()}`,
+    lastActivity: now,
+  };
+  localStorage.setItem('session', JSON.stringify(newSession));
+  return newSession.id;
+}
+
+/**
+ * Optional: Get tab-specific ID for per-tab debugging.
+ */
+export function getTabId(): string {
+  let tabId = sessionStorage.getItem('tabId');
+  if (!tabId) {
+    tabId = crypto.randomUUID().slice(0, 8);
+    sessionStorage.setItem('tabId', tabId);
+  }
+  return tabId;
+}
+
+/**
+ * Clear session on logout for privacy.
+ */
+export function clearSession(): void {
+  localStorage.removeItem('session');
+  sessionStorage.removeItem('anonSessionId');
+}
+
+// Register logout handler
+supabase.auth.onAuthStateChange((event) => {
+  if (event === 'SIGNED_OUT') {
+    clearSession();
+  }
+});
+```
+
+### Handling Anonymous → Authenticated Transition
+
+When user logs in mid-session, link the sessions:
+
+```typescript
+export function handleAuthTransition(): {
+  sessionId: string;
+  previousSessionId?: string;
+} {
+  const anonSession = localStorage.getItem('session');
+  const anonSessionId = anonSession ? JSON.parse(anonSession).id : null;
+  const authSessionId = deriveAuthSessionId(currentSession);
+
+  if (anonSessionId && anonSessionId !== authSessionId) {
+    // Log linking event for journey reconstruction
+    logger.info('Session transition', {
+      previousSessionId: anonSessionId,
+      sessionId: authSessionId,
+    });
+    localStorage.removeItem('session');
+    return { sessionId: authSessionId, previousSessionId: anonSessionId };
+  }
+
+  return { sessionId: authSessionId };
 }
 ```
 
@@ -167,7 +225,13 @@ export async function getSessionId(): Promise<string> {
 interface RequestContext {
   requestId: string;
   userId: string;
-  sessionId?: string;  // NEW
+  sessionId: string;
+  previousSessionId?: string;
+}
+
+// Add getter
+static getSessionId(): string {
+  return this.get()?.sessionId || 'unknown';
 }
 ```
 
@@ -177,11 +241,11 @@ interface RequestContext {
 // src/hooks/clientPassRequestId.ts
 export function useAuthenticatedRequestId() {
   const [userId, setUserId] = useState('anonymous');
-  const [sessionId, setSessionId] = useState<string | undefined>();
+  const [sessionId, setSessionId] = useState<string>('unknown');
 
   useEffect(() => {
     fetchUserid().then(setUserId);
-    getSessionId().then(setSessionId);  // NEW
+    getSessionId().then(setSessionId);
   }, []);
 
   return {
@@ -190,7 +254,7 @@ export function useAuthenticatedRequestId() {
       __requestId: {
         requestId: generateRequestId(),
         userId,
-        sessionId,  // NEW
+        sessionId,
       },
     }),
   };
@@ -209,10 +273,10 @@ return RequestIdContext.run({ requestId, userId, sessionId }, () => fn(...args))
 
 ```typescript
 // src/lib/server_utilities.ts
-const addRequestId = (data) => ({
+const addRequestId = (data: LoggerData | null) => ({
   requestId: RequestIdContext.getRequestId(),
   userId: RequestIdContext.getUserId(),
-  sessionId: RequestIdContext.getSessionId(),  // NEW
+  sessionId: RequestIdContext.getSessionId(),
   ...data,
 });
 ```
@@ -226,9 +290,74 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
 
 ---
 
-## Log Format Comparison
+## Files to Modify
 
-### Current Log Entry
+| File | Change | Priority |
+|------|--------|----------|
+| `src/lib/sessionId.ts` | **NEW** - session management | P0 |
+| `src/lib/requestIdContext.ts` | Add sessionId to context | P0 |
+| `src/hooks/clientPassRequestId.ts` | Integrate getSessionId() | P0 |
+| `src/lib/serverReadRequestId.ts` | Extract sessionId from payload | P0 |
+| `src/lib/server_utilities.ts` | Add sessionId to logger | P1 |
+| `src/app/api/stream-chat/route.ts` | Handle sessionId | P1 |
+| `src/lib/logging/server/automaticServerLoggingBase.ts` | Add span attribute | P2 |
+| `instrumentation.ts` | Add sessionId to traces | P2 |
+
+---
+
+## Migration Strategy
+
+### Phase 1: Add Optional sessionId
+
+```typescript
+interface RequestContext {
+  requestId: string;
+  userId: string;
+  sessionId?: string;  // Optional during migration
+}
+
+// Logger handles missing sessionId gracefully:
+const addRequestId = (data) => ({
+  requestId: RequestIdContext.getRequestId(),
+  userId: RequestIdContext.getUserId(),
+  ...(RequestIdContext.getSessionId() && { sessionId: RequestIdContext.getSessionId() }),
+  ...data,
+});
+```
+
+### Phase 2: Client Integration
+
+- Update `useAuthenticatedRequestId()` to include sessionId
+- Update all API routes to propagate sessionId
+- Monitor logs to verify propagation
+
+### Phase 3: Make Required
+
+```typescript
+interface RequestContext {
+  requestId: string;
+  userId: string;
+  sessionId: string;  // Now required
+}
+```
+
+### Query Patterns for Mixed Logs
+
+```sql
+-- Handle logs from before migration
+SELECT
+  requestId,
+  userId,
+  COALESCE(sessionId, 'pre-migration') as sessionId
+FROM logs
+WHERE timestamp > '2024-12-01';
+```
+
+---
+
+## Log Format
+
+### Current
 
 ```json
 {
@@ -249,7 +378,7 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
   "message": "Explanation generated",
   "requestId": "client-1703416245-abc123",
   "userId": "user-uuid-456",
-  "sessionId": "sess-1703415000-xyz789"
+  "sessionId": "auth-a1b2c3d4e5f6"
 }
 ```
 
@@ -257,18 +386,9 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
 
 ## Query Patterns Enabled
 
-### With request_id Only (Current)
-
-```sql
--- Find all logs for a specific request
-SELECT * FROM logs WHERE requestId = 'client-123-abc';
-```
-
-### With session_id Added
-
 ```sql
 -- Find all requests in a session
-SELECT * FROM logs WHERE sessionId = 'sess-xyz' ORDER BY timestamp;
+SELECT * FROM logs WHERE sessionId = 'auth-xyz' ORDER BY timestamp;
 
 -- Count requests per session
 SELECT sessionId, COUNT(*) as request_count FROM logs GROUP BY sessionId;
@@ -276,41 +396,56 @@ SELECT sessionId, COUNT(*) as request_count FROM logs GROUP BY sessionId;
 -- Find sessions with errors
 SELECT DISTINCT sessionId FROM logs WHERE level = 'ERROR';
 
--- User journey reconstruction
+-- Trace user journey across auth transition
+WITH linked AS (
+  SELECT sessionId, previousSessionId FROM logs
+  WHERE previousSessionId IS NOT NULL
+)
 SELECT * FROM logs
-WHERE sessionId = 'sess-xyz'
+WHERE sessionId IN (SELECT sessionId FROM linked)
+   OR sessionId IN (SELECT previousSessionId FROM linked)
 ORDER BY timestamp;
 ```
 
 ---
 
-## Recommendations
+## Privacy & Compliance
 
-### For Debugging Workflows
+### Data Classification
 
-Use **Option B (client-generated session ID)** stored in `sessionStorage`:
-- Simple to implement
-- Works for anonymous debugging
-- Natural per-tab isolation
+- **sessionId**: Non-PII (random identifier, not tied to identity without userId)
+- **Purpose**: Debugging and error correlation only
 
-### For Production Analytics
+### Retention Policy
 
-Use **Option C (hybrid approach)**:
-- Auth session for logged-in users (accountability)
-- Client session for anonymous (debugging)
+- Logs with sessionId: 30 days
+- After 30 days: Aggregate/anonymize (remove sessionId)
 
-### Implementation Priority
+### User Control
 
-1. **Phase 1**: Add `sessionId` to context structure (minimal change)
-2. **Phase 2**: Implement client-side session generation
-3. **Phase 3**: Update all loggers to include sessionId
-4. **Phase 4**: Add OpenTelemetry session attribute
+Session ID is cleared on:
+- Logout (automatic via auth state change)
+- Browser cache/localStorage clear
+- 30-minute inactivity timeout
 
 ---
 
-## Existing Session Concepts in Codebase
+## Summary
 
-Already found in `testing_edits_pipeline` table:
+| Aspect | request_id | session_id |
+|--------|------------|------------|
+| **Scope** | Single request | Multiple requests |
+| **Lifetime** | Milliseconds | Minutes to hours |
+| **Format** | `client-{ts}-{random}` | `auth-{hash}` or `sess-{uuid}` |
+| **Storage** | AsyncLocalStorage | localStorage + context |
+| **Use case** | Trace single call | Trace user journey |
+| **Correlation** | Debug one error | Debug sequence of events |
+
+---
+
+## Existing Patterns
+
+Already established in `testing_edits_pipeline` table:
 
 ```sql
 CREATE TABLE testing_edits_pipeline (
@@ -320,17 +455,14 @@ CREATE TABLE testing_edits_pipeline (
 );
 ```
 
-This shows the pattern is already established for pipeline testing. Extending to request tracing follows the same concept.
+This confirms the session pattern is already used for pipeline testing.
 
 ---
 
-## Summary Table
+## Open Questions
 
-| Aspect | request_id | session_id |
-|--------|------------|------------|
-| **Scope** | Single request | Multiple requests |
-| **Lifetime** | Milliseconds | Minutes to hours |
-| **Cardinality** | High (per action) | Lower (per session) |
-| **Storage** | AsyncLocalStorage | sessionStorage/cookie |
-| **Use case** | Trace single call | Trace user journey |
-| **Correlation** | Debug one error | Debug sequence of events |
+Before implementation, clarify:
+
+1. **Tab handling**: Same sessionId across tabs, or per-tab?
+2. **Timeout duration**: 30 minutes appropriate?
+3. **Anonymous tracking**: Required, or only authenticated users?
