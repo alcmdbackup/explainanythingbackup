@@ -17,10 +17,25 @@ jest.mock('@/editorFiles/markdownASTdiff/testRunner', () => ({
   formatTestResults: jest.fn(),
 }));
 
+// Mock RequestIdContext
+jest.mock('@/lib/requestIdContext', () => ({
+  RequestIdContext: {
+    run: jest.fn((data, callback) => callback()),
+    getRequestId: jest.fn(() => 'mock-request-id'),
+    getUserId: jest.fn(() => 'mock-user-id'),
+  },
+}));
+
+jest.mock('crypto', () => ({
+  randomUUID: jest.fn(() => 'test-uuid-123'),
+}));
+
 import { runAllTests, formatTestResults } from '@/editorFiles/markdownASTdiff/testRunner';
+import { RequestIdContext } from '@/lib/requestIdContext';
 
 const mockRunAllTests = runAllTests as jest.MockedFunction<typeof runAllTests>;
 const mockFormatTestResults = formatTestResults as jest.MockedFunction<typeof formatTestResults>;
+const mockRequestIdContextRun = RequestIdContext.run as jest.MockedFunction<typeof RequestIdContext.run>;
 
 describe('GET /api/test-responses', () => {
   beforeEach(() => {
@@ -225,5 +240,21 @@ describe('GET /api/test-responses', () => {
     await GET();
 
     expect(callOrder).toEqual(['read', 'run', 'format', 'write']);
+  });
+
+  describe('RequestIdContext', () => {
+    it('should call RequestIdContext.run with generated requestId and userId', async () => {
+      mockReadFileSync.mockReturnValue('Test content');
+      mockRunAllTests.mockReturnValue([]);
+      mockFormatTestResults.mockReturnValue('Results');
+
+      await GET();
+
+      expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
+      expect(mockRequestIdContextRun).toHaveBeenCalledWith(
+        { requestId: 'test-responses-test-uuid-123', userId: 'test-responses-test-uuid-123' },
+        expect.any(Function)
+      );
+    });
   });
 });

@@ -83,3 +83,72 @@ Keep current behavior but add tests that fail if fallbacks are ever used in prod
 | `src/lib/requestIdContext.ts` | Add validation for empty/invalid requestId |
 | `src/lib/requestIdContext.test.ts` | Add validation tests |
 | `src/lib/server_utilities.test.ts` | Add tests verifying no "unknown" in logs |
+| `src/app/api/client-logs/route.test.ts` | Add RequestIdContext.run() verification |
+| `src/app/api/test-cases/route.test.ts` | Add RequestIdContext.run() verification |
+| `src/app/api/test-responses/route.test.ts` | Add RequestIdContext.run() verification |
+
+---
+
+## Implementation Complete (2024-12-24)
+
+### Changes Made
+
+#### 1. RequestIdContext Validation (`src/lib/requestIdContext.ts`)
+- Added `validateContextData()` function that throws errors for invalid requestId
+- `run()` and `setClient()` now reject:
+  - `null` / `undefined` data
+  - Empty string requestId
+  - Literal `'unknown'` requestId
+- **Note:** userId is NOT validated - `'anonymous'` remains a valid fallback for unauthenticated users
+
+#### 2. Test Coverage Added
+- `src/lib/requestIdContext.test.ts`: 9 new validation tests for requestId
+- `src/app/api/client-logs/route.test.ts`: RequestIdContext.run() verification
+- `src/app/api/test-cases/route.test.ts`: RequestIdContext.run() verification
+- `src/app/api/test-responses/route.test.ts`: RequestIdContext.run() verification
+
+### Test Results
+- 2064 tests passing
+- 76/77 test suites passing (1 unrelated timeout in ImportModal)
+
+---
+
+## Gaps Identified (Review Notes)
+
+### 1. Missing API Routes Coverage
+
+The plan only mentions 3 routes but there are **6 routes** using RequestIdContext:
+
+| Route | In Plan | Has Tests | Notes |
+|-------|---------|-----------|-------|
+| `/api/client-logs` | ✅ | ✅ | Needs RequestIdContext verification |
+| `/api/test-cases` | ✅ | ✅ | Needs RequestIdContext verification |
+| `/api/test-responses` | ✅ | ✅ | Needs RequestIdContext verification |
+| `/api/stream-chat` | ❌ | ✅ | Already has RequestIdContext tests (good pattern) |
+| `/api/returnExplanation` | ❌ | ❌ | No test file exists |
+| `/api/fetchSourceMetadata` | ❌ | ❌ | No test file exists |
+
+**Decision needed:** Include the 3 missing routes or document why excluded.
+
+### 2. Incomplete Validation Cases
+
+Current plan proposes rejecting empty string. Missing:
+- Reject `null`/`undefined` explicitly
+- Reject the literal `'unknown'` (mentioned in Option A code but not in test cases)
+- Define "valid" - just non-empty, or require UUID format?
+
+### 3. userId Not Addressed
+
+`getUserId()` has same fallback pattern (`'anonymous'`). Should validation apply to both?
+
+### 4. Existing Patterns to Reference
+
+- `src/app/api/stream-chat/route.test.ts` already has proper RequestIdContext mocking - use as pattern
+- `src/__tests__/integration/logging-infrastructure.integration.test.ts` tests request ID preservation
+
+### 5. Test Strategy Unclear
+
+How to verify "never log with unknown":
+- Runtime validation (throw if unknown)?
+- Test assertion pattern only?
+- Logger warning when fallback used?

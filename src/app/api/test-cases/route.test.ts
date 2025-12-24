@@ -10,6 +10,22 @@ import { NextResponse } from 'next/server';
 jest.mock('fs');
 const mockReadFileSync = readFileSync as jest.MockedFunction<typeof readFileSync>;
 
+// Mock RequestIdContext
+jest.mock('@/lib/requestIdContext', () => ({
+  RequestIdContext: {
+    run: jest.fn((data, callback) => callback()),
+    getRequestId: jest.fn(() => 'mock-request-id'),
+    getUserId: jest.fn(() => 'mock-user-id'),
+  },
+}));
+
+jest.mock('crypto', () => ({
+  randomUUID: jest.fn(() => 'test-uuid-123'),
+}));
+
+import { RequestIdContext } from '@/lib/requestIdContext';
+const mockRequestIdContextRun = RequestIdContext.run as jest.MockedFunction<typeof RequestIdContext.run>;
+
 describe('GET /api/test-cases', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -81,5 +97,19 @@ describe('GET /api/test-cases', () => {
 
     expect(response.status).toBe(200);
     expect(mockReadFileSync).toHaveBeenCalled();
+  });
+
+  describe('RequestIdContext', () => {
+    it('should call RequestIdContext.run with generated requestId and userId', async () => {
+      mockReadFileSync.mockReturnValue('Test content');
+
+      await GET();
+
+      expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
+      expect(mockRequestIdContextRun).toHaveBeenCalledWith(
+        { requestId: 'test-cases-test-uuid-123', userId: 'test-cases-test-uuid-123' },
+        expect.any(Function)
+      );
+    });
   });
 });

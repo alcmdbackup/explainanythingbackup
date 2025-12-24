@@ -29,6 +29,79 @@ describe('RequestIdContext', () => {
     jest.clearAllMocks();
   });
 
+  describe('Validation', () => {
+    // Use client-side for validation tests (easier to test without mocks)
+    let RequestIdContext: typeof ServerRequestIdContext;
+
+    beforeEach(() => {
+      (global as any).window = {};
+      jest.resetModules();
+      const module = require('./requestIdContext');
+      RequestIdContext = module.RequestIdContext;
+    });
+
+    afterEach(() => {
+      delete (global as any).window;
+    });
+
+    describe('run() validation', () => {
+      it('should throw for null data', () => {
+        expect(() => RequestIdContext.run(null as any, () => {}))
+          .toThrow('RequestIdContext: data is required');
+      });
+
+      it('should throw for undefined data', () => {
+        expect(() => RequestIdContext.run(undefined as any, () => {}))
+          .toThrow('RequestIdContext: data is required');
+      });
+
+      it('should throw for empty requestId', () => {
+        expect(() => RequestIdContext.run({ requestId: '', userId: 'user-123' }, () => {}))
+          .toThrow('RequestIdContext: requestId must be a valid non-empty string');
+      });
+
+      it('should throw for "unknown" requestId', () => {
+        expect(() => RequestIdContext.run({ requestId: 'unknown', userId: 'user-123' }, () => {}))
+          .toThrow('RequestIdContext: requestId must be a valid non-empty string');
+      });
+
+      it('should accept valid requestId with any userId', () => {
+        expect(() => RequestIdContext.run({ requestId: 'req-123', userId: 'user-456' }, () => {}))
+          .not.toThrow();
+        expect(() => RequestIdContext.run({ requestId: 'req-123', userId: 'anonymous' }, () => {}))
+          .not.toThrow();
+        expect(() => RequestIdContext.run({ requestId: 'req-123', userId: '' }, () => {}))
+          .not.toThrow();
+      });
+    });
+
+    describe('setClient() validation', () => {
+      it('should throw for null data', () => {
+        expect(() => RequestIdContext.setClient(null as any))
+          .toThrow('RequestIdContext: data is required');
+      });
+
+      it('should throw for empty requestId', () => {
+        expect(() => RequestIdContext.setClient({ requestId: '', userId: 'user-123' }))
+          .toThrow('RequestIdContext: requestId must be a valid non-empty string');
+      });
+
+      it('should throw for "unknown" requestId', () => {
+        expect(() => RequestIdContext.setClient({ requestId: 'unknown', userId: 'user-123' }))
+          .toThrow('RequestIdContext: requestId must be a valid non-empty string');
+      });
+
+      it('should accept valid requestId with any userId', () => {
+        expect(() => RequestIdContext.setClient({ requestId: 'req-123', userId: 'user-456' }))
+          .not.toThrow();
+        expect(() => RequestIdContext.setClient({ requestId: 'req-123', userId: 'anonymous' }))
+          .not.toThrow();
+        expect(() => RequestIdContext.setClient({ requestId: 'req-123', userId: '' }))
+          .not.toThrow();
+      });
+    });
+  });
+
   describe('Server-side behavior (typeof window === undefined)', () => {
     const RequestIdContext = ServerRequestIdContext;
 

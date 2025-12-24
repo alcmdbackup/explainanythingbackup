@@ -8,8 +8,19 @@ const storage = typeof window === 'undefined'
 // Client-side tracking
 let clientRequestId = { requestId: 'unknown', userId: 'anonymous' };
 
+// Validation for context data
+function validateContextData(data: { requestId: string; userId: string }): void {
+  if (!data) {
+    throw new Error('RequestIdContext: data is required');
+  }
+  if (!data.requestId || data.requestId === '' || data.requestId === 'unknown') {
+    throw new Error('RequestIdContext: requestId must be a valid non-empty string (not "unknown")');
+  }
+}
+
 export class RequestIdContext {
   static run<T>(data: { requestId: string; userId: string }, callback: () => T): T {
+    validateContextData(data);
     if (typeof window === 'undefined') {
       // Server: use AsyncLocalStorage
       return storage!.run(data, callback);
@@ -26,6 +37,7 @@ export class RequestIdContext {
   }
 
   static setClient(data: { requestId: string; userId: string }): void {
+    validateContextData(data);
     if (typeof window !== 'undefined') {
       clientRequestId = data;
     }

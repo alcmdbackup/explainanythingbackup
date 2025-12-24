@@ -11,6 +11,22 @@ import { createMockNextRequest } from '@/testing/utils/test-helpers';
 jest.mock('fs');
 const mockAppendFileSync = appendFileSync as jest.MockedFunction<typeof appendFileSync>;
 
+// Mock RequestIdContext
+jest.mock('@/lib/requestIdContext', () => ({
+  RequestIdContext: {
+    run: jest.fn((data, callback) => callback()),
+    getRequestId: jest.fn(() => 'mock-request-id'),
+    getUserId: jest.fn(() => 'mock-user-id'),
+  },
+}));
+
+jest.mock('crypto', () => ({
+  randomUUID: jest.fn(() => 'test-uuid-123'),
+}));
+
+import { RequestIdContext } from '@/lib/requestIdContext';
+const mockRequestIdContextRun = RequestIdContext.run as jest.MockedFunction<typeof RequestIdContext.run>;
+
 describe('POST /api/client-logs', () => {
   let originalEnv: string | undefined;
 
@@ -177,5 +193,41 @@ describe('POST /api/client-logs', () => {
 
     const filePath = mockAppendFileSync.mock.calls[0][0] as string;
     expect(filePath).toMatch(/client\.log$/);
+  });
+
+  describe('RequestIdContext', () => {
+    it('should call RequestIdContext.run with provided requestId and userId', async () => {
+      Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
+
+      const logEntry = {
+        message: 'Test log',
+        requestId: 'client-req-123',
+        userId: 'user-456',
+      };
+
+      const request = createMockNextRequest(logEntry) as unknown as NextRequest;
+      await POST(request);
+
+      expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
+      expect(mockRequestIdContextRun).toHaveBeenCalledWith(
+        { requestId: 'client-req-123', userId: 'user-456' },
+        expect.any(Function)
+      );
+    });
+
+    it('should generate UUID for missing requestId and userId', async () => {
+      Object.defineProperty(process.env, 'NODE_ENV', { value: 'development' });
+
+      const logEntry = { message: 'Test log' };
+
+      const request = createMockNextRequest(logEntry) as unknown as NextRequest;
+      await POST(request);
+
+      expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
+      expect(mockRequestIdContextRun).toHaveBeenCalledWith(
+        { requestId: 'client-log-test-uuid-123', userId: 'client-log-test-uuid-123' },
+        expect.any(Function)
+      );
+    });
   });
 });
