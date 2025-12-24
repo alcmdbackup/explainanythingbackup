@@ -37,7 +37,7 @@ test.describe('Unauthenticated User Tests', () => {
     // Either redirect to login OR show authentication error
     const state = await waitForState(page, {
       redirected: async () => /\/(login|auth)/.test(page.url()),
-      error: async () => await page.locator('.bg-red-100').isVisible(),
+      error: async () => await page.locator('[data-testid="library-error"]').isVisible(),
       loginPrompt: async () => await page.locator('text=/log in|sign in|authentication|please log in/i').isVisible(),
       loadingStuck: async () => await page.locator('[data-testid="library-loading"]').isVisible(),
     }, { timeout: 10000 });
@@ -105,7 +105,7 @@ test.describe('Unauthenticated User Tests', () => {
     await loginPage.login('invalid@email.com', 'wrongpassword');
 
     // Wait for error message (increased timeout for CI)
-    await page.waitForSelector('[data-testid="login-error"]', { timeout: 30000 });
+    await page.locator('[data-testid="login-error"]').waitFor({ state: 'visible', timeout: 30000 });
 
     // Verify error is shown
     expect(await loginPage.isErrorVisible()).toBe(true);

@@ -145,7 +145,7 @@ test.describe('AI Suggestions Content Boundaries', () => {
 
   test('should handle suggestions on very long content', async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
-    test.setTimeout(90000);
+    test.setTimeout(60000);
 
     const resultsPage = new ResultsPage(page);
     const libraryPage = new UserLibraryPage(page);

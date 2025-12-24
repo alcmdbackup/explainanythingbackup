@@ -71,8 +71,8 @@ test.describe('AI Suggestions State Management', () => {
       // Press Cmd/Ctrl+Z to undo
       await page.keyboard.press('Meta+z');
 
-      // Wait a moment for undo to process
-      await page.waitForTimeout(500);
+      // Wait for diff state to change (either restored or processing complete)
+      await page.locator('[data-diff-key]').first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
 
       // Verify diff is restored (or undo was processed)
       const afterUndoCounts = await getDiffCounts(page);
@@ -108,13 +108,11 @@ test.describe('AI Suggestions State Management', () => {
       await clickAcceptOnFirstDiff(page);
       const afterAcceptCounts = await getDiffCounts(page);
 
-      // Undo
+      // Undo - keyboard command is async, but getDiffCounts will poll for current state
       await page.keyboard.press('Meta+z');
-      await page.waitForTimeout(300);
 
       // Redo
       await page.keyboard.press('Meta+Shift+z');
-      await page.waitForTimeout(300);
 
       // Verify state is back to post-accept
       const afterRedoCounts = await getDiffCounts(page);
@@ -155,7 +153,9 @@ test.describe('AI Suggestions State Management', () => {
       const acceptAllButton = page.locator('[data-testid="accept-all-diffs-button"]');
       if (await acceptAllButton.isVisible()) {
         await acceptAllButton.click();
-        await page.waitForTimeout(500);
+
+        // Wait for all diffs to disappear
+        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
 
         // All diffs should be removed
         const afterCounts = await getDiffCounts(page);
@@ -195,7 +195,9 @@ test.describe('AI Suggestions State Management', () => {
       const rejectAllButton = page.locator('[data-testid="reject-all-diffs-button"]');
       if (await rejectAllButton.isVisible()) {
         await rejectAllButton.click();
-        await page.waitForTimeout(500);
+
+        // Wait for all diffs to disappear
+        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
 
         // All diffs should be removed
         const afterCounts = await getDiffCounts(page);

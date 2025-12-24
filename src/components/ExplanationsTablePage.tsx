@@ -99,13 +99,13 @@ export default function ExplanationsTablePage({
                 {showExploreTabs && <ExploreTabs sort={sort!} period={period!} />}
 
                 {error && (
-                    <div className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
+                    <div data-testid="library-error" className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
                         <span className="font-serif">{error}</span>
                     </div>
                 )}
 
                 {explanations.length === 0 ? (
-                    <div className="text-center py-16 scholar-card">
+                    <div data-testid="library-empty-state" className="text-center py-16 scholar-card">
                         <svg
                             className="w-16 h-16 mx-auto mb-4 text-[var(--accent-gold)]/50"
                             viewBox="0 0 24 24"

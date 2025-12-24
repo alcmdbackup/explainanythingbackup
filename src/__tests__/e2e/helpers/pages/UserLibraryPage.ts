@@ -11,13 +11,13 @@ export class UserLibraryPage extends BasePage {
   }
 
   async waitForLoading() {
-    await this.page.waitForSelector('[data-testid="library-loading"]', { state: 'visible', timeout: 5000 }).catch(() => {
+    await this.page.locator('[data-testid="library-loading"]').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
       // Loading may be too fast to catch
     });
   }
 
   async waitForLoadingToFinish() {
-    await this.page.waitForSelector('[data-testid="library-loading"]', { state: 'detached', timeout: 30000 }).catch(() => {
+    await this.page.locator('[data-testid="library-loading"]').waitFor({ state: 'detached', timeout: 30000 }).catch(() => {
       // Loading may already be done
     });
   }
@@ -25,10 +25,10 @@ export class UserLibraryPage extends BasePage {
   async waitForContentOrError(timeout: number = 30000) {
     // Wait for either the table, error, or empty state to appear
     await Promise.race([
-      this.page.waitForSelector('table', { timeout }),
-      this.page.waitForSelector('.bg-red-100', { timeout }), // Error state
-      this.page.waitForSelector('.scholar-card', { timeout }), // Empty state
-      this.page.waitForSelector('main h1', { timeout }), // Page loaded
+      this.page.locator('table').waitFor({ state: 'visible', timeout }),
+      this.page.locator('[data-testid="library-error"]').waitFor({ state: 'visible', timeout }),
+      this.page.locator('[data-testid="library-empty-state"]').waitFor({ state: 'visible', timeout }),
+      this.page.locator('main h1').waitFor({ state: 'visible', timeout }),
     ]).catch(() => {
       // Timeout - page might still be loading
     });
@@ -72,11 +72,11 @@ export class UserLibraryPage extends BasePage {
   }
 
   async hasError() {
-    return await this.page.locator('.bg-red-100').isVisible();
+    return await this.page.locator('[data-testid="library-error"]').isVisible();
   }
 
   async getErrorMessage() {
-    return await this.page.locator('.bg-red-100').textContent();
+    return await this.page.locator('[data-testid="library-error"]').textContent();
   }
 
   async clickSortByTitle() {
@@ -133,8 +133,8 @@ export class UserLibraryPage extends BasePage {
    */
   async waitForLibraryReady(timeout = 30000): Promise<'loaded' | 'empty' | 'error'> {
     const table = this.page.locator('table');
-    const emptyState = this.page.locator('.scholar-card:has-text("Start exploring")');
-    const error = this.page.locator('.bg-red-100');
+    const emptyState = this.page.locator('[data-testid="library-empty-state"]');
+    const error = this.page.locator('[data-testid="library-error"]');
 
     const result = await Promise.race([
       table.waitFor({ state: 'visible', timeout }).then(() => 'loaded' as const),

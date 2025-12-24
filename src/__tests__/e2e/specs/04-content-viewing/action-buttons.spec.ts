@@ -15,7 +15,7 @@ test.describe('Action Buttons', () => {
   test.describe.configure({ mode: 'serial', retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading and streaming
-  test.setTimeout(90000);
+  test.setTimeout(60000);
 
   test.beforeEach(async ({ authenticatedPage }) => {
     resultsPage = new ResultsPage(authenticatedPage);
