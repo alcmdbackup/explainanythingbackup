@@ -1105,9 +1105,10 @@ export const STANDALONE_TITLE_LINK_TRANSFORMER: TextMatchTransformer = {
   dependencies: [StandaloneTitleLinkNode],
   export: (node: LexicalNode) => {
     if ($isStandaloneTitleLinkNode(node)) {
-      const textContent = node.getTextContent();
-      const url = node.getURL();
-      return `[${textContent}](${url})`;
+      // Return just the text content, NOT as a markdown link
+      // This ensures heading links are stripped when saving to DB
+      // Links are re-applied at render time via resolveLinksForDisplayAction
+      return node.getTextContent();
     }
     return null;
   },

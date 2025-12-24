@@ -1352,7 +1352,7 @@ function ResultsPageContent() {
                     {/* Detached AI Suggestions Panel */}
                     <div className="w-96 py-8 pr-4">
                         <AISuggestionsPanel
-                            isVisible={true}
+                            isVisible={!isStreaming}
                             currentContent={content}
                             editorRef={editorRef}
                             onContentChange={(newContent) => {
