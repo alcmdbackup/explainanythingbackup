@@ -1,49 +1,49 @@
 {
-  "numStartups": 132,
+  "numStartups": 147,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
   "tipsHistory": {
     "enter-to-steer-in-relatime": 130,
     "new-user-warmup": 7,
-    "memory-command": 125,
+    "memory-command": 140,
     "plan-mode-for-complex-tasks": 19,
     "terminal-setup": 2,
     "shift-enter-setup": 2,
-    "theme-command": 125,
+    "theme-command": 145,
     "status-line": 127,
-    "stickers-command": 127,
+    "stickers-command": 147,
     "# for memory": 41,
-    "paste-images-mac": 125,
-    "double-esc-code-restore": 128,
-    "continue": 128,
-    "shift-tab": 125,
+    "paste-images-mac": 146,
+    "double-esc-code-restore": 138,
+    "continue": 138,
+    "shift-tab": 146,
     "tab-toggle-thinking": 26,
     "prompt-queue": 15,
-    "todo-list": 127,
-    "shift-enter": 130,
-    "install-github-app": 130,
-    "drag-and-drop-images": 122,
+    "todo-list": 147,
+    "shift-enter": 140,
+    "install-github-app": 140,
+    "drag-and-drop-images": 142,
     "image-paste": 130,
-    "ultrathink-keyword": 125,
-    "custom-agents": 130,
-    "permissions": 122,
-    "custom-commands": 125,
-    "default-permission-mode-config": 125,
-    "rename-conversation": 129,
-    "colorterm-truecolor": 115,
-    "config-thinking-mode": 128,
+    "ultrathink-keyword": 146,
+    "custom-agents": 145,
+    "permissions": 142,
+    "custom-commands": 140,
+    "default-permission-mode-config": 145,
+    "rename-conversation": 144,
+    "colorterm-truecolor": 145,
+    "config-thinking-mode": 138,
     "guest-passes": 58,
     "frontend-design-plugin": 50,
-    "install-slack-app": 128,
-    "desktop-app": 122,
-    "web-app": 125,
-    "mobile-app": 125,
+    "install-slack-app": 138,
+    "desktop-app": 137,
+    "web-app": 140,
+    "mobile-app": 140,
     "git-worktrees": 81,
     "ide-upsell-external-terminal": 63,
-    "btw-side-question": 127
+    "btw-side-question": 142
   },
-  "promptQueueUseCount": 103,
+  "promptQueueUseCount": 120,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false,
@@ -1202,6 +1202,87 @@
         "packageManager": null
       },
       "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_29_0": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "exampleFiles": [
+        "page.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "SearchBar.tsx",
+        "LexicalEditor.tsx"
+      ],
+      "exampleFilesGeneratedAt": 1766524172992,
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_29_1": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "exampleFiles": [
+        "page.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "SearchBar.tsx",
+        "LexicalEditor.tsx"
+      ],
+      "exampleFilesGeneratedAt": 1766524280062,
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_29_2": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "page.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "SearchBar.tsx",
+        "LexicalEditor.tsx"
+      ],
+      "exampleFilesGeneratedAt": 1766553803061,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
     }
   },
   "claudeCodeFirstTokenDate": "2025-09-19T14:21:05.398913Z",
@@ -1216,10 +1297,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1766514593526
+      "timestamp": 1766552107873
     }
   },
-  "lastPlanModeUse": 1766505852950,
+  "lastPlanModeUse": 1766556767690,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -1280,6 +1361,9 @@
   "opus45MigrationComplete": true,
   "githubRepoPaths": {
     "alcmd15492/explainanything": [
+      "/Users/abel/Documents/explainanything-base/worktree_29_2",
+      "/Users/abel/Documents/explainanything-base/worktree_29_1",
+      "/Users/abel/Documents/explainanything-base/worktree_29_0",
       "/Users/abel/Documents/explainanything-base/worktree_28_3",
       "/Users/abel/Documents/explainanything-base/worktree_28_2",
       "/Users/abel/Documents/explainanything-base/worktree_28_1",
@@ -1323,7 +1407,7 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/7COV20SfyA"
       },
-      "timestamp": 1766514592602
+      "timestamp": 1766552107055
     }
   },
   "passesUpsellSeenCount": 4,

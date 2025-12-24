@@ -191,8 +191,8 @@ else
 fi
 
 if [ -f "$HOME/.claude/CLAUDE.md" ]; then
-    echo "  Copying CLAUDE.md..."
-    cp "$HOME/.claude/CLAUDE.md" "$GIT_ROOT/CLAUDE.md"
+    echo "  Copying CLAUDE.md to CLAUDE_global_backup.md..."
+    cp "$HOME/.claude/CLAUDE.md" "$GIT_ROOT/CLAUDE_global_backup.md"
 else
     echo "  Warning: $HOME/.claude/CLAUDE.md not found"
 fi
