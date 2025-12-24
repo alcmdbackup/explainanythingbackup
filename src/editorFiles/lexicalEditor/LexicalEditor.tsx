@@ -234,6 +234,8 @@ interface LexicalEditorProps {
   textRevealEffect?: TextRevealEffect;
   /** Sources for citation [n] interactivity */
   sources?: CitationSource[];
+  /** Callback when pending AI suggestions change (true = suggestions exist) */
+  onPendingSuggestionsChange?: (hasPendingSuggestions: boolean) => void;
 }
 
 /**
@@ -271,7 +273,8 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   hideEditingUI = false,
   isStreaming = false,
   textRevealEffect = 'none',
-  sources = []
+  sources = [],
+  onPendingSuggestionsChange
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -751,7 +754,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <ListPlugin />
         <TablePlugin />
         <CheckListPlugin />
-        <DiffTagHoverPlugin />
+        <DiffTagHoverPlugin onPendingSuggestionsChange={onPendingSuggestionsChange} />
         <TextRevealPlugin isStreaming={isStreaming} animationEffect={textRevealEffect} />
         <CitationPlugin sources={sources} enabled={sources.length > 0} />
         {showTreeView && <TreeViewPlugin />}

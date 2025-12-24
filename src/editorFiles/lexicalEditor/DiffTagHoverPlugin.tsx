@@ -7,7 +7,12 @@ import { acceptDiffTag, rejectDiffTag } from './diffTagMutations';
 // Store only nodeKey -> diffType mapping (not element references which can become stale)
 type DiffTagType = 'ins' | 'del' | 'update';
 
-export default function DiffTagHoverPlugin() {
+interface DiffTagHoverPluginProps {
+  /** Callback when pending AI suggestions change (true = suggestions exist) */
+  onPendingSuggestionsChange?: (hasPendingSuggestions: boolean) => void;
+}
+
+export default function DiffTagHoverPlugin({ onPendingSuggestionsChange }: DiffTagHoverPluginProps = {}) {
   const [editor] = useLexicalComposerContext();
   const [activeDiffKeys, setActiveDiffKeys] = useState<Map<string, DiffTagType>>(new Map());
 
@@ -31,6 +36,11 @@ export default function DiffTagHoverPlugin() {
 
     setActiveDiffKeys(newDiffKeys);
   }, [editor]);
+
+  // Notify parent when pending suggestions change
+  useEffect(() => {
+    onPendingSuggestionsChange?.(activeDiffKeys.size > 0);
+  }, [activeDiffKeys.size, onPendingSuggestionsChange]);
 
   useEffect(() => {
     // Initial scan
