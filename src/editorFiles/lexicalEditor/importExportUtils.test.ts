@@ -798,7 +798,9 @@ describe('importExportUtils - Standalone Title Link Transformer', () => {
     expect(linkCount).toBe(1);
   });
 
-  it('should export standalone title link as markdown', async () => {
+  it('should export standalone title link as plain text (not markdown link)', async () => {
+    // Standalone title links should be stripped on export to keep DB content clean
+    // Links are re-applied at render time via resolveLinksForDisplayAction
     await editorUpdate(editor, () => {
       const root = $getRoot();
       const paragraph = $createParagraphNode();
@@ -809,8 +811,10 @@ describe('importExportUtils - Standalone Title Link Transformer', () => {
     });
 
     const markdown = await editorUpdate(editor, () => exportMarkdownReadOnly());
-    expect(markdown).toContain('[Click Here]');
-    expect(markdown).toContain('/standalone-title?t=encoded');
+    expect(markdown).toContain('Click Here');
+    // Should NOT contain markdown link syntax
+    expect(markdown).not.toContain('[Click Here]');
+    expect(markdown).not.toContain('/standalone-title?t=encoded');
   });
 
   it('should handle encoded title parameters', async () => {
