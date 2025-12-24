@@ -103,7 +103,29 @@ src/__tests__/e2e/specs/04-content-viewing/action-buttons.spec.ts
 
 ## Success Criteria
 
-- [ ] Zero `waitForTimeout` calls in E2E tests
-- [ ] All test timeouts ≤ 60s
-- [ ] ESLint rule preventing new violations
+- [x] Zero `waitForTimeout` calls in E2E tests
+- [x] All test timeouts ≤ 60s
+- [x] ESLint rule preventing new violations
 - [ ] All tests pass without flakiness
+
+---
+
+## Completion Notes (2025-12-23)
+
+### Phase 1: Fixed Sleeps ✅
+All `waitForTimeout` calls removed from E2E tests. ESLint `flakiness/no-wait-for-timeout` rule (ERROR) prevents new violations.
+
+### Phase 2: Timeout Violations ✅
+Reduced all 90s timeouts to 60s:
+- `content-boundaries.spec.ts:148` → 60000
+- `action-buttons.spec.ts:18` → 60000
+- `import-articles.spec.ts:81` → 60000
+- `import-articles.spec.ts:128` → 60000
+
+### Phase 3: Prevention ✅
+ESLint rules active:
+- `flakiness/no-wait-for-timeout`: ERROR
+- `flakiness/max-test-timeout`: WARN (>60s)
+
+### Exception: Mock delay in user-interactions.spec.ts:81
+`setTimeout(r, 1000)` inside route handler is intentional mock behavior (simulates API delay), not a test sleep.
