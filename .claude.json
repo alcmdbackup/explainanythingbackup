@@ -1,49 +1,49 @@
 {
-  "numStartups": 147,
+  "numStartups": 159,
   "installMethod": "native",
   "autoUpdates": false,
   "hasSeenTasksHint": true,
   "tipsHistory": {
-    "enter-to-steer-in-relatime": 130,
+    "enter-to-steer-in-relatime": 150,
     "new-user-warmup": 7,
-    "memory-command": 140,
+    "memory-command": 155,
     "plan-mode-for-complex-tasks": 19,
     "terminal-setup": 2,
     "shift-enter-setup": 2,
     "theme-command": 145,
-    "status-line": 127,
+    "status-line": 152,
     "stickers-command": 147,
     "# for memory": 41,
-    "paste-images-mac": 146,
-    "double-esc-code-restore": 138,
-    "continue": 138,
-    "shift-tab": 146,
+    "paste-images-mac": 156,
+    "double-esc-code-restore": 149,
+    "continue": 149,
+    "shift-tab": 156,
     "tab-toggle-thinking": 26,
     "prompt-queue": 15,
     "todo-list": 147,
-    "shift-enter": 140,
-    "install-github-app": 140,
-    "drag-and-drop-images": 142,
-    "image-paste": 130,
-    "ultrathink-keyword": 146,
+    "shift-enter": 150,
+    "install-github-app": 150,
+    "drag-and-drop-images": 152,
+    "image-paste": 150,
+    "ultrathink-keyword": 156,
     "custom-agents": 145,
-    "permissions": 142,
-    "custom-commands": 140,
-    "default-permission-mode-config": 145,
+    "permissions": 152,
+    "custom-commands": 155,
+    "default-permission-mode-config": 155,
     "rename-conversation": 144,
     "colorterm-truecolor": 145,
-    "config-thinking-mode": 138,
+    "config-thinking-mode": 149,
     "guest-passes": 58,
     "frontend-design-plugin": 50,
-    "install-slack-app": 138,
-    "desktop-app": 137,
-    "web-app": 140,
-    "mobile-app": 140,
-    "git-worktrees": 81,
+    "install-slack-app": 158,
+    "desktop-app": 152,
+    "web-app": 155,
+    "mobile-app": 155,
+    "git-worktrees": 148,
     "ide-upsell-external-terminal": 63,
-    "btw-side-question": 142
+    "btw-side-question": 158
   },
-  "promptQueueUseCount": 120,
+  "promptQueueUseCount": 127,
   "cachedStatsigGates": {
     "tengu_disable_bypass_permissions_mode": false,
     "tengu_tool_pear": false,
@@ -1283,6 +1283,141 @@
         "packageManager": null
       },
       "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_30_1": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "page.tsx",
+        "ExplanationsTablePage.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "actions.ts"
+      ],
+      "exampleFilesGeneratedAt": 1766593875516,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_30_0": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "page.tsx",
+        "ExplanationsTablePage.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "actions.ts"
+      ],
+      "exampleFilesGeneratedAt": 1766596639244,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_30_2": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "page.tsx",
+        "ExplanationsTablePage.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "actions.ts"
+      ],
+      "exampleFilesGeneratedAt": 1766599029112,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_30_3": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "page.tsx",
+        "ExplanationsTablePage.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "actions.ts"
+      ],
+      "exampleFilesGeneratedAt": 1766601401172,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
+    },
+    "/Users/abel/Documents/explainanything-base/worktree_30_4": {
+      "allowedTools": [],
+      "mcpContextUris": [],
+      "mcpServers": {},
+      "enabledMcpjsonServers": [],
+      "disabledMcpjsonServers": [],
+      "hasTrustDialogAccepted": true,
+      "projectOnboardingSeenCount": 0,
+      "hasClaudeMdExternalIncludesApproved": false,
+      "hasClaudeMdExternalIncludesWarningShown": false,
+      "exampleFiles": [
+        "page.tsx",
+        "ExplanationsTablePage.tsx",
+        "Navigation.tsx",
+        "schemas.ts",
+        "actions.ts"
+      ],
+      "exampleFilesGeneratedAt": 1766604237779,
+      "reactVulnerabilityCache": {
+        "detected": false,
+        "package": null,
+        "packageName": null,
+        "version": null,
+        "packageManager": null
+      },
+      "hasCompletedProjectOnboarding": true
     }
   },
   "claudeCodeFirstTokenDate": "2025-09-19T14:21:05.398913Z",
@@ -1297,10 +1432,10 @@
     "a970a125-105a-4d54-9eca-a8b3848565de": {
       "hasAccess": false,
       "hasAccessNotAsDefault": false,
-      "timestamp": 1766552107873
+      "timestamp": 1766634856340
     }
   },
-  "lastPlanModeUse": 1766556767690,
+  "lastPlanModeUse": 1766616942349,
   "mcpServers": {
     "sequential-thinking": {
       "type": "stdio",
@@ -1361,6 +1496,11 @@
   "opus45MigrationComplete": true,
   "githubRepoPaths": {
     "alcmd15492/explainanything": [
+      "/Users/abel/Documents/explainanything-base/worktree_30_4",
+      "/Users/abel/Documents/explainanything-base/worktree_30_3",
+      "/Users/abel/Documents/explainanything-base/worktree_30_2",
+      "/Users/abel/Documents/explainanything-base/worktree_30_0",
+      "/Users/abel/Documents/explainanything-base/worktree_30_1",
       "/Users/abel/Documents/explainanything-base/worktree_29_2",
       "/Users/abel/Documents/explainanything-base/worktree_29_1",
       "/Users/abel/Documents/explainanything-base/worktree_29_0",
@@ -1407,7 +1547,7 @@
         "campaign": "claude_code_guest_pass",
         "referral_link": "https://claude.ai/referral/7COV20SfyA"
       },
-      "timestamp": 1766552107055
+      "timestamp": 1766621119952
     }
   },
   "passesUpsellSeenCount": 4,
