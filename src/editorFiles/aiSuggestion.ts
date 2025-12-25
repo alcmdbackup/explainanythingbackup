@@ -461,7 +461,11 @@ export async function runAISuggestionsPipeline(
           explanation_title: sessionData.explanation_title,
           user_prompt: sessionData.user_prompt,
           source_content: currentContent,
-          session_metadata: { step: 'preprocessed', processing_time: Date.now() }
+          session_metadata: {
+            step: 'preprocessed',
+            processing_time: Date.now(),
+            validationResults: validationResults
+          }
         }
       );
       console.log('💾 PIPELINE STEP 4 SAVE RESULT:', saveResult);

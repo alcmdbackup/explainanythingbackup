@@ -563,3 +563,73 @@ export const getAndApplyAISuggestionsAction = withLogging(
         enabled: FILE_DEBUG
     }
 );
+
+/**
+ * Gets validation results for a specific AI suggestion session (server action)
+ *
+ * • Retrieves the step4_preprocessed record for a given session_id
+ * • Extracts validationResults from session_metadata
+ * • Returns validation results if found, null otherwise
+ * • Used by: AISuggestionsPanel to display validation results for loaded sessions
+ */
+export const getSessionValidationResultsAction = withLogging(
+    async function getSessionValidationResultsAction(
+        sessionId: string
+    ): Promise<{
+        success: boolean;
+        data: import('../validation/pipelineValidation').PipelineValidationResults | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const supabase = await createSupabaseServerClient();
+            const { data, error } = await supabase
+                .from('testing_edits_pipeline')
+                .select('session_metadata')
+                .eq('session_id', sessionId)
+                .eq('step', 'step4_preprocessed')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (error) {
+                // No record found is not an error, just return null
+                if (error.code === 'PGRST116') {
+                    return {
+                        success: true,
+                        data: null,
+                        error: null
+                    };
+                }
+                logger.error('Supabase error fetching session validation results:', {
+                    error: error.message,
+                    errorCode: error.code,
+                    sessionId
+                });
+                throw error;
+            }
+
+            const validationResults = data?.session_metadata?.validationResults || null;
+
+            return {
+                success: true,
+                data: validationResults,
+                error: null
+            };
+        } catch (error) {
+            logger.error('Get Session Validation Results Error', {
+                error: error instanceof Error ? error.message : String(error),
+                sessionId
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getSessionValidationResultsAction', { sessionId })
+            };
+        }
+    },
+    'getSessionValidationResultsAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);

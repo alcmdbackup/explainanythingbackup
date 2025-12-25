@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use client';
 
-import { useState, useCallback } from 'react';
-import { runAISuggestionsPipelineAction } from '../editorFiles/actions/actions';
+import { useState, useCallback, useEffect } from 'react';
+import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } from '../editorFiles/actions/actions';
 import { Spinner } from '@/components/ui/spinner';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
 
@@ -17,6 +17,8 @@ interface AISuggestionsPanelProps {
     explanation_id: number;
     explanation_title: string;
   };
+  /** Optional session_id to load validation results for a previously run AI suggestion session */
+  loadedSessionId?: string;
 }
 
 interface ProgressState {
@@ -34,13 +36,30 @@ export default function AISuggestionsPanel({
   editorRef: _editorRef,
   onContentChange,
   onEnterEditMode,
-  sessionData
+  sessionData,
+  loadedSessionId
 }: AISuggestionsPanelProps) {
   const [userPrompt, setUserPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [progressState, setProgressState] = useState<ProgressState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<{ success: boolean; content?: string; session_id?: string; validationResults?: PipelineValidationResults } | null>(null);
+  const [loadedValidationResults, setLoadedValidationResults] = useState<PipelineValidationResults | null>(null);
+
+  // Load validation results for a previously run session
+  useEffect(() => {
+    if (loadedSessionId) {
+      getSessionValidationResultsAction(loadedSessionId).then((result) => {
+        if (result.success && result.data) {
+          setLoadedValidationResults(result.data);
+        }
+      }).catch((err) => {
+        console.error('Failed to load validation results for session:', loadedSessionId, err);
+      });
+    } else {
+      setLoadedValidationResults(null);
+    }
+  }, [loadedSessionId]);
 
   const handleProgressUpdate = useCallback((step: string, progress: number) => {
     setProgressState({ step, progress });
@@ -262,6 +281,55 @@ export default function AISuggestionsPanel({
             <p className="text-sm font-serif text-[var(--text-secondary)] mt-2">
               {error}
             </p>
+          </div>
+        )}
+
+        {/* Loaded Session Validation Results */}
+        {!lastResult && loadedValidationResults && (
+          <div data-testid="loaded-validation-results" className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-page p-4">
+            <p className="text-xs font-sans font-medium text-[var(--text-muted)] mb-2">Previous Session Validation:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {loadedValidationResults.step2 && (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  loadedValidationResults.step2.valid
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                    : loadedValidationResults.step2.severity === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                }`} title={loadedValidationResults.step2.description}>
+                  <span>{loadedValidationResults.step2.valid ? '✓' : loadedValidationResults.step2.severity === 'error' ? '✗' : '⚠'}</span>
+                  <span>B2</span>
+                </span>
+              )}
+              {loadedValidationResults.step3 && (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  loadedValidationResults.step3.valid
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                    : loadedValidationResults.step3.severity === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                }`} title={loadedValidationResults.step3.description}>
+                  <span>{loadedValidationResults.step3.valid ? '✓' : loadedValidationResults.step3.severity === 'error' ? '✗' : '⚠'}</span>
+                  <span>B3</span>
+                </span>
+              )}
+            </div>
+            {/* Show issues if any */}
+            {(loadedValidationResults.step2?.issues?.length || loadedValidationResults.step3?.issues?.length) ? (
+              <details className="mt-2">
+                <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                  View validation issues ({(loadedValidationResults.step2?.issues?.length || 0) + (loadedValidationResults.step3?.issues?.length || 0)})
+                </summary>
+                <ul className="mt-1 text-xs text-[var(--text-muted)] space-y-0.5 pl-3">
+                  {loadedValidationResults.step2?.issues?.map((issue, i) => (
+                    <li key={`s2-${i}`}>• B2: {issue}</li>
+                  ))}
+                  {loadedValidationResults.step3?.issues?.map((issue, i) => (
+                    <li key={`s3-${i}`}>• B3: {issue}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </div>
         )}
 
