@@ -7,6 +7,7 @@ import { $dfs } from "@lexical/utils";
 import { $isHeadingNode } from "@lexical/rich-text";
 import { DiffTagNodeInline, $createDiffTagNodeInline, $isDiffTagNodeInline, DiffUpdateContainerInline, $createDiffUpdateContainerInline } from "./DiffTagNode";
 import { StandaloneTitleLinkNode, $createStandaloneTitleLinkNode, $isStandaloneTitleLinkNode } from "./StandaloneTitleLinkNode";
+import { parseUpdateContent, isInsideCodeBlock } from "../validation/pipelineValidation";
 
 /**
  * Logs all children of a node and their relationships using depth-first search
@@ -304,9 +305,10 @@ export const CRITIC_MARKUP_IMPORT_INLINE_TRANSFORMER: TextMatchTransformer = {
 
     if (marks === "~~") {
       // Handle update syntax: {~~old~>new~~}
-      const updateParts = inner.split('~>');
-      if (updateParts.length === 2) {
-        const [beforeText, afterText] = updateParts;
+      // Use parseUpdateContent to handle content that may contain ~> characters
+      const updateParsed = parseUpdateContent(inner);
+      if (updateParsed) {
+        const { before: beforeText, after: afterText } = updateParsed;
         console.log("🏷️ Creating DiffTagNodeInline with tag: update");
         console.log("📝 Before text:", JSON.stringify(beforeText));
         console.log("📝 After text:", JSON.stringify(afterText));
@@ -548,9 +550,10 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
 
         if (marks === "~~") {
           // Handle update syntax: {~~old~>new~~}
-          const updateParts = inner.split('~>');
-          if (updateParts.length === 2) {
-            const [beforeText, afterText] = updateParts;
+          // Use parseUpdateContent to handle content that may contain ~> characters
+          const updateParsed = parseUpdateContent(inner);
+          if (updateParsed) {
+            const { before: beforeText, after: afterText } = updateParsed;
             console.log("🏷️ Creating DiffTagNodeInline with tag: update");
             console.log("📝 Before text:", JSON.stringify(beforeText));
             console.log("📝 After text:", JSON.stringify(afterText));
@@ -714,16 +717,40 @@ export const CRITIC_MARKUP_IMPORT_BLOCK_TRANSFORMER: ElementTransformer = {
 function normalizeMultilineCriticMarkup(markdown: string): string {
   const multilineCriticMarkupRegex = /\{([+-~]{2})([\s\S]*?)\1\s*\}/g;
 
-  return markdown.replace(multilineCriticMarkupRegex, (match, marks, content) => {
+  return markdown.replace(multilineCriticMarkupRegex, (match, marks, content, offset) => {
     console.log('🔍 Normalize Multiline Critic Markup Debug:');
     console.log('  match:', JSON.stringify(match));
     console.log('  marks:', JSON.stringify(marks));
     console.log('  content:', JSON.stringify(content));
 
-    // First, replace newlines in content with <br> tags
-    const normalizedContent = content.replace(/\n/g, '<br>');
+    // Skip if this CriticMarkup is inside a code block (M: Code Block Protection)
+    if (isInsideCodeBlock(markdown, offset)) {
+      console.log('  Skipping - inside code block');
+      return match;
+    }
 
-    // Then remove any remaining newlines from the entire match
+    // Replace newlines in content with <br> tags, but protect code blocks within the content
+    let normalizedContent = content;
+
+    // Find code blocks within content and protect them
+    const codeBlockPattern = /```[\s\S]*?```/g;
+    const codeBlocks: { placeholder: string; content: string }[] = [];
+
+    normalizedContent = normalizedContent.replace(codeBlockPattern, (codeBlock: string) => {
+      const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+      codeBlocks.push({ placeholder, content: codeBlock });
+      return placeholder;
+    });
+
+    // Replace newlines with <br> tags in non-code content
+    normalizedContent = normalizedContent.replace(/\n/g, '<br>');
+
+    // Restore code blocks (with their original newlines)
+    codeBlocks.forEach(({ placeholder, content: codeContent }) => {
+      normalizedContent = normalizedContent.replace(placeholder, codeContent);
+    });
+
+    // Then remove any remaining newlines from the marks part only
     const result = `{${marks}${normalizedContent}${marks}}`.replace(/\n/g, '');
 
     console.log('  result:', JSON.stringify(result));

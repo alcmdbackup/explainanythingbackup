@@ -3,6 +3,7 @@
 // Requires: npm i diff
 // ESM:
 import { diffWordsWithSpace, diffChars } from 'diff';
+import { escapeCriticMarkupContent } from '../validation/pipelineValidation';
 
 // DEBUG USAGE:
 // To enable debug logging for similarity calculations, pass debug: true in multipass options:
@@ -660,9 +661,10 @@ function toCriticMarkup(runs: TextRun[]): string {
   let out = '';
   for (const r of runs) {
     if (r.t === 'eq')  out += r.s;
-    if (r.t === 'del') out += `{--${r.s}--}`;
-    if (r.t === 'ins') out += `{++${r.s}++}`;
-    if (r.t === 'update') out += `{~~${r.s}~>${r.sAfter || ''}~~}`;
+    // C: Escape content to prevent special chars from breaking CriticMarkup syntax
+    if (r.t === 'del') out += `{--${escapeCriticMarkupContent(r.s)}--}`;
+    if (r.t === 'ins') out += `{++${escapeCriticMarkupContent(r.s)}++}`;
+    if (r.t === 'update') out += `{~~${escapeCriticMarkupContent(r.s)}~>${escapeCriticMarkupContent(r.sAfter || '')}~~}`;
   }
   return out;
 }
@@ -845,10 +847,11 @@ function decorateWithContainerMarkup(node: MdastNode, inner: string, stringify: 
 }
 
 // Helpers for Critic braces
-function wrapDel(s: string): string { return s ? `{--${s}--}` : ''; }
-function wrapIns(s: string): string { return s ? `{++${s}++}` : ''; }
-function wrapUpdate(before: string, after: string): string { 
-  return before && after ? `{~~${before}~>${after}~~}` : ''; 
+// C: Escape content to prevent special chars from breaking CriticMarkup syntax
+function wrapDel(s: string): string { return s ? `{--${escapeCriticMarkupContent(s)}--}` : ''; }
+function wrapIns(s: string): string { return s ? `{++${escapeCriticMarkupContent(s)}++}` : ''; }
+function wrapUpdate(before: string, after: string): string {
+  return before && after ? `{~~${escapeCriticMarkupContent(before)}~>${escapeCriticMarkupContent(after)}~~}` : '';
 }
 
 // ========= Granular text diffing helpers =========
