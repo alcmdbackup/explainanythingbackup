@@ -5,13 +5,95 @@
 Client logs (`logger.info()`, etc.) only appear in browser console. They:
 1. Don't persist anywhere accessible for debugging
 2. Don't correlate with server traces in Grafana
-3. Per-action request IDs prevent cross-action correlation within a session
 
 > **Note**: `/api/client-logs/route.ts` exists and IS functional (has 11 tests, called by test page). Consider integrating rather than deleting.
+
+> **Scope Note**: Session ID tracking (cross-action correlation) is **out of scope** for this plan. It will be implemented separately per `session_id_vs_request_id_research.md`.
 
 ---
 
 ## Implementation Phases
+
+### Phase 0: CORS Validation (Gate for Phase 3)
+
+**Goal**: Determine if direct browser→Grafana OTLP is viable before investing in Phase 3.
+
+**File to create**: `src/app/(debug)/test-cors/page.tsx`
+
+```typescript
+'use client';
+import { useState } from 'react';
+
+export default function CorsTestPage() {
+  const [result, setResult] = useState<string>('Not tested');
+
+  const testCors = async () => {
+    const endpoint = process.env.NEXT_PUBLIC_GRAFANA_OTLP_ENDPOINT
+      || 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp';
+    const token = process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN;
+
+    if (!token) {
+      setResult('ERROR: NEXT_PUBLIC_GRAFANA_OTLP_TOKEN not set');
+      return;
+    }
+
+    try {
+      // Test 1: OPTIONS preflight
+      const preflight = await fetch(`${endpoint}/v1/traces`, {
+        method: 'OPTIONS',
+        headers: { 'Access-Control-Request-Method': 'POST' }
+      });
+
+      const corsHeaders = {
+        'access-control-allow-origin': preflight.headers.get('access-control-allow-origin'),
+        'access-control-allow-credentials': preflight.headers.get('access-control-allow-credentials'),
+      };
+
+      // Test 2: Actual POST with auth
+      const postResult = await fetch(`${endpoint}/v1/traces`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${token}`,
+        },
+        body: JSON.stringify({ resourceSpans: [] }), // Empty but valid OTLP
+      });
+
+      setResult(JSON.stringify({
+        preflight: preflight.status,
+        corsHeaders,
+        post: postResult.status,
+        postOk: postResult.ok,
+      }, null, 2));
+    } catch (e) {
+      setResult(`CORS BLOCKED: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+
+  return (
+    <div className="p-8">
+      <h1>CORS Test for Grafana OTLP</h1>
+      <button onClick={testCors} className="bg-blue-500 text-white px-4 py-2 rounded">
+        Test CORS
+      </button>
+      <pre className="mt-4 p-4 bg-gray-100 rounded">{result}</pre>
+    </div>
+  );
+}
+```
+
+**Environment setup** (`.env.local`):
+```bash
+# Get from: https://grafana.com/orgs/<org>/stacks/<stack>/otlp-info
+NEXT_PUBLIC_GRAFANA_OTLP_ENDPOINT=https://otlp-gateway-prod-us-west-0.grafana.net/otlp
+NEXT_PUBLIC_GRAFANA_OTLP_TOKEN=<base64(instanceId:apiKey)>
+```
+
+**Decision tree**:
+- ✅ CORS works → Proceed with Phase 3 as planned
+- ❌ CORS blocked → Implement collector proxy OR pivot to Grafana Faro
+
+---
 
 ### Phase 1: localStorage Buffer (Dev Experience)
 
@@ -26,7 +108,7 @@ Client logs (`logger.info()`, etc.) only appear in browser console. They:
 | `src/components/ClientInitializer.tsx` | CREATE - client wrapper for initialization |
 | `src/app/layout.tsx` | MODIFY - import ClientInitializer + early logger script |
 
-> **Important**: `layout.tsx` is a server component. Client-side initialization (localStorage, sessionStorage, browser APIs) must happen in a 'use client' component.
+> **Important**: `layout.tsx` is a server component. Client-side initialization (localStorage, browser APIs) must happen in a 'use client' component.
 
 **Implementation**:
 
@@ -294,76 +376,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ---
 
-### Phase 2: Session Request ID (Correlation Foundation)
-
-**Goal**: Single request ID per session (not per-action) for log correlation.
-
-**Problem**: `RequestIdContext` currently uses per-action IDs. Logs from the same session have different IDs.
-
-**Files to modify**:
-| File | Action |
-|------|--------|
-| `src/lib/requestIdContext.ts` | MODIFY - add session persistence with lazy init |
-| `src/lib/client_utilities.ts` | MODIFY - include sessionId in addRequestId() |
-
-> **Note**: Uses `sessionStorage` (cleared on tab close) vs `localStorage` (persistent). This is intentional: session IDs should reset per browser session, but logs can persist longer for debugging.
-
-**Implementation**:
-
-> **Gap Addressed**: Race condition fixed via lazy initialization. `getSessionId()` auto-initializes if called before `useEffect`, so it never returns 'unknown'.
-
-```typescript
-// Add to RequestIdContext (src/lib/requestIdContext.ts)
-private static sessionId: string | null = null;
-private static sessionInitialized = false;
-
-static initSession(): void {
-  if (this.sessionInitialized) return;
-  if (typeof window === 'undefined') return;
-
-  try {
-    let sid = sessionStorage.getItem('session_request_id');
-    if (!sid) {
-      sid = crypto.randomUUID();
-      sessionStorage.setItem('session_request_id', sid);
-    }
-    this.sessionId = sid;
-    this.sessionInitialized = true;
-  } catch {
-    // Private browsing fallback
-    this.sessionId = crypto.randomUUID();
-    this.sessionInitialized = true;
-  }
-}
-
-// Lazy init - never returns 'unknown'
-static getSessionId(): string {
-  if (!this.sessionInitialized) {
-    this.initSession();
-  }
-  return this.sessionId || crypto.randomUUID();
-}
-```
-
-```typescript
-// Update addRequestId() in src/lib/client_utilities.ts
-const addRequestId = (data: LoggerData | null) => {
-  const requestId = RequestIdContext.getRequestId();
-  const sessionId = RequestIdContext.getSessionId(); // Auto-inits if needed
-  return data
-    ? { requestId, sessionId, ...data }
-    : { requestId, sessionId };
-};
-```
-
-**Verification**:
-- Same session ID across multiple `logger.info()` calls
-- ID persists across component re-renders
-- New tab = new session ID
-- Logs before `useEffect` still get valid session ID
-
----
-
 ### Phase 1.5: Batched Remote Sending (Optional)
 
 > **Gap Addressed**: Bridge between localStorage buffer and existing `/api/client-logs` endpoint.
@@ -446,6 +458,10 @@ function flushLogsSync(config: FlushConfig): void {
 
 **Goal**: Client traces visible in Grafana, correlated with server traces.
 
+**Prerequisites**:
+1. **Phase 0 must pass** - CORS must work
+2. Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable
+
 **Dependencies**:
 ```bash
 npm install @opentelemetry/api @opentelemetry/sdk-trace-web @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base
@@ -458,11 +474,13 @@ npm install @opentelemetry/api @opentelemetry/sdk-trace-web @opentelemetry/expor
 |------|--------|
 | `src/lib/tracing/browserTracing.ts` | CREATE - with lazy loading |
 | `src/components/ClientInitializer.tsx` | MODIFY - defer OTel init |
-| `src/lib/client_utilities.ts` | MODIFY - attach span events |
 
 **Implementation**:
 
-> **Gap Addressed**: Bundle size mitigated via dynamic imports and deferred initialization using `requestIdleCallback`.
+> **Corrections from original plan**:
+> 1. OTLP endpoint URL should NOT include `/v1/traces` - exporter adds it
+> 2. Use empty headers object to force XHR (avoids sendBeacon CORS issues)
+> 3. Token is intentionally browser-visible - use minimal-permission token
 
 ```typescript
 // src/lib/tracing/browserTracing.ts
@@ -500,17 +518,40 @@ export function initBrowserTracing(): Promise<void> {
 
       diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
 
+      // CORRECTION: Use base endpoint without /v1/traces (exporter adds it)
+      const endpoint = process.env.NEXT_PUBLIC_GRAFANA_OTLP_ENDPOINT
+        || 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp';
+
       const provider = new WebTracerProvider();
       provider.addSpanProcessor(
         new BatchSpanProcessor(
           new OTLPTraceExporter({
-            url: 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces',
-            headers: {
-              Authorization: `Basic ${process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN}`,
-            },
+            url: endpoint,
+            // CORRECTION: Empty headers forces XHR instead of sendBeacon (CORS fix)
+            headers: {},
           })
         )
       );
+
+      // Inject auth via fetch interceptor (keeps token out of OTel config)
+      const originalFetch = window.fetch;
+      window.fetch = async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as Request).url;
+        if (url.includes('otlp-gateway') && url.includes('grafana.net')) {
+          // SECURITY NOTE: NEXT_PUBLIC_ token is visible in browser.
+          // Use a restricted, write-only token with minimal permissions.
+          const token = process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN;
+          if (token) {
+            init = init || {};
+            init.headers = {
+              ...(init.headers || {}),
+              'Authorization': `Basic ${token}`,
+            };
+          }
+        }
+        return originalFetch(input, init);
+      };
+
       provider.register();
       initialized = true;
     } catch (error) {
@@ -544,10 +585,6 @@ export function ClientInitializer() {
       }
     );
 
-    import('@/lib/requestIdContext').then(({ RequestIdContext }) => {
-      RequestIdContext.initSession();
-    });
-
     // Remote flusher (dev only)
     if (process.env.NODE_ENV === 'development') {
       import('@/lib/logging/client/remoteFlusher').then(({ initRemoteFlusher }) => {
@@ -579,40 +616,76 @@ export function ClientInitializer() {
 }
 ```
 
-**Prerequisites**:
-1. Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable
-2. **Test CORS first**:
-   ```typescript
-   fetch('https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces', { method: 'OPTIONS' })
-     .then(r => console.log('CORS OK:', r.ok))
-     .catch(e => console.error('CORS blocked:', e));
-   ```
-
 ---
 
 ### Phase 4: Trace Context Propagation (Optional)
 
 **Goal**: Link client-initiated requests to server traces via W3C `traceparent` header.
 
-```typescript
-// In fetch wrapper
-import { context, propagation } from '@opentelemetry/api';
+**File**: `src/lib/tracing/fetchWithTracing.ts` (CREATE)
 
-const headers: Record<string, string> = {};
-propagation.inject(context.active(), headers);
-fetch(url, { headers: { ...headers, ...otherHeaders } });
+```typescript
+import { context, propagation, trace } from '@opentelemetry/api';
+
+/**
+ * Wraps fetch to inject W3C traceparent header for distributed tracing.
+ *
+ * Usage:
+ *   import { fetchWithTracing } from '@/lib/tracing/fetchWithTracing';
+ *   const response = await fetchWithTracing('/api/endpoint', { method: 'POST' });
+ */
+export async function fetchWithTracing(
+  input: RequestInfo | URL,
+  init?: RequestInit
+): Promise<Response> {
+  const tracer = trace.getTracer('browser-fetch');
+  const url = typeof input === 'string' ? input : input.toString();
+
+  return tracer.startActiveSpan(`fetch ${url}`, async (span) => {
+    try {
+      const headers: Record<string, string> = {};
+
+      // Inject W3C trace context
+      propagation.inject(context.active(), headers);
+
+      const mergedInit: RequestInit = {
+        ...init,
+        headers: {
+          ...headers,
+          ...(init?.headers || {}),
+        },
+      };
+
+      const response = await fetch(input, mergedInit);
+
+      span.setAttribute('http.status_code', response.status);
+      span.setAttribute('http.url', url);
+
+      return response;
+    } catch (error) {
+      span.recordException(error as Error);
+      throw error;
+    } finally {
+      span.end();
+    }
+  });
+}
 ```
+
+**Integration points** - where to use `fetchWithTracing`:
+- `src/hooks/clientPassRequestId.ts` - wrap action calls
+- Any client-side API calls that should correlate with server traces
 
 ---
 
 ## Recommendation
 
-**Start with Phase 1 + 2** — immediate debugging value, minimal complexity.
+**Start with Phase 0 + 1** — validate CORS, then get immediate debugging value.
 
 Phase 1.5 (remote flushing) optional but useful for correlating with server logs.
 
 Phase 3 adds production observability but requires:
-- CORS configuration on Grafana OTLP endpoint
+- CORS validation (Phase 0) must pass
 - Environment variable setup
 - ~60KB bundle (mitigated by lazy loading)
 
@@ -628,7 +701,63 @@ Phase 3 adds production observability but requires:
 
 ---
 
+## Test Strategy
+
+| Phase | Test File | Key Assertions |
+|-------|-----------|----------------|
+| 0 | Manual via `/test-cors` page | CORS headers present, POST succeeds |
+| 1 | `consoleInterceptor.test.ts` | localStorage persistence, level filtering, error capture |
+| 1.5 | `remoteFlusher.test.ts` | Batching, offline handling, sendBeacon |
+| 3 | `browserTracing.test.ts` | Lazy loading, span creation, error handling |
+| 4 | `fetchWithTracing.test.ts` | Header injection, span attributes |
+
+**Playwright E2E test** for full integration:
+```typescript
+test('client logs persist to localStorage', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => console.log('test message'));
+
+  const logs = await page.evaluate(() => window.exportLogs());
+  const parsed = JSON.parse(logs);
+
+  expect(parsed).toContainEqual(expect.objectContaining({
+    message: expect.stringContaining('test message'),
+  }));
+});
+```
+
+---
+
+## Implementation Sequence
+
+```
+Phase 0: CORS Test (gate)
+    │
+    ├─ ✅ CORS works ──────────────────────────────┐
+    │                                               │
+    └─ ❌ CORS blocked ─► Pivot to Faro/Proxy      │
+                                                    │
+Phase 1: localStorage Buffer ◄─────────────────────┘
+    │
+    ▼
+Phase 1.5: Remote Flushing (optional)
+    │
+    ▼
+Phase 3: Browser OpenTelemetry (if Phase 0 passed)
+    │
+    ▼
+Phase 4: Trace Propagation (if Phase 3 succeeded)
+```
+
+---
+
 ## Checklist
+
+### Phase 0: CORS Validation
+- [ ] Create `src/app/(debug)/test-cors/page.tsx`
+- [ ] Add OTLP env vars to `.env.local`
+- [ ] Run CORS test and document result
+- [ ] If CORS blocked: decide Faro vs Proxy approach
 
 ### Phase 1: localStorage Buffer
 - [ ] Create `src/lib/logging/client/logConfig.ts` (log level filtering)
@@ -636,34 +765,54 @@ Phase 3 adds production observability but requires:
 - [ ] Create `src/lib/logging/client/consoleInterceptor.ts` (with error handlers + HMR cleanup)
 - [ ] Create `src/components/ClientInitializer.tsx`
 - [ ] Modify `src/app/layout.tsx` (add early logger script + ClientInitializer)
+- [ ] Create `src/lib/logging/client/__tests__/consoleInterceptor.test.ts`
 - [ ] Test with Playwright `browser_evaluate(() => window.exportLogs())`
 - [ ] Verify pre-hydration logs captured (check `preHydration: true` flag)
 - [ ] Verify uncaught errors in `localStorage.getItem('client_errors')`
 - [ ] Verify HMR doesn't stack console wrappers (check in dev)
 - [ ] Verify log level filtering in production mode
 
-### Phase 2: Session Request ID
-- [ ] Add `sessionId` field + `initSession()` + `getSessionId()` to `RequestIdContext`
-- [ ] Verify lazy initialization works (no 'unknown' values)
-- [ ] Update `addRequestId()` in `client_utilities.ts`
-- [ ] Verify consistent session IDs across `logger.info()` calls
-- [ ] Verify new tab = new session ID
-
 ### Phase 1.5: Remote Flushing (Optional)
 - [ ] Create `src/lib/logging/client/remoteFlusher.ts`
+- [ ] Create `src/lib/logging/client/__tests__/remoteFlusher.test.ts`
 - [ ] Integrate with existing `/api/client-logs` endpoint
 - [ ] Test `sendBeacon` on page unload
 - [ ] Test offline resilience
 
 ### Phase 3: Browser OpenTelemetry
-- [ ] **Test CORS first**
+- [ ] **Phase 0 must pass first**
 - [ ] Install OTel packages
 - [ ] Create `src/lib/tracing/browserTracing.ts` with lazy loading
 - [ ] Update `ClientInitializer` to defer OTel init via `requestIdleCallback`
-- [ ] Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` env var
+- [ ] Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` env var (minimal permissions)
+- [ ] Create `src/lib/tracing/__tests__/browserTracing.test.ts`
 - [ ] Measure actual bundle size increase
 - [ ] Verify client spans in Grafana Tempo
 
 ### Phase 4: Trace Propagation (Optional)
+- [ ] Create `src/lib/tracing/fetchWithTracing.ts`
+- [ ] Create `src/lib/tracing/__tests__/fetchWithTracing.test.ts`
 - [ ] Add `traceparent` header to fetch calls
 - [ ] Verify client→server trace correlation
+
+---
+
+## Files Summary
+
+| Phase | File | Action |
+|-------|------|--------|
+| 0 | `src/app/(debug)/test-cors/page.tsx` | CREATE |
+| 0 | `.env.local` | MODIFY - add OTLP vars |
+| 1 | `src/lib/logging/client/logConfig.ts` | CREATE |
+| 1 | `src/lib/logging/client/earlyLogger.ts` | CREATE |
+| 1 | `src/lib/logging/client/consoleInterceptor.ts` | CREATE |
+| 1 | `src/components/ClientInitializer.tsx` | CREATE |
+| 1 | `src/app/layout.tsx` | MODIFY |
+| 1 | `src/lib/logging/client/__tests__/consoleInterceptor.test.ts` | CREATE |
+| 1.5 | `src/lib/logging/client/remoteFlusher.ts` | CREATE |
+| 1.5 | `src/lib/logging/client/__tests__/remoteFlusher.test.ts` | CREATE |
+| 3 | `src/lib/tracing/browserTracing.ts` | CREATE |
+| 3 | `src/lib/tracing/__tests__/browserTracing.test.ts` | CREATE |
+| 3 | `package.json` | MODIFY - add OTel deps |
+| 4 | `src/lib/tracing/fetchWithTracing.ts` | CREATE |
+| 4 | `src/lib/tracing/__tests__/fetchWithTracing.test.ts` | CREATE |
