@@ -8,6 +8,7 @@ export class LoginPage extends BasePage {
   private submitButton = 'button[type="submit"]';
   private errorMessage = '[data-testid="login-error"]';
   private signupToggle = 'button:has-text("Sign up")';
+  private rememberMeCheckbox = '#rememberMe';
 
   constructor(page: Page) {
     super(page);
@@ -59,5 +60,56 @@ export class LoginPage extends BasePage {
 
   async clickSubmit() {
     await this.page.locator(this.submitButton).click();
+  }
+
+  async isRememberMeVisible() {
+    return await this.page.locator(this.rememberMeCheckbox).isVisible();
+  }
+
+  async isRememberMeChecked() {
+    return await this.page.locator(this.rememberMeCheckbox).isChecked();
+  }
+
+  async toggleRememberMe() {
+    await this.page.locator(this.rememberMeCheckbox).click();
+  }
+
+  async loginWithRememberMe(email: string, password: string, rememberMe: boolean) {
+    await this.page.locator(this.emailInput).waitFor({ state: 'visible' });
+    await this.page.locator(this.emailInput).fill(email);
+    await this.page.locator(this.passwordInput).fill(password);
+
+    const isChecked = await this.isRememberMeChecked();
+    if (rememberMe !== isChecked) {
+      await this.toggleRememberMe();
+    }
+
+    await this.page.locator(this.submitButton).click();
+  }
+
+  async getRememberMePreference(): Promise<string | null> {
+    return await this.page.evaluate(() => {
+      return localStorage.getItem('supabase_remember_me');
+    });
+  }
+
+  async getSupabaseStorageType(): Promise<'localStorage' | 'sessionStorage' | 'none'> {
+    return await this.page.evaluate(() => {
+      // Check if Supabase auth data is in localStorage
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('sb-')) {
+          return 'localStorage';
+        }
+      }
+      // Check if Supabase auth data is in sessionStorage
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i);
+        if (key?.startsWith('sb-')) {
+          return 'sessionStorage';
+        }
+      }
+      return 'none';
+    });
   }
 }

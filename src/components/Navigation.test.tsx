@@ -2,10 +2,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Navigation from './Navigation';
 import { signOut } from '@/app/login/actions';
+import { clearRememberMe } from '@/lib/utils/supabase/rememberMe';
 
 // Mock dependencies
 jest.mock('@/app/login/actions', () => ({
   signOut: jest.fn(),
+}));
+
+jest.mock('@/lib/utils/supabase/rememberMe', () => ({
+  clearRememberMe: jest.fn(),
 }));
 
 jest.mock('./SearchBar', () => {
@@ -174,6 +179,16 @@ describe('Navigation', () => {
       await user.click(logoutButton);
 
       expect(signOut).toHaveBeenCalledWith();
+    });
+
+    it('should clear remember me preference when signing out', async () => {
+      const user = userEvent.setup();
+      render(<Navigation />);
+
+      const logoutButton = screen.getByRole('button', { name: /logout/i });
+      await user.click(logoutButton);
+
+      expect(clearRememberMe).toHaveBeenCalledTimes(1);
     });
 
     it('should handle multiple logout clicks', async () => {

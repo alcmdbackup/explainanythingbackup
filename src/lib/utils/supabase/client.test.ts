@@ -1,15 +1,19 @@
 /**
- * @jest-environment node
+ * @jest-environment jsdom
  */
 
 // Mock @supabase/ssr before imports
 jest.mock('@supabase/ssr');
+jest.mock('./rememberMe');
 
 import { createBrowserClient } from '@supabase/ssr';
 import { createClient } from './client';
+import { getRememberMe } from './rememberMe';
 
 describe('supabase/client', () => {
   let originalEnv: NodeJS.ProcessEnv;
+  const mockCreateBrowserClient = createBrowserClient as jest.Mock;
+  const mockGetRememberMe = getRememberMe as jest.Mock;
 
   beforeEach(() => {
     // Store original env and set test env vars
@@ -22,6 +26,7 @@ describe('supabase/client', () => {
 
     // Reset mocks
     jest.clearAllMocks();
+    mockGetRememberMe.mockReturnValue(true);
   });
 
   afterEach(() => {
@@ -35,7 +40,8 @@ describe('supabase/client', () => {
 
       expect(createBrowserClient).toHaveBeenCalledWith(
         'https://test.supabase.co',
-        'test-anon-key'
+        'test-anon-key',
+        expect.any(Object)
       );
     });
 
@@ -63,7 +69,104 @@ describe('supabase/client', () => {
 
       expect(createBrowserClient).toHaveBeenCalledWith(
         'https://custom.supabase.co',
-        'custom-key'
+        'custom-key',
+        expect.any(Object)
+      );
+    });
+  });
+
+  describe('remember me storage selection', () => {
+    it('should use localStorage when persistSession is explicitly true', () => {
+      createClient(true);
+
+      expect(mockCreateBrowserClient).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            storage: localStorage,
+            persistSession: true,
+          }),
+        })
+      );
+    });
+
+    it('should use sessionStorage when persistSession is explicitly false', () => {
+      createClient(false);
+
+      expect(mockCreateBrowserClient).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            storage: sessionStorage,
+            persistSession: true,
+          }),
+        })
+      );
+    });
+
+    it('should use localStorage when getRememberMe returns true and no param provided', () => {
+      mockGetRememberMe.mockReturnValue(true);
+
+      createClient();
+
+      expect(mockGetRememberMe).toHaveBeenCalled();
+      expect(mockCreateBrowserClient).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            storage: localStorage,
+          }),
+        })
+      );
+    });
+
+    it('should use sessionStorage when getRememberMe returns false and no param provided', () => {
+      mockGetRememberMe.mockReturnValue(false);
+
+      createClient();
+
+      expect(mockGetRememberMe).toHaveBeenCalled();
+      expect(mockCreateBrowserClient).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            storage: sessionStorage,
+          }),
+        })
+      );
+    });
+
+    it('should override getRememberMe when explicit persistSession is provided', () => {
+      mockGetRememberMe.mockReturnValue(true);
+
+      createClient(false);
+
+      expect(mockCreateBrowserClient).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            storage: sessionStorage,
+          }),
+        })
+      );
+    });
+
+    it('should always set persistSession to true in auth options', () => {
+      createClient(false);
+
+      expect(mockCreateBrowserClient).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          auth: expect.objectContaining({
+            persistSession: true,
+          }),
+        })
       );
     });
   });
