@@ -211,7 +211,7 @@ describe('POST /api/client-logs', () => {
 
       expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
       expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-        { requestId: 'client-req-123', userId: 'user-456' },
+        { requestId: 'client-req-123', userId: 'user-456', sessionId: expect.any(String) },
         expect.any(Function)
       );
     });
@@ -226,7 +226,7 @@ describe('POST /api/client-logs', () => {
 
       expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
       expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-        { requestId: 'client-log-test-uuid-123', userId: 'client-log-test-uuid-123' },
+        { requestId: 'client-log-test-uuid-123', userId: 'client-log-test-uuid-123', sessionId: expect.any(String) },
         expect.any(Function)
       );
     });

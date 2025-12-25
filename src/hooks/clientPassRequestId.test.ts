@@ -122,6 +122,7 @@ describe('clientPassRequestId', () => {
       expect(mockSetClient).toHaveBeenCalledWith({
         requestId: expect.stringMatching(/^client-\d+-[a-z0-9]{6}$/),
         userId: userId,
+        sessionId: expect.any(String),
       });
     });
 
@@ -158,6 +159,7 @@ describe('clientPassRequestId', () => {
       expect(data.__requestId).toEqual({
         requestId: expect.stringMatching(/^client-\d+-[a-z0-9]{6}$/),
         userId: 'anonymous',
+        sessionId: expect.any(String),
       });
     });
 
@@ -170,6 +172,7 @@ describe('clientPassRequestId', () => {
       expect(data.__requestId).toEqual({
         requestId: expect.stringMatching(/^client-\d+-[a-z0-9]{6}$/),
         userId: 'anonymous',
+        sessionId: expect.any(String),
       });
     });
 
@@ -191,6 +194,7 @@ describe('clientPassRequestId', () => {
         __requestId: {
           requestId: expect.stringMatching(/^client-\d+-[a-z0-9]{6}$/),
           userId: 'user-123',
+          sessionId: expect.any(String),
         },
       });
     });

@@ -253,7 +253,7 @@ describe('GET /api/test-responses', () => {
 
       expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
       expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-        { requestId: 'test-responses-test-uuid-123', userId: 'test-responses-test-uuid-123' },
+        { requestId: 'test-responses-test-uuid-123', userId: 'test-responses-test-uuid-123', sessionId: expect.any(String) },
         expect.any(Function)
       );
     });

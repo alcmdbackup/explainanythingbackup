@@ -108,7 +108,7 @@ describe('GET /api/test-cases', () => {
 
       expect(mockRequestIdContextRun).toHaveBeenCalledTimes(1);
       expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-        { requestId: 'test-cases-test-uuid-123', userId: 'test-cases-test-uuid-123' },
+        { requestId: 'test-cases-test-uuid-123', userId: 'test-cases-test-uuid-123', sessionId: expect.any(String) },
         expect.any(Function)
       );
     });

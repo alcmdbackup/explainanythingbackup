@@ -37,9 +37,11 @@ export function useClientPassRequestId(userId = 'anonymous', sessionId?: string)
  * Hook that auto-fetches the authenticated user ID for request tracking
  *
  * • Automatically fetches user ID from Supabase auth on mount
+ * • Listens for auth state changes (login/logout)
  * • Falls back to 'anonymous' if not authenticated
  * • Generates session ID synchronously (no 'pending' state)
  * • Handles auth transition by linking anonymous → auth sessions
+ * • Resets to anonymous session on logout
  * • Provides withRequestId wrapper with actual user ID and session ID
  */
 export function useAuthenticatedRequestId() {
@@ -50,6 +52,7 @@ export function useAuthenticatedRequestId() {
   );
 
   useEffect(() => {
+    // Initial fetch
     async function fetchUser() {
       const { data } = await supabase_browser.auth.getUser();
       if (data?.user?.id) {
@@ -57,10 +60,30 @@ export function useAuthenticatedRequestId() {
         const transition = await handleAuthTransition(data.user.id);
         setUserId(data.user.id);
         setSessionId(transition.sessionId);
-        // transition.previousSessionId is logged inside handleAuthTransition
       }
     }
     fetchUser();
+
+    // Subscribe to auth state changes
+    const { data: { subscription } } = supabase_browser.auth.onAuthStateChange(
+      async (event, session) => {
+        if (event === 'SIGNED_OUT') {
+          // Reset to anonymous on logout
+          setUserId('anonymous');
+          setSessionId(getOrCreateAnonymousSessionId());
+        } else if (event === 'SIGNED_IN' && session?.user?.id) {
+          // Handle login (including different account)
+          const transition = await handleAuthTransition(session.user.id);
+          setUserId(session.user.id);
+          setSessionId(transition.sessionId);
+        }
+      }
+    );
+
+    // Cleanup subscription on unmount
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   return useClientPassRequestId(userId, sessionId);
