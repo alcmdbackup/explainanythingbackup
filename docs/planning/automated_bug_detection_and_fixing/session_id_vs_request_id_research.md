@@ -2,7 +2,7 @@
 
 > **Status**: Ready for Implementation
 > **Last Updated**: 2024-12-24
-> **Decisions Made**: Session timeout 30min fixed, flatten logs, same sessionId across tabs
+> **Decisions Made**: Session timeout 30min fixed, flatten logs, same sessionId across tabs, SHA-256 for auth session derivation, client sends sessionId in API request body
 
 ## Executive Summary
 
@@ -153,18 +153,26 @@ export function getOrCreateAnonymousSessionId(): string {
 }
 
 /**
- * Derive deterministic session ID from authenticated user.
+ * Derive deterministic session ID from authenticated user using SHA-256.
  * Called AFTER auth resolves - takes userId directly (not session object).
  *
  * Why userId only (not full session):
  * - userId is constant for the entire auth session
  * - Avoids extra getSession() call - we already have userId from getUser()
  * - expires_at changes on token refresh (~hourly), would break continuity
+ *
+ * Why SHA-256 (not btoa):
+ * - btoa is reversible base64 encoding, not a hash
+ * - SHA-256 is a true one-way cryptographic hash
+ * - Prevents userId exposure if logs are shared externally
  */
-export function deriveAuthSessionId(userId: string): string {
-  // Using btoa for browser compatibility (no crypto import needed)
-  const hash = btoa(userId).replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
-  return `auth-${hash}`;
+export async function deriveAuthSessionId(userId: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(userId);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  return `auth-${hashHex.slice(0, 12)}`;
 }
 
 /**
@@ -182,16 +190,23 @@ function generateUUID(): string {
 }
 
 /**
- * Optional: Get tab-specific ID for per-tab debugging.
+ * OPTIONAL: Get tab-specific ID for per-tab debugging.
+ *
+ * NOT included in core implementation - add only if needed for:
+ * - Debugging multi-tab race conditions
+ * - Distinguishing requests from different tabs in same session
+ *
+ * Usage: Add to __requestId payload if needed:
+ *   __requestId: { requestId, userId, sessionId, tabId: getTabId() }
  */
 export function getTabId(): string {
   if (typeof window === 'undefined') return 'ssr';
 
   try {
-    let tabId = sessionStorage.getItem('tabId');
+    let tabId = sessionStorage.getItem('ea_tabId');
     if (!tabId) {
       tabId = generateUUID().slice(0, 8);
-      sessionStorage.setItem('tabId', tabId);
+      sessionStorage.setItem('ea_tabId', tabId);
     }
     return tabId;
   } catch {
@@ -211,7 +226,7 @@ export function clearSession(): void {
 }
 ```
 
-### Logout Handler Registration
+### Auth State Change Handler
 
 Register the `onAuthStateChange` listener in `src/lib/supabase.ts` with a client-only guard:
 
@@ -220,12 +235,24 @@ Register the `onAuthStateChange` listener in `src/lib/supabase.ts` with a client
 
 import { clearSession } from './sessionId';
 
-// Session cleanup on logout (client-only)
+// Session management on auth state changes (client-only)
 if (typeof window !== 'undefined') {
-  supabase_browser.auth.onAuthStateChange((event) => {
+  supabase_browser.auth.onAuthStateChange((event, session) => {
+    // Clear anonymous session on logout
     if (event === 'SIGNED_OUT') {
       clearSession();
     }
+
+    // Note: SIGNED_IN is handled by useAuthenticatedRequestId's useEffect
+    // which calls handleAuthTransition(). We don't duplicate that logic here
+    // because React components need to update their state anyway.
+    //
+    // Auth events reference (from Supabase docs):
+    // - SIGNED_IN: User signed in (new session)
+    // - SIGNED_OUT: User signed out (session cleared)
+    // - TOKEN_REFRESHED: Token was refreshed (~hourly)
+    // - USER_UPDATED: User profile updated
+    // - PASSWORD_RECOVERY: Password recovery initiated
   });
 }
 ```
@@ -234,6 +261,11 @@ if (typeof window !== 'undefined') {
 - `supabase.ts` is already imported by all auth-related code
 - Listener is registered once on module load
 - Client-guard prevents server-side execution
+
+**Why SIGNED_IN isn't handled here:**
+- React components using `useAuthenticatedRequestId` need to update their state
+- The hook's `useEffect` already calls `getUser()` which triggers `handleAuthTransition()`
+- Duplicating the logic here would cause race conditions with React state updates
 
 ### Server-Side Session ID (Webhooks, Cron, External APIs)
 
@@ -305,28 +337,41 @@ export function useAuthenticatedRequestId() {
 2. After auth resolves: `sessionId = 'auth-xxx'` (upgraded)
 3. Logs show natural session transition - never `'pending'`
 
-**Note**: Don't render `sessionId` in SSR-critical markup. It's for logging, not UI.
+**SSR Hydration Warning**:
+- During SSR, `getOrCreateAnonymousSessionId()` returns `'ssr-pending'`
+- After hydration, it returns `'sess-xxx'` from localStorage
+- **NEVER render `sessionId` in visible UI elements** - this causes React hydration mismatch errors
+- `sessionId` is for logging/debugging only, not for display
+- If you need to display session info in UI, use a client-only component with `useEffect`
 
 ### Handling Anonymous → Authenticated Transition
 
-When user logs in mid-session, link the sessions:
+When user logs in mid-session, link the sessions. This function is called from `useAuthenticatedRequestId`'s `useEffect` after `getUser()` resolves:
 
 ```typescript
-export function handleAuthTransition(): {
+/**
+ * Handle session transition from anonymous to authenticated.
+ * Called in useAuthenticatedRequestId's useEffect after getUser() resolves.
+ *
+ * @param userId - The authenticated user's ID from getUser()
+ * @returns The new auth session ID and optionally the previous anonymous session ID
+ */
+export async function handleAuthTransition(userId: string): Promise<{
   sessionId: string;
   previousSessionId?: string;
-} {
-  const anonSession = localStorage.getItem('session');
+}> {
+  const anonSession = localStorage.getItem(SESSION_KEY);  // Use SESSION_KEY constant
   const anonSessionId = anonSession ? JSON.parse(anonSession).id : null;
-  const authSessionId = deriveAuthSessionId(currentSession);
+  const authSessionId = await deriveAuthSessionId(userId);  // Now async
 
   if (anonSessionId && anonSessionId !== authSessionId) {
     // Log linking event for journey reconstruction
-    logger.info('Session transition', {
+    // Note: This runs client-side, use console.log or client logger
+    console.log('[Session] Transition from anonymous to authenticated', {
       previousSessionId: anonSessionId,
       sessionId: authSessionId,
     });
-    localStorage.removeItem('session');
+    localStorage.removeItem(SESSION_KEY);
     return { sessionId: authSessionId, previousSessionId: anonSessionId };
   }
 
@@ -342,18 +387,48 @@ export function handleAuthTransition(): {
 
 ```typescript
 // src/lib/requestIdContext.ts
-interface RequestContext {
+
+// Define the context data interface (add sessionId)
+interface ContextData {
   requestId: string;
   userId: string;
   sessionId: string;
-  previousSessionId?: string;
 }
 
-// Add getter
-static getSessionId(): string {
-  return this.get()?.sessionId || 'unknown';
+// Update the storage type to include sessionId
+const storage = typeof window === 'undefined'
+  ? new (require('async_hooks').AsyncLocalStorage<ContextData>)()
+  : null;
+
+// Update client-side default to include sessionId
+let clientRequestId: ContextData = {
+  requestId: 'unknown',
+  userId: 'anonymous',
+  sessionId: 'unknown'
+};
+
+// Update validation to include sessionId
+function validateContextData(data: ContextData): void {
+  if (!data) {
+    throw new Error('RequestIdContext: data is required');
+  }
+  if (!data.requestId || data.requestId === '' || data.requestId === 'unknown') {
+    throw new Error('RequestIdContext: requestId must be a valid non-empty string');
+  }
+  // sessionId can be 'unknown' during migration phase
+}
+
+export class RequestIdContext {
+  // ... existing run(), setClient(), get() methods ...
+
+  // Add new getter for sessionId
+  static getSessionId(): string {
+    return this.get()?.sessionId || 'unknown';
+  }
 }
 ```
+
+**Note**: The `previousSessionId` is only used transiently during auth transitions and logged immediately. It doesn't need to be stored in the context.
 
 ### 2. Client Hook Update
 
@@ -384,7 +459,7 @@ export function useClientPassRequestId(userId = 'anonymous', sessionId?: string)
   return { withRequestId };
 }
 
-// Updated authenticated hook with synchronous sessionId
+// Updated authenticated hook with synchronous sessionId and auth transition handling
 export function useAuthenticatedRequestId() {
   const [userId, setUserId] = useState<string>('anonymous');
   const [sessionId, setSessionId] = useState<string>(() =>
@@ -395,8 +470,11 @@ export function useAuthenticatedRequestId() {
     async function fetchUser() {
       const { data } = await supabase_browser.auth.getUser();
       if (data?.user?.id) {
+        // Call handleAuthTransition to link anonymous → auth session
+        const transition = await handleAuthTransition(data.user.id);
         setUserId(data.user.id);
-        setSessionId(deriveAuthSessionId(data.user.id));
+        setSessionId(transition.sessionId);
+        // transition.previousSessionId is logged inside handleAuthTransition
       }
     }
     fetchUser();
@@ -406,7 +484,7 @@ export function useAuthenticatedRequestId() {
 }
 ```
 
-### 3. Server Extraction
+### 3. Server Extraction (Server Actions)
 
 ```typescript
 // src/lib/serverReadRequestId.ts
@@ -432,14 +510,63 @@ export function serverReadRequestId<T extends (...args: any[]) => any>(fn: T): T
 
 **Note**: Session ID is client-generated and passed through. Server only extracts from payload - no server-side auth call needed.
 
+### 3b. API Routes (Non-Server-Action Endpoints)
+
+For API routes that don't use `serverReadRequestId` wrapper, the client must include `sessionId` in the request body:
+
+```typescript
+// Client-side: Include sessionId in API route requests
+// Example: src/app/results/page.tsx or any component calling API routes
+
+import { getOrCreateAnonymousSessionId } from '@/lib/sessionId';
+
+// When making fetch calls to API routes:
+const sessionId = getOrCreateAnonymousSessionId(); // Or from auth state
+
+const response = await fetch('/api/fetchSourceMetadata', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    url,
+    __requestId: { requestId, userId, sessionId }
+  })
+});
+```
+
+```typescript
+// Server-side: API route extracts sessionId from body
+// Example: src/app/api/fetchSourceMetadata/route.ts
+
+export async function POST(request: Request) {
+  const body = await request.json();
+  const { url, __requestId } = body;
+
+  const requestIdData = __requestId || {
+    requestId: `api-${randomUUID()}`,
+    userId: 'anonymous',
+    sessionId: 'unknown'  // Fallback if client didn't send
+  };
+
+  return await RequestIdContext.run(requestIdData, async () => {
+    // All logs in this context will include sessionId
+    logger.info('fetchSourceMetadata: Processing', { url });
+    // ...
+  });
+}
+```
+
+**Migration note**: During migration, API routes without sessionId will log `sessionId: 'unknown'`. This is acceptable and distinguishes pre-migration requests in log analysis.
+
 ### 4. Logger Enhancement
 
 **Important**: The current logger nests `requestId` inside an object. We're flattening this (breaking change approved).
 
+Both console output and file logging now use flat structure with `requestId`, `userId`, `sessionId` at the top level:
+
 ```typescript
 // src/lib/server_utilities.ts
 
-// Helper to add context to console logs
+// Helper to add context to console logs (UPDATED: now includes sessionId)
 const addRequestId = (data: LoggerData | null) => ({
   requestId: RequestIdContext.getRequestId(),
   userId: RequestIdContext.getUserId(),
@@ -467,7 +594,18 @@ function writeToFile(level: string, message: string, data: LoggerData | null) {
     // Silently fail to avoid recursive logging
   }
 }
+
+// Logger methods (all use addRequestId for console, writeToFile for file)
+const logger = {
+  info: (message: string, data: LoggerData | null = null) => {
+    console.log(`[INFO] ${message}`, addRequestId(data));
+    writeToFile('INFO', message, data);
+  },
+  // ... debug, error, warn follow same pattern
+};
 ```
+
+**Note**: Console output and file format are now aligned. Both show flat structure with `requestId`, `userId`, `sessionId` at top level.
 
 ### 5. OpenTelemetry Attributes
 
@@ -482,14 +620,21 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
 
 | File | Change | Priority |
 |------|--------|----------|
-| `src/lib/sessionId.ts` | **NEW** - Session ID generation (anon + auth-derived) | P0 |
-| `src/lib/requestIdContext.ts` | Add sessionId to context interface + `getSessionId()` | P0 |
-| `src/lib/supabase.ts` | Add `onAuthStateChange` listener for cleanup | P0 |
-| `src/hooks/clientPassRequestId.ts` | Integrate sessionId with synchronous init | P0 |
+| `src/lib/sessionId.ts` | **NEW** - Session ID generation (anon + auth-derived with SHA-256) | P0 |
+| `src/lib/requestIdContext.ts` | Add sessionId to ContextData interface + `getSessionId()` | P0 |
+| `src/lib/supabase.ts` | Add `onAuthStateChange` listener for session cleanup | P0 |
+| `src/hooks/clientPassRequestId.ts` | Integrate sessionId with synchronous init + handleAuthTransition | P0 |
 | `src/lib/serverReadRequestId.ts` | Extract sessionId from payload | P0 |
-| `src/lib/server_utilities.ts` | Flatten log format + add sessionId | P1 |
+| `src/lib/server_utilities.ts` | Flatten log format + add sessionId to both console and file | P1 |
+| `src/app/api/**/route.ts` | Update API routes to extract sessionId from request body | P1 |
 | `src/lib/logging/server/automaticServerLoggingBase.ts` | Add span attribute | P2 |
 | `instrumentation.ts` | Add sessionId to traces | P2 |
+
+**Implementation notes:**
+- `deriveAuthSessionId()` is now async (uses crypto.subtle.digest)
+- `handleAuthTransition()` is now async (calls deriveAuthSessionId)
+- Update `useAuthenticatedRequestId`'s useEffect to await these functions
+- `getTabId()` is optional - only add if debugging multi-tab issues
 
 **Removed from original plan:**
 - `src/hooks/useSessionId.ts` - Not needed; session ID is generated synchronously in `useAuthenticatedRequestId()`
@@ -671,3 +816,7 @@ These are semantically different concepts that happen to share a name. The prefi
 | **Timeout duration** | 30 minutes fixed (not configurable) |
 | **Anonymous tracking** | Yes - generates valuable debugging data |
 | **Log format** | Flatten (breaking change accepted) |
+| **Auth session hash** | SHA-256 via Web Crypto API (not btoa) |
+| **API routes sessionId** | Client sends in request body via __requestId |
+| **handleAuthTransition call site** | In useAuthenticatedRequestId's useEffect |
+| **SIGNED_IN handling** | Via hook's useEffect (not onAuthStateChange) |
