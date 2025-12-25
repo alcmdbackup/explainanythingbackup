@@ -150,6 +150,59 @@ function validateStep2Output(
 }
 ```
 
+#### B2.5. Add Content Preservation Validator (LaTeX, Code, Links, Images)
+**Location**: Call alongside B2 after Step 2
+
+```typescript
+function validateContentPreservation(
+  original: string,
+  edited: string
+): { valid: boolean; issues: string[]; severity: 'error' | 'warning' } {
+  const issues: string[] = [];
+
+  // 1. LaTeX inline preservation ($...$)
+  const origLatexInline = (original.match(/\$[^$]+\$/g) || []).length;
+  const editedLatexInline = (edited.match(/\$[^$]+\$/g) || []).length;
+  if (editedLatexInline < origLatexInline * 0.8) {
+    issues.push(`LaTeX inline reduced: ${origLatexInline} → ${editedLatexInline}`);
+  }
+
+  // 2. LaTeX block preservation ($$...$$)
+  const origLatexBlock = (original.match(/\$\$[\s\S]+?\$\$/g) || []).length;
+  const editedLatexBlock = (edited.match(/\$\$[\s\S]+?\$\$/g) || []).length;
+  if (editedLatexBlock < origLatexBlock * 0.8) {
+    issues.push(`LaTeX blocks reduced: ${origLatexBlock} → ${editedLatexBlock}`);
+  }
+
+  // 3. Code fence preservation
+  const origCodeBlocks = (original.match(/```[\s\S]*?```/g) || []).length;
+  const editedCodeBlocks = (edited.match(/```[\s\S]*?```/g) || []).length;
+  if (editedCodeBlocks < origCodeBlocks * 0.8) {
+    issues.push(`Code blocks reduced: ${origCodeBlocks} → ${editedCodeBlocks}`);
+  }
+
+  // 4. Link preservation
+  const origLinks = (original.match(/\[([^\]]+)\]\(([^)]+)\)/g) || []).length;
+  const editedLinks = (edited.match(/\[([^\]]+)\]\(([^)]+)\)/g) || []).length;
+  if (editedLinks < origLinks * 0.8) {
+    issues.push(`Links reduced: ${origLinks} → ${editedLinks}`);
+  }
+
+  // 5. Image preservation (stricter - no loss allowed)
+  const origImages = (original.match(/!\[([^\]]*)\]\(([^)]+)\)/g) || []).length;
+  const editedImages = (edited.match(/!\[([^\]]*)\]\(([^)]+)\)/g) || []).length;
+  if (editedImages < origImages) {
+    issues.push(`Images reduced: ${origImages} → ${editedImages}`);
+  }
+
+  return {
+    valid: issues.length === 0,
+    issues,
+    severity: issues.length > 2 ? 'error' : 'warning'
+  };
+}
+```
+
 #### B3. Add Step 3 Output Validator (CriticMarkup Syntax Check)
 **Location**: After Step 3, before Step 4
 
@@ -170,8 +223,8 @@ function validateCriticMarkup(content: string): { valid: boolean; issues: string
     issues.push(`Unbalanced deletions: ${deletions} opens, ${deletionCloses} closes`);
   }
 
-  // Check substitutions have proper separator
-  const substitutions = content.match(/\{~~[^~]*~~\}/g) || [];
+  // Check substitutions have proper separator (use [\s\S]*? for multiline)
+  const substitutions = content.match(/\{~~[\s\S]*?~~\}/g) || [];
   substitutions.forEach((sub, i) => {
     if (!sub.includes('~>')) {
       issues.push(`Substitution ${i} missing ~> separator: "${sub.slice(0, 30)}..."`);
@@ -191,10 +244,11 @@ Add character escaping before wrapping in CriticMarkup:
 ```typescript
 function escapeCriticMarkupContent(text: string): string {
   // Escape sequences that could break CriticMarkup parsing
+  // Covers: insertions {++, deletions {--, substitutions {~~, highlights {==, comments {>>
   return text
-    .replace(/\{(\+\+|--)/g, '\\{$1')  // Escape opening markers
-    .replace(/(\+\+|--)\}/g, '$1\\}')  // Escape closing markers
-    .replace(/~>/g, '\\~>');            // Escape substitution separator
+    .replace(/\{(\+\+|--|~~|==|>>)/g, '\\{$1')  // Escape opening markers
+    .replace(/(\+\+|--|~~|==|<<)\}/g, '$1\\}')  // Escape closing markers
+    .replace(/~>/g, '\\~>');                     // Escape substitution separator
 }
 ```
 
@@ -228,10 +282,13 @@ if (!step2Validation.valid) {
 |----------|-------------|--------|--------|
 | P0 | B2: Step 2 output validator (content preservation) | Low | High |
 | P0 | A2: Step 2 prompt improvements | Low | High |
-| P1 | B3: CriticMarkup syntax validator | Medium | High |
+| P0 | B3: CriticMarkup syntax validator | Medium | High |
+| P1 | C: Character escaping in AST diff | Medium | High |
 | P1 | A1: Step 1 prompt improvements | Low | Medium |
+| P1 | Timeout handling (pipeline-level) | Medium | High |
 | P2 | B1: Step 1 output validator | Medium | Medium |
-| P2 | C: Character escaping in AST diff | Medium | Medium |
+| P2 | B2.5: Content preservation validator (LaTeX, code, links) | Medium | Medium |
+| P2 | Telemetry integration | Medium | Medium |
 | P3 | D1/D2: Retry and fallback mechanisms | High | Medium |
 
 ---
@@ -247,9 +304,11 @@ if (!step2Validation.valid) {
 
 ## User Decisions
 
-- **Strictness**: Configurable per-call via options
+- **Strictness**: Configurable per-call via options, **default to blocking** on validation failure
 - **Retries**: Yes, with simplified prompts (up to 2 retries)
-- **Scope**: All priorities (P0-P3) - complete implementation
+- **Scope**: All priorities (P0-P3) + telemetry + content preservation
+- **Content types**: Validate LaTeX, code blocks, links, images
+- **Telemetry**: Track failure rates, retry counts, validation issues
 
 ---
 
@@ -404,8 +463,125 @@ export async function runAISuggestionsPipeline(
 ### Default Options
 ```typescript
 const DEFAULT_VALIDATION_OPTIONS: PipelineValidationOptions = {
-  strictMode: false,    // Warn but continue
+  strictMode: true,     // Block on failure (updated from false)
   enableRetry: true,    // Retry on failure
   maxRetries: 2         // Up to 2 retry attempts
 };
 ```
+
+---
+
+## Additional Gaps Identified (Review Additions)
+
+### E. Operational Concerns
+
+#### E1. Pipeline-Level Timeout Handling
+**Problem**: LLM calls can hang indefinitely; user may close tab during processing
+**Current**: Only OpenAI client has 60s timeout
+
+```typescript
+// Add to runAISuggestionsPipeline()
+const PIPELINE_TIMEOUT_MS = 90000; // 90 seconds total
+
+async function runAISuggestionsPipelineWithTimeout(
+  ...args
+): Promise<PipelineResult> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PIPELINE_TIMEOUT_MS);
+
+  try {
+    return await runAISuggestionsPipeline(...args, controller.signal);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+```
+
+#### E2. Concurrent Request Handling
+**Problem**: User submits multiple AI suggestion requests rapidly → race conditions
+**Solution**: Add request debouncing or queuing
+
+```typescript
+// In component or action layer
+const pendingRequest = useRef<AbortController | null>(null);
+
+async function handleAISuggestion() {
+  // Cancel any pending request
+  if (pendingRequest.current) {
+    pendingRequest.current.abort();
+  }
+  pendingRequest.current = new AbortController();
+  // ... proceed with new request
+}
+```
+
+### F. Telemetry Integration
+
+#### F1. Pipeline Metrics Types
+**New file**: `src/editorFiles/validation/pipelineMetrics.ts`
+
+```typescript
+export interface PipelineStepMetrics {
+  pipelineId: string;           // Unique ID for this run
+  step: 1 | 2 | 3 | 4;
+  stepName: 'generate' | 'apply' | 'diff' | 'preprocess';
+  success: boolean;
+  validationIssues: string[];
+  durationMs: number;
+  retryCount: number;
+  inputLength: number;
+  outputLength: number;
+  timestamp: Date;
+}
+
+export interface PipelineSummaryMetrics {
+  pipelineId: string;
+  userId: string;
+  totalDurationMs: number;
+  stepsCompleted: number;
+  totalRetries: number;
+  allValidationIssues: string[];
+  finalStatus: 'success' | 'partial' | 'failed';
+}
+
+export function trackPipelineStep(metrics: PipelineStepMetrics): void {
+  logger.info('pipeline_step', metrics);
+}
+
+export function trackPipelineSummary(summary: PipelineSummaryMetrics): void {
+  logger.info('pipeline_complete', summary);
+}
+```
+
+#### F2. Integration Points
+- Call `trackPipelineStep()` at end of each step in `runAISuggestionsPipeline()`
+- Call `trackPipelineSummary()` at pipeline completion
+- Include validation issues in metrics for debugging
+
+### G. Database Failure Handling
+**Problem**: Current code logs DB save failures but doesn't halt execution (lines 253, 294, 328, 359)
+**Solution**: Make DB saves optionally blocking in production
+
+```typescript
+interface PipelineValidationOptions {
+  // ... existing options
+  blockOnDbFailure: boolean;  // true = halt pipeline on DB save failure
+}
+```
+
+---
+
+## Updated Files to Modify/Create
+
+| File | Action | Changes |
+|------|--------|---------|
+| `src/editorFiles/validation/pipelineValidation.ts` | CREATE | All validation functions, types |
+| `src/editorFiles/validation/pipelineValidation.test.ts` | CREATE | Unit tests for validators |
+| `src/editorFiles/validation/pipelineMetrics.ts` | CREATE | Telemetry types and functions |
+| `src/editorFiles/validation/contentPreservation.ts` | CREATE | LaTeX, code, link, image validators |
+| `src/editorFiles/aiSuggestion.ts` | MODIFY | Prompts, retry, validation, timeout, telemetry |
+| `src/editorFiles/aiSuggestion.test.ts` | MODIFY | Add tests for new validation flow |
+| `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | MODIFY | Add character escaping |
+| `src/editorFiles/markdownASTdiff/markdownASTdiff.test.ts` | MODIFY | Add escaping tests |
+| `src/editorFiles/actions/actions.ts` | MODIFY | Timeout handling, validation calls |
+| `src/lib/errorHandling.ts` | MODIFY | Add pipeline-specific error codes |
