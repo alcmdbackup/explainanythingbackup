@@ -1,96 +1,29 @@
 # Improve Client Logging Visibility
 
-## Problem Statement
+## Problem
 
-Current client logging has two limitations:
-1. **API dependency**: Logs are sent via `POST /api/client-logs` (development only)
-2. **No trace correlation**: `logger.*()` calls don't appear in Grafana traces
-
----
-
-## Critical Flaws in Original Approach
-
-Before implementing, these issues must be addressed:
-
-| Flaw | Problem | Required Fix |
-|------|---------|--------------|
-| **RequestId Lifecycle** | `useClientPassRequestId` creates new ID per action, not per session | Add Phase 0: session-level request ID on app mount |
-| **No TraceId Propagation** | Client request IDs don't correlate with server trace IDs | Pass W3C `traceparent` header from client to server |
-| **Orphaned API Endpoint** | `/api/client-logs` exists but no code calls it | Wire up or remove |
-| **Sanitization Gap** | `logger.info()` bypasses `withClientLogging` sanitization | Route OTEL exports through sanitization pipeline |
+Client logs (`logger.info()`, etc.) only appear in browser console. They:
+1. Don't persist anywhere accessible for debugging
+2. Don't correlate with server traces in Grafana
+3. Have orphaned infrastructure (`/api/client-logs` exists but nothing calls it)
 
 ---
 
-## Current State
+## Implementation Phases
 
-| Component | How It Works | Limitation |
-|-----------|--------------|------------|
-| `logger.info()` etc. | Wraps `console.*`, adds requestId | Only visible in browser console |
-| `/api/client-logs` | Appends to `client.log` file | Dev only, **unused** |
-| Server OpenTelemetry | Sends traces to Grafana | Client-side not instrumented |
+### Phase 1: localStorage Buffer (Dev Experience)
 
-**Key files**:
-- `src/lib/client_utilities.ts` - Client logger
-- `src/lib/logging/client/clientLogging.ts` - `withClientLogging()` wrapper
-- `src/app/api/client-logs/route.ts` - API endpoint (dev only, unused)
-- `src/lib/requestIdContext.ts` - Request ID context (per-action, not per-session)
+**Goal**: Persist client logs locally for debugging without network calls.
 
----
-
-## Existing Infrastructure to Leverage
-
-The codebase already has OTEL infrastructure that should be reused:
-
-| Component | Location | Status |
-|-----------|----------|--------|
-| OTLP trace exporter | `@opentelemetry/exporter-trace-otlp-http` v0.55.0 | Installed |
-| OTLP logs exporter | `@opentelemetry/exporter-logs-otlp-http` v0.55.0 | Installed |
-| Grafana endpoint | `package.json` dev script | Configured |
-| Custom tracers | `instrumentation.ts` | 4 tracers: llm, db, vector, app |
-| Sanitization | `src/lib/logging/client/clientLogging.ts` | Working |
-
----
-
-## Options for Client Log Collection Without API Calls
-
-### Option 1: Browser OpenTelemetry (Recommended for Production)
-
-Send traces directly from browser to Grafana OTLP endpoint.
-
-**Setup**:
-```bash
-# Only need sdk-trace-web and context-zone; exporter already installed
-npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone
-```
+**Files to create/modify**:
+| File | Action |
+|------|--------|
+| `src/lib/logging/client/consoleInterceptor.ts` | CREATE |
+| `src/app/layout.tsx` | MODIFY - initialize interceptor |
+| `src/app/api/client-logs/route.ts` | DELETE (orphaned) |
 
 **Implementation**:
-```typescript
-// src/lib/tracing/browserTracing.ts
-import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { ZoneContextManager } from '@opentelemetry/context-zone';
 
-const provider = new WebTracerProvider();
-provider.addSpanProcessor(new BatchSpanProcessor(
-  new OTLPTraceExporter({
-    url: 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces',
-    headers: { Authorization: 'Basic <token>' }
-  })
-));
-provider.register({ contextManager: new ZoneContextManager() });
-```
-
-**Pros**: Unified with server traces, works in prod, Grafana correlation
-**Cons**: ~50KB bundle size, requires CORS config on Grafana endpoint
-
----
-
-### Option 2: Console Interception + localStorage
-
-Intercept all console calls, buffer to localStorage, read via Playwright MCP or debug panel.
-
-**Implementation**:
 ```typescript
 // src/lib/logging/client/consoleInterceptor.ts
 const LOG_KEY = 'client_logs';
@@ -98,217 +31,232 @@ const MAX_LOGS = 500;
 
 const originalConsole = { ...console };
 
-['log', 'info', 'warn', 'error', 'debug'].forEach(level => {
-  console[level] = (...args) => {
-    originalConsole[level](...args);
+export function initConsoleInterceptor() {
+  if (typeof window === 'undefined') return;
 
-    try {
-      const logs = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
-      logs.push({
-        timestamp: new Date().toISOString(),
-        level: level.toUpperCase(),
-        message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
-        requestId: RequestIdContext.getRequestId()
-      });
+  (['log', 'info', 'warn', 'error', 'debug'] as const).forEach(level => {
+    console[level] = (...args: unknown[]) => {
+      originalConsole[level](...args);
 
-      // Keep only last N logs
-      if (logs.length > MAX_LOGS) logs.shift();
-      localStorage.setItem(LOG_KEY, JSON.stringify(logs));
-    } catch (e) {
-      // QuotaExceededError - graceful degradation
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        localStorage.removeItem(LOG_KEY);
+      try {
+        const logs = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+        logs.push({
+          timestamp: new Date().toISOString(),
+          level: level.toUpperCase(),
+          message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+        });
+
+        if (logs.length > MAX_LOGS) logs.shift();
+        localStorage.setItem(LOG_KEY, JSON.stringify(logs));
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+          localStorage.removeItem(LOG_KEY);
+        }
       }
-    }
-  };
-});
+    };
+  });
 
-export function exportLogs(): string {
-  return localStorage.getItem(LOG_KEY) || '[]';
-}
-
-export function clearLogs(): void {
-  localStorage.removeItem(LOG_KEY);
+  // Expose for Playwright/debugging
+  (window as any).exportLogs = () => localStorage.getItem(LOG_KEY) || '[]';
+  (window as any).clearLogs = () => localStorage.removeItem(LOG_KEY);
 }
 ```
 
-**Pros**: Zero network overhead, works offline, simple
-**Cons**: ~5MB storage limit, only accessible locally
+**Verification**:
+- `mcp__playwright__browser_evaluate(() => window.exportLogs())` returns logs
+- Logs persist across page navigations
 
 ---
 
-### Option 3: IndexedDB Buffer
+### Phase 2: Session Request ID (Correlation Foundation)
 
-Store logs in IndexedDB for larger storage and structured queries.
+**Goal**: Single request ID per session (not per-action) for log correlation.
 
-**Pros**: 50MB+ storage, can query by level/time
-**Cons**: More complex setup, async API
+**Problem**: `RequestIdContext` currently uses per-action IDs. Logs from the same session have different IDs.
 
----
-
-### Option 4: Playwright MCP Console Capture (No Code Changes)
-
-Use existing Playwright MCP during debugging sessions:
-
-```
-mcp__playwright__browser_console_messages
-```
-
-**Pros**: Works immediately, no code changes
-**Cons**: Only during active Playwright sessions
-
----
-
-## Getting Logger Statements into Traces
-
-### The Problem
-
-OpenTelemetry traces and logger statements are different concepts:
-
-| | Traces (Spans) | Logs |
-|---|---|---|
-| What | Operations with duration | Discrete messages |
-| Example | `tracer.startSpan("handleClick")` | `logger.info("clicked")` |
-| Grafana | Tempo | Loki |
-
-**Your `logger.info()` calls don't automatically appear in traces.**
-
----
-
-### Solution A: Attach Logs as Span Events (Recommended)
-
-Modify logger to attach messages to the active span when one exists.
+**Files to modify**:
+| File | Action |
+|------|--------|
+| `src/lib/requestIdContext.ts` | MODIFY - add session persistence |
+| `src/app/layout.tsx` | MODIFY - set session ID on mount |
 
 **Implementation**:
+
 ```typescript
-// src/lib/client_utilities.ts - Enhanced logger
+// Add to RequestIdContext
+static initSession(): void {
+  if (typeof window === 'undefined') return;
+
+  let sessionId = sessionStorage.getItem('session_request_id');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('session_request_id', sessionId);
+  }
+
+  clientRequestId = { requestId: sessionId, userId: 'anonymous' };
+}
+
+static getSessionId(): string {
+  if (typeof window === 'undefined') return 'unknown';
+  return sessionStorage.getItem('session_request_id') || 'unknown';
+}
+```
+
+**Verification**:
+- Same session ID across multiple `logger.info()` calls
+- ID persists across component re-renders
+- New tab = new session ID
+
+---
+
+### Phase 3: Browser OpenTelemetry (Production Traces)
+
+**Goal**: Client traces visible in Grafana, correlated with server traces.
+
+**Dependencies**:
+```bash
+npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone
+# Note: @opentelemetry/exporter-trace-otlp-http already in package.json via auto-instrumentations
+```
+
+**Files to create/modify**:
+| File | Action |
+|------|--------|
+| `src/lib/tracing/browserTracing.ts` | CREATE |
+| `src/app/layout.tsx` | MODIFY - initialize tracer |
+| `src/lib/client_utilities.ts` | MODIFY - attach span events |
+
+**Implementation**:
+
+```typescript
+// src/lib/tracing/browserTracing.ts
+import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { ZoneContextManager } from '@opentelemetry/context-zone';
 import { trace } from '@opentelemetry/api';
-import { sanitizeData } from './logging/client/clientLogging';
 
-function logWithSpan(level: string, message: string, data?: unknown) {
-  // Sanitize before logging anywhere
-  const safeData = data ? sanitizeData(data) : undefined;
+let initialized = false;
 
-  // Still log to console
-  console[level](message, safeData);
+export function initBrowserTracing() {
+  if (typeof window === 'undefined' || initialized) return;
 
-  // Attach to active span if one exists
+  const provider = new WebTracerProvider();
+  provider.addSpanProcessor(new BatchSpanProcessor(
+    new OTLPTraceExporter({
+      url: 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces',
+      headers: {
+        Authorization: `Basic ${process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN}`
+      }
+    })
+  ));
+  provider.register({ contextManager: new ZoneContextManager() });
+
+  initialized = true;
+}
+
+export function getTracer() {
+  return trace.getTracer('client', '1.0.0');
+}
+```
+
+```typescript
+// Updated src/lib/client_utilities.ts
+import { trace } from '@opentelemetry/api';
+
+const addRequestId = (data: LoggerData | null) => {
+  const requestId = RequestIdContext.getRequestId();
+  return data ? { requestId, ...data } : { requestId };
+};
+
+function logWithSpan(level: string, message: string, data: LoggerData | null) {
+  const enrichedData = addRequestId(data);
+
+  // Console output
+  console[level as 'log'](`[${level.toUpperCase()}] ${message}`, enrichedData);
+
+  // Attach to active span if exists
   const activeSpan = trace.getActiveSpan();
   if (activeSpan) {
     activeSpan.addEvent(message, {
       'log.level': level.toUpperCase(),
-      'log.data': safeData ? JSON.stringify(safeData) : undefined
+      'log.data': JSON.stringify(enrichedData),
     });
   }
 }
 
-export const logger = {
-  info: (msg: string, data?: unknown) => logWithSpan('info', msg, data),
-  warn: (msg: string, data?: unknown) => logWithSpan('warn', msg, data),
-  error: (msg: string, data?: unknown) => logWithSpan('error', msg, data),
-  debug: (msg: string, data?: unknown) => logWithSpan('debug', msg, data),
+const logger = {
+  debug: (message: string, data: LoggerData | null = null, debug = false) => {
+    if (!debug) return;
+    logWithSpan('debug', message, data);
+  },
+  error: (message: string, data: LoggerData | null = null) => logWithSpan('error', message, data),
+  info: (message: string, data: LoggerData | null = null) => logWithSpan('info', message, data),
+  warn: (message: string, data: LoggerData | null = null) => logWithSpan('warn', message, data),
 };
 ```
 
-**Result in Grafana**: Log messages appear as events on the trace timeline, correlated by trace ID.
+**Verification**:
+- Client spans appear in Grafana Tempo
+- Log messages visible as span events
+- Client + server traces share correlation IDs
 
 ---
 
-### Solution B: OTLP Logs Exporter (Separate from Traces)
+### Phase 4: Trace Context Propagation (Optional)
 
-Send logs as a separate OpenTelemetry signal to Grafana Loki.
+**Goal**: Link client-initiated requests to server traces via W3C `traceparent` header.
 
+**Files to modify**:
+| File | Action |
+|------|--------|
+| API fetch wrappers | MODIFY - add traceparent header |
+
+**Implementation**:
 ```typescript
-import { logs } from '@opentelemetry/api-logs';
-import { LoggerProvider } from '@opentelemetry/sdk-logs';
-import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+// In fetch wrapper
+import { context, propagation } from '@opentelemetry/api';
 
-const loggerProvider = new LoggerProvider();
-loggerProvider.addLogRecordProcessor(
-  new BatchLogRecordProcessor(new OTLPLogExporter({
-    url: 'https://otlp-gateway.../v1/logs'
-  }))
-);
-
-const otelLogger = logs.getLogger('client');
-otelLogger.emit({
-  body: 'User clicked button',
-  severityText: 'INFO',
-  attributes: { component: 'ButtonComponent' }
-});
+const headers: Record<string, string> = {};
+propagation.inject(context.active(), headers);
+fetch(url, { headers: { ...headers, ...otherHeaders } });
 ```
 
-**Pros**: Full log pipeline, separate from traces
-**Cons**: More setup, requires Loki configuration
+---
+
+## Recommendation
+
+**Start with Phase 1 + 2** — immediate debugging value, minimal complexity.
+
+Phase 3 adds production observability but requires:
+- CORS configuration on Grafana OTLP endpoint
+- Environment variable for browser-safe auth token
+- ~50KB bundle increase
+
+Phase 4 only needed if you want end-to-end distributed tracing.
 
 ---
 
-## Recommended Implementation Plan
+## Checklist
 
-### Phase 0: Request ID Foundation (PREREQUISITE)
-- Establish session-level request ID on app mount
-- Update `RequestIdContext` for session persistence
-- Required before Phase 2-3 will work correctly
+### Phase 1: localStorage Buffer
+- [ ] Create `src/lib/logging/client/consoleInterceptor.ts`
+- [ ] Initialize in `src/app/layout.tsx`
+- [ ] Delete `src/app/api/client-logs/route.ts`
+- [ ] Test with Playwright `browser_evaluate`
 
-### Phase 1: Immediate (No Code Changes)
-- Use `mcp__playwright__browser_console_messages` for debugging
-- Continue using browser DevTools console
-
-### Phase 2: Local Development Enhancement
-- Implement **Option 2 (localStorage interception)** with quota handling
-- Add a debug panel or keyboard shortcut to export logs
-- Readable via Playwright's `browser_evaluate`
-- Resolve orphaned `/api/client-logs` endpoint
-
-### Phase 3: Production Observability
-- Implement **Browser OpenTelemetry** (Option 1)
-- Add W3C `traceparent` header propagation
-- Modify logger to use **Solution A (span events)** with sanitization
-- Unified client+server traces in Grafana
-
----
-
-## Implementation Checklist
-
-### Phase 0: Request ID Foundation
-- [ ] Modify `src/app/layout.tsx` to auto-generate session request ID on mount
-- [ ] Update `src/lib/requestIdContext.ts` for session-level persistence
-- [ ] Ensure all logs use session ID, not per-action ID
-
-### Phase 2: localStorage Approach
-- [ ] Create `src/lib/logging/client/consoleInterceptor.ts` with quota handling
-- [ ] Initialize interceptor in `src/app/layout.tsx`
-- [ ] Add `exportLogs()` / `clearLogs()` to window object
-- [ ] Wire up OR remove `/api/client-logs` endpoint
-- [ ] Test with Playwright `browser_evaluate(() => window.exportLogs())`
+### Phase 2: Session Request ID
+- [ ] Add `initSession()` to `RequestIdContext`
+- [ ] Call from `layout.tsx` on mount
+- [ ] Verify consistent IDs in logs
 
 ### Phase 3: Browser OpenTelemetry
 - [ ] Install `@opentelemetry/sdk-trace-web` and `@opentelemetry/context-zone`
-- [ ] Configure CORS on Grafana OTLP endpoint
-- [ ] Create `src/lib/tracing/browserTracing.ts` (reuse existing Grafana config)
-- [ ] Add W3C `traceparent` header to client→server requests
-- [ ] Modify `logger` to attach sanitized span events
-- [ ] Initialize in `src/app/layout.tsx`
-- [ ] Verify client+server traces correlate in Grafana Tempo
+- [ ] Create `src/lib/tracing/browserTracing.ts`
+- [ ] Configure `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN`
+- [ ] Update `logger` to attach span events
+- [ ] Verify in Grafana Tempo
 
----
-
-## Key Files to Modify
-
-| File | Changes |
-|------|---------|
-| `src/app/layout.tsx` | Initialize session request ID, console interceptor, browser tracer |
-| `src/lib/client_utilities.ts` | Add span event attachment with sanitization |
-| `src/lib/requestIdContext.ts` | Support session-level persistence |
-| `src/lib/logging/client/consoleInterceptor.ts` | NEW: localStorage buffering |
-| `src/lib/tracing/browserTracing.ts` | NEW: Browser OTEL setup |
-| `src/app/api/client-logs/route.ts` | Wire up or remove |
-
----
-
-## References
-
-- [OpenTelemetry Browser SDK](https://opentelemetry.io/docs/instrumentation/js/getting-started/browser/)
-- [Grafana Cloud OTLP](https://grafana.com/docs/grafana-cloud/send-data/otlp/)
-- [Span Events vs Logs](https://opentelemetry.io/docs/concepts/signals/traces/#span-events)
-- [W3C Trace Context](https://www.w3.org/TR/trace-context/)
+### Phase 4: Trace Propagation (Optional)
+- [ ] Add `traceparent` header to fetch calls
+- [ ] Verify client→server trace correlation
