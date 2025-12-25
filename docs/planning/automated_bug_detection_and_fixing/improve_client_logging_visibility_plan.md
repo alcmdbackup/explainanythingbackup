@@ -38,6 +38,16 @@ const originalConsole = { ...console };
 export function initConsoleInterceptor() {
   if (typeof window === 'undefined') return;
 
+  // Test localStorage availability first (handles private browsing, Safari iframes)
+  try {
+    const testKey = '__storage_test__';
+    localStorage.setItem(testKey, testKey);
+    localStorage.removeItem(testKey);
+  } catch {
+    originalConsole.warn('localStorage unavailable, console interception disabled');
+    return; // Graceful degradation
+  }
+
   (['log', 'info', 'warn', 'error', 'debug'] as const).forEach(level => {
     console[level] = (...args: unknown[]) => {
       originalConsole[level](...args);
@@ -47,7 +57,13 @@ export function initConsoleInterceptor() {
         logs.push({
           timestamp: new Date().toISOString(),
           level: level.toUpperCase(),
-          message: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' '),
+          message: args.map(a => {
+            try {
+              return typeof a === 'object' ? JSON.stringify(a) : String(a);
+            } catch {
+              return '[Unserializable]'; // Handle DOM nodes, functions, circular refs
+            }
+          }).join(' '),
         });
 
         if (logs.length > MAX_LOGS) logs.shift();
@@ -56,6 +72,7 @@ export function initConsoleInterceptor() {
         if (e instanceof DOMException && e.name === 'QuotaExceededError') {
           localStorage.removeItem(LOG_KEY);
         }
+        // Other errors: already logged to original console, just don't persist
       }
     };
   });
@@ -69,16 +86,23 @@ export function initConsoleInterceptor() {
 ```typescript
 // src/components/ClientInitializer.tsx
 'use client';
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { initConsoleInterceptor } from '@/lib/logging/client/consoleInterceptor';
 import { RequestIdContext } from '@/lib/requestIdContext';
 
 export function ClientInitializer() {
+  // Guard against React Strict Mode double-mount and Fast Refresh
+  const initialized = useRef(false);
+
   useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
     initConsoleInterceptor();
     RequestIdContext.initSession(); // Phase 2
     // initBrowserTracing(); // Phase 3
   }, []);
+
   return null;
 }
 ```
@@ -105,24 +129,38 @@ export function ClientInitializer() {
 
 **Implementation**:
 
+> **Important**: Do NOT modify `clientRequestId` directly. The existing `run()` method resets `clientRequestId` after each call, which would break session persistence. Use a separate `sessionId` field instead.
+
 ```typescript
-// Add to RequestIdContext
+// Add to RequestIdContext (src/lib/requestIdContext.ts)
+// Add as private static field at class level:
+private static sessionId: string | null = null;
+
 static initSession(): void {
   if (typeof window === 'undefined') return;
 
-  let sessionId = sessionStorage.getItem('session_request_id');
-  if (!sessionId) {
-    sessionId = crypto.randomUUID();
-    sessionStorage.setItem('session_request_id', sessionId);
+  let sid = sessionStorage.getItem('session_request_id');
+  if (!sid) {
+    sid = crypto.randomUUID();
+    sessionStorage.setItem('session_request_id', sid);
   }
-
-  clientRequestId = { requestId: sessionId, userId: 'anonymous' };
+  this.sessionId = sid;
 }
 
 static getSessionId(): string {
-  if (typeof window === 'undefined') return 'unknown';
-  return sessionStorage.getItem('session_request_id') || 'unknown';
+  return this.sessionId || 'unknown';
 }
+```
+
+```typescript
+// Update addRequestId() in src/lib/client_utilities.ts to include sessionId:
+const addRequestId = (data: LoggerData | null) => {
+  const requestId = RequestIdContext.getRequestId();
+  const sessionId = RequestIdContext.getSessionId();
+  return data
+    ? { requestId, sessionId, ...data }
+    : { requestId, sessionId };
+};
 ```
 
 **Verification**:
@@ -138,10 +176,17 @@ static getSessionId(): string {
 
 **Dependencies**:
 ```bash
-npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base @opentelemetry/api
+# Minimal set for browser traces (recommended for smaller bundles)
+npm install @opentelemetry/api @opentelemetry/sdk-trace-web @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base
 ```
 
-> **Correction**: `@opentelemetry/auto-instrumentations-node` only provides server-side packages. Browser requires explicit installation of all web-compatible packages.
+> **Note**: `@opentelemetry/auto-instrumentations-node` is server-only. For browser, use individual packages for tree-shaking.
+
+> **Bundle Size Warning**: Full OTel browser bundle is ~60KB gzipped (~300KB uncompressed). Use individual packages and ensure tree-shaking is enabled. See [SigNoz guide on reducing bundle size](https://newsletter.signoz.io/p/reducing-opentelemetry-bundle-size).
+
+> **ZoneContextManager Compatibility**: `@opentelemetry/context-zone` does NOT work with ES2017+ targets (Next.js default). Either:
+> 1. Skip context-zone and use default context manager (simpler, works for most cases)
+> 2. Or add context-zone but configure `tsconfig.json` with `"target": "ES2015"` (not recommended - hurts modern browser perf)
 
 **Files to create/modify**:
 | File | Action |
@@ -153,7 +198,13 @@ npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone @openteleme
 
 **Prerequisites**:
 1. Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable (base64 encoded `user:token`)
-2. Verify Grafana OTLP endpoint accepts browser CORS (may need configuration)
+2. **Test CORS before implementation**: Grafana Cloud OTLP endpoint must accept browser requests:
+   ```typescript
+   // Quick CORS test (run in browser console)
+   fetch('https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces', { method: 'OPTIONS' })
+     .then(r => console.log('CORS OK:', r.ok))
+     .catch(e => console.error('CORS blocked:', e));
+   ```
 
 **Implementation**:
 
@@ -162,13 +213,15 @@ npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone @openteleme
 import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { ZoneContextManager } from '@opentelemetry/context-zone';
-import { trace } from '@opentelemetry/api';
+import { trace, diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
 
 let initialized = false;
 
 export function initBrowserTracing() {
   if (typeof window === 'undefined' || initialized) return;
+
+  // Enable diagnostic logging for debugging (set to WARN in production)
+  diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
 
   const provider = new WebTracerProvider();
   provider.addSpanProcessor(new BatchSpanProcessor(
@@ -177,9 +230,18 @@ export function initBrowserTracing() {
       headers: {
         Authorization: `Basic ${process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN}`
       }
-    })
+    }),
+    {
+      exportTimeoutMillis: 5000,
+      maxExportBatchSize: 100,
+    }
   ));
-  provider.register({ contextManager: new ZoneContextManager() });
+
+  // Use default context manager (no zone.js required, works with ES2017+)
+  provider.register();
+  // NOTE: If you need async context propagation across setTimeout/Promise chains,
+  // install @opentelemetry/context-zone and use: provider.register({ contextManager: new ZoneContextManager() });
+  // But this requires ES2015 target in tsconfig.json
 
   initialized = true;
 }
@@ -192,30 +254,46 @@ export function getTracer() {
 ```typescript
 // Updated src/lib/client_utilities.ts
 import { trace } from '@opentelemetry/api';
+import { RequestIdContext } from './requestIdContext';
 
+interface LoggerData {
+  [key: string]: unknown;
+}
+
+// Updated to include sessionId (from Phase 2)
 const addRequestId = (data: LoggerData | null) => {
   const requestId = RequestIdContext.getRequestId();
-  return data ? { requestId, ...data } : { requestId };
+  const sessionId = RequestIdContext.getSessionId();
+  return data
+    ? { requestId, sessionId, ...data }
+    : { requestId, sessionId };
 };
 
 function logWithSpan(level: string, message: string, data: LoggerData | null) {
   const enrichedData = addRequestId(data);
 
-  // Console output
-  console[level as 'log'](`[${level.toUpperCase()}] ${message}`, enrichedData);
+  // Console output (using correct console method mapping)
+  const consoleMethod = level === 'debug' ? 'log' : level;
+  console[consoleMethod as 'log'](`[${level.toUpperCase()}] ${message}`, enrichedData);
 
-  // Attach to active span if exists
-  const activeSpan = trace.getActiveSpan();
-  if (activeSpan) {
-    activeSpan.addEvent(message, {
-      'log.level': level.toUpperCase(),
-      'log.data': JSON.stringify(enrichedData),
-    });
+  // Attach to active span if exists (Phase 3 OTel integration)
+  try {
+    const activeSpan = trace.getActiveSpan();
+    if (activeSpan) {
+      activeSpan.addEvent(message, {
+        'log.level': level.toUpperCase(),
+        'log.data': JSON.stringify(enrichedData),
+      });
+    }
+  } catch {
+    // OTel not initialized yet, ignore
   }
 }
 
+// NOTE: Preserving existing API signatures
 const logger = {
-  debug: (message: string, data: LoggerData | null = null, debug = false) => {
+  // debug has 3 params - preserving existing signature
+  debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
     if (!debug) return;
     logWithSpan('debug', message, data);
   },
@@ -223,6 +301,8 @@ const logger = {
   info: (message: string, data: LoggerData | null = null) => logWithSpan('info', message, data),
   warn: (message: string, data: LoggerData | null = null) => logWithSpan('warn', message, data),
 };
+
+export { logger };
 ```
 
 **Verification**:
@@ -260,7 +340,8 @@ fetch(url, { headers: { ...headers, ...otherHeaders } });
 Phase 3 adds production observability but requires:
 - CORS configuration on Grafana OTLP endpoint (test before implementing)
 - Environment variable `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` must be created
-- ~50KB bundle increase (estimate - actual size TBD based on tree-shaking)
+- ~60KB gzipped bundle increase (~300KB uncompressed) - use individual packages for tree-shaking
+- Note: ZoneContextManager requires ES2015 target; default context manager recommended for ES2017+
 
 Phase 4 only needed if you want end-to-end distributed tracing.
 
@@ -282,21 +363,30 @@ The following existing code should be considered:
 - [ ] Import `<ClientInitializer />` in `src/app/layout.tsx`
 - [ ] Test with Playwright `browser_evaluate(() => window.exportLogs())`
 - [ ] Verify logs persist across page navigations
+- [ ] Verify localStorage availability check works (test in private browsing)
+- [ ] Verify JSON serialization fallback works (test with DOM nodes)
+- [ ] Verify React Strict Mode guard prevents double initialization
 
 ### Phase 2: Session Request ID
-- [ ] Add `initSession()` to `RequestIdContext`
+- [ ] Add private static `sessionId` field to `RequestIdContext`
+- [ ] Add `initSession()` to `RequestIdContext` (uses separate sessionId, not clientRequestId)
 - [ ] Add `getSessionId()` to `RequestIdContext`
+- [ ] Update `addRequestId()` in `client_utilities.ts` to include sessionId
 - [ ] Verify `ClientInitializer` calls `initSession()` (added in Phase 1)
-- [ ] Verify consistent IDs across multiple `logger.info()` calls
+- [ ] Verify consistent session IDs across multiple `logger.info()` calls
+- [ ] Verify `run()` still works correctly (sessionId is independent)
 - [ ] Verify new tab = new session ID
 
 ### Phase 3: Browser OpenTelemetry
-- [ ] Install all required packages: `@opentelemetry/sdk-trace-web`, `@opentelemetry/context-zone`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/sdk-trace-base`, `@opentelemetry/api`
+- [ ] **Test CORS first**: Run CORS check in browser console before installing packages
+- [ ] Install minimal packages: `@opentelemetry/api`, `@opentelemetry/sdk-trace-web`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/sdk-trace-base`
+- [ ] (Optional) Install `@opentelemetry/context-zone` only if ES2015 target is acceptable
 - [ ] Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable
-- [ ] Test CORS with Grafana OTLP endpoint (may require Grafana configuration)
-- [ ] Create `src/lib/tracing/browserTracing.ts`
+- [ ] Create `src/lib/tracing/browserTracing.ts` (using default context manager, not ZoneContextManager)
 - [ ] Update `ClientInitializer` to call `initBrowserTracing()`
-- [ ] Update `logger` in `client_utilities.ts` to attach span events
+- [ ] Update `logger` in `client_utilities.ts` to attach span events (preserve 3-param debug signature)
+- [ ] Enable OTel diagnostic logging (`DiagConsoleLogger`) for debugging
+- [ ] Measure actual bundle size increase after implementation
 - [ ] Verify client spans in Grafana Tempo
 
 ### Phase 4: Trace Propagation (Optional)
