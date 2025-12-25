@@ -341,6 +341,7 @@ export const runAISuggestionsPipelineAction = withLogging(
         content?: string;
         error?: string;
         session_id?: string;
+        validationResults?: import('../validation/pipelineValidation').PipelineValidationResults;
     }> {
         try {
             // Import the function here to avoid client-side import issues
