@@ -93,12 +93,19 @@ Session (sessionId: "auth-a1b2c3d4e5f6")
 
 ## Recommended Implementation
 
+### Design Principle: Extend RequestIdContext
+
+Rather than creating a separate `sessionId.ts`, extend the existing `RequestIdContext` class. This ensures:
+- Consistent server/client branching pattern
+- SSR safety via existing `typeof window === 'undefined'` guards
+- Single source of truth for request correlation
+
 ### Session ID Generation
 
 Use **hybrid approach** with auth sessions taking precedence:
 
 ```typescript
-// src/lib/sessionId.ts
+// src/lib/requestIdContext.ts (EXTEND existing file, not new file)
 import { createHash } from 'crypto';
 
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -124,19 +131,35 @@ export async function getSessionId(): Promise<string> {
 
 /**
  * Derive deterministic session ID from auth session.
- * Uses non-secret metadata (NOT access token).
+ *
+ * How it works:
+ * 1. Takes the user's stable ID from Supabase auth
+ * 2. Hashes it with SHA256 to create a fixed-length, non-reversible identifier
+ * 3. Prefixes with `auth-` and truncates to 12 chars for readability
+ *
+ * Why just user.id (not timestamps):
+ * - user.id is constant for the entire auth session
+ * - created_at may be undefined in Supabase Session type
+ * - expires_at changes on token refresh (~hourly), breaking session continuity
+ * - For log correlation, distinguishing "same user, different login" is rarely needed
  */
 function deriveAuthSessionId(session: Session): string {
-  // SECURITY: Never use access_token - it's a secret
-  const input = `${session.user.id}-${session.created_at || session.expires_at}`;
-  return `auth-${createHash('sha256').update(input).digest('hex').slice(0, 12)}`;
+  return `auth-${createHash('sha256').update(session.user.id).digest('hex').slice(0, 12)}`;
 }
 
 /**
  * Get or create anonymous session with timeout.
  * Uses localStorage for cross-tab persistence.
+ *
+ * SSR Safety: Returns 'ssr-pending' during server rendering.
+ * The client will resolve the real session ID after hydration.
  */
 function getOrCreateAnonymousSessionId(): string {
+  // Guard: localStorage unavailable during SSR
+  if (typeof window === 'undefined') {
+    return 'ssr-pending';
+  }
+
   const stored = localStorage.getItem('session');
   const now = Date.now();
 
@@ -186,6 +209,64 @@ supabase.auth.onAuthStateChange((event) => {
   }
 });
 ```
+
+### Server-Side Session ID (Webhooks, Cron, External APIs)
+
+For requests without a client, generate deterministic server-side session IDs:
+
+```typescript
+// src/lib/serverSessionId.ts
+import { createHash } from 'crypto';
+
+/**
+ * Generate session ID for server-originated requests (no client).
+ * Used for webhooks, cron jobs, and external API integrations.
+ */
+export function getServerSessionId(request?: Request): string {
+  // Webhooks: use webhook ID header for correlation
+  const webhookId = request?.headers.get('x-webhook-id');
+  if (webhookId) {
+    return `webhook-${createHash('sha256').update(webhookId).digest('hex').slice(0, 12)}`;
+  }
+
+  // Cron jobs: use job name + date for daily grouping
+  const cronJob = request?.headers.get('x-cron-job');
+  if (cronJob) {
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    return `cron-${cronJob}-${today}`;
+  }
+
+  // Fallback: one-off server request
+  return `server-${crypto.randomUUID().slice(0, 12)}`;
+}
+```
+
+### Avoiding Hydration Mismatch
+
+Use `useEffect` to defer session ID resolution to client-only:
+
+```typescript
+// src/hooks/useSessionId.ts
+import { useState, useEffect } from 'react';
+import { getSessionId } from '@/lib/requestIdContext';
+
+/**
+ * Hook for session ID that avoids hydration mismatch.
+ * Returns 'pending' during SSR/initial render, real ID after hydration.
+ */
+export function useSessionId(): string {
+  const [sessionId, setSessionId] = useState<string>('pending');
+
+  useEffect(() => {
+    // Only runs on client after hydration
+    getSessionId().then(setSessionId);
+  }, []);
+
+  return sessionId;
+}
+```
+
+**Note**: Don't render `sessionId` in SSR-critical markup. It's for logging, not UI.
 
 ### Handling Anonymous → Authenticated Transition
 
@@ -294,8 +375,9 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
 
 | File | Change | Priority |
 |------|--------|----------|
-| `src/lib/sessionId.ts` | **NEW** - session management | P0 |
-| `src/lib/requestIdContext.ts` | Add sessionId to context | P0 |
+| `src/lib/requestIdContext.ts` | Add sessionId generation + getters (extend existing) | P0 |
+| `src/hooks/useSessionId.ts` | **NEW** - hydration-safe hook | P0 |
+| `src/lib/serverSessionId.ts` | **NEW** - webhook/cron session IDs | P0 |
 | `src/hooks/clientPassRequestId.ts` | Integrate getSessionId() | P0 |
 | `src/lib/serverReadRequestId.ts` | Extract sessionId from payload | P0 |
 | `src/lib/server_utilities.ts` | Add sessionId to logger | P1 |
