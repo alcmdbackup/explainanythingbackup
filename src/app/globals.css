@@ -1754,6 +1754,35 @@
 }
 
 /* ==========================================================================
+   AUTH PAGE TRANSITIONS
+   Smooth transitions for login/signup mode toggle
+   ========================================================================== */
+
+.auth-content {
+  transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+}
+
+.auth-content-exit {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.auth-content-enter {
+  animation: authEnter 0.35s ease-out forwards;
+}
+
+@keyframes authEnter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ==========================================================================
    TEXT REVEAL ANIMATIONS - Streaming Content Effects
    Magical animations for text appearing during streaming
    ========================================================================== */
