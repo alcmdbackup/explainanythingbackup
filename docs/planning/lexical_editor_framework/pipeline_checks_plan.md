@@ -571,6 +571,227 @@ interface PipelineValidationOptions {
 
 ---
 
+## Additional Gaps Identified (Code Review - December 2024)
+
+### H. CriticMarkup Regex Edge Cases (Critical - P0)
+
+**Problem**: Nested braces break the regex pattern in `importExportUtils.ts:265`
+
+**Current regex**: `/\{([+-~]{2})([\s\S]+?)\1\}/` (non-greedy)
+
+**Failure case**: `{++code with {curly} braces++}`
+- Non-greedy `+?` stops at first match of closing pattern
+- Creates malformed parsing: `{++code with {curly++}` leaving ` braces++}` unparsed
+
+**Solution**: Stack-based balanced brace parser
+
+```typescript
+function extractBalancedCriticMarkup(input: string, startIndex: number): {
+  content: string;
+  marker: string;
+  endIndex: number;
+} | null {
+  const markerMatch = input.slice(startIndex).match(/^\{([+-~]{2})/);
+  if (!markerMatch) return null;
+
+  const marker = markerMatch[1];
+  const closeMarker = marker + '}';
+  let depth = 1;
+  let i = startIndex + 3; // Skip opening {XX
+
+  while (i < input.length && depth > 0) {
+    if (input.slice(i).startsWith('{' + marker)) depth++;
+    else if (input.slice(i).startsWith(closeMarker)) depth--;
+    if (depth > 0) i++;
+  }
+
+  if (depth !== 0) return null; // Unbalanced
+  return {
+    content: input.slice(startIndex + 3, i),
+    marker,
+    endIndex: i + closeMarker.length
+  };
+}
+```
+
+---
+
+### I. Update Marker (`~>`) Edge Cases (P0)
+
+**Problem**: Multiple `~>` separators in substitution are handled incorrectly
+
+**Location**: `importExportUtils.ts:549-567`
+
+**Current behavior**:
+```typescript
+const updateParts = inner.split('~>');
+if (updateParts.length === 2) { ... }
+```
+
+**Failure cases**:
+1. `{~~a~>b~>c~~}` → splits to `["a", "b", "c"]` → length !== 2 → **silently fails**
+2. `{~~before~~}` (missing `~>`) → length === 1 → **silently fails**
+
+**Solution**: Use indexOf + slice
+
+```typescript
+function parseUpdateContent(inner: string): { before: string; after: string } | null {
+  const separatorIndex = inner.indexOf('~>');
+  if (separatorIndex === -1) return null;
+  return {
+    before: inner.slice(0, separatorIndex),
+    after: inner.slice(separatorIndex + 2)
+  };
+}
+```
+
+---
+
+### J. Multiple Occurrence Replacement (P1)
+
+**Problem**: Only first occurrence of same pattern gets replaced
+
+**Location**: `importExportUtils.ts:289-304`
+
+**Current behavior**: `const matchIndex = textContent.indexOf(match[0]);` only finds first
+
+**Failure case**: Text `{++a++} something {++a++}` - only first becomes DiffTagNode
+
+**Solution**: Loop through all occurrences with global regex
+
+---
+
+### K. AST Parsing Error Handling (P1)
+
+**Problem**: Malformed markdown from Step 2 crashes Step 3
+
+**Location**: `aiSuggestion.ts:300-302`
+
+**Solution**: Wrap AST parsing with error handling
+
+```typescript
+function safeParseMarkdown(content: string): { ast: Root; issues: string[] } {
+  try {
+    return { ast: unified().use(remarkParse).parse(content), issues: [] };
+  } catch (e) {
+    return {
+      ast: createFallbackAST(content),
+      issues: [`Markdown parse error: ${e.message}`]
+    };
+  }
+}
+```
+
+---
+
+### L. Recursion Depth Limit in AST Diff (P2)
+
+**Problem**: Deeply nested markdown can cause stack overflow
+
+**Location**: `markdownASTdiff.ts:672-820` (`emitCriticForPair`)
+
+**Solution**: Add depth parameter with limit
+
+```typescript
+const MAX_DIFF_DEPTH = 20;
+
+function emitCriticForPair(
+  a: MdastNode | undefined,
+  b: MdastNode | undefined,
+  options: DiffOptions,
+  stringify: Stringifier,
+  depth: number = 0
+): string {
+  if (depth > MAX_DIFF_DEPTH) {
+    return stringify(b ?? a); // Fallback to raw stringify
+  }
+  // ... recursive calls pass depth + 1
+}
+```
+
+---
+
+### M. Code Block Preprocessing (P1)
+
+**Problem**: `<br>` conversion inside code blocks corrupts code
+
+**Location**: `importExportUtils.ts:724`
+
+**Current behavior**: `const normalizedContent = content.replace(/\n/g, '<br>');`
+
+**Solution**: Mark code blocks as atomic (skip preprocessing)
+
+```typescript
+function isInsideCodeBlock(content: string, index: number): boolean {
+  const before = content.slice(0, index);
+  const openFences = (before.match(/```/g) || []).length;
+  return openFences % 2 === 1; // Odd = inside code block
+}
+```
+
+---
+
+### N. Empty Content Handling (P1)
+
+**Problem**: Empty content segments in Step 1 pass Zod validation
+
+**Location**: `aiSuggestion.ts:16-40` (Zod schema)
+
+**Solution**: Add minLength and trim check to schema
+
+```typescript
+const aiSuggestionSchema = z.object({
+  edits: z.array(
+    z.string().refine(
+      (s, ctx) => ctx.path[0] % 2 !== 0 || s.trim().length >= 10,
+      'Content segments must have at least 10 characters'
+    )
+  ).min(1).refine(...)
+});
+```
+
+---
+
+### O. Unescaping on Export (P2)
+
+**Problem**: Plan includes escaping (C) but no unescaping on export
+
+**Solution**: Add corresponding unescape function
+
+```typescript
+function unescapeCriticMarkupContent(text: string): string {
+  return text
+    .replace(/\\(\{(?:\+\+|--|~~|==|>>))/g, '$1')
+    .replace(/((?:\+\+|--|~~|==|<<))\\(\})/g, '$1$2')
+    .replace(/\\(~>)/g, '$1');
+}
+```
+
+---
+
+## Updated Priority Table (Consolidated)
+
+| Priority | Improvement | Effort | Impact | Section |
+|----------|-------------|--------|--------|---------|
+| **P0** | B2: Step 2 content preservation | Low | High | B |
+| **P0** | A2: Step 2 prompt improvements | Low | High | A |
+| **P0** | B3: CriticMarkup syntax validator | Medium | High | B |
+| **P0** | H: Balanced brace parsing | High | High | H |
+| **P0** | I: Update marker edge cases | Low | High | I |
+| **P1** | C: Character escaping | Medium | High | C |
+| **P1** | J: Multiple occurrence replacement | Medium | Medium | J |
+| **P1** | K: AST parsing error handling | Low | High | K |
+| **P1** | M: Code block preprocessing | Medium | High | M |
+| **P1** | N: Empty content validation | Low | Medium | N |
+| **P1** | E1: Pipeline timeout | Medium | High | E |
+| **P2** | L: Recursion depth limit | Low | Medium | L |
+| **P2** | O: Unescape on export | Low | Medium | O |
+| **P2** | B2.5: Content preservation | Medium | Medium | B |
+| **P2** | F: Telemetry | Medium | Medium | F |
+| **P3** | D1/D2: Retry/fallback | High | Medium | D |
+
+---
+
 ## Updated Files to Modify/Create
 
 | File | Action | Changes |
@@ -579,9 +800,10 @@ interface PipelineValidationOptions {
 | `src/editorFiles/validation/pipelineValidation.test.ts` | CREATE | Unit tests for validators |
 | `src/editorFiles/validation/pipelineMetrics.ts` | CREATE | Telemetry types and functions |
 | `src/editorFiles/validation/contentPreservation.ts` | CREATE | LaTeX, code, link, image validators |
-| `src/editorFiles/aiSuggestion.ts` | MODIFY | Prompts, retry, validation, timeout, telemetry |
+| `src/editorFiles/lexicalEditor/importExportUtils.ts` | MODIFY | Stack parser (H), update fix (I), occurrences (J), code blocks (M) |
+| `src/editorFiles/aiSuggestion.ts` | MODIFY | Prompts, retry, validation, timeout, telemetry, schema (N), safe parse (K) |
 | `src/editorFiles/aiSuggestion.test.ts` | MODIFY | Add tests for new validation flow |
-| `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | MODIFY | Add character escaping |
+| `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | MODIFY | Escaping (C), unescape (O), depth limit (L) |
 | `src/editorFiles/markdownASTdiff/markdownASTdiff.test.ts` | MODIFY | Add escaping tests |
 | `src/editorFiles/actions/actions.ts` | MODIFY | Timeout handling, validation calls |
 | `src/lib/errorHandling.ts` | MODIFY | Add pipeline-specific error codes |
