@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff } from 'lucide-react';
 import Link from 'next/link';
+import { clearSession } from '@/lib/sessionId';
 
 import { Button } from '@/components/ui/button';
 import {
@@ -33,6 +34,12 @@ export default function LoginPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [isSignup, setIsSignup] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
+
+  // Clear any stale session when landing on login page
+  // This handles the case where server-side logout redirects here
+  useEffect(() => {
+    clearSession();
+  }, []);
 
   const {
     register,

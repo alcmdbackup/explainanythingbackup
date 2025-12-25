@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
 'use client';
 import { RequestIdContext } from '@/lib/requestIdContext';
-import { getOrCreateAnonymousSessionId, handleAuthTransition } from '@/lib/sessionId';
+import { clearSession, getOrCreateAnonymousSessionId, handleAuthTransition } from '@/lib/sessionId';
 import { supabase_browser } from '@/lib/supabase';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -60,6 +60,11 @@ export function useAuthenticatedRequestId() {
         const transition = await handleAuthTransition(data.user.id);
         setUserId(data.user.id);
         setSessionId(transition.sessionId);
+      } else {
+        // Clear any stale auth session on page load when not authenticated
+        clearSession();
+        setUserId('anonymous');
+        setSessionId(getOrCreateAnonymousSessionId());
       }
     }
     fetchUser();
@@ -69,6 +74,7 @@ export function useAuthenticatedRequestId() {
       async (event, session) => {
         if (event === 'SIGNED_OUT') {
           // Reset to anonymous on logout
+          clearSession();
           setUserId('anonymous');
           setSessionId(getOrCreateAnonymousSessionId());
         } else if (event === 'SIGNED_IN' && session?.user?.id) {

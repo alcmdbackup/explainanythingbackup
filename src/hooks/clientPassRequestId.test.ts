@@ -1,14 +1,48 @@
  
 
-import { renderHook } from '@testing-library/react';
+import { act, renderHook, waitFor } from '@testing-library/react';
 import { RequestIdContext } from '@/lib/requestIdContext';
-import { useClientPassRequestId } from './clientPassRequestId';
+import { useClientPassRequestId, useAuthenticatedRequestId } from './clientPassRequestId';
 
 // Mock RequestIdContext
 jest.mock('@/lib/requestIdContext', () => ({
   RequestIdContext: {
     setClient: jest.fn(),
     getRequestId: jest.fn(),
+  },
+}));
+
+// Mock sessionId functions
+const mockClearSession = jest.fn();
+const mockGetOrCreateAnonymousSessionId = jest.fn(() => 'sess-test-anonymous');
+const mockHandleAuthTransition = jest.fn(async () => ({ sessionId: 'auth-test-hash' }));
+
+jest.mock('@/lib/sessionId', () => ({
+  clearSession: () => mockClearSession(),
+  getOrCreateAnonymousSessionId: () => mockGetOrCreateAnonymousSessionId(),
+  handleAuthTransition: (userId: string) => mockHandleAuthTransition(userId),
+}));
+
+// Mock Supabase browser client
+const mockGetUser = jest.fn();
+const mockOnAuthStateChange = jest.fn();
+const mockUnsubscribe = jest.fn();
+
+jest.mock('@/lib/supabase', () => ({
+  supabase_browser: {
+    auth: {
+      getUser: () => mockGetUser(),
+      onAuthStateChange: (callback: (event: string, session: { user?: { id: string } } | null) => void) => {
+        mockOnAuthStateChange(callback);
+        return {
+          data: {
+            subscription: {
+              unsubscribe: mockUnsubscribe,
+            },
+          },
+        };
+      },
+    },
   },
 }));
 
@@ -350,6 +384,111 @@ describe('clientPassRequestId', () => {
       expect(data1.__requestId.requestId).not.toBe(data2.__requestId.requestId);
       expect(data1.source).toBe('hook1');
       expect(data2.source).toBe('hook2');
+    });
+  });
+});
+
+describe('useAuthenticatedRequestId', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+  });
+
+  describe('Logout Session Handling (Bug Fix)', () => {
+    it('should call clearSession when user is not authenticated on mount', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+
+      renderHook(() => useAuthenticatedRequestId());
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+      });
+    });
+
+    it('should set userId to anonymous when user is not authenticated', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+
+      renderHook(() => useAuthenticatedRequestId());
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+        expect(mockGetOrCreateAnonymousSessionId).toHaveBeenCalled();
+      });
+    });
+
+    it('should NOT call clearSession when user IS authenticated', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: { id: 'user-123' } } });
+
+      renderHook(() => useAuthenticatedRequestId());
+
+      await waitFor(() => {
+        expect(mockHandleAuthTransition).toHaveBeenCalledWith('user-123');
+      });
+
+      expect(mockClearSession).not.toHaveBeenCalled();
+    });
+
+    it('should call clearSession on SIGNED_OUT event', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: { id: 'user-123' } } });
+      let authCallback: (event: string, session: { user?: { id: string } } | null) => void;
+      mockOnAuthStateChange.mockImplementation((cb) => {
+        authCallback = cb;
+      });
+
+      renderHook(() => useAuthenticatedRequestId());
+
+      await waitFor(() => {
+        expect(mockHandleAuthTransition).toHaveBeenCalled();
+      });
+
+      mockClearSession.mockClear();
+
+      // Simulate logout event
+      act(() => {
+        authCallback('SIGNED_OUT', null);
+      });
+
+      expect(mockClearSession).toHaveBeenCalled();
+      expect(mockGetOrCreateAnonymousSessionId).toHaveBeenCalled();
+    });
+
+    it('should handle auth transition on SIGNED_IN event', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      let authCallback: (event: string, session: { user?: { id: string } } | null) => void;
+      mockOnAuthStateChange.mockImplementation((cb) => {
+        authCallback = cb;
+      });
+
+      renderHook(() => useAuthenticatedRequestId());
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+      });
+
+      mockHandleAuthTransition.mockClear();
+
+      // Simulate login event
+      await act(async () => {
+        authCallback('SIGNED_IN', { user: { id: 'new-user-456' } });
+      });
+
+      await waitFor(() => {
+        expect(mockHandleAuthTransition).toHaveBeenCalledWith('new-user-456');
+      });
+    });
+
+    it('should unsubscribe from auth state changes on unmount', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+
+      const { unmount } = renderHook(() => useAuthenticatedRequestId());
+
+      await waitFor(() => {
+        expect(mockClearSession).toHaveBeenCalled();
+      });
+
+      unmount();
+
+      expect(mockUnsubscribe).toHaveBeenCalled();
     });
   });
 });

@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { supabase_browser } from '@/lib/supabase';
+import { clearSession, getOrCreateAnonymousSessionId } from '@/lib/sessionId';
 
 /**
  * Custom hook for managing user authentication state
@@ -33,15 +34,22 @@ export function useUserAuth() {
     const fetchUserid = useCallback(async (): Promise<string | null> => {
         console.log('[useUserAuth] fetchUserid called');
         const { data: userData, error: userError } = await supabase_browser.auth.getUser();
-        
+
         if (userError) {
             console.error('[useUserAuth] Authentication error:', userError);
+            // Clear any stale auth session when auth fails
+            clearSession();
+            getOrCreateAnonymousSessionId();
             setUserid(null);
             return null;
         }
-        
+
         if (!userData?.user?.id) {
             console.warn('[useUserAuth] No user data found');
+            // Clear any stale auth session when user is not authenticated
+            // This handles the case where server-side logout occurred
+            clearSession();
+            getOrCreateAnonymousSessionId();
             setUserid(null);
             return null;
         }
