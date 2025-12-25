@@ -201,32 +201,57 @@ export class DiffTagNodeInline extends ElementNode {
    * Creates DOM element for rendering the DiffTagNodeInline
    * • Creates <ins>, <del>, or <span> HTML elements based on the tag type
    * • Applies appropriate styling classes for visual distinction
-   * • Preserves newlines with whitespace-pre-wrap for proper formatting
+   * • Includes accept/reject buttons directly in the DOM for reliable rendering
    * • Used by Lexical to render the node in the DOM
    * • Called by: Lexical's rendering system
    */
   createDOM(): HTMLElement {
+    let element: HTMLElement;
+
     if (this.__tag === "update") {
       // For update nodes, create a span container with specific class for CSS targeting
-      const element = document.createElement("span");
+      element = document.createElement("span");
       element.className = "diff-tag-update";
-      element.setAttribute("data-diff-key", this.__key);
-      element.setAttribute("data-diff-type", this.__tag);
-
-      // Let Lexical handle rendering the children automatically
-      return element;
+    } else {
+      // For ins/del nodes, create element with background styling
+      element = document.createElement(this.__tag);
+      element.className = this.__tag === "ins"
+        ? "diff-tag-insert"
+        : "diff-tag-delete";
     }
 
-    // For ins/del nodes, create element with background styling
-    const element = document.createElement(this.__tag);
-    element.className = this.__tag === "ins"
-      ? "diff-tag-insert"
-      : "diff-tag-delete";
     element.setAttribute("data-diff-key", this.__key);
     element.setAttribute("data-diff-type", this.__tag);
 
-    // Child nodes will be automatically rendered by Lexical's rendering system
-    // The background styling will wrap around all child content
+    // Create controls container with accept/reject buttons
+    // Buttons are rendered as part of the DOM element for reliable lifecycle management
+    const controls = document.createElement("span");
+    controls.className = "diff-tag-controls";
+
+    const acceptBtn = document.createElement("button");
+    acceptBtn.className = "diff-accept-btn";
+    acceptBtn.type = "button";
+    acceptBtn.setAttribute("data-action", "accept");
+    acceptBtn.setAttribute("data-node-key", this.__key);
+    acceptBtn.textContent = "✓";
+    acceptBtn.title = this.__tag === "ins" ? "Accept this addition"
+                    : this.__tag === "del" ? "Accept this deletion"
+                    : "Accept this change";
+
+    const rejectBtn = document.createElement("button");
+    rejectBtn.className = "diff-reject-btn";
+    rejectBtn.type = "button";
+    rejectBtn.setAttribute("data-action", "reject");
+    rejectBtn.setAttribute("data-node-key", this.__key);
+    rejectBtn.textContent = "✕";
+    rejectBtn.title = this.__tag === "ins" ? "Reject this addition"
+                    : this.__tag === "del" ? "Reject this deletion"
+                    : "Reject this change";
+
+    controls.appendChild(acceptBtn);
+    controls.appendChild(rejectBtn);
+    element.appendChild(controls);
+
     return element;
   }
 
