@@ -25,13 +25,13 @@ describe('LoginPage', () => {
   });
 
   describe('Rendering', () => {
-    it('should render login form with card', () => {
+    it('should render login form with hero layout', () => {
       render(<LoginPage />);
 
-      // Title and submit button both say "Sign in"
-      expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0);
+      // Title and submit button both say "Sign In" / "Welcome Back"
+      expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
       expect(
-        screen.getByText('Welcome back')
+        screen.getByText('Welcome Back')
       ).toBeInTheDocument();
     });
 
@@ -178,6 +178,11 @@ describe('LoginPage', () => {
       });
       await user.click(signupToggle);
 
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
+
       const rememberMeCheckbox = screen.queryByRole('checkbox', {
         name: /remember me/i,
       });
@@ -203,6 +208,11 @@ describe('LoginPage', () => {
       });
       await user.click(signupToggle);
 
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
+
       const forgotLink = screen.queryByRole('link', {
         name: /forgot password/i,
       });
@@ -216,17 +226,20 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       // Verify we start in login mode
-      expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
 
       const signupToggle = screen.getByRole('button', {
         name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
-      expect(screen.getByText('Create account')).toBeInTheDocument();
-      expect(
-        screen.getByText('Create your account')
-      ).toBeInTheDocument();
+      // Wait for transition (200ms) plus render
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+        expect(
+          screen.getByText('Create your scholarly account')
+        ).toBeInTheDocument();
+      });
     });
 
     it('should switch from signup back to login mode', async () => {
@@ -238,12 +251,22 @@ describe('LoginPage', () => {
       });
       await user.click(signupToggle);
 
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByRole('button', {
+          name: /already have an account\? sign in/i,
+        })).toBeInTheDocument();
+      });
+
       const loginToggle = screen.getByRole('button', {
         name: /already have an account\? sign in/i,
       });
       await user.click(loginToggle);
 
-      expect(screen.getAllByText('Sign in').length).toBeGreaterThan(0);
+      // Wait for transition back
+      await waitFor(() => {
+        expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
+      });
     });
   });
 
@@ -325,6 +348,11 @@ describe('LoginPage', () => {
       });
       await user.click(signupToggle);
 
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
+
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
       const submitButton = screen.getByRole('button', { name: /create account/i });
@@ -348,6 +376,11 @@ describe('LoginPage', () => {
         name: /new here\? create account/i,
       });
       await user.click(signupToggle);
+
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
