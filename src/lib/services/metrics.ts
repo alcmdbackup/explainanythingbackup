@@ -207,7 +207,8 @@ export async function getMultipleExplanationMetrics(explanationIds: number[]): P
  * @returns Updated metrics record
  */
 export async function incrementExplanationViews(explanationId: number): Promise<ExplanationMetricsType> {
-  const supabase = await createSupabaseServerClient();
+  // Use service client to bypass RLS for background metrics tracking
+  const supabase = await createSupabaseServiceClient();
   
   // Call stored procedure to increment views and recalculate metrics
   const { data, error } = await supabase
@@ -249,7 +250,8 @@ export async function incrementExplanationViews(explanationId: number): Promise<
  * @returns Updated metrics record
  */
 export async function incrementExplanationSaves(explanationId: number): Promise<ExplanationMetricsType> {
-  const supabase = await createSupabaseServerClient();
+  // Use service client to bypass RLS for background metrics tracking
+  const supabase = await createSupabaseServiceClient();
   
   // Call stored procedure to increment saves and recalculate metrics
   const { data, error } = await supabase
