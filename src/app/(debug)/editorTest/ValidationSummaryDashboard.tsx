@@ -75,10 +75,10 @@ export function ValidationSummaryDashboard({ results, step4Result }: ValidationS
   };
 
   const getIcon = (result?: ValidationResult) => {
-    if (!result) return '\u2014'; // em dash
-    if (result.valid) return '\u2713'; // checkmark
-    if (result.severity === 'error') return '\u2717'; // X
-    return '\u26A0'; // warning
+    if (!result) return '—'; // em dash
+    if (result.valid) return '✓'; // checkmark
+    if (result.severity === 'error') return '✗'; // X
+    return '⚠'; // warning
   };
 
   return (
@@ -100,7 +100,7 @@ export function ValidationSummaryDashboard({ results, step4Result }: ValidationS
           )}
           {allPassed && (
             <span className="px-2 py-1 bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 rounded text-sm font-medium">
-              All Passed \u2713
+              All Passed ✓
             </span>
           )}
         </div>
@@ -124,7 +124,7 @@ export function ValidationSummaryDashboard({ results, step4Result }: ValidationS
                   <ul className="text-xs space-y-1">
                     {result.issues.map((issue, idx) => (
                       <li key={idx} className="text-gray-700 dark:text-gray-300">
-                        \u2022 {issue}
+                        • {issue}
                       </li>
                     ))}
                   </ul>
