@@ -5,7 +5,9 @@
 Client logs (`logger.info()`, etc.) only appear in browser console. They:
 1. Don't persist anywhere accessible for debugging
 2. Don't correlate with server traces in Grafana
-3. Have orphaned infrastructure (`/api/client-logs` exists but nothing calls it)
+3. Per-action request IDs prevent cross-action correlation within a session
+
+> **Note**: `/api/client-logs/route.ts` exists and IS functional (has 11 tests, called by test page). Consider integrating rather than deleting.
 
 ---
 
@@ -19,8 +21,10 @@ Client logs (`logger.info()`, etc.) only appear in browser console. They:
 | File | Action |
 |------|--------|
 | `src/lib/logging/client/consoleInterceptor.ts` | CREATE |
-| `src/app/layout.tsx` | MODIFY - initialize interceptor |
-| `src/app/api/client-logs/route.ts` | DELETE (orphaned) |
+| `src/components/ClientInitializer.tsx` | CREATE - client wrapper for initialization |
+| `src/app/layout.tsx` | MODIFY - import ClientInitializer |
+
+> **Important**: `layout.tsx` is a server component. Client-side initialization (localStorage, sessionStorage, browser APIs) must happen in a 'use client' component.
 
 **Implementation**:
 
@@ -62,6 +66,23 @@ export function initConsoleInterceptor() {
 }
 ```
 
+```typescript
+// src/components/ClientInitializer.tsx
+'use client';
+import { useEffect } from 'react';
+import { initConsoleInterceptor } from '@/lib/logging/client/consoleInterceptor';
+import { RequestIdContext } from '@/lib/requestIdContext';
+
+export function ClientInitializer() {
+  useEffect(() => {
+    initConsoleInterceptor();
+    RequestIdContext.initSession(); // Phase 2
+    // initBrowserTracing(); // Phase 3
+  }, []);
+  return null;
+}
+```
+
 **Verification**:
 - `mcp__playwright__browser_evaluate(() => window.exportLogs())` returns logs
 - Logs persist across page navigations
@@ -78,7 +99,9 @@ export function initConsoleInterceptor() {
 | File | Action |
 |------|--------|
 | `src/lib/requestIdContext.ts` | MODIFY - add session persistence |
-| `src/app/layout.tsx` | MODIFY - set session ID on mount |
+| `src/components/ClientInitializer.tsx` | MODIFY - call initSession() (already added in Phase 1) |
+
+> **Note**: Uses `sessionStorage` (cleared on tab close) vs `localStorage` (persistent). This is intentional: session IDs should reset per browser session, but logs can persist longer for debugging.
 
 **Implementation**:
 
@@ -115,16 +138,22 @@ static getSessionId(): string {
 
 **Dependencies**:
 ```bash
-npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone
-# Note: @opentelemetry/exporter-trace-otlp-http already in package.json via auto-instrumentations
+npm install @opentelemetry/sdk-trace-web @opentelemetry/context-zone @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base @opentelemetry/api
 ```
+
+> **Correction**: `@opentelemetry/auto-instrumentations-node` only provides server-side packages. Browser requires explicit installation of all web-compatible packages.
 
 **Files to create/modify**:
 | File | Action |
 |------|--------|
 | `src/lib/tracing/browserTracing.ts` | CREATE |
-| `src/app/layout.tsx` | MODIFY - initialize tracer |
+| `src/components/ClientInitializer.tsx` | MODIFY - call initBrowserTracing() |
 | `src/lib/client_utilities.ts` | MODIFY - attach span events |
+| `.env.local` / Vercel env | ADD `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` |
+
+**Prerequisites**:
+1. Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable (base64 encoded `user:token`)
+2. Verify Grafana OTLP endpoint accepts browser CORS (may need configuration)
 
 **Implementation**:
 
@@ -229,11 +258,19 @@ fetch(url, { headers: { ...headers, ...otherHeaders } });
 **Start with Phase 1 + 2** — immediate debugging value, minimal complexity.
 
 Phase 3 adds production observability but requires:
-- CORS configuration on Grafana OTLP endpoint
-- Environment variable for browser-safe auth token
-- ~50KB bundle increase
+- CORS configuration on Grafana OTLP endpoint (test before implementing)
+- Environment variable `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` must be created
+- ~50KB bundle increase (estimate - actual size TBD based on tree-shaking)
 
 Phase 4 only needed if you want end-to-end distributed tracing.
+
+## Existing Infrastructure
+
+The following existing code should be considered:
+- `src/lib/logging/client/clientLogging.ts` - Has `withClientLogging()` wrapper (183 lines)
+- `src/lib/logging/client/__tests__/clientLogging.test.ts` - Existing test coverage (240 lines)
+- `src/app/api/client-logs/route.ts` - Functional endpoint with tests (optional remote persistence)
+- `src/app/(debug)/test-client-logging/page.tsx` - Test page for verification
 
 ---
 
@@ -241,22 +278,27 @@ Phase 4 only needed if you want end-to-end distributed tracing.
 
 ### Phase 1: localStorage Buffer
 - [ ] Create `src/lib/logging/client/consoleInterceptor.ts`
-- [ ] Initialize in `src/app/layout.tsx`
-- [ ] Delete `src/app/api/client-logs/route.ts`
-- [ ] Test with Playwright `browser_evaluate`
+- [ ] Create `src/components/ClientInitializer.tsx` (client wrapper)
+- [ ] Import `<ClientInitializer />` in `src/app/layout.tsx`
+- [ ] Test with Playwright `browser_evaluate(() => window.exportLogs())`
+- [ ] Verify logs persist across page navigations
 
 ### Phase 2: Session Request ID
 - [ ] Add `initSession()` to `RequestIdContext`
-- [ ] Call from `layout.tsx` on mount
-- [ ] Verify consistent IDs in logs
+- [ ] Add `getSessionId()` to `RequestIdContext`
+- [ ] Verify `ClientInitializer` calls `initSession()` (added in Phase 1)
+- [ ] Verify consistent IDs across multiple `logger.info()` calls
+- [ ] Verify new tab = new session ID
 
 ### Phase 3: Browser OpenTelemetry
-- [ ] Install `@opentelemetry/sdk-trace-web` and `@opentelemetry/context-zone`
+- [ ] Install all required packages: `@opentelemetry/sdk-trace-web`, `@opentelemetry/context-zone`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/sdk-trace-base`, `@opentelemetry/api`
+- [ ] Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable
+- [ ] Test CORS with Grafana OTLP endpoint (may require Grafana configuration)
 - [ ] Create `src/lib/tracing/browserTracing.ts`
-- [ ] Configure `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN`
-- [ ] Update `logger` to attach span events
-- [ ] Verify in Grafana Tempo
+- [ ] Update `ClientInitializer` to call `initBrowserTracing()`
+- [ ] Update `logger` in `client_utilities.ts` to attach span events
+- [ ] Verify client spans in Grafana Tempo
 
 ### Phase 4: Trace Propagation (Optional)
 - [ ] Add `traceparent` header to fetch calls
-- [ ] Verify client→server trace correlation
+- [ ] Verify client→server trace correlation in Grafana
