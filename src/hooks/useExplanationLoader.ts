@@ -26,12 +26,15 @@ const FILE_DEBUG = false;
  * Used by: Results page, potentially other pages that display explanations
  */
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type WithRequestIdFn = <T extends Record<string, any>>(data?: T) => T & { __requestId: { requestId: string; userId: string; sessionId: string } };
+
 export interface UseExplanationLoaderOptions {
     /**
-     * User ID for request context tracking
-     * Falls back to 'anonymous' if not provided
+     * withRequestId function from parent hook (useAuthenticatedRequestId)
+     * Provides proper session tracking across requests
      */
-    userId?: string;
+    withRequestId: WithRequestIdFn;
 
     /**
      * Callback invoked when tags are loaded for the explanation

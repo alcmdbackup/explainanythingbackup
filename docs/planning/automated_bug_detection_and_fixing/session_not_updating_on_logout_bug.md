@@ -1,7 +1,7 @@
 # Session ID Not Updating on Logout: Bug Investigation
 
-> **Status**: Root Cause Identified
-> **Last Updated**: 2024-12-24
+> **Status**: Fix Incomplete - Requires Additional Changes
+> **Last Updated**: 2024-12-25
 > **Priority**: High - Breaks session tracking functionality
 
 ## Problem Statement
@@ -402,3 +402,150 @@ This ensures:
 | What happens with different account? | New sessionId but no linking to stale session |
 | Same vs different tab/browser? | Each browser has independent localStorage |
 | Fix complexity | Low - add else branch in `fetchUser()` |
+
+---
+
+## Implementation Audit (2024-12-25)
+
+### What Was Actually Implemented (Commit 36a3249)
+
+The fix attempt added `onAuthStateChange` subscription handling but **missed the critical `else` branch**:
+
+```typescript
+// Current implementation (src/hooks/clientPassRequestId.ts lines 56-64)
+async function fetchUser() {
+  const { data } = await supabase_browser.auth.getUser();
+  if (data?.user?.id) {
+    const transition = await handleAuthTransition(data.user.id);
+    setUserId(data.user.id);
+    setSessionId(transition.sessionId);
+  }
+  // ❌ NO ELSE BRANCH - logout case still not handled!
+}
+```
+
+### Gap Between Proposal and Implementation
+
+| Proposed Fix | Actually Implemented |
+|--------------|---------------------|
+| Add `else` branch in `fetchUser()` | ❌ Missing |
+| Import `clearSession` | ❌ Missing |
+| Add `onAuthStateChange` subscription | ✅ Done |
+| Handle `SIGNED_OUT` event | ✅ Done (but never fires for server logout) |
+| Handle `SIGNED_IN` event | ✅ Done |
+
+### Why Current Fix Still Fails
+
+**Server-side logout flow (still broken):**
+
+```
+User clicks Logout
+    ↓
+Server action: supabase.auth.signOut() (server-side)
+    ↓
+Server clears cookies, redirects to '/'
+    ↓
+Browser reloads page
+    ↓
+useAuthenticatedRequestId mounts
+    ↓
+sessionId = getOrCreateAnonymousSessionId()
+    ↓
+⚠️ Returns STALE auth-xxx from localStorage (not expired yet)
+    ↓
+fetchUser() called → getUser() returns null
+    ↓
+❌ No else branch → nothing happens
+    ↓
+onAuthStateChange subscription set up BUT...
+    ↓
+❌ SIGNED_OUT event never fires (server-side logout doesn't trigger it)
+    ↓
+Result: Old session ID still in localStorage!
+```
+
+### Additional Issue: Initial State Bug
+
+The `useState` initializer has a subtle bug:
+
+```typescript
+// Line 50-52
+const [sessionId, setSessionId] = useState<string>(() =>
+  getOrCreateAnonymousSessionId()
+);
+```
+
+`getOrCreateAnonymousSessionId()` reads from localStorage and returns **any** stored session (including stale `auth-xxx`). It doesn't distinguish between session types.
+
+### Scenarios That Fail vs Work
+
+| Scenario | Works? | Why |
+|----------|--------|-----|
+| Client-side logout | ✅ | `SIGNED_OUT` event fires |
+| Server-side logout | ❌ | Event never fires, no else branch |
+| Page reload after server logout | ❌ | Stale session persists |
+| Same account re-login | ⚠️ | Appears to work (same hash) but is stale |
+| Different account login | ✅ | Different hash triggers new session |
+
+---
+
+## Required Changes to Complete Fix
+
+### 1. Add Missing Import
+
+```typescript
+// src/hooks/clientPassRequestId.ts line 4
+import { clearSession, getOrCreateAnonymousSessionId, handleAuthTransition } from '@/lib/sessionId';
+```
+
+### 2. Add Else Branch (Critical)
+
+```typescript
+// src/hooks/clientPassRequestId.ts lines 56-64
+async function fetchUser() {
+  const { data } = await supabase_browser.auth.getUser();
+  if (data?.user?.id) {
+    const transition = await handleAuthTransition(data.user.id);
+    setUserId(data.user.id);
+    setSessionId(transition.sessionId);
+  } else {
+    // Clear any stale auth session on page load when not authenticated
+    clearSession();
+    setUserId('anonymous');
+    setSessionId(getOrCreateAnonymousSessionId());
+  }
+}
+```
+
+### 3. Alternative: Fix at Source
+
+Modify `getOrCreateAnonymousSessionId()` to detect and clear stale auth sessions:
+
+```typescript
+// src/lib/sessionId.ts - inside getOrCreateAnonymousSessionId()
+if (stored) {
+  const { id, lastActivity } = JSON.parse(stored) as StoredSession;
+
+  // Don't return stale auth sessions - those require explicit auth
+  if (id.startsWith('auth-')) {
+    localStorage.removeItem(SESSION_KEY);
+    // Fall through to create new anonymous session
+  } else if (now - lastActivity < SESSION_TIMEOUT_MS) {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ id, lastActivity: now }));
+    return id;
+  }
+}
+```
+
+This ensures the initial `useState` callback automatically creates fresh anonymous sessions after logout.
+
+---
+
+## Updated Files to Modify
+
+| File | Change | Status |
+|------|--------|--------|
+| `src/hooks/clientPassRequestId.ts` | Add `clearSession` import | ❌ Not done |
+| `src/hooks/clientPassRequestId.ts` | Add else branch in `fetchUser()` | ❌ Not done |
+| `src/hooks/clientPassRequestId.ts` | Add `onAuthStateChange` subscription | ✅ Done |
+| `src/lib/sessionId.ts` | (Optional) Detect stale auth in `getOrCreateAnonymousSessionId()` | ❌ Not done |
