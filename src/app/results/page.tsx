@@ -58,6 +58,9 @@ function ResultsPageContent() {
     // Track pending AI suggestions (blocks save when true)
     const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
 
+    // AI Suggestions Panel state (visible by default, collapsible)
+    const [isAIPanelOpen, setIsAIPanelOpen] = useState(true);
+
     // Convert sources to bibliography format (with index for citations)
     const bibliographySources = useMemo(() =>
         sources
@@ -1355,43 +1358,42 @@ function ResultsPageContent() {
                         </div>
                     </div>
 
-                    {/* Gap between main content and AI panel */}
-                    <div className="w-8"></div>
-
-                    {/* Detached AI Suggestions Panel */}
-                    <div className="w-96 py-8 pr-4">
+                    {/* AI Suggestions Panel (Collapsible Sidebar) */}
+                    <div className="relative h-full flex-shrink-0">
                         <AISuggestionsPanel
-                            isVisible={!isStreaming}
-                            currentContent={content}
-                            editorRef={editorRef}
-                            onContentChange={(newContent) => {
-                                logger.debug('AISuggestionsPanel onContentChange called', {
-                                    contentLength: newContent?.length || 0,
-                                    hasEditorRef: !!editorRef.current
-                                }, FILE_DEBUG);
+                        isOpen={isAIPanelOpen}
+                        onOpenChange={setIsAIPanelOpen}
+                        currentContent={content}
+                        editorRef={editorRef}
+                        onContentChange={(newContent) => {
+                            logger.debug('AISuggestionsPanel onContentChange called', {
+                                contentLength: newContent?.length || 0,
+                                hasEditorRef: !!editorRef.current
+                            }, FILE_DEBUG);
 
-                                setContent(newContent);
+                            setContent(newContent);
 
-                                // CRITICAL: Directly update the editor with the new content
-                                if (editorRef.current) {
-                                    logger.debug('Updating editor with new content from AI suggestions', null, FILE_DEBUG);
-                                    // Update both internal state and editor content
-                                    setEditorCurrentContent(newContent);
-                                    editorRef.current.setContentFromMarkdown(newContent);
-                                } else {
-                                    logger.error('editorRef.current is null - cannot update editor');
-                                }
-                            }}
-                            onEnterEditMode={() => {
-                                logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
-                                dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
-                            }}
-                            sessionData={explanationId && explanationTitle ? {
-                                explanation_id: explanationId,
-                                explanation_title: explanationTitle
-                            } : undefined}
+                            // CRITICAL: Directly update the editor with the new content
+                            if (editorRef.current) {
+                                logger.debug('Updating editor with new content from AI suggestions', null, FILE_DEBUG);
+                                // Update both internal state and editor content
+                                setEditorCurrentContent(newContent);
+                                editorRef.current.setContentFromMarkdown(newContent);
+                            } else {
+                                logger.error('editorRef.current is null - cannot update editor');
+                            }
+                        }}
+                        onEnterEditMode={() => {
+                            logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
+                            dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
+                        }}
+                        sessionData={explanationId && explanationTitle ? {
+                            explanation_id: explanationId,
+                            explanation_title: explanationTitle
+                        } : undefined}
                         />
                     </div>
+
                 </div>
             </main>
         </div>

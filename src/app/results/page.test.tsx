@@ -108,8 +108,8 @@ jest.mock('@/editorFiles/lexicalEditor/LexicalEditor', () => {
 });
 
 jest.mock('@/components/AISuggestionsPanel', () => {
-  return function MockAISuggestionsPanel({ isVisible }: any) {
-    return isVisible ? <div data-testid="ai-suggestions">AI Suggestions</div> : null;
+  return function MockAISuggestionsPanel({ isOpen }: any) {
+    return isOpen ? <div data-testid="ai-suggestions">AI Suggestions</div> : null;
   };
 });
 
