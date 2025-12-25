@@ -150,7 +150,7 @@ describe('Error Handling Integration Tests', () => {
       const context = 'testOperation';
 
       // Act - run within RequestIdContext
-      RequestIdContext.run({ requestId: testRequestId, userId: testUserId }, () => {
+      RequestIdContext.run({ requestId: testRequestId, userId: testUserId, sessionId: 'test-session' }, () => {
         handleError(error, context);
       });
 

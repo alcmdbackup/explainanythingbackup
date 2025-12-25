@@ -39,7 +39,8 @@ export async function POST(request: NextRequest) {
     // Set up request context
     const requestIdData = {
       requestId: `fetch-source-${randomUUID()}`,
-      userId: userid || 'anonymous'
+      userId: userid || 'anonymous',
+      sessionId: 'unknown'  // API routes without client context
     };
 
     return await RequestIdContext.run(requestIdData, async () => {

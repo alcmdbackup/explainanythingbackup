@@ -23,6 +23,7 @@ jest.mock('@/lib/requestIdContext', () => ({
     run: jest.fn((data, callback) => callback()),
     getRequestId: jest.fn(() => 'mock-request-id'),
     getUserId: jest.fn(() => 'mock-user-id'),
+    getSessionId: jest.fn(() => 'mock-session-id'),
   },
 }));
 

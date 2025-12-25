@@ -753,7 +753,10 @@ function ResultsPageContent() {
 
             // Initialize request ID for page load with actual user ID
             const pageLoadRequestId = `page-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: effectiveUserid || 'anonymous' });
+            // Import session ID dynamically to avoid SSR issues
+            const { getOrCreateAnonymousSessionId } = await import('@/lib/sessionId');
+            const sessionId = getOrCreateAnonymousSessionId();
+            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: effectiveUserid || 'anonymous', sessionId });
 
             // Reset lifecycle to idle when processing new URL parameters
             dispatchLifecycle({ type: 'RESET' });

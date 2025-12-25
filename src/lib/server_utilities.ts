@@ -29,24 +29,26 @@ function getRequiredEnvVar(name: string): string {
   return value;
 }
 
-// Helper function to add request ID to data
+// Helper function to add request context to console logs
 const addRequestId = (data: LoggerData | null) => {
     const requestId = RequestIdContext.getRequestId();
     const userId = RequestIdContext.getUserId();
-    return data ? { requestId, userId, ...data } : { requestId, userId };
+    const sessionId = RequestIdContext.getSessionId();
+    return data ? { requestId, userId, sessionId, ...data } : { requestId, userId, sessionId };
 };
 
+// File logging with FLAT structure (breaking change from nested)
 function writeToFile(level: string, message: string, data: LoggerData | null) {
     const timestamp = new Date().toISOString();
-    const requestIdData = {
-        requestId: RequestIdContext.getRequestId(),
-        userId: RequestIdContext.getUserId()
-    };
 
     const logEntry = JSON.stringify({
-        timestamp, level, message,
-        data: data || {},
-        requestId: requestIdData
+        timestamp,
+        level,
+        message,
+        requestId: RequestIdContext.getRequestId(),
+        userId: RequestIdContext.getUserId(),
+        sessionId: RequestIdContext.getSessionId(),
+        data: data || {}
     }) + '\n';
 
     try {

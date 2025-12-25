@@ -9,7 +9,8 @@ import { randomUUID } from 'crypto';
 export async function GET() {
   const requestIdData = {
     requestId: `test-responses-${randomUUID()}`,
-    userId: `test-responses-${randomUUID()}`
+    userId: `test-responses-${randomUUID()}`,
+    sessionId: 'test-route'
   };
 
   return await RequestIdContext.run(requestIdData, async () => {

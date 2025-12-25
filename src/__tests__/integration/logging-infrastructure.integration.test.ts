@@ -161,7 +161,7 @@ describe('Logging Infrastructure Integration Tests', () => {
       const wrappedFn = withLogging(testFn, 'contextPreservation', { enabled: true });
 
       // Act
-      RequestIdContext.run({ requestId: testRequestId, userId: testUserId }, () => {
+      RequestIdContext.run({ requestId: testRequestId, userId: testUserId, sessionId: 'test-session' }, () => {
         return wrappedFn();
       });
 

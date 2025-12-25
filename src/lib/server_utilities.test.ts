@@ -11,6 +11,7 @@ jest.mock('./requestIdContext', () => ({
   RequestIdContext: {
     getRequestId: jest.fn(() => 'test-request-id'),
     getUserId: jest.fn(() => 'test-user-id'),
+    getSessionId: jest.fn(() => 'test-session-id'),
   },
 }));
 
@@ -39,7 +40,7 @@ describe('server_utilities', () => {
 
         expect(consoleLogSpy).toHaveBeenCalledWith(
           '[INFO] Test info message',
-          { requestId: 'test-request-id', userId: 'test-user-id' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id' }
         );
       });
 
@@ -48,7 +49,7 @@ describe('server_utilities', () => {
 
         expect(consoleLogSpy).toHaveBeenCalledWith(
           '[INFO] Test info message',
-          { requestId: 'test-request-id', userId: 'test-user-id', key: 'value' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id', key: 'value' }
         );
       });
 
@@ -64,10 +65,9 @@ describe('server_utilities', () => {
           level: 'INFO',
           message: 'Test info message',
           data: { key: 'value' },
-          requestId: {
-            requestId: 'test-request-id',
-            userId: 'test-user-id',
-          },
+          requestId: 'test-request-id',
+          userId: 'test-user-id',
+          sessionId: 'test-session-id',
         });
         expect(parsed.timestamp).toBeDefined();
         expect(new Date(parsed.timestamp).toISOString()).toBe(parsed.timestamp);
@@ -78,7 +78,7 @@ describe('server_utilities', () => {
 
         expect(consoleLogSpy).toHaveBeenCalledWith(
           '[INFO] Test message',
-          { requestId: 'test-request-id', userId: 'test-user-id' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id' }
         );
       });
     });
@@ -89,7 +89,7 @@ describe('server_utilities', () => {
 
         expect(consoleErrorSpy).toHaveBeenCalledWith(
           '[ERROR] Test error message',
-          { requestId: 'test-request-id', userId: 'test-user-id' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id' }
         );
       });
 
@@ -98,7 +98,7 @@ describe('server_utilities', () => {
 
         expect(consoleErrorSpy).toHaveBeenCalledWith(
           '[ERROR] Test error message',
-          { requestId: 'test-request-id', userId: 'test-user-id', error: 'details' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id', error: 'details' }
         );
       });
 
@@ -121,7 +121,7 @@ describe('server_utilities', () => {
 
         expect(consoleWarnSpy).toHaveBeenCalledWith(
           '[WARN] Test warning message',
-          { requestId: 'test-request-id', userId: 'test-user-id' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id' }
         );
       });
 
@@ -130,7 +130,7 @@ describe('server_utilities', () => {
 
         expect(consoleWarnSpy).toHaveBeenCalledWith(
           '[WARN] Test warning',
-          { requestId: 'test-request-id', userId: 'test-user-id', warning: 'deprecated' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id', warning: 'deprecated' }
         );
       });
 
@@ -165,7 +165,7 @@ describe('server_utilities', () => {
 
         expect(consoleLogSpy).toHaveBeenCalledWith(
           '[DEBUG] Test debug message',
-          { requestId: 'test-request-id', userId: 'test-user-id' }
+          { requestId: 'test-request-id', userId: 'test-user-id', sessionId: 'test-session-id' }
         );
       });
 
@@ -193,6 +193,7 @@ describe('server_utilities', () => {
           expect.objectContaining({
             requestId: 'test-request-id',
             userId: 'test-user-id',
+            sessionId: 'test-session-id',
           })
         );
       });
@@ -205,6 +206,7 @@ describe('server_utilities', () => {
           {
             requestId: 'test-request-id',
             userId: 'test-user-id',
+            sessionId: 'test-session-id',
             custom: 'data',
           }
         );

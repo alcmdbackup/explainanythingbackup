@@ -4,9 +4,11 @@ import { randomUUID } from 'crypto';
 
 export function serverReadRequestId<T extends (...args: any[]) => any>(fn: T): T {
   return (async (...args) => {
-    const requestIdData = args[0]?.__requestId || {
-      requestId: randomUUID(),
-      userId: 'anonymous'
+    const clientData = args[0]?.__requestId;
+    const requestIdData = {
+      requestId: clientData?.requestId || randomUUID(),
+      userId: clientData?.userId || 'anonymous',
+      sessionId: clientData?.sessionId || 'unknown'  // Fallback for migration
     };
 
     if (args[0]?.__requestId) {

@@ -1,25 +1,33 @@
+// Context data interface including sessionId
+interface ContextData {
+  requestId: string;
+  userId: string;
+  sessionId: string;
+}
+
 // Conditionally import AsyncLocalStorage only on server
 /* eslint-disable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
 const storage = typeof window === 'undefined'
-    ? new (require('async_hooks').AsyncLocalStorage as any as new () => { run<T>(data: { requestId: string; userId: string }, callback: () => T): T; getStore(): { requestId: string; userId: string } | undefined })()
+    ? new (require('async_hooks').AsyncLocalStorage as any as new () => { run<T>(data: ContextData, callback: () => T): T; getStore(): ContextData | undefined })()
     : null;
 /* eslint-enable @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any */
 
 // Client-side tracking
-let clientRequestId = { requestId: 'unknown', userId: 'anonymous' };
+let clientRequestId: ContextData = { requestId: 'unknown', userId: 'anonymous', sessionId: 'unknown' };
 
 // Validation for context data
-function validateContextData(data: { requestId: string; userId: string }): void {
+function validateContextData(data: ContextData): void {
   if (!data) {
     throw new Error('RequestIdContext: data is required');
   }
   if (!data.requestId || data.requestId === '' || data.requestId === 'unknown') {
     throw new Error('RequestIdContext: requestId must be a valid non-empty string (not "unknown")');
   }
+  // sessionId can be 'unknown' during migration phase
 }
 
 export class RequestIdContext {
-  static run<T>(data: { requestId: string; userId: string }, callback: () => T): T {
+  static run<T>(data: ContextData, callback: () => T): T {
     validateContextData(data);
     if (typeof window === 'undefined') {
       // Server: use AsyncLocalStorage
@@ -36,14 +44,14 @@ export class RequestIdContext {
     }
   }
 
-  static setClient(data: { requestId: string; userId: string }): void {
+  static setClient(data: ContextData): void {
     validateContextData(data);
     if (typeof window !== 'undefined') {
       clientRequestId = data;
     }
   }
 
-  static get() {
+  static get(): ContextData | undefined {
     return typeof window === 'undefined'
       ? storage?.getStore()
       : clientRequestId;
@@ -55,5 +63,9 @@ export class RequestIdContext {
 
   static getUserId(): string {
     return this.get()?.userId || 'anonymous';
+  }
+
+  static getSessionId(): string {
+    return this.get()?.sessionId || 'unknown';
   }
 }

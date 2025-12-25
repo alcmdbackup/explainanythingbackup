@@ -20,7 +20,8 @@ export async function POST(request: NextRequest) {
     // Extract requestId from client log or generate one
     const requestIdData = {
       requestId: logEntry.requestId || `client-log-${randomUUID()}`,
-      userId: logEntry.userId || `client-log-${randomUUID()}`
+      userId: logEntry.userId || `client-log-${randomUUID()}`,
+      sessionId: logEntry.data?.sessionId || logEntry.sessionId || 'unknown'
     };
 
     return await RequestIdContext.run(requestIdData, async () => {
