@@ -1,8 +1,9 @@
 # Session ID vs Request ID: Research Document
 
-> **Status**: Ready for Implementation
+> **Status**: Ready for Implementation ✅
 > **Last Updated**: 2024-12-24
-> **Decisions Made**: Session timeout 30min fixed, flatten logs, same sessionId across tabs, SHA-256 for auth session derivation, client sends sessionId in API request body
+> **Decisions Made**: Session timeout 30min fixed, flatten logs, same sessionId across tabs, SHA-256 with djb2 fallback for auth session derivation, client sends sessionId in API request body, previousSessionId sent to server via /api/client-logs
+> **Testing**: Unit + integration + E2E test patterns included
 
 ## Executive Summary
 
@@ -165,14 +166,41 @@ export function getOrCreateAnonymousSessionId(): string {
  * - btoa is reversible base64 encoding, not a hash
  * - SHA-256 is a true one-way cryptographic hash
  * - Prevents userId exposure if logs are shared externally
+ *
+ * Fallback: Uses sync hash if crypto.subtle unavailable (non-HTTPS localhost, older browsers)
  */
 export async function deriveAuthSessionId(userId: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(userId);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  return `auth-${hashHex.slice(0, 12)}`;
+  // Try Web Crypto API first (async, secure)
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(userId);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+      return `auth-${hashHex.slice(0, 12)}`;
+    } catch {
+      // crypto.subtle may throw in insecure contexts, fall through to fallback
+    }
+  }
+
+  // Fallback: Simple sync hash (djb2 algorithm)
+  // Less secure but deterministic - acceptable for session correlation (not security)
+  return `auth-${syncHash(userId).slice(0, 12)}`;
+}
+
+/**
+ * Synchronous hash fallback using djb2 algorithm.
+ * Used when crypto.subtle is unavailable (HTTP localhost, old browsers).
+ * NOT cryptographically secure - only for session correlation.
+ */
+function syncHash(str: string): string {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
+  }
+  // Convert to hex string, ensure positive
+  return (hash >>> 0).toString(16).padStart(8, '0');
 }
 
 /**
@@ -365,17 +393,43 @@ export async function handleAuthTransition(userId: string): Promise<{
   const authSessionId = await deriveAuthSessionId(userId);  // Now async
 
   if (anonSessionId && anonSessionId !== authSessionId) {
-    // Log linking event for journey reconstruction
-    // Note: This runs client-side, use console.log or client logger
-    console.log('[Session] Transition from anonymous to authenticated', {
-      previousSessionId: anonSessionId,
-      sessionId: authSessionId,
+    // Send linking event to server for proper log correlation
+    // Fire-and-forget: don't block auth flow on this
+    sendSessionLinkingEvent(anonSessionId, authSessionId, userId).catch(() => {
+      // Silently fail - session linking is best-effort
     });
+
     localStorage.removeItem(SESSION_KEY);
     return { sessionId: authSessionId, previousSessionId: anonSessionId };
   }
 
   return { sessionId: authSessionId };
+}
+
+/**
+ * Send session linking event to server for log correlation.
+ * Uses existing client-logs API endpoint.
+ * Fire-and-forget: failures are silently ignored.
+ */
+async function sendSessionLinkingEvent(
+  previousSessionId: string,
+  newSessionId: string,
+  userId: string
+): Promise<void> {
+  await fetch('/api/client-logs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      level: 'info',
+      message: 'Session transition: anonymous → authenticated',
+      data: {
+        previousSessionId,
+        sessionId: newSessionId,
+        userId,
+        eventType: 'session_linking'
+      }
+    })
+  });
 }
 ```
 
@@ -626,12 +680,31 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
 | `src/hooks/clientPassRequestId.ts` | Integrate sessionId with synchronous init + handleAuthTransition | P0 |
 | `src/lib/serverReadRequestId.ts` | Extract sessionId from payload | P0 |
 | `src/lib/server_utilities.ts` | Flatten log format + add sessionId to both console and file | P1 |
-| `src/app/api/**/route.ts` | Update API routes to extract sessionId from request body | P1 |
 | `src/lib/logging/server/automaticServerLoggingBase.ts` | Add span attribute | P2 |
 | `instrumentation.ts` | Add sessionId to traces | P2 |
 
+### API Routes Requiring Update (P1)
+
+All API routes must extract `sessionId` from `__requestId` in request body. Complete checklist:
+
+| Route | Current Status | Notes |
+|-------|----------------|-------|
+| `src/app/api/fetchSourceMetadata/route.ts` | Uses `RequestIdContext.run()` | Add sessionId extraction |
+| `src/app/api/stream-chat/route.ts` | Has `__requestId` extraction | Add sessionId to context |
+| `src/app/api/client-logs/route.ts` | Receives client logs | Already receives sessionId in data |
+| `src/app/api/returnExplanation/route.ts` | Check implementation | Add sessionId extraction |
+| `src/app/api/runAISuggestionsPipeline/route.ts` | Check implementation | Add sessionId extraction |
+| `src/app/api/test-cases/route.ts` | Testing endpoint | Lower priority |
+| `src/app/api/test-responses/route.ts` | Testing endpoint | Lower priority |
+
+**Verification command**: After implementation, grep for routes still using `sessionId: 'unknown'`:
+```bash
+# Run after deployment, check logs for missing sessionId
+grep -r "sessionId.*unknown" logs/server.log | head -20
+```
+
 **Implementation notes:**
-- `deriveAuthSessionId()` is now async (uses crypto.subtle.digest)
+- `deriveAuthSessionId()` is now async (uses crypto.subtle.digest with sync fallback)
 - `handleAuthTransition()` is now async (calls deriveAuthSessionId)
 - Update `useAuthenticatedRequestId`'s useEffect to await these functions
 - `getTabId()` is optional - only add if debugging multi-tab issues
@@ -639,6 +712,354 @@ span.setAttribute('session.id', RequestIdContext.getSessionId());
 **Removed from original plan:**
 - `src/hooks/useSessionId.ts` - Not needed; session ID is generated synchronously in `useAuthenticatedRequestId()`
 - `src/lib/serverSessionId.ts` - Only needed for webhooks/cron; can be added later if required
+
+---
+
+## Testing Strategy
+
+Testing follows existing patterns from `src/lib/requestIdContext.test.ts` and `src/__tests__/integration/request-id-propagation.integration.test.ts`.
+
+### Unit Tests: `src/lib/sessionId.test.ts`
+
+```typescript
+// src/lib/sessionId.test.ts
+
+describe('sessionId', () => {
+  describe('getOrCreateAnonymousSessionId', () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it('should return ssr-pending on server', () => {
+      // Mock server environment
+      const originalWindow = global.window;
+      delete (global as any).window;
+
+      const { getOrCreateAnonymousSessionId } = require('./sessionId');
+      expect(getOrCreateAnonymousSessionId()).toBe('ssr-pending');
+
+      (global as any).window = originalWindow;
+    });
+
+    it('should create new session if none exists', () => {
+      const { getOrCreateAnonymousSessionId } = require('./sessionId');
+      const sessionId = getOrCreateAnonymousSessionId();
+
+      expect(sessionId).toMatch(/^sess-[0-9a-f-]+$/);
+      expect(localStorage.getItem('ea_session')).toBeTruthy();
+    });
+
+    it('should return existing session if not expired', () => {
+      const { getOrCreateAnonymousSessionId } = require('./sessionId');
+      const first = getOrCreateAnonymousSessionId();
+      const second = getOrCreateAnonymousSessionId();
+
+      expect(first).toBe(second);
+    });
+
+    it('should create new session if expired (30 min)', () => {
+      const { getOrCreateAnonymousSessionId } = require('./sessionId');
+      const first = getOrCreateAnonymousSessionId();
+
+      // Fast-forward 31 minutes
+      const stored = JSON.parse(localStorage.getItem('ea_session')!);
+      stored.lastActivity = Date.now() - 31 * 60 * 1000;
+      localStorage.setItem('ea_session', JSON.stringify(stored));
+
+      const second = getOrCreateAnonymousSessionId();
+      expect(second).not.toBe(first);
+    });
+
+    it('should return fallback if localStorage unavailable', () => {
+      jest.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('localStorage disabled');
+      });
+
+      const { getOrCreateAnonymousSessionId } = require('./sessionId');
+      const sessionId = getOrCreateAnonymousSessionId();
+
+      expect(sessionId).toMatch(/^sess-fallback-/);
+    });
+  });
+
+  describe('deriveAuthSessionId', () => {
+    it('should return deterministic hash for same userId', async () => {
+      const { deriveAuthSessionId } = require('./sessionId');
+
+      const hash1 = await deriveAuthSessionId('user-123');
+      const hash2 = await deriveAuthSessionId('user-123');
+
+      expect(hash1).toBe(hash2);
+      expect(hash1).toMatch(/^auth-[0-9a-f]{8,12}$/);
+    });
+
+    it('should return different hash for different userId', async () => {
+      const { deriveAuthSessionId } = require('./sessionId');
+
+      const hash1 = await deriveAuthSessionId('user-123');
+      const hash2 = await deriveAuthSessionId('user-456');
+
+      expect(hash1).not.toBe(hash2);
+    });
+
+    it('should fallback to sync hash if crypto.subtle unavailable', async () => {
+      // Mock missing crypto.subtle
+      const originalCrypto = global.crypto;
+      (global as any).crypto = { randomUUID: () => 'mock-uuid' };
+
+      jest.resetModules();
+      const { deriveAuthSessionId } = require('./sessionId');
+
+      const hash = await deriveAuthSessionId('user-123');
+      expect(hash).toMatch(/^auth-[0-9a-f]{8}$/);
+
+      global.crypto = originalCrypto;
+    });
+  });
+
+  describe('handleAuthTransition', () => {
+    it('should link anonymous session to auth session', async () => {
+      const mockFetch = jest.fn().mockResolvedValue({ ok: true });
+      global.fetch = mockFetch;
+
+      // Set up anonymous session
+      localStorage.setItem('ea_session', JSON.stringify({
+        id: 'sess-anon-123',
+        lastActivity: Date.now()
+      }));
+
+      const { handleAuthTransition } = require('./sessionId');
+      const result = await handleAuthTransition('user-456');
+
+      expect(result.sessionId).toMatch(/^auth-/);
+      expect(result.previousSessionId).toBe('sess-anon-123');
+      expect(localStorage.getItem('ea_session')).toBeNull();
+
+      // Verify server was notified
+      expect(mockFetch).toHaveBeenCalledWith('/api/client-logs', expect.any(Object));
+    });
+
+    it('should not link if no anonymous session exists', async () => {
+      const mockFetch = jest.fn();
+      global.fetch = mockFetch;
+
+      localStorage.clear();
+
+      const { handleAuthTransition } = require('./sessionId');
+      const result = await handleAuthTransition('user-456');
+
+      expect(result.previousSessionId).toBeUndefined();
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('clearSession', () => {
+    it('should remove session from localStorage', () => {
+      localStorage.setItem('ea_session', 'test');
+
+      const { clearSession } = require('./sessionId');
+      clearSession();
+
+      expect(localStorage.getItem('ea_session')).toBeNull();
+    });
+  });
+});
+```
+
+### Integration Tests: `src/__tests__/integration/session-id-propagation.integration.test.ts`
+
+```typescript
+// src/__tests__/integration/session-id-propagation.integration.test.ts
+
+import { RequestIdContext } from '@/lib/requestIdContext';
+import { serverReadRequestId } from '@/lib/serverReadRequestId';
+
+describe('Session ID Propagation Integration', () => {
+  describe('Client → Server propagation', () => {
+    it('should extract sessionId from __requestId payload', async () => {
+      const payload = {
+        data: 'test',
+        __requestId: {
+          requestId: 'req-123',
+          userId: 'user-456',
+          sessionId: 'sess-abc'
+        }
+      };
+
+      let capturedSessionId: string | undefined;
+
+      const testFn = async () => {
+        capturedSessionId = RequestIdContext.getSessionId();
+        return 'done';
+      };
+
+      const wrapped = serverReadRequestId(testFn);
+      await wrapped(payload);
+
+      expect(capturedSessionId).toBe('sess-abc');
+    });
+
+    it('should default to "unknown" if sessionId not provided', async () => {
+      const payload = {
+        __requestId: { requestId: 'req-123', userId: 'user-456' }
+        // sessionId omitted (migration case)
+      };
+
+      let capturedSessionId: string | undefined;
+
+      const testFn = async () => {
+        capturedSessionId = RequestIdContext.getSessionId();
+        return 'done';
+      };
+
+      const wrapped = serverReadRequestId(testFn);
+      await wrapped(payload);
+
+      expect(capturedSessionId).toBe('unknown');
+    });
+  });
+
+  describe('Logger includes sessionId', () => {
+    it('should include sessionId in all log entries', async () => {
+      const mockLogEntries: any[] = [];
+      jest.spyOn(console, 'log').mockImplementation((...args) => {
+        if (args[0]?.includes?.('[INFO]')) {
+          mockLogEntries.push(args[1]);
+        }
+      });
+
+      const payload = {
+        __requestId: {
+          requestId: 'req-123',
+          userId: 'user-456',
+          sessionId: 'auth-xyz789'
+        }
+      };
+
+      const testFn = async () => {
+        const { logger } = require('@/lib/server_utilities');
+        logger.info('Test log message', { extra: 'data' });
+        return 'done';
+      };
+
+      const wrapped = serverReadRequestId(testFn);
+      await wrapped(payload);
+
+      expect(mockLogEntries.length).toBeGreaterThan(0);
+      expect(mockLogEntries[0].sessionId).toBe('auth-xyz789');
+    });
+  });
+
+  describe('Session linking event', () => {
+    it('should log session_linking event with both session IDs', async () => {
+      // This tests the server-side log entry from sendSessionLinkingEvent
+      const mockLogEntries: any[] = [];
+
+      // Mock the client-logs API to capture what's sent
+      jest.spyOn(global, 'fetch').mockImplementation(async (url, options) => {
+        if (url === '/api/client-logs') {
+          mockLogEntries.push(JSON.parse(options?.body as string));
+        }
+        return { ok: true } as Response;
+      });
+
+      const { handleAuthTransition } = require('@/lib/sessionId');
+
+      // Set up anonymous session
+      localStorage.setItem('ea_session', JSON.stringify({
+        id: 'sess-anon-old',
+        lastActivity: Date.now()
+      }));
+
+      await handleAuthTransition('user-123');
+
+      expect(mockLogEntries.length).toBe(1);
+      expect(mockLogEntries[0].data.eventType).toBe('session_linking');
+      expect(mockLogEntries[0].data.previousSessionId).toBe('sess-anon-old');
+      expect(mockLogEntries[0].data.sessionId).toMatch(/^auth-/);
+    });
+  });
+
+  describe('Concurrent requests isolation', () => {
+    it('should maintain separate sessionIds for concurrent requests', async () => {
+      const results: { sessionId: string; order: number }[] = [];
+
+      const testFn = async (order: number) => {
+        await new Promise(r => setTimeout(r, Math.random() * 10));
+        results.push({
+          sessionId: RequestIdContext.getSessionId(),
+          order
+        });
+      };
+
+      const wrapped = serverReadRequestId(
+        async (data: { order: number }) => testFn(data.order)
+      );
+
+      await Promise.all([
+        wrapped({ order: 1, __requestId: { requestId: 'r1', userId: 'u1', sessionId: 'sess-1' } }),
+        wrapped({ order: 2, __requestId: { requestId: 'r2', userId: 'u2', sessionId: 'sess-2' } }),
+        wrapped({ order: 3, __requestId: { requestId: 'r3', userId: 'u3', sessionId: 'sess-3' } }),
+      ]);
+
+      const sess1 = results.find(r => r.order === 1);
+      const sess2 = results.find(r => r.order === 2);
+      const sess3 = results.find(r => r.order === 3);
+
+      expect(sess1?.sessionId).toBe('sess-1');
+      expect(sess2?.sessionId).toBe('sess-2');
+      expect(sess3?.sessionId).toBe('sess-3');
+    });
+  });
+});
+```
+
+### E2E Smoke Test
+
+Add to existing E2E test suite:
+
+```typescript
+// In Playwright or Cypress E2E tests
+
+test('sessionId propagates through auth flow', async ({ page }) => {
+  // 1. Visit page as anonymous
+  await page.goto('/');
+
+  // 2. Trigger an API call, capture network request
+  const [request] = await Promise.all([
+    page.waitForRequest(req => req.url().includes('/api/')),
+    page.click('[data-testid="some-action"]')
+  ]);
+
+  const body = request.postDataJSON();
+  expect(body.__requestId.sessionId).toMatch(/^sess-/);
+
+  // 3. Log in
+  await page.click('[data-testid="login"]');
+  await page.fill('[name="email"]', 'test@example.com');
+  await page.fill('[name="password"]', 'password');
+  await page.click('[type="submit"]');
+
+  // 4. Trigger another API call
+  const [authRequest] = await Promise.all([
+    page.waitForRequest(req => req.url().includes('/api/')),
+    page.click('[data-testid="some-action"]')
+  ]);
+
+  const authBody = authRequest.postDataJSON();
+  expect(authBody.__requestId.sessionId).toMatch(/^auth-/);
+});
+```
+
+### Mocking Strategies
+
+| Dependency | Mock Strategy |
+|------------|---------------|
+| `localStorage` | Use `jest.spyOn(Storage.prototype, ...)` |
+| `crypto.subtle` | Delete and restore `global.crypto.subtle` |
+| `fetch` (for linking event) | `jest.spyOn(global, 'fetch')` |
+| `supabase.auth.getUser()` | Mock via `jest.mock('@/lib/supabase')` |
+| Server environment | Delete/restore `global.window` |
 
 ---
 
@@ -816,7 +1237,10 @@ These are semantically different concepts that happen to share a name. The prefi
 | **Timeout duration** | 30 minutes fixed (not configurable) |
 | **Anonymous tracking** | Yes - generates valuable debugging data |
 | **Log format** | Flatten (breaking change accepted) |
-| **Auth session hash** | SHA-256 via Web Crypto API (not btoa) |
+| **Auth session hash** | SHA-256 via Web Crypto API with djb2 sync fallback |
 | **API routes sessionId** | Client sends in request body via __requestId |
 | **handleAuthTransition call site** | In useAuthenticatedRequestId's useEffect |
 | **SIGNED_IN handling** | Via hook's useEffect (not onAuthStateChange) |
+| **previousSessionId correlation** | Fire-and-forget POST to /api/client-logs with eventType: 'session_linking' |
+| **crypto.subtle fallback** | djb2 hash (not cryptographic, but deterministic) |
+| **Testing approach** | Unit tests for sessionId.ts, integration tests for propagation |
