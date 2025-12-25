@@ -21,36 +21,150 @@ Client logs (`logger.info()`, etc.) only appear in browser console. They:
 | File | Action |
 |------|--------|
 | `src/lib/logging/client/consoleInterceptor.ts` | CREATE |
+| `src/lib/logging/client/logConfig.ts` | CREATE - log level filtering |
+| `src/lib/logging/client/earlyLogger.ts` | CREATE - pre-hydration capture |
 | `src/components/ClientInitializer.tsx` | CREATE - client wrapper for initialization |
-| `src/app/layout.tsx` | MODIFY - import ClientInitializer |
+| `src/app/layout.tsx` | MODIFY - import ClientInitializer + early logger script |
 
 > **Important**: `layout.tsx` is a server component. Client-side initialization (localStorage, sessionStorage, browser APIs) must happen in a 'use client' component.
 
 **Implementation**:
 
+#### 1a. Log Level Configuration
+
 ```typescript
-// src/lib/logging/client/consoleInterceptor.ts
-const LOG_KEY = 'client_logs';
-const MAX_LOGS = 500;
+// src/lib/logging/client/logConfig.ts
+export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
 
-const originalConsole = { ...console };
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+  debug: 0, log: 1, info: 2, warn: 3, error: 4,
+};
 
-export function initConsoleInterceptor() {
+export interface ClientLogConfig {
+  minPersistLevel: LogLevel;
+  minRemoteLevel: LogLevel;
+  remoteEnabled: boolean;
+  maxLocalLogs: number;
+}
+
+const DEFAULT_DEV_CONFIG: ClientLogConfig = {
+  minPersistLevel: 'debug',
+  minRemoteLevel: 'warn',
+  remoteEnabled: false,
+  maxLocalLogs: 500,
+};
+
+const DEFAULT_PROD_CONFIG: ClientLogConfig = {
+  minPersistLevel: 'warn',  // Filter out debug noise in prod
+  minRemoteLevel: 'error',
+  remoteEnabled: true,
+  maxLocalLogs: 200,
+};
+
+export function getLogConfig(): ClientLogConfig {
+  const isProd = process.env.NODE_ENV === 'production';
+  return isProd ? DEFAULT_PROD_CONFIG : DEFAULT_DEV_CONFIG;
+}
+
+export function shouldPersist(level: LogLevel, config: ClientLogConfig): boolean {
+  return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[config.minPersistLevel];
+}
+```
+
+#### 1b. Pre-Hydration Log Capture
+
+> **Gap Addressed**: Logs that fire before `useEffect` runs (during SSR/hydration) were previously lost.
+
+```typescript
+// src/lib/logging/client/earlyLogger.ts
+// Inlined into <script> tag in layout.tsx for immediate execution
+
+export const EARLY_LOGGER_SCRIPT = `
+(function() {
   if (typeof window === 'undefined') return;
 
-  // Test localStorage availability first (handles private browsing, Safari iframes)
+  window.__PRE_HYDRATION_LOGS__ = [];
+  window.__LOGGING_INITIALIZED__ = false;
+  window.__ORIGINAL_CONSOLE__ = {
+    log: console.log, info: console.info, warn: console.warn,
+    error: console.error, debug: console.debug
+  };
+
+  ['log', 'info', 'warn', 'error', 'debug'].forEach(function(level) {
+    console[level] = function() {
+      window.__ORIGINAL_CONSOLE__[level].apply(console, arguments);
+      if (!window.__LOGGING_INITIALIZED__) {
+        window.__PRE_HYDRATION_LOGS__.push({
+          timestamp: new Date().toISOString(),
+          level: level.toUpperCase(),
+          args: Array.prototype.slice.call(arguments)
+        });
+      }
+    };
+  });
+})();
+`;
+```
+
+#### 1c. Console Interceptor with Error Handlers & HMR Cleanup
+
+> **Gaps Addressed**:
+> - Uncaught errors and unhandled rejections now captured
+> - HMR cleanup prevents stacked console wrappers
+> - Log level filtering reduces noise
+
+```typescript
+// src/lib/logging/client/consoleInterceptor.ts
+import { getLogConfig, shouldPersist, type LogLevel } from './logConfig';
+
+const LOG_KEY = 'client_logs';
+const ERROR_KEY = 'client_errors';
+
+// Store pristine console at module load (before any patching)
+const PRISTINE_CONSOLE = typeof window !== 'undefined' ? { ...console } : null;
+let isInterceptorActive = false;
+
+export function initConsoleInterceptor(): () => void {
+  if (typeof window === 'undefined') return () => {};
+  if (isInterceptorActive) return () => {}; // HMR protection
+
+  // Test localStorage availability
   try {
     const testKey = '__storage_test__';
     localStorage.setItem(testKey, testKey);
     localStorage.removeItem(testKey);
   } catch {
-    originalConsole.warn('localStorage unavailable, console interception disabled');
-    return; // Graceful degradation
+    PRISTINE_CONSOLE?.warn('localStorage unavailable');
+    return () => {};
   }
 
+  const config = getLogConfig();
+
+  // Flush pre-hydration logs first
+  const preHydrationLogs = (window as any).__PRE_HYDRATION_LOGS__ || [];
+  if (preHydrationLogs.length > 0) {
+    try {
+      const existingLogs = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
+      const bufferedLogs = preHydrationLogs.map((entry: any) => ({
+        timestamp: entry.timestamp,
+        level: entry.level,
+        message: entry.args.map((a: any) => {
+          try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+          catch { return '[Unserializable]'; }
+        }).join(' '),
+        preHydration: true,
+      }));
+      const combined = [...existingLogs, ...bufferedLogs].slice(-config.maxLocalLogs);
+      localStorage.setItem(LOG_KEY, JSON.stringify(combined));
+    } catch { /* ignore */ }
+  }
+  (window as any).__LOGGING_INITIALIZED__ = true;
+
+  // Patch console methods with level filtering
   (['log', 'info', 'warn', 'error', 'debug'] as const).forEach(level => {
     console[level] = (...args: unknown[]) => {
-      originalConsole[level](...args);
+      PRISTINE_CONSOLE![level](...args);
+      if (!shouldPersist(level as LogLevel, config)) return;
 
       try {
         const logs = JSON.parse(localStorage.getItem(LOG_KEY) || '[]');
@@ -58,58 +172,125 @@ export function initConsoleInterceptor() {
           timestamp: new Date().toISOString(),
           level: level.toUpperCase(),
           message: args.map(a => {
-            try {
-              return typeof a === 'object' ? JSON.stringify(a) : String(a);
-            } catch {
-              return '[Unserializable]'; // Handle DOM nodes, functions, circular refs
-            }
+            try { return typeof a === 'object' ? JSON.stringify(a) : String(a); }
+            catch { return '[Unserializable]'; }
           }).join(' '),
         });
-
-        if (logs.length > MAX_LOGS) logs.shift();
+        if (logs.length > config.maxLocalLogs) logs.shift();
         localStorage.setItem(LOG_KEY, JSON.stringify(logs));
       } catch (e) {
         if (e instanceof DOMException && e.name === 'QuotaExceededError') {
           localStorage.removeItem(LOG_KEY);
         }
-        // Other errors: already logged to original console, just don't persist
       }
     };
   });
 
-  // Expose for Playwright/debugging
+  isInterceptorActive = true;
   (window as any).exportLogs = () => localStorage.getItem(LOG_KEY) || '[]';
   (window as any).clearLogs = () => localStorage.removeItem(LOG_KEY);
+
+  // Return cleanup for HMR
+  return () => {
+    if (PRISTINE_CONSOLE) {
+      (['log', 'info', 'warn', 'error', 'debug'] as const).forEach(level => {
+        console[level] = PRISTINE_CONSOLE[level];
+      });
+    }
+    isInterceptorActive = false;
+  };
+}
+
+// Capture uncaught errors and unhandled promise rejections
+export function initErrorHandlers(): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  const handleError = (event: ErrorEvent) => {
+    persistError({
+      timestamp: new Date().toISOString(),
+      level: 'ERROR',
+      type: 'uncaught',
+      message: event.message,
+      stack: event.error?.stack,
+      filename: event.filename,
+      lineno: event.lineno,
+    });
+  };
+
+  const handleRejection = (event: PromiseRejectionEvent) => {
+    const reason = event.reason;
+    persistError({
+      timestamp: new Date().toISOString(),
+      level: 'ERROR',
+      type: 'unhandledrejection',
+      message: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+    });
+  };
+
+  window.addEventListener('error', handleError);
+  window.addEventListener('unhandledrejection', handleRejection);
+
+  return () => {
+    window.removeEventListener('error', handleError);
+    window.removeEventListener('unhandledrejection', handleRejection);
+  };
+}
+
+function persistError(entry: object): void {
+  try {
+    const errors = JSON.parse(localStorage.getItem(ERROR_KEY) || '[]');
+    errors.push(entry);
+    if (errors.length > 100) errors.shift();
+    localStorage.setItem(ERROR_KEY, JSON.stringify(errors));
+  } catch { /* ignore */ }
+}
+
+// HMR support
+if (typeof module !== 'undefined' && (module as any).hot) {
+  (module as any).hot.dispose(() => {
+    if (PRISTINE_CONSOLE) {
+      (['log', 'info', 'warn', 'error', 'debug'] as const).forEach(level => {
+        console[level] = PRISTINE_CONSOLE[level];
+      });
+    }
+    isInterceptorActive = false;
+  });
 }
 ```
 
+#### 1d. Layout Integration
+
 ```typescript
-// src/components/ClientInitializer.tsx
-'use client';
-import { useEffect, useRef } from 'react';
-import { initConsoleInterceptor } from '@/lib/logging/client/consoleInterceptor';
-import { RequestIdContext } from '@/lib/requestIdContext';
+// src/app/layout.tsx - add these imports and elements
+import Script from 'next/script';
+import { EARLY_LOGGER_SCRIPT } from '@/lib/logging/client/earlyLogger';
+import { ClientInitializer } from '@/components/ClientInitializer';
 
-export function ClientInitializer() {
-  // Guard against React Strict Mode double-mount and Fast Refresh
-  const initialized = useRef(false);
-
-  useEffect(() => {
-    if (initialized.current) return;
-    initialized.current = true;
-
-    initConsoleInterceptor();
-    RequestIdContext.initSession(); // Phase 2
-    // initBrowserTracing(); // Phase 3
-  }, []);
-
-  return null;
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script
+          id="early-logger"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: EARLY_LOGGER_SCRIPT }}
+        />
+      </head>
+      <body>
+        <ClientInitializer />
+        {/* ... existing content ... */}
+      </body>
+    </html>
+  );
 }
 ```
 
 **Verification**:
 - `mcp__playwright__browser_evaluate(() => window.exportLogs())` returns logs
 - Logs persist across page navigations
+- Pre-hydration logs marked with `preHydration: true`
+- Uncaught errors appear in `localStorage.getItem('client_errors')`
 
 ---
 
@@ -122,41 +303,53 @@ export function ClientInitializer() {
 **Files to modify**:
 | File | Action |
 |------|--------|
-| `src/lib/requestIdContext.ts` | MODIFY - add session persistence |
-| `src/components/ClientInitializer.tsx` | MODIFY - call initSession() (already added in Phase 1) |
+| `src/lib/requestIdContext.ts` | MODIFY - add session persistence with lazy init |
+| `src/lib/client_utilities.ts` | MODIFY - include sessionId in addRequestId() |
 
 > **Note**: Uses `sessionStorage` (cleared on tab close) vs `localStorage` (persistent). This is intentional: session IDs should reset per browser session, but logs can persist longer for debugging.
 
 **Implementation**:
 
-> **Important**: Do NOT modify `clientRequestId` directly. The existing `run()` method resets `clientRequestId` after each call, which would break session persistence. Use a separate `sessionId` field instead.
+> **Gap Addressed**: Race condition fixed via lazy initialization. `getSessionId()` auto-initializes if called before `useEffect`, so it never returns 'unknown'.
 
 ```typescript
 // Add to RequestIdContext (src/lib/requestIdContext.ts)
-// Add as private static field at class level:
 private static sessionId: string | null = null;
+private static sessionInitialized = false;
 
 static initSession(): void {
+  if (this.sessionInitialized) return;
   if (typeof window === 'undefined') return;
 
-  let sid = sessionStorage.getItem('session_request_id');
-  if (!sid) {
-    sid = crypto.randomUUID();
-    sessionStorage.setItem('session_request_id', sid);
+  try {
+    let sid = sessionStorage.getItem('session_request_id');
+    if (!sid) {
+      sid = crypto.randomUUID();
+      sessionStorage.setItem('session_request_id', sid);
+    }
+    this.sessionId = sid;
+    this.sessionInitialized = true;
+  } catch {
+    // Private browsing fallback
+    this.sessionId = crypto.randomUUID();
+    this.sessionInitialized = true;
   }
-  this.sessionId = sid;
 }
 
+// Lazy init - never returns 'unknown'
 static getSessionId(): string {
-  return this.sessionId || 'unknown';
+  if (!this.sessionInitialized) {
+    this.initSession();
+  }
+  return this.sessionId || crypto.randomUUID();
 }
 ```
 
 ```typescript
-// Update addRequestId() in src/lib/client_utilities.ts to include sessionId:
+// Update addRequestId() in src/lib/client_utilities.ts
 const addRequestId = (data: LoggerData | null) => {
   const requestId = RequestIdContext.getRequestId();
-  const sessionId = RequestIdContext.getSessionId();
+  const sessionId = RequestIdContext.getSessionId(); // Auto-inits if needed
   return data
     ? { requestId, sessionId, ...data }
     : { requestId, sessionId };
@@ -167,6 +360,85 @@ const addRequestId = (data: LoggerData | null) => {
 - Same session ID across multiple `logger.info()` calls
 - ID persists across component re-renders
 - New tab = new session ID
+- Logs before `useEffect` still get valid session ID
+
+---
+
+### Phase 1.5: Batched Remote Sending (Optional)
+
+> **Gap Addressed**: Bridge between localStorage buffer and existing `/api/client-logs` endpoint.
+
+**Goal**: Periodically flush localStorage logs to remote endpoint without blocking UI.
+
+**Files to create**:
+| File | Action |
+|------|--------|
+| `src/lib/logging/client/remoteFlusher.ts` | CREATE |
+
+**Implementation**:
+
+```typescript
+// src/lib/logging/client/remoteFlusher.ts
+interface FlushConfig {
+  flushIntervalMs: number;
+  batchSize: number;
+  endpoint: string;
+}
+
+const DEFAULT_CONFIG: FlushConfig = {
+  flushIntervalMs: 30_000,
+  batchSize: 50,
+  endpoint: '/api/client-logs',
+};
+
+let flushTimer: ReturnType<typeof setInterval> | null = null;
+
+export function initRemoteFlusher(config: Partial<FlushConfig> = {}): () => void {
+  if (typeof window === 'undefined') return () => {};
+
+  const finalConfig = { ...DEFAULT_CONFIG, ...config };
+  let isOnline = navigator.onLine;
+
+  const handleOnline = () => { isOnline = true; };
+  const handleOffline = () => { isOnline = false; };
+  window.addEventListener('online', handleOnline);
+  window.addEventListener('offline', handleOffline);
+
+  const scheduleFlush = () => {
+    if ('requestIdleCallback' in window) {
+      (window as any).requestIdleCallback(() => flushLogs(finalConfig, isOnline));
+    } else {
+      setTimeout(() => flushLogs(finalConfig, isOnline), 0);
+    }
+  };
+
+  flushTimer = setInterval(scheduleFlush, finalConfig.flushIntervalMs);
+
+  // Flush on page hide using sendBeacon
+  const handleVisibilityChange = () => {
+    if (document.visibilityState === 'hidden') {
+      flushLogsSync(finalConfig);
+    }
+  };
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+
+  return () => {
+    if (flushTimer) clearInterval(flushTimer);
+    window.removeEventListener('online', handleOnline);
+    window.removeEventListener('offline', handleOffline);
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
+  };
+}
+
+async function flushLogs(config: FlushConfig, isOnline: boolean): Promise<void> {
+  if (!isOnline) return;
+  // ... batch and send logic using fetch with priority: 'low'
+}
+
+function flushLogsSync(config: FlushConfig): void {
+  // Use navigator.sendBeacon for page unload
+}
+```
 
 ---
 
@@ -176,139 +448,145 @@ const addRequestId = (data: LoggerData | null) => {
 
 **Dependencies**:
 ```bash
-# Minimal set for browser traces (recommended for smaller bundles)
 npm install @opentelemetry/api @opentelemetry/sdk-trace-web @opentelemetry/exporter-trace-otlp-http @opentelemetry/sdk-trace-base
 ```
 
-> **Note**: `@opentelemetry/auto-instrumentations-node` is server-only. For browser, use individual packages for tree-shaking.
-
-> **Bundle Size Warning**: Full OTel browser bundle is ~60KB gzipped (~300KB uncompressed). Use individual packages and ensure tree-shaking is enabled. See [SigNoz guide on reducing bundle size](https://newsletter.signoz.io/p/reducing-opentelemetry-bundle-size).
-
-> **ZoneContextManager Compatibility**: `@opentelemetry/context-zone` does NOT work with ES2017+ targets (Next.js default). Either:
-> 1. Skip context-zone and use default context manager (simpler, works for most cases)
-> 2. Or add context-zone but configure `tsconfig.json` with `"target": "ES2015"` (not recommended - hurts modern browser perf)
+> **Bundle Size Warning**: ~60KB gzipped. Mitigated via lazy loading below.
 
 **Files to create/modify**:
 | File | Action |
 |------|--------|
-| `src/lib/tracing/browserTracing.ts` | CREATE |
-| `src/components/ClientInitializer.tsx` | MODIFY - call initBrowserTracing() |
+| `src/lib/tracing/browserTracing.ts` | CREATE - with lazy loading |
+| `src/components/ClientInitializer.tsx` | MODIFY - defer OTel init |
 | `src/lib/client_utilities.ts` | MODIFY - attach span events |
-| `.env.local` / Vercel env | ADD `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` |
+
+**Implementation**:
+
+> **Gap Addressed**: Bundle size mitigated via dynamic imports and deferred initialization using `requestIdleCallback`.
+
+```typescript
+// src/lib/tracing/browserTracing.ts
+let initialized = false;
+let initPromise: Promise<void> | null = null;
+
+export function initBrowserTracing(): Promise<void> {
+  if (typeof window === 'undefined') return Promise.resolve();
+  if (initialized) return Promise.resolve();
+  if (initPromise) return initPromise;
+
+  initPromise = (async () => {
+    const shouldTrace =
+      process.env.NODE_ENV === 'production' ||
+      process.env.NEXT_PUBLIC_ENABLE_BROWSER_TRACING === 'true';
+
+    if (!shouldTrace) {
+      initialized = true;
+      return;
+    }
+
+    try {
+      // Dynamic imports for code splitting
+      const [
+        { WebTracerProvider },
+        { OTLPTraceExporter },
+        { BatchSpanProcessor },
+        { trace, diag, DiagConsoleLogger, DiagLogLevel },
+      ] = await Promise.all([
+        import('@opentelemetry/sdk-trace-web'),
+        import('@opentelemetry/exporter-trace-otlp-http'),
+        import('@opentelemetry/sdk-trace-base'),
+        import('@opentelemetry/api'),
+      ]);
+
+      diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
+
+      const provider = new WebTracerProvider();
+      provider.addSpanProcessor(
+        new BatchSpanProcessor(
+          new OTLPTraceExporter({
+            url: 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces',
+            headers: {
+              Authorization: `Basic ${process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN}`,
+            },
+          })
+        )
+      );
+      provider.register();
+      initialized = true;
+    } catch (error) {
+      console.warn('Failed to initialize browser tracing:', error);
+      initialized = true;
+    }
+  })();
+
+  return initPromise;
+}
+```
+
+```typescript
+// src/components/ClientInitializer.tsx - complete implementation
+'use client';
+import { useEffect, useRef } from 'react';
+
+export function ClientInitializer() {
+  const initialized = useRef(false);
+  const cleanupFns = useRef<Array<() => void>>([]);
+
+  useEffect(() => {
+    if (initialized.current) return;
+    initialized.current = true;
+
+    // Synchronous init
+    import('@/lib/logging/client/consoleInterceptor').then(
+      ({ initConsoleInterceptor, initErrorHandlers }) => {
+        cleanupFns.current.push(initConsoleInterceptor());
+        cleanupFns.current.push(initErrorHandlers());
+      }
+    );
+
+    import('@/lib/requestIdContext').then(({ RequestIdContext }) => {
+      RequestIdContext.initSession();
+    });
+
+    // Remote flusher (dev only)
+    if (process.env.NODE_ENV === 'development') {
+      import('@/lib/logging/client/remoteFlusher').then(({ initRemoteFlusher }) => {
+        cleanupFns.current.push(initRemoteFlusher());
+      });
+    }
+
+    // Lazy-load OTel after idle (bundle size mitigation)
+    if ('requestIdleCallback' in window) {
+      const idleId = (window as any).requestIdleCallback(
+        async () => {
+          const { initBrowserTracing } = await import('@/lib/tracing/browserTracing');
+          initBrowserTracing();
+        },
+        { timeout: 5000 }
+      );
+      cleanupFns.current.push(() => (window as any).cancelIdleCallback(idleId));
+    }
+
+    // HMR cleanup
+    return () => {
+      cleanupFns.current.forEach(fn => fn());
+      cleanupFns.current = [];
+      initialized.current = false;
+    };
+  }, []);
+
+  return null;
+}
+```
 
 **Prerequisites**:
-1. Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable (base64 encoded `user:token`)
-2. **Test CORS before implementation**: Grafana Cloud OTLP endpoint must accept browser requests:
+1. Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable
+2. **Test CORS first**:
    ```typescript
-   // Quick CORS test (run in browser console)
    fetch('https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces', { method: 'OPTIONS' })
      .then(r => console.log('CORS OK:', r.ok))
      .catch(e => console.error('CORS blocked:', e));
    ```
-
-**Implementation**:
-
-```typescript
-// src/lib/tracing/browserTracing.ts
-import { WebTracerProvider } from '@opentelemetry/sdk-trace-web';
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
-import { trace, diag, DiagConsoleLogger, DiagLogLevel } from '@opentelemetry/api';
-
-let initialized = false;
-
-export function initBrowserTracing() {
-  if (typeof window === 'undefined' || initialized) return;
-
-  // Enable diagnostic logging for debugging (set to WARN in production)
-  diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
-
-  const provider = new WebTracerProvider();
-  provider.addSpanProcessor(new BatchSpanProcessor(
-    new OTLPTraceExporter({
-      url: 'https://otlp-gateway-prod-us-west-0.grafana.net/otlp/v1/traces',
-      headers: {
-        Authorization: `Basic ${process.env.NEXT_PUBLIC_GRAFANA_OTLP_TOKEN}`
-      }
-    }),
-    {
-      exportTimeoutMillis: 5000,
-      maxExportBatchSize: 100,
-    }
-  ));
-
-  // Use default context manager (no zone.js required, works with ES2017+)
-  provider.register();
-  // NOTE: If you need async context propagation across setTimeout/Promise chains,
-  // install @opentelemetry/context-zone and use: provider.register({ contextManager: new ZoneContextManager() });
-  // But this requires ES2015 target in tsconfig.json
-
-  initialized = true;
-}
-
-export function getTracer() {
-  return trace.getTracer('client', '1.0.0');
-}
-```
-
-```typescript
-// Updated src/lib/client_utilities.ts
-import { trace } from '@opentelemetry/api';
-import { RequestIdContext } from './requestIdContext';
-
-interface LoggerData {
-  [key: string]: unknown;
-}
-
-// Updated to include sessionId (from Phase 2)
-const addRequestId = (data: LoggerData | null) => {
-  const requestId = RequestIdContext.getRequestId();
-  const sessionId = RequestIdContext.getSessionId();
-  return data
-    ? { requestId, sessionId, ...data }
-    : { requestId, sessionId };
-};
-
-function logWithSpan(level: string, message: string, data: LoggerData | null) {
-  const enrichedData = addRequestId(data);
-
-  // Console output (using correct console method mapping)
-  const consoleMethod = level === 'debug' ? 'log' : level;
-  console[consoleMethod as 'log'](`[${level.toUpperCase()}] ${message}`, enrichedData);
-
-  // Attach to active span if exists (Phase 3 OTel integration)
-  try {
-    const activeSpan = trace.getActiveSpan();
-    if (activeSpan) {
-      activeSpan.addEvent(message, {
-        'log.level': level.toUpperCase(),
-        'log.data': JSON.stringify(enrichedData),
-      });
-    }
-  } catch {
-    // OTel not initialized yet, ignore
-  }
-}
-
-// NOTE: Preserving existing API signatures
-const logger = {
-  // debug has 3 params - preserving existing signature
-  debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
-    if (!debug) return;
-    logWithSpan('debug', message, data);
-  },
-  error: (message: string, data: LoggerData | null = null) => logWithSpan('error', message, data),
-  info: (message: string, data: LoggerData | null = null) => logWithSpan('info', message, data),
-  warn: (message: string, data: LoggerData | null = null) => logWithSpan('warn', message, data),
-};
-
-export { logger };
-```
-
-**Verification**:
-- Client spans appear in Grafana Tempo
-- Log messages visible as span events
-- Client + server traces share correlation IDs
 
 ---
 
@@ -316,12 +594,6 @@ export { logger };
 
 **Goal**: Link client-initiated requests to server traces via W3C `traceparent` header.
 
-**Files to modify**:
-| File | Action |
-|------|--------|
-| API fetch wrappers | MODIFY - add traceparent header |
-
-**Implementation**:
 ```typescript
 // In fetch wrapper
 import { context, propagation } from '@opentelemetry/api';
@@ -337,58 +609,61 @@ fetch(url, { headers: { ...headers, ...otherHeaders } });
 
 **Start with Phase 1 + 2** — immediate debugging value, minimal complexity.
 
-Phase 3 adds production observability but requires:
-- CORS configuration on Grafana OTLP endpoint (test before implementing)
-- Environment variable `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` must be created
-- ~60KB gzipped bundle increase (~300KB uncompressed) - use individual packages for tree-shaking
-- Note: ZoneContextManager requires ES2015 target; default context manager recommended for ES2017+
+Phase 1.5 (remote flushing) optional but useful for correlating with server logs.
 
-Phase 4 only needed if you want end-to-end distributed tracing.
+Phase 3 adds production observability but requires:
+- CORS configuration on Grafana OTLP endpoint
+- Environment variable setup
+- ~60KB bundle (mitigated by lazy loading)
+
+---
 
 ## Existing Infrastructure
 
-The following existing code should be considered:
-- `src/lib/logging/client/clientLogging.ts` - Has `withClientLogging()` wrapper (183 lines)
-- `src/lib/logging/client/__tests__/clientLogging.test.ts` - Existing test coverage (240 lines)
-- `src/app/api/client-logs/route.ts` - Functional endpoint with tests (optional remote persistence)
+- `src/lib/logging/client/clientLogging.ts` - Has `withClientLogging()` wrapper
+- `src/lib/logging/client/__tests__/clientLogging.test.ts` - Existing test coverage
+- `src/app/api/client-logs/route.ts` - Functional endpoint with tests
 - `src/app/(debug)/test-client-logging/page.tsx` - Test page for verification
+- `src/lib/errorHandling.ts` - 13 categorized error codes (can integrate)
 
 ---
 
 ## Checklist
 
 ### Phase 1: localStorage Buffer
-- [ ] Create `src/lib/logging/client/consoleInterceptor.ts`
-- [ ] Create `src/components/ClientInitializer.tsx` (client wrapper)
-- [ ] Import `<ClientInitializer />` in `src/app/layout.tsx`
+- [ ] Create `src/lib/logging/client/logConfig.ts` (log level filtering)
+- [ ] Create `src/lib/logging/client/earlyLogger.ts` (pre-hydration capture)
+- [ ] Create `src/lib/logging/client/consoleInterceptor.ts` (with error handlers + HMR cleanup)
+- [ ] Create `src/components/ClientInitializer.tsx`
+- [ ] Modify `src/app/layout.tsx` (add early logger script + ClientInitializer)
 - [ ] Test with Playwright `browser_evaluate(() => window.exportLogs())`
-- [ ] Verify logs persist across page navigations
-- [ ] Verify localStorage availability check works (test in private browsing)
-- [ ] Verify JSON serialization fallback works (test with DOM nodes)
-- [ ] Verify React Strict Mode guard prevents double initialization
+- [ ] Verify pre-hydration logs captured (check `preHydration: true` flag)
+- [ ] Verify uncaught errors in `localStorage.getItem('client_errors')`
+- [ ] Verify HMR doesn't stack console wrappers (check in dev)
+- [ ] Verify log level filtering in production mode
 
 ### Phase 2: Session Request ID
-- [ ] Add private static `sessionId` field to `RequestIdContext`
-- [ ] Add `initSession()` to `RequestIdContext` (uses separate sessionId, not clientRequestId)
-- [ ] Add `getSessionId()` to `RequestIdContext`
-- [ ] Update `addRequestId()` in `client_utilities.ts` to include sessionId
-- [ ] Verify `ClientInitializer` calls `initSession()` (added in Phase 1)
-- [ ] Verify consistent session IDs across multiple `logger.info()` calls
-- [ ] Verify `run()` still works correctly (sessionId is independent)
+- [ ] Add `sessionId` field + `initSession()` + `getSessionId()` to `RequestIdContext`
+- [ ] Verify lazy initialization works (no 'unknown' values)
+- [ ] Update `addRequestId()` in `client_utilities.ts`
+- [ ] Verify consistent session IDs across `logger.info()` calls
 - [ ] Verify new tab = new session ID
 
+### Phase 1.5: Remote Flushing (Optional)
+- [ ] Create `src/lib/logging/client/remoteFlusher.ts`
+- [ ] Integrate with existing `/api/client-logs` endpoint
+- [ ] Test `sendBeacon` on page unload
+- [ ] Test offline resilience
+
 ### Phase 3: Browser OpenTelemetry
-- [ ] **Test CORS first**: Run CORS check in browser console before installing packages
-- [ ] Install minimal packages: `@opentelemetry/api`, `@opentelemetry/sdk-trace-web`, `@opentelemetry/exporter-trace-otlp-http`, `@opentelemetry/sdk-trace-base`
-- [ ] (Optional) Install `@opentelemetry/context-zone` only if ES2015 target is acceptable
-- [ ] Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` environment variable
-- [ ] Create `src/lib/tracing/browserTracing.ts` (using default context manager, not ZoneContextManager)
-- [ ] Update `ClientInitializer` to call `initBrowserTracing()`
-- [ ] Update `logger` in `client_utilities.ts` to attach span events (preserve 3-param debug signature)
-- [ ] Enable OTel diagnostic logging (`DiagConsoleLogger`) for debugging
-- [ ] Measure actual bundle size increase after implementation
+- [ ] **Test CORS first**
+- [ ] Install OTel packages
+- [ ] Create `src/lib/tracing/browserTracing.ts` with lazy loading
+- [ ] Update `ClientInitializer` to defer OTel init via `requestIdleCallback`
+- [ ] Create `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` env var
+- [ ] Measure actual bundle size increase
 - [ ] Verify client spans in Grafana Tempo
 
 ### Phase 4: Trace Propagation (Optional)
 - [ ] Add `traceparent` header to fetch calls
-- [ ] Verify client→server trace correlation in Grafana
+- [ ] Verify client→server trace correlation
