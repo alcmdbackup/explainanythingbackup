@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { signOut } from '@/app/login/actions';
+import { clearRememberMe } from '@/lib/utils/supabase/rememberMe';
 import SearchBar from '@/components/SearchBar';
 import ImportModal from '@/components/import/ImportModal';
 import ImportPreview from '@/components/import/ImportPreview';
@@ -119,7 +120,10 @@ export default function Navigation({
                             Import
                         </button>
                         <button
-                            onClick={() => signOut()}
+                            onClick={() => {
+                                clearRememberMe();
+                                signOut();
+                            }}
                             data-testid="logout-button"
                             className="text-[var(--text-muted)] hover:text-[var(--destructive)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)] focus-visible:ring-offset-2 rounded px-1"
                         >

@@ -15,6 +15,7 @@ import { Spinner } from '@/components/ui/spinner';
 
 import { login, signup } from './actions';
 import { loginSchema, type LoginInput } from './validation';
+import { setRememberMe, clearSupabaseLocalStorage } from '@/lib/utils/supabase/rememberMe';
 
 /**
  * Login Page
@@ -70,6 +71,15 @@ export default function LoginPage() {
       formData.append('email', data.email);
       formData.append('password', data.password);
       formData.append('rememberMe', String(data.rememberMe));
+
+      // Store remember me preference before login (login redirects on success)
+      if (!isSignup) {
+        setRememberMe(data.rememberMe);
+        // If switching to non-remembered session, clear any existing localStorage auth data
+        if (!data.rememberMe) {
+          clearSupabaseLocalStorage();
+        }
+      }
 
       const result = isSignup ? await signup(formData) : await login(formData);
 

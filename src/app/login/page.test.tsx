@@ -2,11 +2,18 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginPage from './page';
 import { login, signup } from './actions';
+import { setRememberMe, clearSupabaseLocalStorage } from '@/lib/utils/supabase/rememberMe';
 
 // Mock the login actions
 jest.mock('./actions', () => ({
   login: jest.fn(),
   signup: jest.fn(),
+}));
+
+// Mock rememberMe utilities
+jest.mock('@/lib/utils/supabase/rememberMe', () => ({
+  setRememberMe: jest.fn(),
+  clearSupabaseLocalStorage: jest.fn(),
 }));
 
 // Mock next/navigation
@@ -187,6 +194,108 @@ describe('LoginPage', () => {
         name: /remember me/i,
       });
       expect(rememberMeCheckbox).not.toBeInTheDocument();
+    });
+
+    it('should call setRememberMe with true when checkbox is checked on login', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const rememberMeCheckbox = screen.getByRole('checkbox', { name: /remember me/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(rememberMeCheckbox);
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(setRememberMe).toHaveBeenCalledWith(true);
+      });
+    });
+
+    it('should call setRememberMe with false when checkbox is unchecked on login', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(setRememberMe).toHaveBeenCalledWith(false);
+      });
+    });
+
+    it('should call clearSupabaseLocalStorage when remember me is unchecked', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      // rememberMe is false by default
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(clearSupabaseLocalStorage).toHaveBeenCalled();
+      });
+    });
+
+    it('should not call clearSupabaseLocalStorage when remember me is checked', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const rememberMeCheckbox = screen.getByRole('checkbox', { name: /remember me/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(rememberMeCheckbox);
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(setRememberMe).toHaveBeenCalledWith(true);
+      });
+      expect(clearSupabaseLocalStorage).not.toHaveBeenCalled();
+    });
+
+    it('should not call setRememberMe during signup', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      // Switch to signup mode
+      const signupToggle = screen.getByRole('button', {
+        name: /new here\? create account/i,
+      });
+      await user.click(signupToggle);
+
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /create account/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(signup).toHaveBeenCalled();
+      });
+      expect(setRememberMe).not.toHaveBeenCalled();
     });
   });
 
