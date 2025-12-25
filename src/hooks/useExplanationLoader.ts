@@ -26,15 +26,12 @@ const FILE_DEBUG = false;
  * Used by: Results page, potentially other pages that display explanations
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type WithRequestIdFn = <T extends Record<string, any>>(data?: T) => T & { __requestId: { requestId: string; userId: string; sessionId: string } };
-
 export interface UseExplanationLoaderOptions {
     /**
-     * withRequestId function from parent hook (useAuthenticatedRequestId)
-     * Provides proper session tracking across requests
+     * User ID for request tracking. If provided, the hook will create
+     * withRequestId internally using useClientPassRequestId.
      */
-    withRequestId: WithRequestIdFn;
+    userId?: string;
 
     /**
      * Callback invoked when tags are loaded for the explanation
@@ -96,8 +93,8 @@ export interface UseExplanationLoaderReturn {
 export function useExplanationLoader(
     options: UseExplanationLoaderOptions = {}
 ): UseExplanationLoaderReturn {
-    const { userId, onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
-    const { withRequestId } = useClientPassRequestId(userId || 'anonymous');
+    const { userId = 'anonymous', onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
+    const { withRequestId } = useClientPassRequestId(userId);
 
     // State for the 7 explanation-related variables
     const [explanationId, setExplanationId] = useState<number | null>(null);

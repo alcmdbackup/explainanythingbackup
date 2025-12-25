@@ -15,7 +15,7 @@ jest.mock('@/lib/requestIdContext', () => ({
 // Mock sessionId functions
 const mockClearSession = jest.fn();
 const mockGetOrCreateAnonymousSessionId = jest.fn(() => 'sess-test-anonymous');
-const mockHandleAuthTransition = jest.fn(async () => ({ sessionId: 'auth-test-hash' }));
+const mockHandleAuthTransition = jest.fn(async (_userId: string) => ({ sessionId: 'auth-test-hash' }));
 
 jest.mock('@/lib/sessionId', () => ({
   clearSession: () => mockClearSession(),
