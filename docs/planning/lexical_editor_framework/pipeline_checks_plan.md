@@ -1,809 +1,271 @@
-# AI Suggestions Pipeline - Validation & Reliability Improvements
+# AI Suggestions Pipeline - Validation Plan
 
-## Executive Summary
+## Overview
 
-After analyzing the 4-step AI suggestions pipeline, I've identified **15 validation gaps** across the pipeline that can cause broken suggestions. This document outlines concrete improvements organized by:
+The 4-step AI suggestions pipeline has validation gaps causing broken suggestions. This plan addresses the highest-priority fixes.
 
-1. **Prompt improvements** - Better instructions to reduce malformed output
-2. **Inter-step validation** - Catch errors before they propagate
-3. **Output validation** - Verify final output integrity
-4. **Recovery mechanisms** - Graceful handling of failures
-
----
-
-## Current Pipeline Gaps Analysis
-
-### Step 1: Generate AI Suggestions
-**Current validation**: Zod schema via OpenAI structured output
-**Gaps identified**:
-- Schema allows empty strings as content: `{edits: ["", "... existing text ...", ""]}`
-- No validation that content is semantically meaningful
-- Prompt ambiguity: "You can start with either" vs schema requiring even=content
-
-### Step 2: Apply AI Suggestions
-**Current validation**: None
-**Gaps identified**:
-- Receives STRING representation of Step 1 JSON (not parsed/validated)
-- No verification that `... existing text ...` markers were correctly expanded
-- No check that output contains content from original
-- LLM can hallucinate entirely new content
-
-### Step 3: Generate AST Diff
-**Current validation**: AST structure checks
-**Gaps identified**:
-- No validation that CriticMarkup syntax is well-formed
-- Special characters in content can break `{++braces{++}` patterns
-- No depth limit on recursive diff operations
-
-### Step 4: Preprocess CriticMarkup
-**Current validation**: Format normalization only
-**Gaps identified**:
-- Assumes Step 3 output is valid CriticMarkup
-- No regex validation of CriticMarkup patterns before processing
-- Multiline `<br>` replacement can create invalid markdown
+**Pipeline Steps:**
+1. Generate AI Suggestions (LLM → JSON with edits array)
+2. Apply AI Suggestions (LLM merges edits into original)
+3. Generate AST Diff (markdown → CriticMarkup)
+4. Preprocess CriticMarkup (normalize for Lexical editor)
 
 ---
 
-## Recommended Improvements
+## Priority Table
 
-### A. Prompt Improvements (Step 1 & 2)
+| Pri | ID | Issue | File | Effort |
+|-----|-----|-------|------|--------|
+| **P0** | P | Edit context anchoring - edits lack location context | `aiSuggestion.ts` | Medium |
+| **P0** | B2 | Step 2 content preservation - LLM deletes content | `aiSuggestion.ts` | Low |
+| **P0** | B3 | CriticMarkup syntax validation - unbalanced markers | `pipelineValidation.ts` | Medium |
+| **P0** | H | Nested braces break regex parsing | `importExportUtils.ts` | High |
+| **P0** | I | Multiple `~>` separators fail silently | `importExportUtils.ts` | Low |
+| **P1** | C | Special chars break CriticMarkup | `markdownASTdiff.ts` | Medium |
+| **P1** | K | Malformed markdown crashes AST parsing | `aiSuggestion.ts` | Low |
+| **P1** | M | `<br>` conversion corrupts code blocks | `importExportUtils.ts` | Medium |
+| **P1** | N | Empty content passes validation | `aiSuggestion.ts` | Low |
+| **P1** | E1 | No pipeline-level timeout | `aiSuggestion.ts` | Medium |
 
-#### A1. Stricter Step 1 Prompt - Add Explicit Constraints
-**File**: `src/editorFiles/aiSuggestion.ts:53-98`
+---
 
-Add to `<rules>` section:
+## P0 Fixes (Critical)
+
+### P. Edit Context Anchoring
+
+**Problem:** Step 1 outputs edits without surrounding context, so Step 2 can't locate where to apply them.
+
+**Solution:** Require each edit to include anchor sentences (before/after) from original.
+
+**Step 1 Prompt Addition:**
 ```
-- Each content section must contain at least 10 characters of actual text
-- Never output empty strings as content - if no edit needed, use marker instead
-- Content should be complete sentences, not fragments
-- Preserve exact markdown formatting including headings (#), lists (-/*), links
+- CRITICAL: Each edit MUST include:
+  1. The last sentence BEFORE your edit (from original) - as anchor
+  2. Your actual edited content
+  3. The first sentence AFTER your edit (from original) - as anchor
+- Skip before-anchor if editing at start, skip after-anchor if editing at end
 ```
 
-Add negative examples:
+**Example:**
 ```
-INVALID examples - do NOT output:
+Original: "The sky is blue. Cats are mammals. Dogs are loyal."
+Edit middle sentence:
 {
-  "edits": ["", "... existing text ..."]  // Empty content
+  "edits": [
+    "The sky is blue. Cats are fascinating creatures. Dogs are loyal.",
+    "... existing text ..."
+  ]
 }
-{
-  "edits": ["word", "... existing text ..."]  // Fragment, not sentence
-}
 ```
 
-#### A2. Improve Step 2 Prompt - Add Verification Instructions
-**File**: `src/editorFiles/aiSuggestion.ts:145-173`
-
-Add verification rules:
+**Step 2 Prompt Addition:**
 ```
-VERIFICATION CHECKLIST (apply before outputting):
-1. Your output length should be within 20% of the original content length
-2. Every "... existing text ..." marker should expand to substantial unchanged content
-3. If the edit suggestions seem to delete most of the content, that's likely an error
-4. Preserve ALL headings from the original unless explicitly asked to remove them
-5. Your output should be valid markdown - check for unclosed formatting
+Each edit includes anchor sentences from original. Use them to locate where to apply the edit.
 ```
 
-### B. Inter-Step Validation (New Code)
+**Validation:** Check that first/last sentences of each edit exist in original.
 
-#### B1. Add Step 1 Output Validator
-**Location**: After Step 1, before Step 2 in `runAISuggestionsPipeline()`
-**File**: `src/editorFiles/aiSuggestion.ts:~220`
+---
 
+### B2. Step 2 Content Preservation
+
+**Problem:** LLM can delete most content or leave unexpanded markers.
+
+**Validation:**
 ```typescript
-// New validation function
-function validateStep1Output(output: string): { valid: boolean; issues: string[] } {
+function validateStep2Output(original: string, edited: string): ValidationResult {
   const issues: string[] = [];
 
-  try {
-    const parsed = JSON.parse(output);
-
-    // Check for empty content segments
-    parsed.edits.forEach((edit: string, i: number) => {
-      if (i % 2 === 0 && edit.trim().length < 10) {
-        issues.push(`Content segment ${i} is too short: "${edit.slice(0, 20)}..."`);
-      }
-    });
-
-    // Check for balanced markdown
-    const content = parsed.edits.filter((_: string, i: number) => i % 2 === 0).join('');
-    if ((content.match(/\*\*/g) || []).length % 2 !== 0) {
-      issues.push('Unbalanced bold markers (**)');
-    }
-
-  } catch (e) {
-    issues.push(`JSON parse failed: ${e}`);
+  // Length check (allow 50% variance)
+  const ratio = edited.length / original.length;
+  if (ratio < 0.5 || ratio > 2.0) {
+    issues.push(`Suspicious length: ${Math.round(ratio * 100)}% of original`);
   }
 
-  return { valid: issues.length === 0, issues };
-}
-```
-
-#### B2. Add Step 2 Output Validator (Content Preservation Check)
-**Location**: After Step 2, before Step 3 in `runAISuggestionsPipeline()`
-
-```typescript
-function validateStep2Output(
-  original: string,
-  edited: string
-): { valid: boolean; issues: string[] } {
-  const issues: string[] = [];
-
-  // Length sanity check (allow 50% variance)
-  const lengthRatio = edited.length / original.length;
-  if (lengthRatio < 0.5 || lengthRatio > 2.0) {
-    issues.push(`Suspicious length change: ${Math.round(lengthRatio * 100)}% of original`);
+  // Heading preservation
+  const origHeadings = (original.match(/^#{1,6} .+$/gm) || []).length;
+  const editedHeadings = (edited.match(/^#{1,6} .+$/gm) || []).length;
+  if (editedHeadings < origHeadings * 0.5) {
+    issues.push(`Lost headings: ${origHeadings} → ${editedHeadings}`);
   }
 
-  // Check that major structural elements preserved
-  const originalHeadings = (original.match(/^#{1,6} .+$/gm) || []);
-  const editedHeadings = (edited.match(/^#{1,6} .+$/gm) || []);
-  if (editedHeadings.length < originalHeadings.length * 0.5) {
-    issues.push(`Lost headings: ${originalHeadings.length} -> ${editedHeadings.length}`);
-  }
-
-  // Check for leftover markers
+  // Unexpanded markers
   if (edited.includes('... existing text ...')) {
     issues.push('Contains unexpanded markers');
   }
 
-  return { valid: issues.length === 0, issues };
+  return { valid: issues.length === 0, issues, severity: 'error' };
 }
 ```
 
-#### B2.5. Add Content Preservation Validator (LaTeX, Code, Links, Images)
-**Location**: Call alongside B2 after Step 2
+---
 
+### B3. CriticMarkup Syntax Validation
+
+**Problem:** Unbalanced `{++`, `--}`, `~~}` markers break editor.
+
+**Validation:**
 ```typescript
-function validateContentPreservation(
-  original: string,
-  edited: string
-): { valid: boolean; issues: string[]; severity: 'error' | 'warning' } {
+function validateCriticMarkup(content: string): ValidationResult {
   const issues: string[] = [];
 
-  // 1. LaTeX inline preservation ($...$)
-  const origLatexInline = (original.match(/\$[^$]+\$/g) || []).length;
-  const editedLatexInline = (edited.match(/\$[^$]+\$/g) || []).length;
-  if (editedLatexInline < origLatexInline * 0.8) {
-    issues.push(`LaTeX inline reduced: ${origLatexInline} → ${editedLatexInline}`);
+  const insertOpen = (content.match(/\{\+\+/g) || []).length;
+  const insertClose = (content.match(/\+\+\}/g) || []).length;
+  if (insertOpen !== insertClose) {
+    issues.push(`Unbalanced insertions: ${insertOpen} opens, ${insertClose} closes`);
   }
 
-  // 2. LaTeX block preservation ($$...$$)
-  const origLatexBlock = (original.match(/\$\$[\s\S]+?\$\$/g) || []).length;
-  const editedLatexBlock = (edited.match(/\$\$[\s\S]+?\$\$/g) || []).length;
-  if (editedLatexBlock < origLatexBlock * 0.8) {
-    issues.push(`LaTeX blocks reduced: ${origLatexBlock} → ${editedLatexBlock}`);
-  }
+  // Same for deletions {-- --} and substitutions {~~ ~~}
 
-  // 3. Code fence preservation
-  const origCodeBlocks = (original.match(/```[\s\S]*?```/g) || []).length;
-  const editedCodeBlocks = (edited.match(/```[\s\S]*?```/g) || []).length;
-  if (editedCodeBlocks < origCodeBlocks * 0.8) {
-    issues.push(`Code blocks reduced: ${origCodeBlocks} → ${editedCodeBlocks}`);
-  }
-
-  // 4. Link preservation
-  const origLinks = (original.match(/\[([^\]]+)\]\(([^)]+)\)/g) || []).length;
-  const editedLinks = (edited.match(/\[([^\]]+)\]\(([^)]+)\)/g) || []).length;
-  if (editedLinks < origLinks * 0.8) {
-    issues.push(`Links reduced: ${origLinks} → ${editedLinks}`);
-  }
-
-  // 5. Image preservation (stricter - no loss allowed)
-  const origImages = (original.match(/!\[([^\]]*)\]\(([^)]+)\)/g) || []).length;
-  const editedImages = (edited.match(/!\[([^\]]*)\]\(([^)]+)\)/g) || []).length;
-  if (editedImages < origImages) {
-    issues.push(`Images reduced: ${origImages} → ${editedImages}`);
-  }
-
-  return {
-    valid: issues.length === 0,
-    issues,
-    severity: issues.length > 2 ? 'error' : 'warning'
-  };
-}
-```
-
-#### B3. Add Step 3 Output Validator (CriticMarkup Syntax Check)
-**Location**: After Step 3, before Step 4
-
-```typescript
-function validateCriticMarkup(content: string): { valid: boolean; issues: string[] } {
-  const issues: string[] = [];
-
-  // Check for balanced CriticMarkup
-  const insertions = (content.match(/\{\+\+/g) || []).length;
-  const insertionCloses = (content.match(/\+\+\}/g) || []).length;
-  if (insertions !== insertionCloses) {
-    issues.push(`Unbalanced insertions: ${insertions} opens, ${insertionCloses} closes`);
-  }
-
-  const deletions = (content.match(/\{--/g) || []).length;
-  const deletionCloses = (content.match(/--\}/g) || []).length;
-  if (deletions !== deletionCloses) {
-    issues.push(`Unbalanced deletions: ${deletions} opens, ${deletionCloses} closes`);
-  }
-
-  // Check substitutions have proper separator (use [\s\S]*? for multiline)
-  const substitutions = content.match(/\{~~[\s\S]*?~~\}/g) || [];
-  substitutions.forEach((sub, i) => {
-    if (!sub.includes('~>')) {
-      issues.push(`Substitution ${i} missing ~> separator: "${sub.slice(0, 30)}..."`);
-    }
-  });
-
-  return { valid: issues.length === 0, issues };
-}
-```
-
-### C. Escape Special Characters in AST Diff (Step 3)
-
-**File**: `src/editorFiles/markdownASTdiff/markdownASTdiff.ts`
-**Function**: `toCriticMarkup()` around line 659
-
-Add character escaping before wrapping in CriticMarkup:
-```typescript
-function escapeCriticMarkupContent(text: string): string {
-  // Escape sequences that could break CriticMarkup parsing
-  // Covers: insertions {++, deletions {--, substitutions {~~, highlights {==, comments {>>
-  return text
-    .replace(/\{(\+\+|--|~~|==|>>)/g, '\\{$1')  // Escape opening markers
-    .replace(/(\+\+|--|~~|==|<<)\}/g, '$1\\}')  // Escape closing markers
-    .replace(/~>/g, '\\~>');                     // Escape substitution separator
-}
-```
-
-### D. Recovery Mechanisms
-
-#### D1. Add Retry with Simplified Prompt
-If Step 1 validation fails, retry with simpler prompt:
-```typescript
-if (!step1Validation.valid && retryCount < 2) {
-  // Retry with more explicit prompt
-  const simplifiedPrompt = createSimplifiedAISuggestionPrompt(content, userPrompt);
-  // ... retry logic
-}
-```
-
-#### D2. Add Fallback for Step 2 Failures
-If Step 2 output is suspicious, fall back to word-level diff of Step 1 content:
-```typescript
-if (!step2Validation.valid) {
-  // Fall back to direct diff between original and Step 1 content segments
-  const fallbackEdited = applyStep1DirectlyToOriginal(original, step1Output);
-  // ... continue with fallback
+  return { valid: issues.length === 0, issues, severity: 'error' };
 }
 ```
 
 ---
 
-## Implementation Priority
+### H. Balanced Brace Parsing
 
-| Priority | Improvement | Effort | Impact |
-|----------|-------------|--------|--------|
-| P0 | B2: Step 2 output validator (content preservation) | Low | High |
-| P0 | A2: Step 2 prompt improvements | Low | High |
-| P0 | B3: CriticMarkup syntax validator | Medium | High |
-| P1 | C: Character escaping in AST diff | Medium | High |
-| P1 | A1: Step 1 prompt improvements | Low | Medium |
-| P1 | Timeout handling (pipeline-level) | Medium | High |
-| P2 | B1: Step 1 output validator | Medium | Medium |
-| P2 | B2.5: Content preservation validator (LaTeX, code, links) | Medium | Medium |
-| P2 | Telemetry integration | Medium | Medium |
-| P3 | D1/D2: Retry and fallback mechanisms | High | Medium |
+**Problem:** Regex `/\{([+-~]{2})([\s\S]+?)\1\}/` fails on nested braces like `{++code with {curly}++}`.
 
----
-
-## Files to Modify
-
-1. `src/editorFiles/aiSuggestion.ts` - Prompts and validators
-2. `src/editorFiles/actions/actions.ts` - Add validation calls
-3. `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` - Character escaping
-4. (New) `src/editorFiles/validation/pipelineValidation.ts` - Validation functions
-
----
-
-## User Decisions
-
-- **Strictness**: Configurable per-call via options, **default to blocking** on validation failure
-- **Retries**: Yes, with simplified prompts (up to 2 retries)
-- **Scope**: All priorities (P0-P3) + telemetry + content preservation
-- **Content types**: Validate LaTeX, code blocks, links, images
-- **Telemetry**: Track failure rates, retry counts, validation issues
-
----
-
-## Detailed Implementation Plan
-
-### Phase 1: Create Validation Module (P0-P1)
-**New file**: `src/editorFiles/validation/pipelineValidation.ts`
-
-```typescript
-export interface ValidationResult {
-  valid: boolean;
-  issues: string[];
-  severity: 'error' | 'warning';
-}
-
-export interface PipelineValidationOptions {
-  strictMode: boolean;        // true = block on failure, false = warn and continue
-  enableRetry: boolean;       // true = retry with simplified prompt on failure
-  maxRetries: number;         // default: 2
-}
-
-// Validators for each step
-export function validateStep1Output(output: string): ValidationResult;
-export function validateStep2Output(original: string, edited: string): ValidationResult;
-export function validateCriticMarkup(content: string): ValidationResult;
-```
-
-### Phase 2: Improve Prompts (P0-P1)
-**File**: `src/editorFiles/aiSuggestion.ts`
-
-1. Update `createAISuggestionPrompt()` with:
-   - Minimum content length rule (10+ chars)
-   - Negative examples showing invalid patterns
-   - Explicit markdown preservation instructions
-
-2. Update `createApplyEditsPrompt()` with:
-   - Verification checklist
-   - Length preservation warning
-   - Heading preservation rule
-
-3. Add `createSimplifiedAISuggestionPrompt()` for retry attempts:
-   - Even more explicit examples
-   - Single-edit-at-a-time approach
-   - Fallback for complex edits
-
-### Phase 3: Add Inter-Step Validation (P0-P2)
-**File**: `src/editorFiles/aiSuggestion.ts` in `runAISuggestionsPipeline()`
-
-Insert validation calls after each step:
-```
-Step 1 → validateStep1Output() → [retry if failed & retries enabled]
-Step 2 → validateStep2Output() → [retry if failed & retries enabled]
-Step 3 → validateCriticMarkup() → [no retry, but can warn]
-Step 4 → (already has preprocessing)
-```
-
-### Phase 4: Add Character Escaping (P2)
-**File**: `src/editorFiles/markdownASTdiff/markdownASTdiff.ts`
-
-Add `escapeCriticMarkupContent()` function and call it in `toCriticMarkup()` before wrapping content.
-
-### Phase 5: Add Retry Mechanism (P3)
-**File**: `src/editorFiles/aiSuggestion.ts`
-
-Wrap Step 1 and Step 2 in retry logic:
-```typescript
-async function executeWithRetry<T>(
-  action: () => Promise<T>,
-  validator: (result: T) => ValidationResult,
-  retryAction: () => Promise<T>,
-  options: PipelineValidationOptions
-): Promise<{ result: T; validation: ValidationResult; retried: boolean }>
-```
-
-### Phase 6: Add Fallback Mechanism (P3)
-**File**: `src/editorFiles/aiSuggestion.ts`
-
-Add `applyStep1DirectlyToOriginal()` for when Step 2 fails repeatedly:
-- Parse Step 1 JSON directly
-- Locate "... existing text ..." markers in original
-- Substitute content segments directly
-- Skip LLM for Step 2 entirely
-
----
-
-## Implementation Order
-
-1. **Create validation module** (`pipelineValidation.ts`)
-   - All validator functions
-   - Types and interfaces
-   - Unit tests
-
-2. **Update prompts** (`aiSuggestion.ts`)
-   - Stricter rules for Step 1
-   - Verification checklist for Step 2
-   - Simplified prompt variant for retries
-
-3. **Integrate validation into pipeline** (`aiSuggestion.ts`)
-   - Add options parameter to `runAISuggestionsPipeline()`
-   - Insert validation calls
-   - Add logging for validation results
-
-4. **Add character escaping** (`markdownASTdiff.ts`)
-   - Escape function
-   - Integration in `toCriticMarkup()`
-   - Unit tests
-
-5. **Add retry mechanism** (`aiSuggestion.ts`)
-   - `executeWithRetry()` wrapper
-   - Integration with Step 1 and 2
-   - Logging for retry attempts
-
-6. **Add fallback mechanism** (`aiSuggestion.ts`)
-   - `applyStep1DirectlyToOriginal()` function
-   - Fallback trigger logic
-   - Integration tests
-
----
-
-## Files to Modify/Create
-
-| File | Action | Changes |
-|------|--------|---------|
-| `src/editorFiles/validation/pipelineValidation.ts` | CREATE | All validation functions, types |
-| `src/editorFiles/validation/pipelineValidation.test.ts` | CREATE | Unit tests for validators |
-| `src/editorFiles/aiSuggestion.ts` | MODIFY | Prompts, retry logic, validation integration |
-| `src/editorFiles/aiSuggestion.test.ts` | MODIFY | Add tests for new validation flow |
-| `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | MODIFY | Add character escaping |
-| `src/editorFiles/markdownASTdiff/markdownASTdiff.test.ts` | MODIFY | Add escaping tests |
-
----
-
-## API Changes
-
-### Updated `runAISuggestionsPipeline()` Signature
-
-```typescript
-export async function runAISuggestionsPipeline(
-  currentContent: string,
-  userId: string,
-  onProgress?: (step: string, progress: number) => void,
-  sessionData?: { ... },
-  validationOptions?: PipelineValidationOptions  // NEW PARAMETER
-): Promise<{
-  content: string;
-  session_id?: string;
-  validationIssues?: string[];  // NEW: Non-blocking issues encountered
-  retriedSteps?: number[];      // NEW: Which steps required retry
-}>
-```
-
-### Default Options
-```typescript
-const DEFAULT_VALIDATION_OPTIONS: PipelineValidationOptions = {
-  strictMode: true,     // Block on failure (updated from false)
-  enableRetry: true,    // Retry on failure
-  maxRetries: 2         // Up to 2 retry attempts
-};
-```
-
----
-
-## Additional Gaps Identified (Review Additions)
-
-### E. Operational Concerns
-
-#### E1. Pipeline-Level Timeout Handling
-**Problem**: LLM calls can hang indefinitely; user may close tab during processing
-**Current**: Only OpenAI client has 60s timeout
-
-```typescript
-// Add to runAISuggestionsPipeline()
-const PIPELINE_TIMEOUT_MS = 90000; // 90 seconds total
-
-async function runAISuggestionsPipelineWithTimeout(
-  ...args
-): Promise<PipelineResult> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), PIPELINE_TIMEOUT_MS);
-
-  try {
-    return await runAISuggestionsPipeline(...args, controller.signal);
-  } finally {
-    clearTimeout(timeoutId);
-  }
-}
-```
-
-#### E2. Concurrent Request Handling
-**Problem**: User submits multiple AI suggestion requests rapidly → race conditions
-**Solution**: Add request debouncing or queuing
-
-```typescript
-// In component or action layer
-const pendingRequest = useRef<AbortController | null>(null);
-
-async function handleAISuggestion() {
-  // Cancel any pending request
-  if (pendingRequest.current) {
-    pendingRequest.current.abort();
-  }
-  pendingRequest.current = new AbortController();
-  // ... proceed with new request
-}
-```
-
-### F. Telemetry Integration
-
-#### F1. Pipeline Metrics Types
-**New file**: `src/editorFiles/validation/pipelineMetrics.ts`
-
-```typescript
-export interface PipelineStepMetrics {
-  pipelineId: string;           // Unique ID for this run
-  step: 1 | 2 | 3 | 4;
-  stepName: 'generate' | 'apply' | 'diff' | 'preprocess';
-  success: boolean;
-  validationIssues: string[];
-  durationMs: number;
-  retryCount: number;
-  inputLength: number;
-  outputLength: number;
-  timestamp: Date;
-}
-
-export interface PipelineSummaryMetrics {
-  pipelineId: string;
-  userId: string;
-  totalDurationMs: number;
-  stepsCompleted: number;
-  totalRetries: number;
-  allValidationIssues: string[];
-  finalStatus: 'success' | 'partial' | 'failed';
-}
-
-export function trackPipelineStep(metrics: PipelineStepMetrics): void {
-  logger.info('pipeline_step', metrics);
-}
-
-export function trackPipelineSummary(summary: PipelineSummaryMetrics): void {
-  logger.info('pipeline_complete', summary);
-}
-```
-
-#### F2. Integration Points
-- Call `trackPipelineStep()` at end of each step in `runAISuggestionsPipeline()`
-- Call `trackPipelineSummary()` at pipeline completion
-- Include validation issues in metrics for debugging
-
-### G. Database Failure Handling
-**Problem**: Current code logs DB save failures but doesn't halt execution (lines 253, 294, 328, 359)
-**Solution**: Make DB saves optionally blocking in production
-
-```typescript
-interface PipelineValidationOptions {
-  // ... existing options
-  blockOnDbFailure: boolean;  // true = halt pipeline on DB save failure
-}
-```
-
----
-
-## Additional Gaps Identified (Code Review - December 2024)
-
-### H. CriticMarkup Regex Edge Cases (Critical - P0)
-
-**Problem**: Nested braces break the regex pattern in `importExportUtils.ts:265`
-
-**Current regex**: `/\{([+-~]{2})([\s\S]+?)\1\}/` (non-greedy)
-
-**Failure case**: `{++code with {curly} braces++}`
-- Non-greedy `+?` stops at first match of closing pattern
-- Creates malformed parsing: `{++code with {curly++}` leaving ` braces++}` unparsed
-
-**Solution**: Stack-based balanced brace parser
+**Solution:** Stack-based parser instead of regex.
 
 ```typescript
 function extractBalancedCriticMarkup(input: string, startIndex: number): {
-  content: string;
-  marker: string;
-  endIndex: number;
+  content: string; marker: string; endIndex: number;
 } | null {
   const markerMatch = input.slice(startIndex).match(/^\{([+-~]{2})/);
   if (!markerMatch) return null;
 
   const marker = markerMatch[1];
   const closeMarker = marker + '}';
-  let depth = 1;
-  let i = startIndex + 3; // Skip opening {XX
+  let depth = 1, i = startIndex + 3;
 
   while (i < input.length && depth > 0) {
-    if (input.slice(i).startsWith('{' + marker)) depth++;
-    else if (input.slice(i).startsWith(closeMarker)) depth--;
+    if (input.slice(i, i + 3) === '{' + marker) depth++;
+    else if (input.slice(i, i + 3) === closeMarker) depth--;
     if (depth > 0) i++;
   }
 
-  if (depth !== 0) return null; // Unbalanced
-  return {
-    content: input.slice(startIndex + 3, i),
-    marker,
-    endIndex: i + closeMarker.length
-  };
+  if (depth !== 0) return null;
+  return { content: input.slice(startIndex + 3, i), marker, endIndex: i + 3 };
 }
 ```
 
 ---
 
-### I. Update Marker (`~>`) Edge Cases (P0)
+### I. Update Marker Parsing
 
-**Problem**: Multiple `~>` separators in substitution are handled incorrectly
+**Problem:** `split('~>')` fails when content contains `~>`.
 
-**Location**: `importExportUtils.ts:549-567`
-
-**Current behavior**:
-```typescript
-const updateParts = inner.split('~>');
-if (updateParts.length === 2) { ... }
-```
-
-**Failure cases**:
-1. `{~~a~>b~>c~~}` → splits to `["a", "b", "c"]` → length !== 2 → **silently fails**
-2. `{~~before~~}` (missing `~>`) → length === 1 → **silently fails**
-
-**Solution**: Use indexOf + slice
+**Solution:** Use `indexOf` to find first separator only.
 
 ```typescript
 function parseUpdateContent(inner: string): { before: string; after: string } | null {
-  const separatorIndex = inner.indexOf('~>');
-  if (separatorIndex === -1) return null;
-  return {
-    before: inner.slice(0, separatorIndex),
-    after: inner.slice(separatorIndex + 2)
-  };
+  const idx = inner.indexOf('~>');
+  if (idx === -1) return null;
+  return { before: inner.slice(0, idx), after: inner.slice(idx + 2) };
 }
 ```
 
 ---
 
-### J. Multiple Occurrence Replacement (P1)
+## P1 Fixes (Important)
 
-**Problem**: Only first occurrence of same pattern gets replaced
+### C. Character Escaping
 
-**Location**: `importExportUtils.ts:289-304`
+**Problem:** Content with `{++` or `~>` breaks CriticMarkup.
 
-**Current behavior**: `const matchIndex = textContent.indexOf(match[0]);` only finds first
+**Solution:** Escape before wrapping, unescape on export.
 
-**Failure case**: Text `{++a++} something {++a++}` - only first becomes DiffTagNode
-
-**Solution**: Loop through all occurrences with global regex
+```typescript
+function escapeCriticMarkupContent(text: string): string {
+  return text
+    .replace(/\{(\+\+|--|~~)/g, '\\{$1')
+    .replace(/(\+\+|--|~~)\}/g, '$1\\}')
+    .replace(/~>/g, '\\~>');
+}
+```
 
 ---
 
-### K. AST Parsing Error Handling (P1)
+### K. Safe AST Parsing
 
-**Problem**: Malformed markdown from Step 2 crashes Step 3
+**Problem:** Malformed markdown from Step 2 crashes `remarkParse`.
 
-**Location**: `aiSuggestion.ts:300-302`
-
-**Solution**: Wrap AST parsing with error handling
+**Solution:** Wrap with try-catch.
 
 ```typescript
 function safeParseMarkdown(content: string): { ast: Root; issues: string[] } {
   try {
     return { ast: unified().use(remarkParse).parse(content), issues: [] };
   } catch (e) {
-    return {
-      ast: createFallbackAST(content),
-      issues: [`Markdown parse error: ${e.message}`]
-    };
+    return { ast: createFallbackAST(content), issues: [`Parse error: ${e.message}`] };
   }
 }
 ```
 
 ---
 
-### L. Recursion Depth Limit in AST Diff (P2)
+### M. Code Block Protection
 
-**Problem**: Deeply nested markdown can cause stack overflow
+**Problem:** `<br>` replacement corrupts code blocks.
 
-**Location**: `markdownASTdiff.ts:672-820` (`emitCriticForPair`)
-
-**Solution**: Add depth parameter with limit
-
-```typescript
-const MAX_DIFF_DEPTH = 20;
-
-function emitCriticForPair(
-  a: MdastNode | undefined,
-  b: MdastNode | undefined,
-  options: DiffOptions,
-  stringify: Stringifier,
-  depth: number = 0
-): string {
-  if (depth > MAX_DIFF_DEPTH) {
-    return stringify(b ?? a); // Fallback to raw stringify
-  }
-  // ... recursive calls pass depth + 1
-}
-```
-
----
-
-### M. Code Block Preprocessing (P1)
-
-**Problem**: `<br>` conversion inside code blocks corrupts code
-
-**Location**: `importExportUtils.ts:724`
-
-**Current behavior**: `const normalizedContent = content.replace(/\n/g, '<br>');`
-
-**Solution**: Mark code blocks as atomic (skip preprocessing)
+**Solution:** Skip preprocessing inside code fences.
 
 ```typescript
 function isInsideCodeBlock(content: string, index: number): boolean {
   const before = content.slice(0, index);
-  const openFences = (before.match(/```/g) || []).length;
-  return openFences % 2 === 1; // Odd = inside code block
+  return (before.match(/```/g) || []).length % 2 === 1;
 }
 ```
 
 ---
 
-### N. Empty Content Handling (P1)
+### N. Empty Content Validation
 
-**Problem**: Empty content segments in Step 1 pass Zod validation
+**Problem:** Empty strings pass Zod schema.
 
-**Location**: `aiSuggestion.ts:16-40` (Zod schema)
-
-**Solution**: Add minLength and trim check to schema
-
-```typescript
-const aiSuggestionSchema = z.object({
-  edits: z.array(
-    z.string().refine(
-      (s, ctx) => ctx.path[0] % 2 !== 0 || s.trim().length >= 10,
-      'Content segments must have at least 10 characters'
-    )
-  ).min(1).refine(...)
-});
-```
+**Solution:** Add minimum length check for content segments.
 
 ---
 
-### O. Unescaping on Export (P2)
+### E1. Pipeline Timeout
 
-**Problem**: Plan includes escaping (C) but no unescaping on export
+**Problem:** No overall timeout (each LLM call could be 60s).
 
-**Solution**: Add corresponding unescape function
-
-```typescript
-function unescapeCriticMarkupContent(text: string): string {
-  return text
-    .replace(/\\(\{(?:\+\+|--|~~|==|>>))/g, '$1')
-    .replace(/((?:\+\+|--|~~|==|<<))\\(\})/g, '$1$2')
-    .replace(/\\(~>)/g, '$1');
-}
-```
+**Solution:** Add 90s pipeline-level timeout with AbortController.
 
 ---
 
-## Updated Priority Table (Consolidated)
+## Files to Modify
 
-| Priority | Improvement | Effort | Impact | Section |
-|----------|-------------|--------|--------|---------|
-| **P0** | B2: Step 2 content preservation | Low | High | B |
-| **P0** | A2: Step 2 prompt improvements | Low | High | A |
-| **P0** | B3: CriticMarkup syntax validator | Medium | High | B |
-| **P0** | H: Balanced brace parsing | High | High | H |
-| **P0** | I: Update marker edge cases | Low | High | I |
-| **P1** | C: Character escaping | Medium | High | C |
-| **P1** | J: Multiple occurrence replacement | Medium | Medium | J |
-| **P1** | K: AST parsing error handling | Low | High | K |
-| **P1** | M: Code block preprocessing | Medium | High | M |
-| **P1** | N: Empty content validation | Low | Medium | N |
-| **P1** | E1: Pipeline timeout | Medium | High | E |
-| **P2** | L: Recursion depth limit | Low | Medium | L |
-| **P2** | O: Unescape on export | Low | Medium | O |
-| **P2** | B2.5: Content preservation | Medium | Medium | B |
-| **P2** | F: Telemetry | Medium | Medium | F |
-| **P3** | D1/D2: Retry/fallback | High | Medium | D |
+| File | Changes |
+|------|---------|
+| `src/editorFiles/validation/pipelineValidation.ts` | **CREATE** - All validators |
+| `src/editorFiles/aiSuggestion.ts` | Prompts (P), schema (N), safe parse (K), timeout (E1) |
+| `src/editorFiles/lexicalEditor/importExportUtils.ts` | Stack parser (H), update fix (I), code blocks (M) |
+| `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | Escaping (C) |
 
 ---
 
-## Updated Files to Modify/Create
+## Implementation Order
 
-| File | Action | Changes |
-|------|--------|---------|
-| `src/editorFiles/validation/pipelineValidation.ts` | CREATE | All validation functions, types |
-| `src/editorFiles/validation/pipelineValidation.test.ts` | CREATE | Unit tests for validators |
-| `src/editorFiles/validation/pipelineMetrics.ts` | CREATE | Telemetry types and functions |
-| `src/editorFiles/validation/contentPreservation.ts` | CREATE | LaTeX, code, link, image validators |
-| `src/editorFiles/lexicalEditor/importExportUtils.ts` | MODIFY | Stack parser (H), update fix (I), occurrences (J), code blocks (M) |
-| `src/editorFiles/aiSuggestion.ts` | MODIFY | Prompts, retry, validation, timeout, telemetry, schema (N), safe parse (K) |
-| `src/editorFiles/aiSuggestion.test.ts` | MODIFY | Add tests for new validation flow |
-| `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | MODIFY | Escaping (C), unescape (O), depth limit (L) |
-| `src/editorFiles/markdownASTdiff/markdownASTdiff.test.ts` | MODIFY | Add escaping tests |
-| `src/editorFiles/actions/actions.ts` | MODIFY | Timeout handling, validation calls |
-| `src/lib/errorHandling.ts` | MODIFY | Add pipeline-specific error codes |
+1. Create `pipelineValidation.ts` with validators (B2, B3, P)
+2. Update prompts in `aiSuggestion.ts` (P, A2)
+3. Fix `importExportUtils.ts` parsing (H, I, M)
+4. Add escaping in `markdownASTdiff.ts` (C)
+5. Add safe parse and timeout in `aiSuggestion.ts` (K, E1)
+6. Integrate validators into pipeline
+7. Add tests
+
+---
+
+## Lower Priority (P2/P3)
+
+| ID | Issue |
+|----|-------|
+| L | Recursion depth limit in AST diff |
+| O | Unescape function for export |
+| B2.5 | LaTeX/code/link/image preservation validation |
+| F | Telemetry integration |
+| D1/D2 | Retry and fallback mechanisms |
