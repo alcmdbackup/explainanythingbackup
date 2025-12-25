@@ -1221,6 +1221,9 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 <p>
                                     Apply the AI suggestions to your content to see the improved version.
                                 </p>
+                                <p className="text-xs text-green-600 dark:text-green-400 italic">
+                                    Validation (B2): Checks length ratio (50-200%), heading retention (&gt;50%), no unexpanded markers
+                                </p>
 
                                 <div className="flex flex-wrap gap-2 items-end">
                                     <div className="flex-grow">
@@ -1307,8 +1310,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                 <p>
                                     Apply a diff between the original content and the applied edits using markdown AST diff.
                                 </p>
-                                
-                                
+                                <p className="text-xs text-purple-600 dark:text-purple-400 italic">
+                                    Validation (B3): Checks balanced CriticMarkup markers: {`{++ ++}`}, {`{-- --}`}, {`{~~ ~> ~~}`}
+                                </p>
+
                                 <div className="flex flex-wrap gap-2 items-end">
                                     <div className="flex-grow">
                                         <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
@@ -1422,6 +1427,9 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                             <div className="text-orange-800 dark:text-orange-200 text-sm space-y-4">
                                 <p>
                                     Apply preprocessing to normalize multiline patterns and fix formatting issues.
+                                </p>
+                                <p className="text-xs text-orange-600 dark:text-orange-400 italic">
+                                    Validation (Step4): Checks headings start on newlines, CriticMarkup blocks with headings are formatted
                                 </p>
 
                                 <div className="flex flex-wrap gap-2 items-end">
