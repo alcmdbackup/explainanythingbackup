@@ -296,3 +296,21 @@ export function validateNonEmptyContent(content: string): ValidationResult {
     severity: 'error',
   };
 }
+
+/**
+ * Validation descriptions for UI display
+ */
+export const VALIDATION_DESCRIPTIONS: Record<string, string> = {
+  step2: 'Verifies content preservation: length ratio (50-200%), heading retention (>50%), no unexpanded markers',
+  step3: 'Checks CriticMarkup syntax for balanced {++ ++}, {-- --}, {~~ ~> ~~} markers',
+  step4: 'Ensures headings start on newlines and CriticMarkup blocks with headings are properly formatted',
+};
+
+/**
+ * Aggregated validation results for the entire pipeline
+ */
+export interface PipelineValidationResults {
+  step2?: ValidationResult & { description: string };
+  step3?: ValidationResult & { description: string };
+  step4?: ValidationResult & { description: string };
+}

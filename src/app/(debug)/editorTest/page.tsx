@@ -15,6 +15,14 @@ import {
     validateAISuggestionOutputAction,
     getAndApplyAISuggestionsAction
 } from '@/editorFiles/actions/actions';
+import { ValidationSummaryDashboard } from './ValidationSummaryDashboard';
+import { ValidationStatusBadge } from './ValidationStatusBadge';
+import {
+    PipelineValidationResults,
+    VALIDATION_DESCRIPTIONS,
+    validateStep2Output,
+    validateCriticMarkup,
+} from '@/editorFiles/validation/pipelineValidation';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +59,9 @@ function EditorTestPageContent() {
 
     // Validation state for preprocessed step
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+    // Pipeline validation results state
+    const [pipelineValidationResults, setPipelineValidationResults] = useState<PipelineValidationResults>({});
 
     // Export fixture state
     const [fixtureExported, setFixtureExported] = useState<boolean>(false);
@@ -589,6 +600,13 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             if (result.success && result.data) {
                 setAppliedEdits(result.data);
 
+                // Run Step 2 validation
+                const step2Validation = validateStep2Output(currentContent, result.data);
+                setPipelineValidationResults(prev => ({
+                    ...prev,
+                    step2: { ...step2Validation, description: VALIDATION_DESCRIPTIONS.step2 },
+                }));
+
                 // Step 2: Save edits applied to database
                 try {
                     const saveResult = await saveTestingPipelineStepAction(
@@ -643,6 +661,13 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             
             const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
             setMarkdownASTDiffResult(criticMarkup);
+
+            // Run Step 3 validation
+            const step3Validation = validateCriticMarkup(criticMarkup);
+            setPipelineValidationResults(prev => ({
+                ...prev,
+                step3: { ...step3Validation, description: VALIDATION_DESCRIPTIONS.step3 },
+            }));
 
             // Step 3: Save raw markdown to database
             try {
@@ -819,6 +844,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             if (result.success) {
                 console.log('✅ Pipeline completed successfully');
                 console.log('Final content:', result.content);
+
+                // Capture validation results from pipeline
+                if (result.validationResults) {
+                    setPipelineValidationResults(result.validationResults);
+                }
             } else {
                 setPipelineError(result.error || 'Pipeline failed');
                 console.error('❌ Pipeline failed:', result.error);
@@ -972,6 +1002,20 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                         </div>
                     </div>
                 )}
+
+                {/* Pipeline Validation Summary Dashboard */}
+                <ValidationSummaryDashboard
+                    results={pipelineValidationResults}
+                    step4Result={validationErrors.length > 0 ? {
+                        valid: false,
+                        issues: validationErrors,
+                        severity: 'warning' as const,
+                    } : preprocessedMarkdown ? {
+                        valid: true,
+                        issues: [],
+                        severity: 'warning' as const,
+                    } : undefined}
+                />
 
                 <div className="max-w-4xl mx-auto space-y-6">
                     {/* Main Editor */}
@@ -1166,8 +1210,12 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     {/* Edits Applied Panel */}
                     <div className="bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                         <div className="p-6">
-                            <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-3">
+                            <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-3 flex items-center gap-3">
                                 Edits Applied
+                                <ValidationStatusBadge
+                                    result={pipelineValidationResults.step2}
+                                    stepName="B2: Content Preservation"
+                                />
                             </h3>
                             <div className="text-green-800 dark:text-green-200 text-sm space-y-4">
                                 <p>
@@ -1248,8 +1296,12 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     {/* Diff Applied Panel */}
                     <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                         <div className="p-6">
-                            <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-3">
+                            <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-3 flex items-center gap-3">
                                 Diff Applied
+                                <ValidationStatusBadge
+                                    result={pipelineValidationResults.step3}
+                                    stepName="B3: CriticMarkup Syntax"
+                                />
                             </h3>
                             <div className="text-purple-800 dark:text-purple-200 text-sm space-y-4">
                                 <p>
@@ -1267,15 +1319,26 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         </div>
                                         <button
                                             onClick={handleApplyDiff}
-                                            disabled={!currentContent || !appliedEdits || isApplyingDiff}
+                                            disabled={
+                                                !currentContent ||
+                                                !appliedEdits ||
+                                                isApplyingDiff ||
+                                                (pipelineValidationResults.step2?.severity === 'error' && !pipelineValidationResults.step2?.valid)
+                                            }
                                             className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                !currentContent || !appliedEdits || isApplyingDiff
+                                                !currentContent || !appliedEdits || isApplyingDiff ||
+                                                (pipelineValidationResults.step2?.severity === 'error' && !pipelineValidationResults.step2?.valid)
                                                     ? 'bg-purple-300 text-white cursor-not-allowed'
                                                     : 'bg-purple-600 hover:bg-purple-700 text-white'
                                             }`}
                                         >
                                             {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
                                         </button>
+                                        {pipelineValidationResults.step2?.severity === 'error' && !pipelineValidationResults.step2?.valid && (
+                                            <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                                                Step 3 blocked: Step 2 validation failed with error-severity issues.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex flex-col">
                                         <label className="text-xs text-purple-600 dark:text-purple-400 mb-1">
@@ -1339,8 +1402,22 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     {/* Preprocessed Panel */}
                     <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                         <div className="p-6">
-                            <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3">
+                            <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3 flex items-center gap-3">
                                 Preprocessed
+                                <ValidationStatusBadge
+                                    result={validationErrors.length > 0 ? {
+                                        valid: false,
+                                        issues: validationErrors,
+                                        severity: 'warning' as const,
+                                        description: VALIDATION_DESCRIPTIONS.step4,
+                                    } : preprocessedMarkdown ? {
+                                        valid: true,
+                                        issues: [],
+                                        severity: 'warning' as const,
+                                        description: VALIDATION_DESCRIPTIONS.step4,
+                                    } : undefined}
+                                    stepName="Step4: Heading Format"
+                                />
                             </h3>
                             <div className="text-orange-800 dark:text-orange-200 text-sm space-y-4">
                                 <p>
@@ -1351,15 +1428,25 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                     <div className="flex-grow">
                                         <button
                                             onClick={handlePreprocessing}
-                                            disabled={!markdownASTDiffResult || isPreprocessing}
+                                            disabled={
+                                                !markdownASTDiffResult ||
+                                                isPreprocessing ||
+                                                (pipelineValidationResults.step3?.severity === 'error' && !pipelineValidationResults.step3?.valid)
+                                            }
                                             className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                !markdownASTDiffResult || isPreprocessing
+                                                !markdownASTDiffResult || isPreprocessing ||
+                                                (pipelineValidationResults.step3?.severity === 'error' && !pipelineValidationResults.step3?.valid)
                                                     ? 'bg-gray-400 text-white cursor-not-allowed'
                                                     : 'bg-orange-600 hover:bg-orange-700 text-white'
                                             }`}
                                         >
                                             {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
                                         </button>
+                                        {pipelineValidationResults.step3?.severity === 'error' && !pipelineValidationResults.step3?.valid && (
+                                            <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                                                Step 4 blocked: Step 3 validation failed with error-severity issues.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex flex-col">
                                         <label className="text-xs text-orange-600 dark:text-orange-400 mb-1">

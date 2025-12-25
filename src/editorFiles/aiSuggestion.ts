@@ -3,7 +3,7 @@ import React from 'react';
 import { z } from 'zod';
 import { default_model } from '@/lib/services/llms';
 import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
-import { validateStep2Output, validateCriticMarkup } from './validation/pipelineValidation';
+import { validateStep2Output, validateCriticMarkup, PipelineValidationResults, VALIDATION_DESCRIPTIONS } from './validation/pipelineValidation';
 
 /**
  * Schema for AI suggestion structured output
@@ -255,7 +255,10 @@ export async function runAISuggestionsPipeline(
     explanation_title: string;
     user_prompt: string;
   }
-): Promise<{ content: string; session_id?: string }> {
+): Promise<{ content: string; session_id?: string; validationResults: PipelineValidationResults }> {
+  // Initialize validation results collector
+  const validationResults: PipelineValidationResults = {};
+
   console.log('🚀 PIPELINE START: runAISuggestionsPipeline called', {
     contentLength: currentContent.length,
     userId,
@@ -348,6 +351,10 @@ export async function runAISuggestionsPipeline(
 
   // B2: Validate Step 2 output for content preservation
   const step2Validation = validateStep2Output(currentContent, editedContent);
+  validationResults.step2 = {
+    ...step2Validation,
+    description: VALIDATION_DESCRIPTIONS.step2,
+  };
   if (!step2Validation.valid) {
     console.warn('⚠️ PIPELINE STEP 2 VALIDATION ISSUES:', step2Validation.issues);
     if (step2Validation.severity === 'error') {
@@ -400,6 +407,10 @@ export async function runAISuggestionsPipeline(
 
   // B3: Validate CriticMarkup syntax for balanced markers
   const step3Validation = validateCriticMarkup(criticMarkup);
+  validationResults.step3 = {
+    ...step3Validation,
+    description: VALIDATION_DESCRIPTIONS.step3,
+  };
   if (!step3Validation.valid) {
     console.warn('⚠️ PIPELINE STEP 3 VALIDATION ISSUES:', step3Validation.issues);
     // Log warning but don't throw - try to continue with potentially malformed markup
@@ -467,7 +478,8 @@ export async function runAISuggestionsPipeline(
 
   return {
     content: preprocessed,
-    session_id: sessionData?.session_id
+    session_id: sessionData?.session_id,
+    validationResults,
   };
   } finally {
     // E1: Always clear the timeout
@@ -495,7 +507,7 @@ export async function getAndApplyAISuggestions(
     explanation_title: string;
     user_prompt: string;
   }
-): Promise<{ success: boolean; content?: string; error?: string; session_id?: string }> {
+): Promise<{ success: boolean; content?: string; error?: string; session_id?: string; validationResults?: PipelineValidationResults }> {
   console.log('🎯 getAndApplyAISuggestions CALLED:', {
     contentLength: currentContent.length,
     hasSessionData: !!sessionData,
@@ -537,7 +549,8 @@ export async function getAndApplyAISuggestions(
     return {
       success: true,
       content: result.content,
-      session_id: result.session_id
+      session_id: result.session_id,
+      validationResults: result.validationResults,
     };
 
   } catch (error) {
