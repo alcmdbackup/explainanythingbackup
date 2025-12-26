@@ -1,4 +1,4 @@
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { type UserQueryInsertType } from '@/lib/schemas/schemas';
 import { assertUserId } from '@/lib/utils/validation';
 
@@ -26,7 +26,8 @@ import { assertUserId } from '@/lib/utils/validation';
  */
 export async function createUserQuery(query: UserQueryInsertType) {
   assertUserId(query.userid, 'createUserQuery');
-  const supabase = await createSupabaseServerClient()
+  // Use service client to bypass RLS - user auth is verified at API layer
+  const supabase = await createSupabaseServiceClient()
   
   const { data, error } = await supabase
     .from('userQueries')

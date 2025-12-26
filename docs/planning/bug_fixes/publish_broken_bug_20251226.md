@@ -1,7 +1,7 @@
 # Bug Investigation: Publish Broken After Streaming
 
 **Date:** 2025-12-26
-**Status:** Root Cause Identified - Ready for Fix
+**Status:** Fixed - Pending Verification
 
 ## Problem Statement
 
@@ -258,37 +258,42 @@ Note: If `explanationId` is null (due to generation error), publish will silentl
 
 Once the error handler fix is deployed and we can see the actual Supabase error message in logs, we'll identify and fix the specific database operation that's failing.
 
-### Step 1: Deploy Error Handler Fix
-Implement the `isSupabaseError()` detection in `src/lib/errorHandling.ts` as described above.
+### Step 1: Deploy Error Handler Fix ✅ DONE
+Implemented `isSupabaseError()` detection in `src/lib/errorHandling.ts`.
 
-### Step 2: Reproduce and Capture Real Error
-1. Run the debug test or manually reproduce the bug
-2. Check server logs for the now-visible Supabase error details:
-   - `supabaseCode` - the Postgres error code (e.g., `23505` for unique constraint, `42P01` for undefined table)
-   - `message` - the actual error message
-   - `hint` - Postgres hint if available
+### Step 2: Reproduce and Capture Real Error ✅ DONE
+Ran debug test and captured actual error:
+```
+error: {
+  code: 'DATABASE_ERROR',
+  message: 'JSON object requested, multiple (or no) rows returned',
+  details: {
+    supabaseCode: 'PGRST116',
+    hint: null,
+    rawDetails: 'The result contains 0 rows'
+  }
+}
+```
 
-### Step 3: Identify Failing Operation
-Based on the error code/message, identify which of these operations is failing:
-- `saveExplanationAndTopic()` - saving the explanation record
-- `saveHeadingLinks()` - saving heading links for overlay system
-- `linkSourcesToExplanation()` - linking sources to explanation
-- `saveCandidatesFromLLM()` - saving link candidates
-- `applyTagsToExplanation()` - applying tags
-- `processContentToStoreEmbedding()` - creating embeddings
+### Step 3: Identify Failing Operation ✅ DONE
+Root cause: **RLS policy blocking inserts in streaming context**
 
-### Step 4: Fix the Root Database Issue
-Common causes to check:
-- **Missing table/column** - schema out of sync
-- **Constraint violation** - unique constraint, foreign key, not null
-- **Permission issue** - RLS policy blocking insert/update
-- **Data format issue** - wrong type, too long, etc.
+The Supabase client created via `createSupabaseServerClient()` in API route context doesn't have proper auth cookies, causing:
+- `createExplanation()` - insert blocked by RLS (requires authenticated role)
+- `createTopic()` - insert blocked by RLS (requires authenticated role)
+- `createUserQuery()` - insert blocked by RLS (requires authenticated role + user_id match)
 
-### Step 5: Add Regression Test
-Once fixed, update `src/__tests__/e2e/specs/debug-publish-bug.spec.ts` to verify the full publish flow works end-to-end.
+### Step 4: Fix the Root Database Issue ✅ DONE
+Changed affected functions to use `createSupabaseServiceClient()` which bypasses RLS. User auth is verified at API layer before these functions are called.
 
-### Expected Timeline
-1. Error handler fix → immediate visibility into actual error
-2. Identify failing operation → within first reproduction
-3. Fix database issue → depends on complexity
-4. Verify and close → run full test suite
+**Files modified:**
+- `src/lib/services/explanations.ts` - `createExplanation()` now uses service client
+- `src/lib/services/topics.ts` - `createTopic()` now uses service client
+- `src/lib/services/userQueries.ts` - `createUserQuery()` now uses service client
+
+### Step 5: Verification
+Test currently shows flakiness (streaming doesn't always start). Full verification pending stable test environment.
+
+### Summary of Fixes Applied
+1. **Error handler fix** - Supabase errors now properly detected and logged
+2. **RLS bypass fix** - Server-side insert operations use service client to bypass RLS since user auth is verified at API layer
