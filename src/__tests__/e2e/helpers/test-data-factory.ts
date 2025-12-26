@@ -36,7 +36,6 @@ interface TestExplanation {
   id: string;
   explanation_title: string;
   content: string;
-  user_id: string;
   status: string;
   cleanup: () => Promise<void>;
 }
@@ -59,7 +58,8 @@ export async function createTestExplanation(
   const { data, error } = await supabase
     .from('explanations')
     .insert({
-      user_id: testUserId,
+      // Note: explanations table has no user_id column
+      // User association is via userLibrary junction table
       explanation_title: `${prefix}-${options.title}`,
       content: options.content ?? '<p>Test content for E2E testing.</p>',
       status: options.status ?? 'published',

@@ -169,6 +169,72 @@ Both failures are because the Save button is disabled after mock streaming compl
 The mock doesn't provide `is_saved: false` in the result, so the button stays disabled.
 This is a separate issue with the mock response schema, not the infrastructure.
 
+---
+
+### Run 3: 2024-12-26 (After Data Seeding Fixes)
+
+```
+Running 123 tests using 4 workers
+🚀 E2E Global Setup: Starting...
+   ✓ Seeded test topic
+   ✓ Seeded test explanation (no tag)
+✅ E2E Global Setup: Complete
+
+  1 failed
+  91 skipped
+  31 passed (1.8m)
+```
+
+**Pass Rate:** 31/32 non-skipped = 96.9%
+**Skipped:** 91 (still skipping - under investigation)
+
+**Progress:**
+- Fixed `global-setup.ts` to properly seed test explanation with `primary_topic_id`
+- Fixed `global-teardown.ts` to query userLibrary BEFORE deleting
+- Fixed `test-data-factory.ts` to not insert non-existent `user_id` column
+- Added `TEST_USER_ID` to `.env.local`
+
+**Remaining Failure:**
+1. `action-buttons.spec.ts:28` - "should save explanation to library when save button clicked"
+
+---
+
+### Issue 5: 91 Tests Still Skipping Despite Seeded Data 🔍 INVESTIGATING
+
+**Symptom:**
+Tests that check `libraryState === 'empty'` or `explanationCount === 0` skip, even though:
+- Global setup logs: `✓ Seeded test explanation (no tag)`
+- Global teardown logs: `Cleaning 1 explanations and related data...`
+
+**Systematic Debugging (Phase 1 - Root Cause Investigation):**
+
+1. **DB Layer Check (Service Role):** ✅ Data IS created
+   - Explanation ID 7952 created successfully
+   - userLibrary entry ID 811 inserted correctly
+   - Verification query confirms data exists during globalSetup
+
+2. **Timing Analysis:** Data exists during tests but UI shows empty
+   - Setup creates data → Tests run → Teardown cleans data
+   - Data should be visible during test execution
+
+3. **Auth Flow Analysis:**
+   - Auth fixture: Uses API-based auth, injects `sb-{projectRef}-auth-token` cookie
+   - Server client: Uses `createSupabaseServerClient()` which reads cookies via `next/headers`
+   - Library page: Calls `supabase_browser.auth.getUser()` then server action
+
+**Current Hypothesis:**
+The authenticated user cannot see the seeded data. Possible causes:
+- RLS policy blocking access (data created with service role, queried with user role)
+- Auth cookie not propagating correctly to server actions
+- User ID mismatch between auth session and seeded data
+
+**Next Steps:**
+1. Add logging to library page to see what user ID it's using
+2. Check RLS policies on userLibrary table
+3. Verify auth cookie contains correct user ID
+
+---
+
 ### Issue 4: JSON Parse Error in test-mode.ts ✅ FIXED
 
 **Symptom:**
@@ -221,6 +287,15 @@ From Phase 0 verification:
 - ✅ Data management with global setup/teardown and per-test factory
 - ✅ SSE test-mode streaming bypass for reliable streaming tests
 - ✅ Test migration complete (serial mode removed, fixtures updated)
-- ✅ Verification passed (93.75% pass rate on non-skipped tests)
+- ✅ Verification passed (96.9% pass rate on non-skipped tests)
 
-**Remaining items** are minor improvements (save button mock, reducing conditional skips) and CI configuration (secrets verification).
+**Current Status (2024-12-26):**
+- 31 passed, 1 failed, 91 skipped
+- Data seeding works correctly (verified via debug logging)
+- **Blocking issue:** 91 tests skip because library UI shows empty despite data existing in DB
+- Investigation in progress using systematic debugging approach
+
+**Remaining items:**
+1. **[BLOCKING]** Fix Issue 5: Library data not visible to authenticated user
+2. Fix save button test failure
+3. CI secrets configuration

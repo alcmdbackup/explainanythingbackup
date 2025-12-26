@@ -20,8 +20,13 @@ async function globalTeardown() {
   const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey);
 
   try {
-    // Step 1: Delete tables with direct user_id column
-    // These are safe - always filter by user_id, no race condition
+    // Step 1: Get explanation IDs via userLibrary BEFORE deleting (explanations table has no user_id)
+    const { data: libraryEntries } = await supabase
+      .from('userLibrary')
+      .select('explanationid')
+      .eq('userid', testUserId);
+
+    // Step 2: Delete tables with direct userid column
     console.log('   Cleaning user-specific tables...');
 
     await supabase.from('userLibrary').delete().eq('userid', testUserId);
@@ -29,14 +34,9 @@ async function globalTeardown() {
     await supabase.from('userExplanationEvents').delete().eq('userid', testUserId);
     await supabase.from('llmCallTracking').delete().eq('userid', testUserId);
 
-    // Step 2: Get explanation IDs for non-cascading table cleanup
-    const { data: explanations } = await supabase
-      .from('explanations')
-      .select('id')
-      .eq('user_id', testUserId);
-
-    if (explanations && explanations.length > 0) {
-      const ids = explanations.map((e) => e.id);
+    // Step 3: Delete explanation-related data if any explanations were in library
+    if (libraryEntries && libraryEntries.length > 0) {
+      const ids = libraryEntries.map((e) => e.explanationid);
       console.log(`   Cleaning ${ids.length} explanations and related data...`);
 
       // Delete non-cascading tables in parallel
@@ -45,20 +45,18 @@ async function globalTeardown() {
         supabase.from('explanation_tags').delete().in('explanation_id', ids),
         supabase.from('link_candidates').delete().in('first_seen_explanation_id', ids),
       ]);
+
+      // Step 4: Delete explanations (auto-cascades to dependent tables)
+      // Note: userLibrary entries are already deleted in Step 2
+      // Cascades: candidate_occurrences, article_sources, article_heading_links, article_link_overrides
+      const { error: deleteError } = await supabase.from('explanations').delete().in('id', ids);
+
+      if (deleteError) {
+        console.error('❌ Failed to delete explanations:', deleteError.message);
+      }
     }
 
-    // Step 3: Delete explanations (auto-cascades to dependent tables)
-    // Cascades: candidate_occurrences, article_sources, article_heading_links, article_link_overrides
-    const { error: deleteError } = await supabase
-      .from('explanations')
-      .delete()
-      .eq('user_id', testUserId);
-
-    if (deleteError) {
-      console.error('❌ Failed to delete explanations:', deleteError.message);
-    }
-
-    // Step 4: Clean pattern-matched independent tables
+    // Step 5: Clean pattern-matched independent tables
     console.log('   Cleaning test-prefixed tables...');
     await Promise.all([
       supabase.from('topics').delete().ilike('topic_title', 'test-%'),
