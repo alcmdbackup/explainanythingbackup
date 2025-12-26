@@ -251,3 +251,44 @@ if (!explanationId || (!hasUnsavedChanges && explanationStatus !== ExplanationSt
 ```
 
 Note: If `explanationId` is null (due to generation error), publish will silently return.
+
+---
+
+## Phase 2: Fix the Underlying Database Error
+
+Once the error handler fix is deployed and we can see the actual Supabase error message in logs, we'll identify and fix the specific database operation that's failing.
+
+### Step 1: Deploy Error Handler Fix
+Implement the `isSupabaseError()` detection in `src/lib/errorHandling.ts` as described above.
+
+### Step 2: Reproduce and Capture Real Error
+1. Run the debug test or manually reproduce the bug
+2. Check server logs for the now-visible Supabase error details:
+   - `supabaseCode` - the Postgres error code (e.g., `23505` for unique constraint, `42P01` for undefined table)
+   - `message` - the actual error message
+   - `hint` - Postgres hint if available
+
+### Step 3: Identify Failing Operation
+Based on the error code/message, identify which of these operations is failing:
+- `saveExplanationAndTopic()` - saving the explanation record
+- `saveHeadingLinks()` - saving heading links for overlay system
+- `linkSourcesToExplanation()` - linking sources to explanation
+- `saveCandidatesFromLLM()` - saving link candidates
+- `applyTagsToExplanation()` - applying tags
+- `processContentToStoreEmbedding()` - creating embeddings
+
+### Step 4: Fix the Root Database Issue
+Common causes to check:
+- **Missing table/column** - schema out of sync
+- **Constraint violation** - unique constraint, foreign key, not null
+- **Permission issue** - RLS policy blocking insert/update
+- **Data format issue** - wrong type, too long, etc.
+
+### Step 5: Add Regression Test
+Once fixed, update `src/__tests__/e2e/specs/debug-publish-bug.spec.ts` to verify the full publish flow works end-to-end.
+
+### Expected Timeline
+1. Error handler fix → immediate visibility into actual error
+2. Identify failing operation → within first reproduction
+3. Fix database issue → depends on complexity
+4. Verify and close → run full test suite
