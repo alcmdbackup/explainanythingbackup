@@ -61,6 +61,36 @@
 | Fast (no actual commits) | E2E browser can't share test's transaction |
 | No cleanup code needed | **Not viable for Playwright + Supabase** |
 
+**Why this doesn't work for Playwright + Supabase:**
+
+The core issue is the network boundary between test process and browser:
+
+```
+Playwright Test (Node.js)          Browser (Chromium)           Supabase (Remote)
+        │                                │                            │
+        │  BEGIN TRANSACTION ────────────────────────────────────────►│ Connection A
+        │                                │                            │
+        │  page.goto('/results/123') ───►│                            │
+        │                                │  fetch('/api/...') ───────►│ Connection B
+        │                                │                            │  (different connection!)
+        │                                │                            │  (can't see uncommitted data)
+        │                                │◄─── returns nothing ───────│
+        │                                │                            │
+        │  ROLLBACK ─────────────────────────────────────────────────►│
+```
+
+1. **Transaction isolation** - Test opens transaction on Connection A. Browser API calls use Connection B. PostgreSQL isolation means B cannot see uncommitted changes from A. Test data is invisible to the app.
+
+2. **Connection pooling** - Supabase pools connections. Each request may get a different connection. No way to guarantee same transaction.
+
+3. **No transaction passthrough** - No mechanism to tell Supabase "use this existing transaction ID" from the browser.
+
+4. **Serverless architecture** - Supabase edge functions/API routes are stateless. Can't hold a transaction open across requests.
+
+5. **RLS evaluation** - Row Level Security policies need auth context from browser, not from test process transaction.
+
+**Where transactional rollback works:** Unit tests with direct DB access (same process), integration tests where test code makes DB calls directly (not via browser), monolithic apps where test and app share a DB connection.
+
 ---
 
 ### Option 5: Hybrid - Shared Fixtures + Per-Test Data
