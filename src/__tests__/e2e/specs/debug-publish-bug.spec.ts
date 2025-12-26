@@ -3,7 +3,7 @@
  *
  * Reproduces: Generate new article via streaming -> click Publish -> bug
  */
-import { test, expect } from '../fixtures/auth';
+import { test } from '../fixtures/auth';
 import { SearchPage } from '../helpers/pages/SearchPage';
 import { ResultsPage } from '../helpers/pages/ResultsPage';
 
@@ -73,7 +73,7 @@ test.describe('Publish Bug After Streaming', () => {
           authenticatedPage.waitForURL(/explanation_id=/, { timeout: 15000 }),
           authenticatedPage.locator('[data-testid="error-message"]').waitFor({ state: 'visible', timeout: 15000 }),
         ]);
-      } catch (e) {
+      } catch {
         console.log('Timeout waiting for response after publish');
       }
 
@@ -82,7 +82,7 @@ test.describe('Publish Bug After Streaming', () => {
       if (hasError) {
         const errorText = await authenticatedPage.locator('[data-testid="error-message"]').textContent();
         console.log('ERROR:', errorText);
-        expect.fail(`Publish failed with error: ${errorText}`);
+        throw new Error(`Publish failed with error: ${errorText}`);
       }
 
       console.log('Publish succeeded');
