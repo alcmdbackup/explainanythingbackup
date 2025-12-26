@@ -159,8 +159,8 @@ export const createMockAISuggestionsPanelProps = (overrides: Record<string, unkn
         focus: jest.fn(),
       },
     },
-    onContentChange: jest.fn(),
-    onEnterEditMode: jest.fn(),
+    dispatch: jest.fn(),
+    isStreaming: false,
     sessionData: undefined,
     ...restOverrides,
   };

@@ -4,6 +4,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } from '../editorFiles/actions/actions';
 import { Spinner } from '@/components/ui/spinner';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
+import type { PageLifecycleAction } from '@/reducers/pageLifecycleReducer';
 
 // ============================================================================
 // Types
@@ -14,8 +15,8 @@ interface AISuggestionsPanelProps {
   onOpenChange: (open: boolean) => void;
   currentContent: string;
   editorRef?: React.RefObject<unknown>; // LexicalEditorRef
-  onContentChange?: (content: string) => void;
-  onEnterEditMode?: () => void;
+  dispatch?: React.Dispatch<PageLifecycleAction>;
+  isStreaming?: boolean;
   sessionData?: {
     explanation_id: number;
     explanation_title: string;
@@ -201,8 +202,9 @@ export default function AISuggestionsPanel({
   isOpen,
   onOpenChange,
   currentContent,
-  onContentChange,
-  onEnterEditMode,
+  editorRef: _editorRef,
+  dispatch,
+  isStreaming,
   sessionData,
   loadedSessionId
 }: AISuggestionsPanelProps) {
@@ -341,13 +343,9 @@ export default function AISuggestionsPanel({
       }
 
       if (result.success && result.content) {
-        console.log('🎭 AISuggestionsPanel: Entering edit mode...');
-        onEnterEditMode?.();
-        console.log('🎭 AISuggestionsPanel: Edit mode entered, calling onContentChange...');
-        onContentChange?.(result.content);
-        console.log('🎭 AISuggestionsPanel: onContentChange called successfully');
-        // Clear prompt on success
-        setUserPrompt('');
+        console.log('🎭 AISuggestionsPanel: Applying AI suggestion via dispatch...');
+        dispatch?.({ type: 'APPLY_AI_SUGGESTION', content: result.content });
+        console.log('🎭 AISuggestionsPanel: APPLY_AI_SUGGESTION dispatched successfully');
       } else {
         console.error('🎭 AISuggestionsPanel: Result not successful or no content', {
           success: result.success,
@@ -363,7 +361,7 @@ export default function AISuggestionsPanel({
       setIsLoading(false);
       setProgressState(null);
     }
-  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData]);
+  }, [userPrompt, currentContent, dispatch, handleProgressUpdate, sessionData]);
 
   const handleQuickAction = useCallback((action: QuickAction) => {
     setUserPrompt(action.prompt);
@@ -424,28 +422,190 @@ export default function AISuggestionsPanel({
           </p>
         </div>
 
-        {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Quick Actions */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
-              Quick Actions
-            </h4>
-            <div className="flex flex-wrap gap-2">
-              {QUICK_ACTIONS.map((action) => (
-                <button
-                  key={action.id}
-                  onClick={() => handleQuickAction(action)}
-                  disabled={isLoading || !currentContent.trim()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-ui
-                    bg-[var(--surface-elevated)]
-                    border border-[var(--border-default)]
-                    rounded-md
-                    text-[var(--text-secondary)]
-                    hover:bg-[var(--surface-secondary)] hover:border-[var(--border-strong)]
-                    hover:text-[var(--text-primary)]
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    transition-all duration-200"
+        {/* Submit Button */}
+        <button
+          onClick={handleSubmit}
+          disabled={isLoading || !userPrompt.trim() || !currentContent.trim() || isStreaming}
+          className="w-full py-2.5 px-4 font-sans font-medium text-sm rounded-page transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)] focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] hover:shadow-warm-md hover:-translate-y-0.5 active:translate-y-0"
+        >
+          <span className="flex items-center justify-center gap-2">
+            {isLoading ? (
+              <>
+                <Spinner variant="quill" size={18} />
+                <span>Composing...</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                <span>Get Suggestions</span>
+              </>
+            )}
+          </span>
+        </button>
+
+        {/* Loading State with Progress - Parchment style */}
+        {isLoading && progressState && (
+          <div data-testid="suggestions-loading" className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
+            <div className="flex items-center mb-3">
+              <Spinner variant="quill" size={20} className="mr-2" />
+              <span className="text-sm font-sans font-medium text-[var(--accent-gold)]">
+                Processing...
+              </span>
+            </div>
+            <p className="text-sm font-serif italic text-[var(--text-muted)] mb-3">
+              {progressState.step}
+            </p>
+            <div className="w-full bg-[var(--surface-primary)] rounded-full h-2 border border-[var(--border-default)]">
+              <div
+                className="bg-gradient-to-r from-[var(--accent-gold)] to-[var(--accent-copper)] h-full rounded-full transition-all duration-300"
+                style={{ width: `${progressState.progress}%` }}
+              />
+            </div>
+            <p className="text-xs font-sans text-[var(--text-muted)] mt-2 text-right">
+              {progressState.progress}% complete
+            </p>
+          </div>
+        )}
+
+        {/* Error Display */}
+        {error && (
+          <div data-testid="suggestions-error" className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page p-4">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-[var(--destructive)] mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm font-sans font-medium text-[var(--destructive)]">
+                Error
+              </span>
+            </div>
+            <p className="text-sm font-serif text-[var(--text-secondary)] mt-2">
+              {error}
+            </p>
+          </div>
+        )}
+
+        {/* Loaded Session Validation Results */}
+        {!lastResult && loadedValidationResults && (
+          <div data-testid="loaded-validation-results" className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-page p-4">
+            <p className="text-xs font-sans font-medium text-[var(--text-muted)] mb-2">Previous Session Validation:</p>
+            <div className="flex flex-wrap gap-1.5">
+              {loadedValidationResults.step2 && (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  loadedValidationResults.step2.valid
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                    : loadedValidationResults.step2.severity === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                }`} title={loadedValidationResults.step2.description}>
+                  <span>{loadedValidationResults.step2.valid ? '✓' : loadedValidationResults.step2.severity === 'error' ? '✗' : '⚠'}</span>
+                  <span>B2</span>
+                </span>
+              )}
+              {loadedValidationResults.step3 && (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                  loadedValidationResults.step3.valid
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                    : loadedValidationResults.step3.severity === 'error'
+                      ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                      : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                }`} title={loadedValidationResults.step3.description}>
+                  <span>{loadedValidationResults.step3.valid ? '✓' : loadedValidationResults.step3.severity === 'error' ? '✗' : '⚠'}</span>
+                  <span>B3</span>
+                </span>
+              )}
+            </div>
+            {/* Show issues if any */}
+            {(loadedValidationResults.step2?.issues?.length || loadedValidationResults.step3?.issues?.length) ? (
+              <details className="mt-2">
+                <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                  View validation issues ({(loadedValidationResults.step2?.issues?.length || 0) + (loadedValidationResults.step3?.issues?.length || 0)})
+                </summary>
+                <ul className="mt-1 text-xs text-[var(--text-muted)] space-y-0.5 pl-3">
+                  {loadedValidationResults.step2?.issues?.map((issue, i) => (
+                    <li key={`s2-${i}`}>• B2: {issue}</li>
+                  ))}
+                  {loadedValidationResults.step3?.issues?.map((issue, i) => (
+                    <li key={`s3-${i}`}>• B3: {issue}</li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+          </div>
+        )}
+
+        {/* Success Message */}
+        {lastResult?.success && !isLoading && (
+          <div data-testid="suggestions-success" className="bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page p-4">
+            <div className="flex items-center">
+              <svg className="w-5 h-5 text-[var(--accent-gold)] mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              <span className="text-sm font-sans font-medium text-[var(--accent-gold)]">
+                Revisions Applied
+              </span>
+            </div>
+            <p className="text-sm font-serif text-[var(--text-secondary)] mt-2">
+              Your content has been updated with AI suggestions.
+            </p>
+
+            {/* Validation Summary */}
+            {lastResult.validationResults && (
+              <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
+                <p className="text-xs font-sans font-medium text-[var(--text-muted)] mb-2">Pipeline Validation:</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {lastResult.validationResults.step2 && (
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                      lastResult.validationResults.step2.valid
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : lastResult.validationResults.step2.severity === 'error'
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                          : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                    }`} title={lastResult.validationResults.step2.description}>
+                      <span>{lastResult.validationResults.step2.valid ? '✓' : lastResult.validationResults.step2.severity === 'error' ? '✗' : '⚠'}</span>
+                      <span>B2</span>
+                    </span>
+                  )}
+                  {lastResult.validationResults.step3 && (
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${
+                      lastResult.validationResults.step3.valid
+                        ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : lastResult.validationResults.step3.severity === 'error'
+                          ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                          : 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300'
+                    }`} title={lastResult.validationResults.step3.description}>
+                      <span>{lastResult.validationResults.step3.valid ? '✓' : lastResult.validationResults.step3.severity === 'error' ? '✗' : '⚠'}</span>
+                      <span>B3</span>
+                    </span>
+                  )}
+                </div>
+                {/* Show issues if any */}
+                {(lastResult.validationResults.step2?.issues?.length || lastResult.validationResults.step3?.issues?.length) ? (
+                  <details className="mt-2">
+                    <summary className="text-xs text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-secondary)]">
+                      View validation issues ({(lastResult.validationResults.step2?.issues?.length || 0) + (lastResult.validationResults.step3?.issues?.length || 0)})
+                    </summary>
+                    <ul className="mt-1 text-xs text-[var(--text-muted)] space-y-0.5 pl-3">
+                      {lastResult.validationResults.step2?.issues?.map((issue, i) => (
+                        <li key={`s2-${i}`}>• B2: {issue}</li>
+                      ))}
+                      {lastResult.validationResults.step3?.issues?.map((issue, i) => (
+                        <li key={`s3-${i}`}>• B3: {issue}</li>
+                      ))}
+                    </ul>
+                  </details>
+                ) : null}
+              </div>
+            )}
+
+            {process.env.NODE_ENV === 'development' && lastResult.session_id && sessionData && (
+              <div className="mt-3">
+                <a
+                  href={`/editorTest?explanation_id=${sessionData.explanation_id}&session_id=${lastResult.session_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-sans font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-page transition-all duration-200 hover:shadow-warm"
                 >
                   {action.icon}
                   <span>{action.label}</span>

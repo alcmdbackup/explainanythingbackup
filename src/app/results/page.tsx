@@ -1258,27 +1258,16 @@ function ResultsPageContent() {
                     {/* AI Suggestions Panel (Collapsible Sidebar) */}
                     <div className="relative h-full flex-shrink-0">
                         <AISuggestionsPanel
-                        isOpen={isAIPanelOpen}
-                        onOpenChange={setIsAIPanelOpen}
-                        currentContent={content}
-                        editorRef={editorRef}
-                        onContentChange={(newContent) => {
-                            logger.debug('AISuggestionsPanel onContentChange called', {
-                                contentLength: newContent?.length || 0,
-                            }, FILE_DEBUG);
-
-                            setContent(newContent);
-                            // Update reducer - StreamingSyncPlugin will handle pushing to editor
-                            dispatchLifecycle({ type: 'UPDATE_CONTENT', content: newContent });
-                        }}
-                        onEnterEditMode={() => {
-                            logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
-                            dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
-                        }}
-                        sessionData={explanationId && explanationTitle ? {
-                            explanation_id: explanationId,
-                            explanation_title: explanationTitle
-                        } : undefined}
+                            isVisible={isAIPanelOpen}
+                            onClose={() => setIsAIPanelOpen(false)}
+                            currentContent={content}
+                            editorRef={editorRef}
+                            dispatch={dispatchLifecycle}
+                            isStreaming={isStreaming}
+                            sessionData={explanationId && explanationTitle ? {
+                                explanation_id: explanationId,
+                                explanation_title: explanationTitle
+                            } : undefined}
                         />
                     </div>
 
