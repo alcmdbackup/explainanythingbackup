@@ -1,6 +1,6 @@
 # Editor State Management Refactor - Progress
 
-## Status: Phase 1 Complete, Phase 2 In Progress
+## Status: Phase 2 Complete, Phase 3 Next
 
 ---
 
@@ -60,25 +60,21 @@ type MutationOp = {
 
 ---
 
-## Phase 2: Create MutationQueuePlugin 🔄 IN PROGRESS
+## Phase 2: Create MutationQueuePlugin ✅ COMPLETE
 
-**File to create:** `src/editorFiles/lexicalEditor/MutationQueuePlugin.tsx`
+**File created:** `src/editorFiles/lexicalEditor/MutationQueuePlugin.tsx`
 
-### Implementation Plan
+### Implementation Summary
 
-The plugin will:
-1. Receive `pendingMutations` and `processingMutation` as props
-2. Receive callbacks: `onStartMutation`, `onCompleteMutation`, `onFailMutation`
-3. Process mutations serially using existing `acceptDiffTag()`/`rejectDiffTag()` from `diffTagMutations.ts`
-4. Handle nodeKey-not-found gracefully (skip and complete)
-5. Get content after mutation using `getContentAsMarkdown()` equivalent
+The plugin processes accept/reject mutations from the reducer queue serially:
 
-### Key Dependencies
-- `acceptDiffTag()` and `rejectDiffTag()` from `./diffTagMutations.ts`
-- `useLexicalComposerContext` for editor access
-- `replaceDiffTagNodesAndExportMarkdown()` for content export
+1. **Watches** for pending mutations in `pendingMutations` prop
+2. **Processes** one mutation at a time (guards against re-entry with `isProcessingRef`)
+3. **Calls** `acceptDiffTag()`/`rejectDiffTag()` to execute the mutation
+4. **Exports** content via `exportMarkdownReadOnly()` after mutation
+5. **Dispatches** `onCompleteMutation` or `onFailMutation` callbacks
 
-### Props Interface (Draft)
+### Props Interface
 ```typescript
 interface MutationQueuePluginProps {
   pendingMutations: MutationOp[];
@@ -88,6 +84,27 @@ interface MutationQueuePluginProps {
   onFailMutation: (id: string, error: string) => void;
 }
 ```
+
+### Edge Cases Handled
+- **Node not found:** If `nodeKey` no longer exists, mutation is a no-op but still completes
+- **Rapid clicks:** All mutations are queued, processed serially
+- **Errors:** Caught and reported via `onFailMutation`
+
+**File: `src/editorFiles/lexicalEditor/MutationQueuePlugin.test.tsx`**
+
+- **16 tests pass** covering:
+  - Initialization and rendering
+  - Accept mutation flow
+  - Reject mutation flow
+  - Error handling (Error objects and non-Error exceptions)
+  - Queue processing (serial, skips non-pending)
+  - Edge cases (empty content, processing guard)
+
+### Validation
+- ✅ TypeScript compiles without errors
+- ✅ ESLint passes (no new warnings)
+- ✅ Build succeeds
+- ✅ All 16 unit tests pass
 
 ---
 
