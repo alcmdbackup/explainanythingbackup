@@ -199,98 +199,67 @@ Running 123 tests using 4 workers
 
 ---
 
-### Issue 5: 91 Tests Still Skipping Despite Seeded Data 🔍 ROOT CAUSE IDENTIFIED
+### Issue 5: 91 Tests Still Skipping Despite Seeded Data 🔍 ROOT CAUSE FOUND
 
 **Symptom:**
 Tests that check `libraryState === 'empty'` or `explanationCount === 0` skip, even though:
 - Global setup logs: `✓ Seeded test explanation (no tag)`
 - Global teardown logs: `Cleaning 1 explanations and related data...`
 
-**Systematic Debugging (Phase 1 - Root Cause Investigation):**
+**Systematic Debugging Applied:**
 
-1. **DB Layer Check (Service Role):** ✅ Data IS created
-   - Verified via SQL: `SELECT * FROM "userLibrary" WHERE userid = '08b3f7d2-...'`
-   - Found 1 entry: id=816, explanationid=8002, title="Tim Hardaway"
-   - TEST_USER_ID in .env.local matches actual Supabase auth user ID ✅
+#### Fix #1: localStorage Injection ❌ FAILED
 
-2. **RLS Policy Analysis:** ✅ Policies exist and are correct
-   - userLibrary SELECT: `using ((( SELECT auth.uid() AS uid) = userid))`
-   - explanations SELECT: `using (true)` (public access)
-   - Service role bypasses RLS (used for seeding)
+Initial hypothesis: Browser client uses localStorage, auth fixture only sets cookie.
 
-3. **Auth Flow Trace:**
-   ```
-   Auth fixture → Sets cookie: sb-{projectRef}-auth-token (base64 session)
-        ↓
-   Browser navigates to /userlibrary
-        ↓
-   Middleware validates cookie → allows access ✅
-        ↓
-   Page calls supabase_browser.auth.getUser() → gets user ✅
-        ↓
-   Page calls getUserLibraryExplanationsAction(userId)
-        ↓
-   Server action creates Supabase client via createSupabaseServerClient()
-        ↓
-   Server queries userLibrary with .eq('userid', userId)
-        ↓
-   RLS checks: auth.uid() = userid → NULL = UUID → BLOCKED ✗
-        ↓
-   Empty result returned → libraryState === 'empty' → test.skip()
-   ```
+Attempted fix: Added `page.addInitScript()` to inject auth into localStorage.
 
-**Root Cause Confirmed:**
-The server Supabase client cannot establish `auth.uid()` from the cookie. The RLS policy `auth.uid() = userid` evaluates to `NULL = UUID`, which is FALSE, blocking all rows.
+Result: Tests still skipping. Back to Phase 1 investigation.
 
-**Evidence:**
-- Tests see 'empty' (not 'error') → browser auth works, middleware allows access
-- But server query returns empty → RLS blocking
-- Database has data for this user (verified via service role query)
+#### Fix #2: Base64URL Encoding ⏳ IN PROGRESS
 
-**Why `auth.uid()` is NULL on server:**
-1. Browser client (`src/lib/utils/supabase/client.ts`) uses **custom storage** (localStorage/sessionStorage)
-2. Auth fixture only sets a **cookie**, not localStorage
-3. Server client reads cookie, but may not properly parse session to establish `auth.uid()`
+**New Investigation (2025-12-26):**
 
-**Potential mismatch:**
-- Browser client expects session in localStorage (custom storage config)
-- Auth fixture provides session in cookie only
-- Server client may not properly decode the base64 cookie format
+Traced the actual data flow:
+1. `userlibrary/page.tsx` is a Client Component
+2. It uses `supabase_browser` from `src/lib/supabase.ts`
+3. `supabase_browser` uses **default** `createBrowserClient` (cookie-based, NOT localStorage)
+4. The custom localStorage client in `client.ts` is NOT used by this page
 
-**Proposed Fixes:**
+**Root Cause Found:**
 
-| Fix | Description | Pros | Cons |
-|-----|-------------|------|------|
-| **A. Inject localStorage** | Auth fixture sets both cookie AND localStorage | Ensures browser client works | Requires page.addInitScript |
-| **B. Use default storage** | Remove custom storage from browser client | Consistent with server | May affect "remember me" feature |
-| **C. Fix cookie parsing** | Debug why server can't parse cookie | Fixes root cause | Need to understand Supabase SSR internals |
+| Component | Expected Encoding | Auth Fixture Uses |
+|-----------|-------------------|-------------------|
+| Supabase SSR `createBrowserClient` | `base64url` (default) | `base64` (Node.js default) |
 
-**Diagnostic Logging Added (2025-12-26):**
-
-Added debug logging to `src/lib/services/userLibrary.ts`:
+The auth fixture uses:
 ```typescript
-// E2E DEBUG: Log server auth state to diagnose RLS issues
-if (process.env.E2E_TEST_MODE === 'true') {
-  const { data: authData, error: authError } = await supabase.auth.getUser();
-  logger.info('[E2E DEBUG] getExplanationIdsForUser', {
-    serverAuthUid: authData?.user?.id ?? 'NULL',
-    authError: authError?.message ?? null,
-    queryUserid: userid,
-    idsMatch: authData?.user?.id === userid
-  });
-}
+Buffer.from(JSON.stringify(sessionData)).toString('base64')
 ```
 
-**Observation:**
-- Debug logging was added but server.log file is not being created
-- The webServer output shows global-setup logs but not server-side function logs
-- Need to verify if the function is actually being called or if there's a logging issue
+This produces **regular base64** with `+`, `/`, `=` characters.
 
-**Next Steps:**
-1. ~~Add diagnostic logging to verify `auth.uid()` is NULL on server~~ ✅ Done
-2. Debug why server.log isn't being written (file permissions? path issue?)
-3. Consider adding console.error for immediate visibility in webServer output
-4. Apply Fix A or B based on confirmed findings
+But Supabase SSR's default `cookieEncoding` is `"base64url"`, which expects `-`, `_` characters without padding.
+
+**Encoding Difference:**
+- Regular Base64: `A-Z`, `a-z`, `0-9`, `+`, `/`, `=` padding
+- Base64URL: `A-Z`, `a-z`, `0-9`, `-`, `_`, no padding
+
+**The Fix:**
+Convert to base64url in the auth fixture:
+```typescript
+// BEFORE (broken):
+const cookieValue = `base64-${Buffer.from(JSON.stringify(sessionData)).toString('base64')}`;
+
+// AFTER (fixed):
+const base64 = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+const cookieValue = `base64-${base64url}`;
+```
+
+**Sources:**
+- [Supabase SSR createBrowserClient](https://github.com/supabase/ssr/blob/main/src/createBrowserClient.ts) - Shows `cookieEncoding: "base64url"` default
+- [Supabase Auth Discussions](https://github.com/orgs/supabase/discussions/21824) - Cookie storage format
 
 ---
 
@@ -351,21 +320,18 @@ From Phase 0 verification:
 **Current Status (2025-12-26):**
 - 31 passed, 1 failed, 91 skipped
 - Data seeding works correctly (verified via SQL query)
-- **ROOT CAUSE IDENTIFIED:** Server `auth.uid()` is NULL due to cookie/storage mismatch
-- RLS policy blocks queries even though data exists and user ID is correct
-- Diagnostic logging added to `userLibrary.ts` but server.log not being created
-
-**Root Cause Details:**
-The auth fixture sets a cookie, but the browser Supabase client uses custom localStorage storage. The server cannot properly establish `auth.uid()` from the cookie, causing RLS to block all rows.
+- **ROOT CAUSE FOUND:** Cookie uses base64, Supabase SSR expects base64url
+- Fix #1 (localStorage injection) failed - wrong hypothesis
+- Fix #2 (base64url encoding) in progress
 
 **Investigation Progress:**
 1. ✅ Verified TEST_USER_ID matches actual Supabase auth user ID
 2. ✅ Confirmed RLS policy exists: `auth.uid() = userid`
-3. ✅ Added diagnostic logging to userLibrary.ts
-4. 🔄 Need to verify logging output (server.log not being created)
-5. ⏳ Pending: Confirm hypothesis and apply fix
+3. ✅ Traced data flow: userlibrary uses `supabase_browser` (cookie-based, not localStorage)
+4. ✅ Found encoding mismatch: base64 vs base64url
+5. 🔄 Implementing Fix #2: Convert to base64url encoding
 
 **Remaining items:**
-1. **[BLOCKING]** Fix Issue 5: Confirm server auth.uid() is NULL → apply fix
+1. **[IN PROGRESS]** Fix Issue 5: Apply base64url encoding fix
 2. Fix save button test failure
 3. CI secrets configuration

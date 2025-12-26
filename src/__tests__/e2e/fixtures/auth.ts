@@ -105,6 +105,19 @@ export const test = base.extend<{ authenticatedPage: Page }>({
       },
     ]);
 
+    // Also inject into localStorage for browser Supabase client
+    // The custom browser client (client.ts) overrides SSR default to use localStorage
+    // Note: localStorage uses plain JSON, not base64 encoding like cookies
+    const localStorageKey = `sb-${projectRef}-auth-token`;
+    const localStorageValue = JSON.stringify(sessionData);
+
+    await page.addInitScript(
+      ({ key, value }) => {
+        localStorage.setItem(key, value);
+      },
+      { key: localStorageKey, value: localStorageValue }
+    );
+
     // use is Playwright fixture, not React hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
     await use(page);
