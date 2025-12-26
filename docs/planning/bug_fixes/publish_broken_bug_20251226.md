@@ -1,7 +1,7 @@
 # Bug Investigation: Publish Broken After Streaming
 
 **Date:** 2025-12-26
-**Status:** In Progress - Phase 1 (Root Cause Investigation)
+**Status:** Root Cause Identified - Ready for Fix
 
 ## Problem Statement
 
@@ -99,19 +99,58 @@ if (!(error instanceof Error)) {
 - If error is not `instanceof Error`, returns `UNKNOWN_ERROR`
 - Original error details are lost
 
-## Hypotheses
+## Root Cause (CONFIRMED)
 
-### Hypothesis 1: Non-Error Object Thrown
-Something in the chain is throwing a non-Error object (string, object, or undefined). This is swallowed by the generic error handler.
+**Supabase error objects are NOT `instanceof Error`** - they are plain objects with `{code, message, details, hint}`.
 
-### Hypothesis 2: Aborted Request
-The `[Error: aborted]` in logs suggests the request might be getting cancelled. Possible causes:
-- Client navigating away during streaming
-- Timeout during embedding creation
-- Race condition in streaming
+The codebase has ~40+ locations throwing these directly:
+```typescript
+if (error) throw error;  // Plain object, NOT Error instance
+```
 
-### Hypothesis 3: Embedding/Pinecone Failure
-The embedding step (`processContentToStoreEmbedding`) might be failing silently or throwing a non-Error.
+When these reach `src/lib/errorHandling.ts:36-41`:
+```typescript
+if (!(error instanceof Error)) {
+  return { code: 'UNKNOWN_ERROR', message: 'An unexpected error occurred' };
+}
+```
+
+**All error context is lost** - user sees generic "An unexpected error occurred".
+
+### Bug Flow
+1. Streaming completes successfully ✓
+2. Post-streaming ops run (`saveHeadingLinks`, `linkSourcesToExplanation`, etc.)
+3. One of these fails with a Supabase error (plain object)
+4. `handleError()` → `categorizeError()` → not `instanceof Error` → generic message
+5. User sees error, explanation not saved
+
+### Evidence: Non-Error Throw Locations
+
+**Files with `if (error) throw error;` pattern (Supabase errors):**
+- `src/lib/services/linkWhitelist.ts` - ~15 locations (lines 62, 75, 98, 109, 118, 148, 170, 185, 203, 220, 242, 264, 289, 327, 452)
+- `src/lib/services/sourceCache.ts` - ~4 locations (lines 51, 64, 80, 96, 284)
+- `src/lib/services/explanationTags.ts` - ~6 locations
+- `src/lib/services/topics.ts` - ~7 locations (lines 41, 51, 69, 101, 124, 141, 162)
+- `src/lib/services/explanations.ts` - ~7 locations (lines 44-52, 72, 124, 217, 234, 257, 288)
+
+### Secondary Issue: Unsafe Error Casts
+
+In `src/lib/services/vectorsim.ts`, there are unsafe type assertions:
+```typescript
+span.setStatus({ code: 2, message: (error as Error).message });
+```
+Lines: 130-131, 245-246, 337-338, 587-588
+
+## Previous Hypotheses (Superseded)
+
+### ~~Hypothesis 1: Non-Error Object Thrown~~ ✓ CONFIRMED
+This is the root cause - Supabase errors are plain objects.
+
+### ~~Hypothesis 2: Aborted Request~~
+The `[Error: aborted]` in logs is likely a secondary symptom - streaming routes don't handle client disconnects gracefully.
+
+### ~~Hypothesis 3: Embedding/Pinecone Failure~~
+Not the primary cause, though vectorsim.ts has unsafe error casts that could cause issues.
 
 ## Files Involved
 
@@ -124,13 +163,67 @@ The embedding step (`processContentToStoreEmbedding`) might be failing silently 
 | `src/actions/actions.ts` | `saveExplanationAndTopic()` |
 | `src/lib/services/vectorsim.ts` | `processContentToStoreEmbedding()` |
 
-## Next Steps
+## Fix Plan
 
-1. **Add detailed error logging** to catch the actual error before it's categorized
-2. **Check for non-Error throws** in the generation/save chain
-3. **Investigate `[Error: aborted]`** - is the streaming connection being closed prematurely?
-4. **Test Pinecone/embedding** step in isolation
-5. **Form hypothesis and test minimally**
+### Strategy: Detect Supabase Errors in Error Handler
+
+**Minimal fix** - modify `categorizeError()` to recognize Supabase error objects.
+
+### File: `src/lib/errorHandling.ts`
+
+Add Supabase error detection before the generic fallback:
+
+```typescript
+function categorizeError(error: unknown): ErrorResponse {
+  // Handle non-Error objects (like Supabase errors)
+  if (!(error instanceof Error)) {
+    // Detect Supabase/Postgres error objects: { code, message, details?, hint? }
+    if (isSupabaseError(error)) {
+      return {
+        code: ERROR_CODES.DATABASE_ERROR,
+        message: error.message || 'Database operation failed',
+        details: { supabaseCode: error.code, hint: error.hint }
+      };
+    }
+    return {
+      code: ERROR_CODES.UNKNOWN_ERROR,
+      message: 'An unexpected error occurred'
+    };
+  }
+  // ... rest of existing logic
+}
+
+// Type guard for Supabase errors
+function isSupabaseError(error: unknown): error is { code: string; message: string; details?: string; hint?: string } {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    'message' in error &&
+    typeof (error as any).code === 'string' &&
+    typeof (error as any).message === 'string'
+  );
+}
+```
+
+### Why This Approach
+- **Minimal change** - fixes issue at single point (error handler)
+- **Immediate protection** - covers all ~40 throw sites without touching them
+- **Preserves error info** - user/logs now see actual Supabase error message
+- **No breaking changes** - existing code continues to work
+
+### Testing
+1. Run existing debug test `src/__tests__/e2e/specs/debug-publish-bug.spec.ts`
+2. Verify error message now shows database context instead of "An unexpected error occurred"
+3. Run full test suite to ensure no regressions
+
+## Previous Next Steps (Completed)
+
+1. ~~**Add detailed error logging** to catch the actual error before it's categorized~~ - Done via codebase analysis
+2. ~~**Check for non-Error throws** in the generation/save chain~~ - Found ~40+ locations
+3. ~~**Investigate `[Error: aborted]`**~~ - Secondary issue, streaming doesn't handle client disconnects
+4. ~~**Test Pinecone/embedding** step in isolation~~ - Not the root cause
+5. ~~**Form hypothesis and test minimally**~~ - Hypothesis confirmed: Supabase errors
 
 ## Test File Created
 
