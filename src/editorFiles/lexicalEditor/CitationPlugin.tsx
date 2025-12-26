@@ -218,7 +218,9 @@ export function CitationPlugin({ sources, enabled = true }: CitationPluginProps)
 
           {/* Content */}
           <div className="relative flex items-start gap-2">
+            {/* Favicon - using img for dynamic external URLs */}
             {tooltip.source.favicon_url && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={tooltip.source.favicon_url}
                 alt=""

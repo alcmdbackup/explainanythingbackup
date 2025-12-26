@@ -98,8 +98,9 @@ export default function CitationTooltip({ source, children, className = '' }: Ci
 
           {/* Content */}
           <div className="relative flex items-start gap-2">
-            {/* Favicon */}
+            {/* Favicon - using img for dynamic external URLs */}
             {source.favicon_url && (
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={source.favicon_url}
                 alt=""

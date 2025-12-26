@@ -108,8 +108,9 @@ jest.mock('@/editorFiles/lexicalEditor/LexicalEditor', () => {
 });
 
 jest.mock('@/components/AISuggestionsPanel', () => {
-  return function MockAISuggestionsPanel({ isVisible }: any) {
-    return isVisible ? <div data-testid="ai-suggestions-panel">AI Suggestions</div> : null;
+  return function MockAISuggestionsPanel({ isOpen }: any) {
+    // Panel always renders but with different width based on isOpen
+    return <div data-testid="ai-suggestions-panel" data-open={isOpen}>AI Suggestions</div>;
   };
 });
 

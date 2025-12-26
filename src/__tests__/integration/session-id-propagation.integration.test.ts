@@ -4,8 +4,6 @@
  * Tests the flow of sessionId from client through server actions and API routes.
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 
