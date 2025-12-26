@@ -11,6 +11,7 @@ import {
   initialPageLifecycleState,
   PageLifecycleState,
   PageLifecycleAction,
+  MutationOp,
   isPageLoading,
   isStreaming,
   isEditMode,
@@ -23,7 +24,44 @@ import {
   getOriginalTitle,
   getOriginalStatus,
   hasUnsavedChanges,
+  canRequestAISuggestion,
+  canToggleMode,
+  hasPendingModeToggle,
+  getMutationQueueLength,
+  isMutationProcessing,
+  getLastMutationError,
 } from './pageLifecycleReducer';
+
+// Helper to create viewing state with mutation queue defaults
+const createViewingState = (overrides: Partial<Extract<PageLifecycleState, { phase: 'viewing' }>> = {}): PageLifecycleState => ({
+  phase: 'viewing',
+  content: 'Original content',
+  title: 'Original title',
+  status: ExplanationStatus.Published,
+  originalContent: 'Original content',
+  originalTitle: 'Original title',
+  originalStatus: ExplanationStatus.Published,
+  pendingMutations: [],
+  processingMutation: null,
+  pendingModeToggle: false,
+  ...overrides,
+});
+
+// Helper to create editing state with mutation queue defaults
+const createEditingState = (overrides: Partial<Extract<PageLifecycleState, { phase: 'editing' }>> = {}): PageLifecycleState => ({
+  phase: 'editing',
+  content: 'Original content',
+  title: 'Original title',
+  status: ExplanationStatus.Published,
+  originalContent: 'Original content',
+  originalTitle: 'Original title',
+  originalStatus: ExplanationStatus.Published,
+  hasUnsavedChanges: false,
+  pendingMutations: [],
+  processingMutation: null,
+  pendingModeToggle: false,
+  ...overrides,
+});
 
 describe('pageLifecycleReducer', () => {
   // ==========================================================================
@@ -111,15 +149,12 @@ describe('pageLifecycleReducer', () => {
       };
       const result = pageLifecycleReducer(state, action);
 
-      expect(result).toEqual({
-        phase: 'viewing',
+      expect(result).toEqual(createViewingState({
         content: 'Final content',
         title: 'Final title',
-        status: ExplanationStatus.Published,
-        originalContent: 'Final content', // Should set original
+        originalContent: 'Final content',
         originalTitle: 'Final title',
-        originalStatus: ExplanationStatus.Published,
-      });
+      }));
     });
 
     it('should allow LOAD_EXPLANATION from idle (direct load from DB)', () => {
@@ -132,15 +167,14 @@ describe('pageLifecycleReducer', () => {
       };
       const result = pageLifecycleReducer(state, action);
 
-      expect(result).toEqual({
-        phase: 'viewing',
+      expect(result).toEqual(createViewingState({
         content: 'DB content',
         title: 'DB title',
         status: ExplanationStatus.Draft,
         originalContent: 'DB content',
         originalTitle: 'DB title',
         originalStatus: ExplanationStatus.Draft,
-      });
+      }));
     });
   });
 
@@ -148,43 +182,17 @@ describe('pageLifecycleReducer', () => {
   // EDIT FLOW: viewing → editing → viewing (revert) OR editing → saving
   // ==========================================================================
   describe('edit flow', () => {
-    const viewingState: PageLifecycleState = {
-      phase: 'viewing',
-      content: 'Original content',
-      title: 'Original title',
-      status: ExplanationStatus.Published,
-      originalContent: 'Original content',
-      originalTitle: 'Original title',
-      originalStatus: ExplanationStatus.Published,
-    };
+    const viewingState = createViewingState();
 
     it('should transition from viewing to editing on ENTER_EDIT_MODE', () => {
       const action: PageLifecycleAction = { type: 'ENTER_EDIT_MODE' };
       const result = pageLifecycleReducer(viewingState, action);
 
-      expect(result).toEqual({
-        phase: 'editing',
-        content: 'Original content',
-        title: 'Original title',
-        status: ExplanationStatus.Published,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
-        hasUnsavedChanges: false,
-      });
+      expect(result).toEqual(createEditingState());
     });
 
     it('should update content and compute hasUnsavedChanges in editing phase', () => {
-      const editingState: PageLifecycleState = {
-        phase: 'editing',
-        content: 'Original content',
-        title: 'Original title',
-        status: ExplanationStatus.Published,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
-        hasUnsavedChanges: false,
-      };
+      const editingState = createEditingState();
 
       const action: PageLifecycleAction = {
         type: 'UPDATE_CONTENT',
@@ -192,29 +200,15 @@ describe('pageLifecycleReducer', () => {
       };
       const result = pageLifecycleReducer(editingState, action);
 
-      expect(result).toEqual({
-        phase: 'editing',
+      expect(result).toEqual(createEditingState({
         content: 'Modified content',
-        title: 'Original title',
         status: ExplanationStatus.Draft, // Changed to Draft because Published + changes
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
         hasUnsavedChanges: true,
-      });
+      }));
     });
 
     it('should update title and compute hasUnsavedChanges in editing phase', () => {
-      const editingState: PageLifecycleState = {
-        phase: 'editing',
-        content: 'Original content',
-        title: 'Original title',
-        status: ExplanationStatus.Published,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
-        hasUnsavedChanges: false,
-      };
+      const editingState = createEditingState();
 
       const action: PageLifecycleAction = {
         type: 'UPDATE_TITLE',
@@ -222,29 +216,18 @@ describe('pageLifecycleReducer', () => {
       };
       const result = pageLifecycleReducer(editingState, action);
 
-      expect(result).toEqual({
-        phase: 'editing',
-        content: 'Original content',
+      expect(result).toEqual(createEditingState({
         title: 'Modified title',
         status: ExplanationStatus.Draft, // Changed to Draft because Published + changes
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
         hasUnsavedChanges: true,
-      });
+      }));
     });
 
     it('should NOT change status to Draft if original status was Draft', () => {
-      const editingState: PageLifecycleState = {
-        phase: 'editing',
-        content: 'Original content',
-        title: 'Original title',
+      const editingState = createEditingState({
         status: ExplanationStatus.Draft,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
         originalStatus: ExplanationStatus.Draft,
-        hasUnsavedChanges: false,
-      };
+      });
 
       const action: PageLifecycleAction = {
         type: 'UPDATE_CONTENT',
@@ -257,43 +240,31 @@ describe('pageLifecycleReducer', () => {
     });
 
     it('should preserve modified content on EXIT_EDIT_MODE (not revert)', () => {
-      const editingState: PageLifecycleState = {
-        phase: 'editing',
+      const editingState = createEditingState({
         content: 'Modified content',
         title: 'Modified title',
         status: ExplanationStatus.Draft,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
         hasUnsavedChanges: true,
-      };
+      });
 
       const action: PageLifecycleAction = { type: 'EXIT_EDIT_MODE' };
       const result = pageLifecycleReducer(editingState, action);
 
-      expect(result).toEqual({
-        phase: 'viewing',
+      expect(result).toEqual(createViewingState({
         content: 'Modified content', // PRESERVED (not reverted)
         title: 'Modified title', // PRESERVED (not reverted)
         status: ExplanationStatus.Draft, // PRESERVED (shows Draft)
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
         hasUnsavedChanges: true, // Still has unsaved changes
-      });
+      }));
     });
 
     it('should transition from editing to saving on START_SAVE', () => {
-      const editingState: PageLifecycleState = {
-        phase: 'editing',
+      const editingState = createEditingState({
         content: 'Modified content',
         title: 'Modified title',
         status: ExplanationStatus.Draft,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
         hasUnsavedChanges: true,
-      };
+      });
 
       const action: PageLifecycleAction = { type: 'START_SAVE' };
       const result = pageLifecycleReducer(editingState, action);
@@ -345,16 +316,12 @@ describe('pageLifecycleReducer', () => {
     });
 
     it('should preserve editing state when error occurs during editing', () => {
-      const editingState: PageLifecycleState = {
-        phase: 'editing',
+      const editingState = createEditingState({
         content: 'Modified content',
         title: 'Modified title',
         status: ExplanationStatus.Draft,
-        originalContent: 'Original content',
-        originalTitle: 'Original title',
-        originalStatus: ExplanationStatus.Published,
         hasUnsavedChanges: true,
-      };
+      });
 
       const action: PageLifecycleAction = {
         type: 'ERROR',
@@ -376,15 +343,12 @@ describe('pageLifecycleReducer', () => {
     });
 
     it('should preserve viewing state when error occurs during viewing', () => {
-      const viewingState: PageLifecycleState = {
-        phase: 'viewing',
+      const viewingState = createViewingState({
         content: 'Content',
         title: 'Title',
-        status: ExplanationStatus.Published,
         originalContent: 'Content',
         originalTitle: 'Title',
-        originalStatus: ExplanationStatus.Published,
-      };
+      });
 
       const action: PageLifecycleAction = {
         type: 'ERROR',
@@ -413,15 +377,7 @@ describe('pageLifecycleReducer', () => {
       const states: PageLifecycleState[] = [
         { phase: 'loading' },
         { phase: 'streaming', content: 'test', title: 'test' },
-        {
-          phase: 'viewing',
-          content: 'test',
-          title: 'test',
-          status: ExplanationStatus.Published,
-          originalContent: 'test',
-          originalTitle: 'test',
-          originalStatus: ExplanationStatus.Published,
-        },
+        createViewingState({ content: 'test', title: 'test', originalContent: 'test', originalTitle: 'test' }),
         { phase: 'error', error: 'test' },
       ];
 
@@ -493,15 +449,12 @@ describe('pageLifecycleReducer', () => {
     it('should warn and ignore UPDATE_CONTENT from non-editing phase', () => {
       const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
 
-      const state: PageLifecycleState = {
-        phase: 'viewing',
+      const state = createViewingState({
         content: 'test',
         title: 'test',
-        status: ExplanationStatus.Published,
         originalContent: 'test',
         originalTitle: 'test',
-        originalStatus: ExplanationStatus.Published,
-      };
+      });
       const action: PageLifecycleAction = {
         type: 'UPDATE_CONTENT',
         content: 'new',
@@ -549,16 +502,12 @@ describe('pageLifecycleReducer', () => {
 
     describe('isEditMode', () => {
       it('should return true for editing phase', () => {
-        const state: PageLifecycleState = {
-          phase: 'editing',
+        const state = createEditingState({
           content: 'test',
           title: 'test',
-          status: ExplanationStatus.Published,
           originalContent: 'test',
           originalTitle: 'test',
-          originalStatus: ExplanationStatus.Published,
-          hasUnsavedChanges: false,
-        };
+        });
         expect(isEditMode(state)).toBe(true);
       });
 
@@ -606,15 +555,12 @@ describe('pageLifecycleReducer', () => {
       });
 
       it('should return content from viewing phase', () => {
-        const state: PageLifecycleState = {
-          phase: 'viewing',
+        const state = createViewingState({
           content: 'test',
           title: 'title',
-          status: ExplanationStatus.Published,
           originalContent: 'test',
           originalTitle: 'title',
-          originalStatus: ExplanationStatus.Published,
-        };
+        });
         expect(getContent(state)).toBe('test');
       });
 
@@ -625,30 +571,22 @@ describe('pageLifecycleReducer', () => {
 
     describe('hasUnsavedChanges', () => {
       it('should return true when in editing phase with changes', () => {
-        const state: PageLifecycleState = {
-          phase: 'editing',
+        const state = createEditingState({
           content: 'modified',
-          title: 'test',
           status: ExplanationStatus.Draft,
           originalContent: 'original',
-          originalTitle: 'test',
-          originalStatus: ExplanationStatus.Published,
           hasUnsavedChanges: true,
-        };
+        });
         expect(hasUnsavedChanges(state)).toBe(true);
       });
 
       it('should return false when in editing phase without changes', () => {
-        const state: PageLifecycleState = {
-          phase: 'editing',
+        const state = createEditingState({
           content: 'test',
           title: 'test',
-          status: ExplanationStatus.Published,
           originalContent: 'test',
           originalTitle: 'test',
-          originalStatus: ExplanationStatus.Published,
-          hasUnsavedChanges: false,
-        };
+        });
         expect(hasUnsavedChanges(state)).toBe(false);
       });
 
@@ -722,15 +660,12 @@ describe('pageLifecycleReducer', () => {
 
     it('should handle edit → exit (preserve changes) → re-enter edit flow', () => {
       // Start in viewing
-      let state: PageLifecycleState = {
-        phase: 'viewing',
+      let state: PageLifecycleState = createViewingState({
         content: 'Original',
         title: 'Original Title',
-        status: ExplanationStatus.Published,
         originalContent: 'Original',
         originalTitle: 'Original Title',
-        originalStatus: ExplanationStatus.Published,
-      };
+      });
 
       // Enter edit
       state = pageLifecycleReducer(state, { type: 'ENTER_EDIT_MODE' });
@@ -756,6 +691,306 @@ describe('pageLifecycleReducer', () => {
       expect(state.phase).toBe('editing');
       expect(getContent(state)).toBe('Modified'); // Still has modified content
       expect(hasUnsavedChanges(state)).toBe(true); // Still has unsaved changes
+    });
+  });
+
+  // ==========================================================================
+  // MUTATION QUEUE ACTIONS
+  // ==========================================================================
+  describe('mutation queue actions', () => {
+    describe('QUEUE_MUTATION', () => {
+      it('should add mutation to queue in viewing phase', () => {
+        const state = createViewingState();
+        const action: PageLifecycleAction = {
+          type: 'QUEUE_MUTATION',
+          nodeKey: 'node-1',
+          mutationType: 'accept',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        expect(result.phase).toBe('viewing');
+        if (result.phase === 'viewing') {
+          expect(result.pendingMutations).toHaveLength(1);
+          expect(result.pendingMutations[0].nodeKey).toBe('node-1');
+          expect(result.pendingMutations[0].type).toBe('accept');
+          expect(result.pendingMutations[0].status).toBe('pending');
+        }
+      });
+
+      it('should add mutation to queue in editing phase', () => {
+        const state = createEditingState();
+        const action: PageLifecycleAction = {
+          type: 'QUEUE_MUTATION',
+          nodeKey: 'node-2',
+          mutationType: 'reject',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        expect(result.phase).toBe('editing');
+        if (result.phase === 'editing') {
+          expect(result.pendingMutations).toHaveLength(1);
+          expect(result.pendingMutations[0].type).toBe('reject');
+        }
+      });
+
+      it('should warn and ignore QUEUE_MUTATION in streaming phase', () => {
+        const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+        const state: PageLifecycleState = { phase: 'streaming', content: '', title: '' };
+        const action: PageLifecycleAction = {
+          type: 'QUEUE_MUTATION',
+          nodeKey: 'node-1',
+          mutationType: 'accept',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        expect(consoleSpy).toHaveBeenCalled();
+        expect(result).toEqual(state);
+        consoleSpy.mockRestore();
+      });
+    });
+
+    describe('START_MUTATION', () => {
+      it('should move mutation to processing state', () => {
+        const initialMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'pending',
+        };
+        const state = createViewingState({ pendingMutations: [initialMutation] });
+        const action: PageLifecycleAction = { type: 'START_MUTATION', id: 'mutation-1' };
+        const result = pageLifecycleReducer(state, action);
+
+        if (result.phase === 'viewing') {
+          expect(result.processingMutation).not.toBeNull();
+          expect(result.processingMutation?.status).toBe('processing');
+          expect(result.pendingMutations[0].status).toBe('processing');
+        }
+      });
+    });
+
+    describe('COMPLETE_MUTATION', () => {
+      it('should remove mutation from queue and update content', () => {
+        const initialMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'processing',
+        };
+        const state = createViewingState({
+          pendingMutations: [initialMutation],
+          processingMutation: initialMutation,
+        });
+        const action: PageLifecycleAction = {
+          type: 'COMPLETE_MUTATION',
+          id: 'mutation-1',
+          newContent: 'Updated content after accept',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        if (result.phase === 'viewing') {
+          expect(result.pendingMutations).toHaveLength(0);
+          expect(result.processingMutation).toBeNull();
+          expect(result.content).toBe('Updated content after accept');
+        }
+      });
+
+      it('should execute pending mode toggle when queue empties', () => {
+        const initialMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'processing',
+        };
+        const state = createViewingState({
+          pendingMutations: [initialMutation],
+          processingMutation: initialMutation,
+          pendingModeToggle: true,
+        });
+        const action: PageLifecycleAction = {
+          type: 'COMPLETE_MUTATION',
+          id: 'mutation-1',
+          newContent: 'Updated content',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        // Should transition to editing due to pending mode toggle
+        expect(result.phase).toBe('editing');
+        if (result.phase === 'editing') {
+          expect(result.pendingModeToggle).toBe(false);
+        }
+      });
+    });
+
+    describe('FAIL_MUTATION', () => {
+      it('should remove mutation from queue and set error', () => {
+        const initialMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'processing',
+        };
+        const state = createViewingState({
+          pendingMutations: [initialMutation],
+          processingMutation: initialMutation,
+        });
+        const action: PageLifecycleAction = {
+          type: 'FAIL_MUTATION',
+          id: 'mutation-1',
+          error: 'Node not found',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        if (result.phase === 'viewing') {
+          expect(result.pendingMutations).toHaveLength(0);
+          expect(result.processingMutation).toBeNull();
+          expect(result.lastMutationError).toBe('Node not found');
+        }
+      });
+    });
+
+    describe('REQUEST_MODE_TOGGLE', () => {
+      it('should toggle immediately when no mutations pending', () => {
+        const state = createViewingState();
+        const action: PageLifecycleAction = { type: 'REQUEST_MODE_TOGGLE' };
+        const result = pageLifecycleReducer(state, action);
+
+        expect(result.phase).toBe('editing');
+      });
+
+      it('should queue toggle when mutations are pending', () => {
+        const pendingMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'pending',
+        };
+        const state = createViewingState({ pendingMutations: [pendingMutation] });
+        const action: PageLifecycleAction = { type: 'REQUEST_MODE_TOGGLE' };
+        const result = pageLifecycleReducer(state, action);
+
+        expect(result.phase).toBe('viewing'); // Still viewing
+        if (result.phase === 'viewing') {
+          expect(result.pendingModeToggle).toBe(true);
+        }
+      });
+    });
+
+    describe('APPLY_AI_SUGGESTION', () => {
+      it('should enter edit mode and clear mutation queue', () => {
+        const pendingMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'pending',
+        };
+        const state = createViewingState({ pendingMutations: [pendingMutation] });
+        const action: PageLifecycleAction = {
+          type: 'APPLY_AI_SUGGESTION',
+          content: 'AI suggested content with {++additions++}',
+        };
+        const result = pageLifecycleReducer(state, action);
+
+        expect(result.phase).toBe('editing');
+        if (result.phase === 'editing') {
+          expect(result.content).toBe('AI suggested content with {++additions++}');
+          expect(result.pendingMutations).toHaveLength(0);
+          expect(result.hasUnsavedChanges).toBe(true);
+        }
+      });
+    });
+  });
+
+  // ==========================================================================
+  // MUTATION QUEUE SELECTORS
+  // ==========================================================================
+  describe('mutation queue selectors', () => {
+    describe('canRequestAISuggestion', () => {
+      it('should return false during streaming', () => {
+        const state: PageLifecycleState = { phase: 'streaming', content: '', title: '' };
+        expect(canRequestAISuggestion(state)).toBe(false);
+      });
+
+      it('should return true in viewing phase', () => {
+        const state = createViewingState();
+        expect(canRequestAISuggestion(state)).toBe(true);
+      });
+    });
+
+    describe('canToggleMode', () => {
+      it('should return false during streaming', () => {
+        const state: PageLifecycleState = { phase: 'streaming', content: '', title: '' };
+        expect(canToggleMode(state)).toBe(false);
+      });
+
+      it('should return true in viewing with empty queue', () => {
+        const state = createViewingState();
+        expect(canToggleMode(state)).toBe(true);
+      });
+
+      it('should return false in viewing with pending mutations', () => {
+        const pendingMutation: MutationOp = {
+          id: 'mutation-1',
+          type: 'accept',
+          nodeKey: 'node-1',
+          status: 'pending',
+        };
+        const state = createViewingState({ pendingMutations: [pendingMutation] });
+        expect(canToggleMode(state)).toBe(false);
+      });
+    });
+
+    describe('hasPendingModeToggle', () => {
+      it('should return true when mode toggle is queued', () => {
+        const state = createViewingState({ pendingModeToggle: true });
+        expect(hasPendingModeToggle(state)).toBe(true);
+      });
+
+      it('should return false when no mode toggle is queued', () => {
+        const state = createViewingState();
+        expect(hasPendingModeToggle(state)).toBe(false);
+      });
+    });
+
+    describe('getMutationQueueLength', () => {
+      it('should return queue length', () => {
+        const mutations: MutationOp[] = [
+          { id: '1', type: 'accept', nodeKey: 'n1', status: 'pending' },
+          { id: '2', type: 'reject', nodeKey: 'n2', status: 'pending' },
+        ];
+        const state = createViewingState({ pendingMutations: mutations });
+        expect(getMutationQueueLength(state)).toBe(2);
+      });
+
+      it('should return 0 for empty queue', () => {
+        const state = createViewingState();
+        expect(getMutationQueueLength(state)).toBe(0);
+      });
+    });
+
+    describe('isMutationProcessing', () => {
+      it('should return true when mutation is processing', () => {
+        const mutation: MutationOp = { id: '1', type: 'accept', nodeKey: 'n1', status: 'processing' };
+        const state = createViewingState({ processingMutation: mutation });
+        expect(isMutationProcessing(state)).toBe(true);
+      });
+
+      it('should return false when no mutation is processing', () => {
+        const state = createViewingState();
+        expect(isMutationProcessing(state)).toBe(false);
+      });
+    });
+
+    describe('getLastMutationError', () => {
+      it('should return error message', () => {
+        const state = createViewingState({ lastMutationError: 'Failed to apply' });
+        expect(getLastMutationError(state)).toBe('Failed to apply');
+      });
+
+      it('should return undefined when no error', () => {
+        const state = createViewingState();
+        expect(getLastMutationError(state)).toBeUndefined();
+      });
     });
   });
 });
