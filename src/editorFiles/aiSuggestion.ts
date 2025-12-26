@@ -3,6 +3,7 @@ import React from 'react';
 import { z } from 'zod';
 import { default_model } from '@/lib/services/llms';
 import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
+import { validateStep2Output, validateCriticMarkup, PipelineValidationResults, VALIDATION_DESCRIPTIONS } from './validation/pipelineValidation';
 
 /**
  * Schema for AI suggestion structured output
@@ -14,13 +15,14 @@ import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor
  * • Calls: N/A (validation schema)
  */
 export const aiSuggestionSchema = z.object({
-  edits: z.array(z.string()).min(1).refine(
+  // N: Add minimum length check for content segments to prevent empty strings
+  edits: z.array(z.string().min(1, 'Edit segments cannot be empty')).min(1).refine(
     (edits) => {
       // Must alternate between content and markers
       for (let i = 0; i < edits.length; i++) {
         const isMarker = edits[i] === "... existing text ...";
         const isEvenIndex = i % 2 === 0;
-        
+
         // Even indices (0, 2, 4...) should be content
         // Odd indices (1, 3, 5...) should be markers
         if (isEvenIndex && isMarker) {
@@ -30,7 +32,7 @@ export const aiSuggestionSchema = z.object({
           return false;
         }
       }
-      
+
       return true;
     },
     {
@@ -91,6 +93,11 @@ Or ending with marker:
 - Preserve markdown formatting in your edits
 - Only make edits that fulfill the user's instruction above
 - Each edit should be a complete, coherent section
+- CRITICAL: Each edit MUST include surrounding context from original:
+  1. The last sentence BEFORE your edit (from original) - as anchor
+  2. Your actual edited content
+  3. The first sentence AFTER your edit (from original) - as anchor
+- Skip before-anchor if editing at start, skip after-anchor if editing at end
 </rules>
 
 == Article to edit ==:
@@ -142,6 +149,60 @@ export function validateAISuggestionOutput(rawOutput: string): { success: true; 
   }
 }
 
+// K: Safe AST parsing with fallback
+interface SafeParseResult {
+   
+  ast: any;
+  issues: string[];
+}
+
+/**
+ * K: Safely parses markdown content with error handling
+ *
+ * Wraps remark parse calls in try-catch to prevent crashes from malformed markdown
+ */
+ 
+export async function safeParseMarkdown(content: string): Promise<SafeParseResult> {
+  const { unified } = await import('unified');
+  const { default: remarkParse } = await import('remark-parse');
+
+  try {
+    const ast = unified().use(remarkParse).parse(content);
+    return { ast, issues: [] };
+  } catch (e) {
+    console.warn('⚠️ Markdown parse error, using fallback:', e);
+    // Create a minimal fallback AST with the content as a single paragraph
+    const fallbackAst = {
+      type: 'root',
+      children: [
+        {
+          type: 'paragraph',
+          children: [
+            {
+              type: 'text',
+              value: content
+            }
+          ]
+        }
+      ]
+    };
+    return {
+      ast: fallbackAst,
+      issues: [`Parse error: ${e instanceof Error ? e.message : String(e)}`]
+    };
+  }
+}
+
+// E1: Pipeline timeout configuration
+const PIPELINE_TIMEOUT_MS = 90000; // 90 seconds
+
+/**
+ * E1: Creates a timeout error for pipeline operations
+ */
+function createTimeoutError(operation: string): Error {
+  return new Error(`Pipeline timeout: ${operation} exceeded ${PIPELINE_TIMEOUT_MS / 1000}s limit`);
+}
+
 export function createApplyEditsPrompt(aiSuggestions: string, originalContent: string): string {
     const applyPrompt = `You are an edit application tool. Your job is to take the suggested edits and apply them to the original content.
 
@@ -159,6 +220,8 @@ IMPORTANT RULES:
 - Do not include the "... existing text ..." markers in your output
 - Preserve all formatting, spacing, and structure from the original
 - Make sure the final text is complete and readable
+- Each edit includes anchor sentences from original. Use them to locate where to apply the edit
+- The anchor sentences should remain unchanged - only modify the content between anchors
 
 == AI SUGGESTIONS ==
 ${aiSuggestions}
@@ -192,7 +255,10 @@ export async function runAISuggestionsPipeline(
     explanation_title: string;
     user_prompt: string;
   }
-): Promise<{ content: string; session_id?: string }> {
+): Promise<{ content: string; session_id?: string; validationResults: PipelineValidationResults }> {
+  // Initialize validation results collector
+  const validationResults: PipelineValidationResults = {};
+
   console.log('🚀 PIPELINE START: runAISuggestionsPipeline called', {
     contentLength: currentContent.length,
     userId,
@@ -200,14 +266,25 @@ export async function runAISuggestionsPipeline(
     sessionData
   });
 
-  onProgress?.('Generating AI suggestions...', 25);
+  // E1: Pipeline-level timeout with AbortController
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, PIPELINE_TIMEOUT_MS);
 
-  // Import the server actions and utilities
+  try {
+    // Check if already aborted
+    if (controller.signal.aborted) {
+      throw createTimeoutError('pipeline initialization');
+    }
+
+    onProgress?.('Generating AI suggestions...', 25);
+
+    // Import the server actions and utilities
   const { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction } = await import('../actions/actions');
   const { RenderCriticMarkupFromMDAstDiff } = await import('./markdownASTdiff/markdownASTdiff');
   const { preprocessCriticMarkup } = await import('./lexicalEditor/importExportUtils');
-  const { unified } = await import('unified');
-  const { default: remarkParse } = await import('remark-parse');
+  // K: unified and remarkParse are now imported inside safeParseMarkdown
 
   console.log('📦 PIPELINE: Imports loaded successfully');
 
@@ -272,6 +349,19 @@ export async function runAISuggestionsPipeline(
   }
   const editedContent = editedContentResult.data;
 
+  // B2: Validate Step 2 output for content preservation
+  const step2Validation = validateStep2Output(currentContent, editedContent);
+  validationResults.step2 = {
+    ...step2Validation,
+    description: VALIDATION_DESCRIPTIONS.step2,
+  };
+  if (!step2Validation.valid) {
+    console.warn('⚠️ PIPELINE STEP 2 VALIDATION ISSUES:', step2Validation.issues);
+    if (step2Validation.severity === 'error') {
+      throw new Error(`Step 2 validation failed: ${step2Validation.issues.join(', ')}`);
+    }
+  }
+
   // Save step 2 if session data provided
   if (sessionData && sessionData.session_id) {
     console.log('💾 PIPELINE: Saving step 2 to database...');
@@ -298,13 +388,33 @@ export async function runAISuggestionsPipeline(
   onProgress?.('Generating diff...', 75);
   console.log('🔄 PIPELINE STEP 3: Generating diff...');
   // Generate AST diff and convert to CriticMarkup
-  const beforeAST = unified().use(remarkParse).parse(currentContent);
-  const afterAST = unified().use(remarkParse).parse(editedContent);
-  const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
+  // K: Use safe parse with fallback for malformed markdown
+  const beforeParsed = await safeParseMarkdown(currentContent);
+  const afterParsed = await safeParseMarkdown(editedContent);
+
+  if (beforeParsed.issues.length > 0) {
+    console.warn('⚠️ PIPELINE STEP 3: Before content parse issues:', beforeParsed.issues);
+  }
+  if (afterParsed.issues.length > 0) {
+    console.warn('⚠️ PIPELINE STEP 3: After content parse issues:', afterParsed.issues);
+  }
+
+  const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeParsed.ast, afterParsed.ast);
   console.log('🔄 PIPELINE STEP 3 RESULT:', {
     criticMarkupLength: criticMarkup.length,
     hasCriticMarkup: criticMarkup.length > 0
   });
+
+  // B3: Validate CriticMarkup syntax for balanced markers
+  const step3Validation = validateCriticMarkup(criticMarkup);
+  validationResults.step3 = {
+    ...step3Validation,
+    description: VALIDATION_DESCRIPTIONS.step3,
+  };
+  if (!step3Validation.valid) {
+    console.warn('⚠️ PIPELINE STEP 3 VALIDATION ISSUES:', step3Validation.issues);
+    // Log warning but don't throw - try to continue with potentially malformed markup
+  }
 
   // Save step 3 if session data provided
   if (sessionData && sessionData.session_id) {
@@ -351,7 +461,11 @@ export async function runAISuggestionsPipeline(
           explanation_title: sessionData.explanation_title,
           user_prompt: sessionData.user_prompt,
           source_content: currentContent,
-          session_metadata: { step: 'preprocessed', processing_time: Date.now() }
+          session_metadata: {
+            step: 'preprocessed',
+            processing_time: Date.now(),
+            validationResults: validationResults
+          }
         }
       );
       console.log('💾 PIPELINE STEP 4 SAVE RESULT:', saveResult);
@@ -368,8 +482,13 @@ export async function runAISuggestionsPipeline(
 
   return {
     content: preprocessed,
-    session_id: sessionData?.session_id
+    session_id: sessionData?.session_id,
+    validationResults,
   };
+  } finally {
+    // E1: Always clear the timeout
+    clearTimeout(timeoutId);
+  }
 }
 
 /**
@@ -392,7 +511,7 @@ export async function getAndApplyAISuggestions(
     explanation_title: string;
     user_prompt: string;
   }
-): Promise<{ success: boolean; content?: string; error?: string; session_id?: string }> {
+): Promise<{ success: boolean; content?: string; error?: string; session_id?: string; validationResults?: PipelineValidationResults }> {
   console.log('🎯 getAndApplyAISuggestions CALLED:', {
     contentLength: currentContent.length,
     hasSessionData: !!sessionData,
@@ -434,7 +553,8 @@ export async function getAndApplyAISuggestions(
     return {
       success: true,
       content: result.content,
-      session_id: result.session_id
+      session_id: result.session_id,
+      validationResults: result.validationResults,
     };
 
   } catch (error) {

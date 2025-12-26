@@ -178,7 +178,6 @@ describe('ImportModal', () => {
         });
 
         it('updates source dropdown when detection completes', async () => {
-            const user = userEvent.setup();
             (detectImportSource as jest.Mock).mockResolvedValue({
                 source: 'chatgpt',
                 error: null,
@@ -188,7 +187,7 @@ describe('ImportModal', () => {
             const textarea = screen.getByRole('textbox');
 
             const longContent = 'a'.repeat(105);
-            await user.type(textarea, longContent);
+            fireEvent.change(textarea, { target: { value: longContent } });
 
             await waitFor(() => {
                 expect(screen.getByRole('combobox')).toHaveTextContent('ChatGPT');
