@@ -72,7 +72,10 @@ test.describe('AI Suggestions State Management', () => {
       await page.keyboard.press('Meta+z');
 
       // Wait for diff state to change (either restored or processing complete)
-      await page.locator('[data-diff-key]').first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
+      // Silent catch: diff may or may not be restored depending on undo implementation
+      await page.locator('[data-diff-key]').first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
+        // Diff may not be restored - assertion below handles both cases
+      });
 
       // Verify diff is restored (or undo was processed)
       const afterUndoCounts = await getDiffCounts(page);
@@ -155,7 +158,10 @@ test.describe('AI Suggestions State Management', () => {
         await acceptAllButton.click();
 
         // Wait for all diffs to disappear
-        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+        // Silent catch: we verify via assertion below
+        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
+          // Diffs may already be hidden
+        });
 
         // All diffs should be removed
         const afterCounts = await getDiffCounts(page);
@@ -197,7 +203,10 @@ test.describe('AI Suggestions State Management', () => {
         await rejectAllButton.click();
 
         // Wait for all diffs to disappear
-        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {});
+        // Silent catch: we verify via assertion below
+        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
+          // Diffs may already be hidden
+        });
 
         // All diffs should be removed
         const afterCounts = await getDiffCounts(page);

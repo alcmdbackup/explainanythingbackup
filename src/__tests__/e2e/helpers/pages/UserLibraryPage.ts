@@ -22,16 +22,21 @@ export class UserLibraryPage extends BasePage {
     });
   }
 
-  async waitForContentOrError(timeout: number = 30000) {
+  async waitForContentOrError(timeout: number = 30000): Promise<'table' | 'error' | 'empty' | 'title' | 'timeout'> {
     // Wait for either the table, error, or empty state to appear
-    await Promise.race([
-      this.page.locator('table').waitFor({ state: 'visible', timeout }),
-      this.page.locator('[data-testid="library-error"]').waitFor({ state: 'visible', timeout }),
-      this.page.locator('[data-testid="library-empty-state"]').waitFor({ state: 'visible', timeout }),
-      this.page.locator('main h1').waitFor({ state: 'visible', timeout }),
-    ]).catch(() => {
+    // Return which state won to allow proper handling
+    try {
+      const result = await Promise.race([
+        this.page.locator('table').waitFor({ state: 'visible', timeout }).then(() => 'table' as const),
+        this.page.locator('[data-testid="library-error"]').waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
+        this.page.locator('[data-testid="library-empty-state"]').waitFor({ state: 'visible', timeout }).then(() => 'empty' as const),
+        this.page.locator('main h1').waitFor({ state: 'visible', timeout }).then(() => 'title' as const),
+      ]);
+      return result;
+    } catch {
       // Timeout - page might still be loading
-    });
+      return 'timeout';
+    }
   }
 
   async isLoading() {
@@ -113,8 +118,11 @@ export class UserLibraryPage extends BasePage {
   }
 
   async searchFromLibrary(query: string) {
-    await this.page.locator('[data-testid="search-input"]').fill(query);
-    await this.page.locator('[data-testid="search-input"]').press('Enter');
+    const input = this.page.locator('[data-testid="search-input"]');
+    await input.waitFor({ state: 'visible' });
+    await input.clear();
+    await input.fill(query);
+    await input.press('Enter');
   }
 
   async waitForTableToLoad(timeout: number = 30000): Promise<boolean> {

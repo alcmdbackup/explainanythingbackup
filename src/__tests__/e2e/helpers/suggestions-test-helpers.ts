@@ -79,18 +79,24 @@ export async function getUpdateDiffs(page: Page): Promise<Locator[]> {
 
 /**
  * Gets the accept button for a diff node by hovering over it.
+ * Waits for button to be visible after hover (CSS transition).
  */
 export async function getAcceptButton(page: Page, diffNode: Locator): Promise<Locator> {
   await diffNode.hover();
-  return page.locator('[data-testid="accept-diff-button"]');
+  const button = page.locator('[data-testid="accept-diff-button"]');
+  await button.waitFor({ state: 'visible', timeout: 5000 });
+  return button;
 }
 
 /**
  * Gets the reject button for a diff node by hovering over it.
+ * Waits for button to be visible after hover (CSS transition).
  */
 export async function getRejectButton(page: Page, diffNode: Locator): Promise<Locator> {
   await diffNode.hover();
-  return page.locator('[data-testid="reject-diff-button"]');
+  const button = page.locator('[data-testid="reject-diff-button"]');
+  await button.waitFor({ state: 'visible', timeout: 5000 });
+  return button;
 }
 
 /**
@@ -114,6 +120,7 @@ export async function rejectDiff(page: Page, diffNode: Locator): Promise<void> {
  */
 export async function acceptAllDiffs(page: Page): Promise<void> {
   const acceptAllButton = page.locator('[data-testid="accept-all-diffs-button"]');
+  await acceptAllButton.waitFor({ state: 'visible', timeout: 5000 });
   await acceptAllButton.click();
 }
 
@@ -122,6 +129,7 @@ export async function acceptAllDiffs(page: Page): Promise<void> {
  */
 export async function rejectAllDiffs(page: Page): Promise<void> {
   const rejectAllButton = page.locator('[data-testid="reject-all-diffs-button"]');
+  await rejectAllButton.waitFor({ state: 'visible', timeout: 5000 });
   await rejectAllButton.click();
 }
 
@@ -134,9 +142,22 @@ export async function submitAISuggestionPrompt(
   prompt: string
 ): Promise<void> {
   const textarea = page.locator('#ai-prompt');
+  await textarea.waitFor({ state: 'visible' });
+
+  // Clear and fill with verification to handle React controlled input race conditions
+  await textarea.clear();
   await textarea.fill(prompt);
+  await textarea.blur();
+
+  // Verify value stuck
+  const value = await textarea.inputValue();
+  if (value !== prompt) {
+    await textarea.click();
+    await textarea.pressSequentially(prompt, { delay: 50 });
+  }
 
   const submitButton = page.locator('button:has-text("Get Suggestions")');
+  await submitButton.waitFor({ state: 'visible' });
   await submitButton.click();
 }
 
@@ -196,14 +217,18 @@ export async function getEditorTextContent(page: Page): Promise<string> {
  * Clicks the accept button (✓) on the first visible diff node.
  */
 export async function clickAcceptOnFirstDiff(page: Page): Promise<void> {
-  await page.locator('button:has-text("✓")').first().click();
+  const button = page.locator('button:has-text("✓")').first();
+  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.click();
 }
 
 /**
  * Clicks the reject button (✕) on the first visible diff node.
  */
 export async function clickRejectOnFirstDiff(page: Page): Promise<void> {
-  await page.locator('button:has-text("✕")').first().click();
+  const button = page.locator('button:has-text("✕")').first();
+  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.click();
 }
 
 /**
@@ -237,5 +262,7 @@ export async function waitForEditMode(page: Page, timeout = 10000): Promise<void
  * Clicks the Done button to exit edit mode.
  */
 export async function clickDoneButton(page: Page): Promise<void> {
-  await page.locator('button:has-text("Done")').click();
+  const button = page.locator('button:has-text("Done")');
+  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.click();
 }

@@ -32,8 +32,19 @@ export class SearchPage extends BasePage {
     // Wait for React hydration before interacting
     const input = this.page.locator(this.searchInput);
     await input.waitFor({ state: 'visible' });
+
+    // Clear and fill with verification to handle React controlled input race conditions
     await input.click();
+    await input.clear();
     await input.fill(query);
+    await input.blur();
+
+    // Verify value stuck
+    const value = await input.inputValue();
+    if (value !== query) {
+      await input.click();
+      await input.pressSequentially(query, { delay: 50 });
+    }
 
     const button = this.page.locator(this.searchButton);
     await button.waitFor({ state: 'visible' });
@@ -44,8 +55,19 @@ export class SearchPage extends BasePage {
     // Wait for React hydration before interacting
     const input = this.page.locator(this.searchInput);
     await input.waitFor({ state: 'visible' });
+
+    // Clear and fill with verification to handle React controlled input race conditions
     await input.click();
+    await input.clear();
     await input.fill(query);
+    await input.blur();
+
+    // Verify value stuck
+    const value = await input.inputValue();
+    if (value !== query) {
+      await input.click();
+      await input.pressSequentially(query, { delay: 50 });
+    }
   }
 
   async clickSearch() {

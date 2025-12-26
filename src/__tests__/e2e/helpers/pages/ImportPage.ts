@@ -189,8 +189,14 @@ export class ImportPage extends BasePage {
      */
     async waitForDetectionComplete() {
         // Wait for detecting to appear then disappear
-        await this.page.locator(this.detectingIndicator).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {});
-        await this.page.locator(this.detectingIndicator).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {});
+        // Silent catches are intentional - detection may be too fast to observe
+        // or may have already completed before we check
+        await this.page.locator(this.detectingIndicator).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
+            // Detection may be too fast to catch, or already done
+        });
+        await this.page.locator(this.detectingIndicator).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
+            // Detection already complete
+        });
     }
 
     /**

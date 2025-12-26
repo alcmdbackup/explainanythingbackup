@@ -22,9 +22,26 @@ export class LoginPage extends BasePage {
     // Wait for form to be ready (React hydration complete)
     await this.page.locator(this.emailInput).waitFor({ state: 'visible' });
 
-    // Use locator-based fill (waits for actionability)
-    await this.page.locator(this.emailInput).fill(email);
-    await this.page.locator(this.passwordInput).fill(password);
+    // Clear and fill with verification to handle React Hook Form race conditions
+    const emailLocator = this.page.locator(this.emailInput);
+    const passwordLocator = this.page.locator(this.passwordInput);
+
+    // Fill email and verify it took
+    await emailLocator.clear();
+    await emailLocator.fill(email);
+    await emailLocator.blur(); // Trigger validation
+
+    // Retry if email didn't stick (React Hook Form race condition)
+    const emailValue = await emailLocator.inputValue();
+    if (emailValue !== email) {
+      await emailLocator.click();
+      await emailLocator.pressSequentially(email, { delay: 50 });
+    }
+
+    // Fill password
+    await passwordLocator.clear();
+    await passwordLocator.fill(password);
+
     await this.page.locator(this.submitButton).click();
   }
 
@@ -51,11 +68,19 @@ export class LoginPage extends BasePage {
   }
 
   async fillEmail(email: string) {
-    await this.page.locator(this.emailInput).fill(email);
+    const input = this.page.locator(this.emailInput);
+    await input.waitFor({ state: 'visible' });
+    await input.clear();
+    await input.fill(email);
+    await input.blur();
   }
 
   async fillPassword(password: string) {
-    await this.page.locator(this.passwordInput).fill(password);
+    const input = this.page.locator(this.passwordInput);
+    await input.waitFor({ state: 'visible' });
+    await input.clear();
+    await input.fill(password);
+    await input.blur();
   }
 
   async clickSubmit() {
@@ -76,8 +101,25 @@ export class LoginPage extends BasePage {
 
   async loginWithRememberMe(email: string, password: string, rememberMe: boolean) {
     await this.page.locator(this.emailInput).waitFor({ state: 'visible' });
-    await this.page.locator(this.emailInput).fill(email);
-    await this.page.locator(this.passwordInput).fill(password);
+
+    // Clear and fill with verification to handle React Hook Form race conditions
+    const emailLocator = this.page.locator(this.emailInput);
+    const passwordLocator = this.page.locator(this.passwordInput);
+
+    // Fill email and verify it took
+    await emailLocator.clear();
+    await emailLocator.fill(email);
+    await emailLocator.blur();
+
+    const emailValue = await emailLocator.inputValue();
+    if (emailValue !== email) {
+      await emailLocator.click();
+      await emailLocator.pressSequentially(email, { delay: 50 });
+    }
+
+    // Fill password
+    await passwordLocator.clear();
+    await passwordLocator.fill(password);
 
     const isChecked = await this.isRememberMeChecked();
     if (rememberMe !== isChecked) {

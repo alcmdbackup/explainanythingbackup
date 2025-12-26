@@ -90,7 +90,13 @@ export class ResultsPage extends BasePage {
 
   // Tag methods
   async getTags() {
-    await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
+    // Wait for tags to appear, return empty array if none exist
+    try {
+      await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      // No tags visible - return empty array
+      return [];
+    }
     const tags = this.page.locator(this.tagItem);
     const count = await tags.count();
     const tagTexts: string[] = [];
@@ -101,7 +107,13 @@ export class ResultsPage extends BasePage {
   }
 
   async getTagCount() {
-    await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 }).catch(() => null);
+    // Wait for tags to appear, return 0 if none exist
+    try {
+      await this.page.locator(this.tagItem).first().waitFor({ state: 'visible', timeout: 10000 });
+    } catch {
+      // No tags visible
+      return 0;
+    }
     return await this.page.locator(this.tagItem).count();
   }
 
@@ -112,9 +124,22 @@ export class ResultsPage extends BasePage {
 
   // Tag management methods
   async addTag(tagName: string) {
-    // Click on the add tag input field
-    await this.page.fill(this.tagAddInput, tagName);
-    await this.page.click(this.tagAddButton);
+    const input = this.page.locator(this.tagAddInput);
+    await input.waitFor({ state: 'visible' });
+
+    // Clear and fill with verification to handle React controlled input race conditions
+    await input.clear();
+    await input.fill(tagName);
+    await input.blur();
+
+    // Verify value stuck (React controlled input race condition)
+    const value = await input.inputValue();
+    if (value !== tagName) {
+      await input.click();
+      await input.pressSequentially(tagName, { delay: 50 });
+    }
+
+    await this.page.locator(this.tagAddButton).click();
   }
 
   async removeTag(index: number) {
@@ -243,7 +268,9 @@ export class ResultsPage extends BasePage {
 
   // Rewrite/Regeneration methods
   async clickRewriteButton() {
-    await this.page.click(this.rewriteButton);
+    const button = this.page.locator(this.rewriteButton);
+    await button.waitFor({ state: 'visible' });
+    await button.click();
   }
 
   async isRewriteButtonVisible(): Promise<boolean> {
@@ -257,7 +284,9 @@ export class ResultsPage extends BasePage {
   }
 
   async openRewriteDropdown() {
-    await this.page.click(this.rewriteDropdownToggle);
+    const button = this.page.locator(this.rewriteDropdownToggle);
+    await button.waitFor({ state: 'visible' });
+    await button.click();
   }
 
   async isRewriteDropdownVisible(): Promise<boolean> {
@@ -265,11 +294,15 @@ export class ResultsPage extends BasePage {
   }
 
   async clickRewriteWithTags() {
-    await this.page.click(this.rewriteWithTags);
+    const button = this.page.locator(this.rewriteWithTags);
+    await button.waitFor({ state: 'visible' });
+    await button.click();
   }
 
   async clickEditWithTags() {
-    await this.page.click(this.editWithTags);
+    const button = this.page.locator(this.editWithTags);
+    await button.waitFor({ state: 'visible' });
+    await button.click();
   }
 
   // ============= AI Suggestions Panel Methods =============
@@ -279,8 +312,24 @@ export class ResultsPage extends BasePage {
   }
 
   async submitAISuggestion(prompt: string) {
-    await this.page.fill(this.aiPromptInput, prompt);
-    await this.page.click(this.getSuggestionsButton);
+    const input = this.page.locator(this.aiPromptInput);
+    await input.waitFor({ state: 'visible' });
+
+    // Clear and fill with verification to handle React controlled input race conditions
+    await input.clear();
+    await input.fill(prompt);
+    await input.blur();
+
+    // Verify value stuck
+    const value = await input.inputValue();
+    if (value !== prompt) {
+      await input.click();
+      await input.pressSequentially(prompt, { delay: 50 });
+    }
+
+    const button = this.page.locator(this.getSuggestionsButton);
+    await button.waitFor({ state: 'visible' });
+    await button.click();
   }
 
   async waitForSuggestionsLoading(timeout = 5000) {
@@ -322,13 +371,19 @@ export class ResultsPage extends BasePage {
   async acceptDiff(index: number = 0) {
     const diff = this.page.locator(this.diffNodes).nth(index);
     await diff.hover();
-    await diff.locator(this.acceptButton).click();
+    // Wait for button to appear after hover (CSS transition)
+    const button = diff.locator(this.acceptButton);
+    await button.waitFor({ state: 'visible', timeout: 5000 });
+    await button.click();
   }
 
   async rejectDiff(index: number = 0) {
     const diff = this.page.locator(this.diffNodes).nth(index);
     await diff.hover();
-    await diff.locator(this.rejectButton).click();
+    // Wait for button to appear after hover (CSS transition)
+    const button = diff.locator(this.rejectButton);
+    await button.waitFor({ state: 'visible', timeout: 5000 });
+    await button.click();
   }
 
   async acceptAllDiffs() {
@@ -368,13 +423,27 @@ export class ResultsPage extends BasePage {
   async isDiffAcceptButtonVisible(index: number = 0): Promise<boolean> {
     const diff = this.page.locator(this.diffNodes).nth(index);
     await diff.hover();
-    return await diff.locator(this.acceptButton).isVisible();
+    // Wait briefly for CSS transition after hover
+    const button = diff.locator(this.acceptButton);
+    try {
+      await button.waitFor({ state: 'visible', timeout: 2000 });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async isDiffRejectButtonVisible(index: number = 0): Promise<boolean> {
     const diff = this.page.locator(this.diffNodes).nth(index);
     await diff.hover();
-    return await diff.locator(this.rejectButton).isVisible();
+    // Wait briefly for CSS transition after hover
+    const button = diff.locator(this.rejectButton);
+    try {
+      await button.waitFor({ state: 'visible', timeout: 2000 });
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // Format toggle methods
@@ -503,7 +572,11 @@ export class ResultsPage extends BasePage {
   }
 
   async filterTagDropdown(text: string) {
-    await this.page.fill('[data-testid="tag-add-input"]', text);
+    const input = this.page.locator('[data-testid="tag-add-input"]');
+    await input.waitFor({ state: 'visible' });
+    await input.clear();
+    await input.fill(text);
+    await input.blur();
   }
 
   async selectTagFromDropdown(index: number) {

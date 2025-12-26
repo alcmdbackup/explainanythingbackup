@@ -175,7 +175,10 @@ test.describe('AI Suggestions Error Recovery', () => {
     await submitAISuggestionPrompt(page, 'Make changes');
 
     // Should show error or handle gracefully - wait for error state
-    await waitForSuggestionsError(page).catch(() => {});
+    // Silent catch: error may not appear if handled differently
+    await waitForSuggestionsError(page).catch(() => {
+      // Error state may not be visible if handled gracefully
+    });
 
     // Content should be unchanged
     const contentAfter = await getEditorTextContent(page);
@@ -247,7 +250,10 @@ test.describe('AI Suggestions Error Recovery', () => {
     await submitAISuggestionPrompt(page, 'Add content');
 
     // Wait for loading state to appear (verifies UI is handling the slow request)
-    await waitForSuggestionsLoading(page).catch(() => {});
+    // Silent catch: loading state may be very brief or test timing may miss it
+    await waitForSuggestionsLoading(page).catch(() => {
+      // Loading state may be too brief to catch
+    });
 
     // Content should still be intact regardless of loading state
     const contentAfterTimeout = await getEditorTextContent(page);
