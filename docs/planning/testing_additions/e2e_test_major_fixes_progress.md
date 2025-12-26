@@ -216,9 +216,9 @@ Attempted fix: Added `page.addInitScript()` to inject auth into localStorage.
 
 Result: Tests still skipping. Back to Phase 1 investigation.
 
-#### Fix #2: Base64URL Encoding ⏳ IN PROGRESS
+#### Fix #2: Base64URL Encoding ✅ APPLIED (but not verified)
 
-**New Investigation (2025-12-26):**
+**Investigation (2025-12-26):**
 
 Traced the actual data flow:
 1. `userlibrary/page.tsx` is a Client Component
@@ -232,26 +232,8 @@ Traced the actual data flow:
 |-----------|-------------------|-------------------|
 | Supabase SSR `createBrowserClient` | `base64url` (default) | `base64` (Node.js default) |
 
-The auth fixture uses:
+**The Fix (already applied to auth.ts lines 95-97):**
 ```typescript
-Buffer.from(JSON.stringify(sessionData)).toString('base64')
-```
-
-This produces **regular base64** with `+`, `/`, `=` characters.
-
-But Supabase SSR's default `cookieEncoding` is `"base64url"`, which expects `-`, `_` characters without padding.
-
-**Encoding Difference:**
-- Regular Base64: `A-Z`, `a-z`, `0-9`, `+`, `/`, `=` padding
-- Base64URL: `A-Z`, `a-z`, `0-9`, `-`, `_`, no padding
-
-**The Fix:**
-Convert to base64url in the auth fixture:
-```typescript
-// BEFORE (broken):
-const cookieValue = `base64-${Buffer.from(JSON.stringify(sessionData)).toString('base64')}`;
-
-// AFTER (fixed):
 const base64 = Buffer.from(JSON.stringify(sessionData)).toString('base64');
 const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 const cookieValue = `base64-${base64url}`;
@@ -260,6 +242,63 @@ const cookieValue = `base64-${base64url}`;
 **Sources:**
 - [Supabase SSR createBrowserClient](https://github.com/supabase/ssr/blob/main/src/createBrowserClient.ts) - Shows `cookieEncoding: "base64url"` default
 - [Supabase Auth Discussions](https://github.com/orgs/supabase/discussions/21824) - Cookie storage format
+
+#### Fix #3: Systematic Debugging - Gather Evidence 🔍 NEXT STEP
+
+**Status:** Base64url fix is in code but tests still skip. Need to gather evidence before more fixes.
+
+**Deep Investigation (2025-12-26):**
+
+Traced full auth flow from cookie to RLS:
+
+| Layer | Client Used | Cookie Reading | Status |
+|-------|-------------|----------------|--------|
+| Middleware | `createServerClient` | `request.cookies.getAll()` | ✅ Works (user sees page) |
+| Server Actions | `createServerClient` | `cookies().getAll()` | ❓ Unknown |
+| Client-side | `createBrowserClient` | Browser native | ❓ Unknown |
+
+**Key Insight:** Middleware passes (user sees library page, not login redirect), but RLS blocks data.
+
+**Evidence Needed:**
+The E2E DEBUG logging in `src/lib/services/userLibrary.ts:71-99` will reveal:
+- `serverAuthUid`: User ID from cookie (NULL = parsing failed)
+- `authError`: Any auth error message
+- `queryUserid`: User ID being queried
+- `idsMatch`: Whether they match
+
+**Debugging Plan:**
+
+1. **Run tests and capture logs:**
+   ```bash
+   E2E_TEST_MODE=true npx playwright test src/__tests__/e2e/specs/03-library/library.spec.ts --project=chromium 2>&1 | tee e2e-debug.log
+   ```
+
+2. **Check server.log for E2E DEBUG output:**
+   - If `serverAuthUid: NULL` → Cookie parsing broken
+   - If `serverAuthUid !== queryUserid` → ID mismatch
+   - If `serverAuthUid` matches but `rowCount: 0` → Seeding issue
+
+3. **If needed, add cookie inspection:**
+   ```typescript
+   // In userLibrary.ts before line 69
+   if (process.env.E2E_TEST_MODE === 'true') {
+     const { cookies } = await import('next/headers');
+     const cookieStore = await cookies();
+     const authCookie = cookieStore.getAll().find(c => c.name.includes('auth-token'));
+     logger.info('[E2E DEBUG] Cookie inspection', {
+       authCookieExists: !!authCookie,
+       authCookieName: authCookie?.name ?? 'none',
+       authCookieValuePrefix: authCookie?.value?.substring(0, 30) ?? 'none',
+     });
+   }
+   ```
+
+4. **Fix based on evidence (not guessing)**
+
+**Possible Root Causes:**
+- Scenario A: Cookie not found by server action → Fix domain/path settings
+- Scenario B: Cookie found but auth.getUser() fails → Cookie format issue
+- Scenario C: auth.uid() != userid → TEST_USER_ID mismatch
 
 ---
 
@@ -322,16 +361,27 @@ From Phase 0 verification:
 - Data seeding works correctly (verified via SQL query)
 - **ROOT CAUSE FOUND:** Cookie uses base64, Supabase SSR expects base64url
 - Fix #1 (localStorage injection) failed - wrong hypothesis
-- Fix #2 (base64url encoding) in progress
+- Fix #2 (base64url encoding) applied to auth.ts
+- Fix #3 (systematic debugging) next step
 
 **Investigation Progress:**
 1. ✅ Verified TEST_USER_ID matches actual Supabase auth user ID
 2. ✅ Confirmed RLS policy exists: `auth.uid() = userid`
 3. ✅ Traced data flow: userlibrary uses `supabase_browser` (cookie-based, not localStorage)
 4. ✅ Found encoding mismatch: base64 vs base64url
-5. 🔄 Implementing Fix #2: Convert to base64url encoding
+5. ✅ Applied base64url fix to auth.ts (lines 95-97)
+6. 🔄 **NEXT:** Run tests to gather evidence from E2E DEBUG logs
+
+**Systematic Debugging Approach (Fix #3):**
+Per systematic debugging skill: "NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST"
+
+The base64url fix was applied but we haven't verified it works. Before attempting more fixes:
+1. Run tests and capture E2E DEBUG logs from `userLibrary.ts:71-99`
+2. Analyze: `serverAuthUid` (NULL = parsing broken, mismatch = ID issue)
+3. Fix based on evidence, not speculation
 
 **Remaining items:**
-1. **[IN PROGRESS]** Fix Issue 5: Apply base64url encoding fix
-2. Fix save button test failure
-3. CI secrets configuration
+1. **[NEXT]** Run tests, gather evidence from E2E DEBUG logs
+2. Fix based on evidence (not guessing)
+3. Fix save button test failure
+4. CI secrets configuration

@@ -89,8 +89,12 @@ export const test = base.extend<{ authenticatedPage: Page }>({
       user: session.user,
     };
 
-    // Encode as base64 with 'base64-' prefix (Supabase SSR format)
-    const cookieValue = `base64-${Buffer.from(JSON.stringify(sessionData)).toString('base64')}`;
+    // Encode as base64url with 'base64-' prefix (Supabase SSR format)
+    // Note: Supabase SSR expects base64url encoding (- instead of +, _ instead of /, no padding)
+    // Regular base64 uses +/= which causes decoding failures
+    const base64 = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+    const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const cookieValue = `base64-${base64url}`;
 
     // Inject Supabase auth cookies into browser context
     await context.addCookies([
@@ -104,19 +108,6 @@ export const test = base.extend<{ authenticatedPage: Page }>({
         sameSite: 'Lax',
       },
     ]);
-
-    // Also inject into localStorage for browser Supabase client
-    // The custom browser client (client.ts) overrides SSR default to use localStorage
-    // Note: localStorage uses plain JSON, not base64 encoding like cookies
-    const localStorageKey = `sb-${projectRef}-auth-token`;
-    const localStorageValue = JSON.stringify(sessionData);
-
-    await page.addInitScript(
-      ({ key, value }) => {
-        localStorage.setItem(key, value);
-      },
-      { key: localStorageKey, value: localStorageValue }
-    );
 
     // use is Playwright fixture, not React hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
