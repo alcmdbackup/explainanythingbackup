@@ -67,7 +67,18 @@ export async function getExplanationIdsForUser(
 ): Promise<number[] | { explanationid: number; created: string }[]> {
   assertUserId(userid, 'getExplanationIdsForUser');
   const supabase = await createSupabaseServerClient()
-  
+
+  // E2E DEBUG: Log server auth state to diagnose RLS issues
+  if (process.env.E2E_TEST_MODE === 'true') {
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    logger.info('[E2E DEBUG] getExplanationIdsForUser', {
+      serverAuthUid: authData?.user?.id ?? 'NULL',
+      authError: authError?.message ?? null,
+      queryUserid: userid,
+      idsMatch: authData?.user?.id === userid
+    });
+  }
+
   const selectFields = getCreateDate ? 'explanationid, created' : 'explanationid';
   const { data, error } = await supabase
     .from('userLibrary')
@@ -77,6 +88,14 @@ export async function getExplanationIdsForUser(
   if (error) {
     logger.error('Error fetching explanation IDs for user', { error: error.message, userid });
     throw error;
+  }
+
+  // E2E DEBUG: Log query results
+  if (process.env.E2E_TEST_MODE === 'true') {
+    logger.info('[E2E DEBUG] getExplanationIdsForUser query results', {
+      rowCount: data?.length ?? 0,
+      firstRow: data?.[0] ?? null
+    });
   }
 
   if (getCreateDate) {

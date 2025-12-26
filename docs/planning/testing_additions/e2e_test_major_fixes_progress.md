@@ -265,10 +265,32 @@ The server Supabase client cannot establish `auth.uid()` from the cookie. The RL
 | **B. Use default storage** | Remove custom storage from browser client | Consistent with server | May affect "remember me" feature |
 | **C. Fix cookie parsing** | Debug why server can't parse cookie | Fixes root cause | Need to understand Supabase SSR internals |
 
+**Diagnostic Logging Added (2025-12-26):**
+
+Added debug logging to `src/lib/services/userLibrary.ts`:
+```typescript
+// E2E DEBUG: Log server auth state to diagnose RLS issues
+if (process.env.E2E_TEST_MODE === 'true') {
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  logger.info('[E2E DEBUG] getExplanationIdsForUser', {
+    serverAuthUid: authData?.user?.id ?? 'NULL',
+    authError: authError?.message ?? null,
+    queryUserid: userid,
+    idsMatch: authData?.user?.id === userid
+  });
+}
+```
+
+**Observation:**
+- Debug logging was added but server.log file is not being created
+- The webServer output shows global-setup logs but not server-side function logs
+- Need to verify if the function is actually being called or if there's a logging issue
+
 **Next Steps:**
-1. Add diagnostic logging to verify `auth.uid()` is NULL on server
-2. Run single test with debug output
-3. Apply Fix A or B based on findings
+1. ~~Add diagnostic logging to verify `auth.uid()` is NULL on server~~ ✅ Done
+2. Debug why server.log isn't being written (file permissions? path issue?)
+3. Consider adding console.error for immediate visibility in webServer output
+4. Apply Fix A or B based on confirmed findings
 
 ---
 
@@ -331,11 +353,19 @@ From Phase 0 verification:
 - Data seeding works correctly (verified via SQL query)
 - **ROOT CAUSE IDENTIFIED:** Server `auth.uid()` is NULL due to cookie/storage mismatch
 - RLS policy blocks queries even though data exists and user ID is correct
+- Diagnostic logging added to `userLibrary.ts` but server.log not being created
 
 **Root Cause Details:**
 The auth fixture sets a cookie, but the browser Supabase client uses custom localStorage storage. The server cannot properly establish `auth.uid()` from the cookie, causing RLS to block all rows.
 
+**Investigation Progress:**
+1. ✅ Verified TEST_USER_ID matches actual Supabase auth user ID
+2. ✅ Confirmed RLS policy exists: `auth.uid() = userid`
+3. ✅ Added diagnostic logging to userLibrary.ts
+4. 🔄 Need to verify logging output (server.log not being created)
+5. ⏳ Pending: Confirm hypothesis and apply fix
+
 **Remaining items:**
-1. **[BLOCKING]** Fix Issue 5: Add diagnostic logging → confirm → apply fix
+1. **[BLOCKING]** Fix Issue 5: Confirm server auth.uid() is NULL → apply fix
 2. Fix save button test failure
 3. CI secrets configuration
