@@ -297,3 +297,61 @@ Test currently shows flakiness (streaming doesn't always start). Full verificati
 ### Summary of Fixes Applied
 1. **Error handler fix** - Supabase errors now properly detected and logged
 2. **RLS bypass fix** - Server-side insert operations use service client to bypass RLS since user auth is verified at API layer
+
+---
+
+## Commits
+
+| Commit | Description |
+|--------|-------------|
+| `a75bcbb` | docs: complete root cause analysis for publish-after-streaming bug |
+| `0f9bcf7` | docs: add Phase 2 plan for fixing underlying database error |
+| `842bfeb` | fix(errorHandling): detect Supabase error objects for better error messages |
+| `4aafd62` | fix(rls): use service client for server-side insert operations |
+
+---
+
+## Technical Details
+
+### Why RLS Failed in Streaming Context
+
+The `createSupabaseServerClient()` function creates a Supabase client using cookies for authentication:
+
+```typescript
+// src/lib/utils/supabase/server.ts
+export async function createSupabaseServerClient() {
+  const cookieStore = await cookies()
+  return createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll() { return cookieStore.getAll() }, ... } }
+  )
+}
+```
+
+In a streaming API route context (`ReadableStream` with async `start()`), the cookie context may not be properly accessible, causing the client to fall back to the `anon` role instead of `authenticated`.
+
+The RLS policies on `explanations`, `topics`, and `userQueries` tables require the `authenticated` role for inserts:
+```sql
+-- Example policy
+CREATE POLICY "Enable insert for authenticated users only"
+ON explanations FOR INSERT
+TO authenticated
+WITH CHECK (true);
+```
+
+When the client uses `anon` role, the insert is blocked, and the subsequent `.single()` returns 0 rows, triggering `PGRST116`.
+
+### Why Service Client is Safe Here
+
+The `createSupabaseServiceClient()` uses the service role key which bypasses RLS entirely. This is safe because:
+
+1. **User auth is verified at API layer** - The API route validates `userid` is present before calling these functions
+2. **Functions validate user ID** - `createUserQuery()` calls `assertUserId()` before proceeding
+3. **Server-only code** - These functions run only on the server, never exposed to client
+
+### Future Considerations
+
+1. **Consider fixing cookie handling** in streaming context instead of bypassing RLS
+2. **Audit other insert operations** that may have similar issues
+3. **Add integration tests** for streaming + database operations
