@@ -2,11 +2,14 @@ import { useEffect, useState, useCallback } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { $nodesOfType } from 'lexical';
 import { DiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
-import { acceptDiffTag, rejectDiffTag } from './diffTagMutations';
 
 interface DiffTagHoverPluginProps {
   /** Callback when pending AI suggestions change (true = suggestions exist) */
   onPendingSuggestionsChange?: (hasPendingSuggestions: boolean) => void;
+  /** Callback to queue a mutation - plugin calls this instead of executing directly */
+  onQueueMutation?: (nodeKey: string, type: 'accept' | 'reject') => void;
+  /** Whether a mutation is currently processing - disables all buttons */
+  isProcessing?: boolean;
 }
 
 /**
@@ -17,7 +20,11 @@ interface DiffTagHoverPluginProps {
  * 2. Reads Lexical state directly to count pending suggestions
  * 3. No DOM querying, no RAF calls, no synchronization issues
  */
-export default function DiffTagHoverPlugin({ onPendingSuggestionsChange }: DiffTagHoverPluginProps = {}) {
+export default function DiffTagHoverPlugin({
+  onPendingSuggestionsChange,
+  onQueueMutation,
+  isProcessing = false,
+}: DiffTagHoverPluginProps = {}) {
   const [editor] = useLexicalComposerContext();
   const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
 
@@ -62,10 +69,13 @@ export default function DiffTagHoverPlugin({ onPendingSuggestionsChange }: DiffT
       event.preventDefault();
       event.stopPropagation();
 
+      // Block clicks when processing
+      if (isProcessing) return;
+
       if (action === 'accept') {
-        acceptDiffTag(editor, nodeKey);
+        onQueueMutation?.(nodeKey, 'accept');
       } else if (action === 'reject') {
-        rejectDiffTag(editor, nodeKey);
+        onQueueMutation?.(nodeKey, 'reject');
       }
     };
 
@@ -75,7 +85,23 @@ export default function DiffTagHoverPlugin({ onPendingSuggestionsChange }: DiffT
       removeUpdateListener();
       rootElement.removeEventListener('click', handleClick);
     };
-  }, [editor, updatePendingCount]);
+  }, [editor, updatePendingCount, isProcessing, onQueueMutation]);
+
+  // Disable/enable buttons based on isProcessing state
+  useEffect(() => {
+    const rootElement = editor.getRootElement();
+    if (!rootElement) return;
+
+    const buttons = rootElement.querySelectorAll<HTMLButtonElement>(
+      '[data-action="accept"], [data-action="reject"]'
+    );
+
+    buttons.forEach((btn) => {
+      btn.disabled = isProcessing;
+      btn.style.opacity = isProcessing ? '0.5' : '1';
+      btn.style.cursor = isProcessing ? 'not-allowed' : 'pointer';
+    });
+  }, [editor, isProcessing]);
 
   // No React rendering needed - buttons are rendered in DiffTagNode.createDOM()
   return null;

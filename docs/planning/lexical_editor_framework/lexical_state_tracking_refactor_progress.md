@@ -1,6 +1,6 @@
 # Editor State Management Refactor - Progress
 
-## Status: Phase 2 Complete, Phase 3 Next
+## Status: Phase 3 Complete, Phase 4 Next
 
 ---
 
@@ -108,11 +108,63 @@ interface MutationQueuePluginProps {
 
 ---
 
+## Phase 3: Modify DiffTagHoverPlugin ✅ COMPLETE
+
+**Commit:** `04f7dae` - `feat(editor): add callback-based mutation queueing to DiffTagHoverPlugin`
+
+**File modified:** `src/editorFiles/lexicalEditor/DiffTagHoverPlugin.tsx`
+
+### Implementation Summary
+
+Changed plugin from directly calling mutation functions to using a callback pattern:
+
+1. **Added new props:**
+   - `onQueueMutation?: (nodeKey: string, type: 'accept' | 'reject') => void`
+   - `isProcessing?: boolean`
+
+2. **Replaced direct mutation calls:**
+   - Before: `acceptDiffTag(editor, nodeKey)` / `rejectDiffTag(editor, nodeKey)`
+   - After: `onQueueMutation?.(nodeKey, 'accept')` / `onQueueMutation?.(nodeKey, 'reject')`
+
+3. **Added button disable logic:**
+   - Blocks click handler when `isProcessing` is true
+   - Sets button `disabled`, `opacity: 0.5`, and `cursor: not-allowed` when processing
+   - Re-enables buttons when `isProcessing` becomes false
+
+4. **Removed direct import of `diffTagMutations`**
+
+### Props Interface (Updated)
+```typescript
+interface DiffTagHoverPluginProps {
+  onPendingSuggestionsChange?: (hasPendingSuggestions: boolean) => void;
+  onQueueMutation?: (nodeKey: string, type: 'accept' | 'reject') => void;
+  isProcessing?: boolean;
+}
+```
+
+**File: `src/editorFiles/lexicalEditor/DiffTagHoverPlugin.test.tsx`**
+
+- Updated all tests to use `onQueueMutation` callback instead of mocked mutation functions
+- Added 5 new tests for `isProcessing` behavior:
+  - Blocks clicks when processing
+  - Disables buttons visually when processing
+  - Enables buttons when not processing
+  - Re-enables on state change
+  - Fires callback after re-enabling
+- **24 tests pass**
+
+### Validation
+- ✅ TypeScript compiles without errors
+- ✅ ESLint passes (no new warnings)
+- ✅ Build succeeds
+- ✅ All 24 unit tests pass
+
+---
+
 ## Remaining Phases
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 3 | Modify DiffTagHoverPlugin | Pending |
 | 4 | Create StreamingSyncPlugin | Pending |
 | 5 | Clean up results/page.tsx | Pending |
 | 6 | Refactor AISuggestionsPanel | Pending |
