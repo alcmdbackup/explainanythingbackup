@@ -27,6 +27,7 @@ type MockSupabaseClient = {
   delete: jest.Mock;
   order: jest.Mock;
   range: jest.Mock;
+  gte: jest.Mock;
 };
 
 describe('Explanations Service', () => {
@@ -49,6 +50,7 @@ describe('Explanations Service', () => {
       delete: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockReturnThis(),
+      gte: jest.fn().mockReturnThis(),
     };
 
     // Setup the mock to return our mockSupabase
@@ -207,7 +209,7 @@ describe('Explanations Service', () => {
       expect(mockSupabase.range).toHaveBeenCalledWith(0, 9);
     });
 
-    it('should handle custom parameters correctly', async () => {
+    it('should handle custom limit and offset parameters', async () => {
       // Arrange
       mockSupabase.range.mockResolvedValue({
         data: [],
@@ -215,11 +217,26 @@ describe('Explanations Service', () => {
       });
 
       // Act
-      await getRecentExplanations(5, 10, 'id', 'asc');
+      await getRecentExplanations(5, 10);
 
       // Assert
-      expect(mockSupabase.order).toHaveBeenCalledWith('id', { ascending: true });
+      expect(mockSupabase.order).toHaveBeenCalledWith('timestamp', { ascending: false });
       expect(mockSupabase.range).toHaveBeenCalledWith(10, 14);
+    });
+
+    it('should use new mode with options object', async () => {
+      // Arrange
+      mockSupabase.range.mockResolvedValue({
+        data: [],
+        error: null
+      });
+
+      // Act
+      await getRecentExplanations(10, 0, { sort: 'new' });
+
+      // Assert
+      expect(mockSupabase.from).toHaveBeenCalledWith('explanations');
+      expect(mockSupabase.order).toHaveBeenCalledWith('timestamp', { ascending: false });
     });
 
     it('should validate and correct invalid parameters', async () => {
@@ -260,6 +277,115 @@ describe('Explanations Service', () => {
 
       // Act & Assert
       await expect(getRecentExplanations()).rejects.toEqual(mockError);
+    });
+
+    it('should sort by view count in top mode', async () => {
+      // Arrange - mock explanations
+      const mockExplanations: ExplanationFullDbType[] = [
+        {
+          id: 1,
+          explanation_title: 'Less Popular',
+          content: 'Content 1',
+          primary_topic_id: 1,
+          status: ExplanationStatus.Published,
+          timestamp: '2024-01-01T00:00:00Z'
+        },
+        {
+          id: 2,
+          explanation_title: 'Most Popular',
+          content: 'Content 2',
+          primary_topic_id: 2,
+          status: ExplanationStatus.Published,
+          timestamp: '2024-01-02T00:00:00Z'
+        }
+      ];
+
+      // Mock view events (explanation 2 has more views)
+      const mockViewEvents = [
+        { explanationid: 2 },
+        { explanationid: 2 },
+        { explanationid: 2 },
+        { explanationid: 1 }
+      ];
+
+      // Setup mock chain for view events query
+      let queryState = 'initial';
+      mockSupabase.from.mockImplementation((table: string) => {
+        if (table === 'userExplanationEvents') {
+          queryState = 'events';
+        } else if (table === 'explanations') {
+          queryState = 'explanations';
+        }
+        return mockSupabase;
+      });
+
+      mockSupabase.gte.mockResolvedValue({
+        data: mockViewEvents,
+        error: null
+      });
+
+      mockSupabase.eq.mockImplementation(() => {
+        if (queryState === 'explanations') {
+          return {
+            data: mockExplanations,
+            error: null
+          };
+        }
+        return mockSupabase;
+      });
+
+      // Act
+      const result = await getRecentExplanations(10, 0, { sort: 'top', period: 'week' });
+
+      // Assert - explanation 2 should come first (more views)
+      expect(result[0].id).toBe(2);
+      expect(result[1].id).toBe(1);
+    });
+
+    it('should filter views by time period in top mode', async () => {
+      // Arrange - need to maintain chain for gte call
+      mockSupabase.eq.mockReturnThis(); // Keep chain going
+      mockSupabase.gte.mockResolvedValue({
+        data: [],
+        error: null
+      });
+      // Mock the explanations query
+      let callCount = 0;
+      mockSupabase.eq.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          // First eq call is for event_name filter - return chain
+          return mockSupabase;
+        }
+        // Second eq call is for explanations status filter
+        return {
+          data: [],
+          error: null
+        };
+      });
+
+      // Act
+      await getRecentExplanations(10, 0, { sort: 'top', period: 'today' });
+
+      // Assert - should call gte with a date filter
+      expect(mockSupabase.gte).toHaveBeenCalledWith('created_at', expect.any(String));
+    });
+
+    it('should not apply time filter for all period in top mode', async () => {
+      // Arrange
+      // For 'all' period, gte should not be called
+      mockSupabase.eq.mockImplementation(() => {
+        return {
+          data: [],
+          error: null
+        };
+      });
+
+      // Act
+      await getRecentExplanations(10, 0, { sort: 'top', period: 'all' });
+
+      // Assert - gte should not be called for 'all' period
+      expect(mockSupabase.gte).not.toHaveBeenCalled();
     });
   });
 

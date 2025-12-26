@@ -48,6 +48,12 @@ jest.mock('@/hooks/clientPassRequestId', () => ({
       __requestId: { requestId: 'test-request-id', userId: 'test-user' }
     })
   }),
+  useAuthenticatedRequestId: () => ({
+    withRequestId: <T,>(data?: T) => ({
+      ...(data || {}),
+      __requestId: { requestId: 'test-request-id', userId: 'test-user' }
+    })
+  }),
 }));
 
 // Mock server actions
@@ -102,8 +108,9 @@ jest.mock('@/editorFiles/lexicalEditor/LexicalEditor', () => {
 });
 
 jest.mock('@/components/AISuggestionsPanel', () => {
-  return function MockAISuggestionsPanel({ isVisible }: any) {
-    return isVisible ? <div data-testid="ai-suggestions">AI Suggestions</div> : null;
+  return function MockAISuggestionsPanel({ isOpen }: any) {
+    // Panel always renders but with different width based on isOpen
+    return <div data-testid="ai-suggestions-panel" data-open={isOpen}>AI Suggestions</div>;
   };
 });
 
@@ -183,7 +190,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
     it('should render AI Suggestions panel', () => {
       render(<ResultsPage />);
 
-      const aiPanel = screen.getByTestId('ai-suggestions');
+      const aiPanel = screen.getByTestId('ai-suggestions-panel');
       expect(aiPanel).toBeInTheDocument();
     });
 
@@ -193,7 +200,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
       expect(screen.getByTestId('navigation')).toBeInTheDocument();
       expect(screen.getByTestId('tag-bar')).toBeInTheDocument();
       expect(screen.getByTestId('lexical-editor')).toBeInTheDocument();
-      expect(screen.getByTestId('ai-suggestions')).toBeInTheDocument();
+      expect(screen.getByTestId('ai-suggestions-panel')).toBeInTheDocument();
     });
 
     it('should apply correct page structure', () => {
@@ -367,7 +374,7 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
     it('should initialize AI panel as visible', () => {
       render(<ResultsPage />);
 
-      const aiPanel = screen.getByTestId('ai-suggestions');
+      const aiPanel = screen.getByTestId('ai-suggestions-panel');
       expect(aiPanel).toBeInTheDocument();
     });
   });

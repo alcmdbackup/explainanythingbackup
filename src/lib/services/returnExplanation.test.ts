@@ -102,9 +102,13 @@ describe('returnExplanation', () => {
 
     // Mock links
     jest.mock('@/lib/services/links', () => ({
-      createMappingsHeadingsToLinks: jest.fn().mockResolvedValue({}),
-      createMappingsKeytermsToLinks: jest.fn().mockResolvedValue({}),
       cleanupAfterEnhancements: jest.fn(content => content)
+    }));
+
+    // Mock linkWhitelist
+    jest.mock('@/lib/services/linkWhitelist', () => ({
+      generateHeadingStandaloneTitles: jest.fn().mockResolvedValue({}),
+      saveHeadingLinks: jest.fn().mockResolvedValue(undefined)
     }));
 
     // Mock tag evaluation
@@ -153,12 +157,14 @@ describe('returnExplanation', () => {
 
     it('should test postprocessNewExplanationContent', async () => {
       // Import mocked modules
-      const { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } = require('@/lib/services/links');
+      const { cleanupAfterEnhancements } = require('@/lib/services/links');
+      const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
 
       // Setup mocks
-      createMappingsHeadingsToLinks.mockResolvedValue({ '## Test': '## [[Test]]' });
-      createMappingsKeytermsToLinks.mockResolvedValue({ 'keyword': '[[keyword]]' });
+      // Headings are no longer embedded - titles are returned separately
+      // Key terms are now resolved at render time via linkResolver (not embedded)
+      generateHeadingStandaloneTitles.mockResolvedValue({ 'Test': 'Standalone Test Title' });
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
       cleanupAfterEnhancements.mockImplementation((c: string) => c);
 
@@ -173,8 +179,12 @@ describe('returnExplanation', () => {
       );
 
       // Assertions
-      expect(result.enhancedContent).toContain('[[Test]]');
-      expect(result.enhancedContent).toContain('[[keyword]]');
+      // Links are now resolved at render time via linkResolver
+      // Content should be preserved as-is (only cleaned up with cleanupAfterEnhancements)
+      expect(result.enhancedContent).toContain('## Test'); // heading preserved as-is
+      expect(result.enhancedContent).not.toContain('[[Test]]'); // no embedded link
+      expect(result.enhancedContent).toContain('keyword'); // key term preserved as plain text
+      expect(result.headingTitles).toEqual({ 'Test': 'Standalone Test Title' });
       expect(result.tagEvaluation).toEqual({ difficultyLevel: 3 });
       expect(result.error).toBeNull();
     });
@@ -183,15 +193,16 @@ describe('returnExplanation', () => {
       // Import mocked modules
       const { callOpenAIModel } = require('@/lib/services/llms');
       const { createExplanationPrompt } = require('@/lib/prompts');
-      const { createMappingsHeadingsToLinks, createMappingsKeytermsToLinks, cleanupAfterEnhancements } = require('@/lib/services/links');
+      const { cleanupAfterEnhancements } = require('@/lib/services/links');
+      const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
       const { UserInputType } = require('@/lib/schemas/schemas');
 
       // Setup mocks
       createExplanationPrompt.mockReturnValue('explanation prompt');
       callOpenAIModel.mockResolvedValue('Generated content');
-      createMappingsHeadingsToLinks.mockResolvedValue({});
-      createMappingsKeytermsToLinks.mockResolvedValue({});
+      generateHeadingStandaloneTitles.mockResolvedValue({ 'Heading': 'Standalone Heading Title' });
+      // Key terms are now resolved at render time via linkResolver
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
       cleanupAfterEnhancements.mockImplementation((c: string) => c);
 
@@ -211,6 +222,7 @@ describe('returnExplanation', () => {
       expect(result.explanationData.explanation_title).toBe('Test Title');
       expect(result.error).toBeNull();
       expect(result.tagEvaluation).toEqual({ difficultyLevel: 3 });
+      expect(result.headingTitles).toEqual({ 'Heading': 'Standalone Heading Title' });
     });
 
     it('should test applyTagsToExplanation', async () => {

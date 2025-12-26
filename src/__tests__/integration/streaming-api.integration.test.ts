@@ -79,7 +79,7 @@ describe('Streaming API Integration Tests', () => {
 
           for (const chunk of chunks) {
             callback?.(chunk);
-            // Small delay to simulate real streaming
+            // Intentional delay to simulate real streaming behavior in mock
             await new Promise((resolve) => setTimeout(resolve, 10));
           }
 
@@ -152,6 +152,7 @@ describe('Streaming API Integration Tests', () => {
           for (let i = 0; i < fullExplanationContent.length; i += chunkSize) {
             accumulated += fullExplanationContent.slice(i, i + chunkSize);
             callback?.(accumulated);
+            // Intentional delay to simulate real streaming behavior in mock
             await new Promise((resolve) => setTimeout(resolve, 5));
           }
 

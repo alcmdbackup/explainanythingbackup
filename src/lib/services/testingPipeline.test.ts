@@ -1,5 +1,5 @@
 /**
- * @jest-environment jsdom
+ * @jest-environment node
  */
 
 import {
@@ -12,14 +12,12 @@ import {
   type TestingPipelineRecord,
   type SessionData
 } from './testingPipeline';
-import { supabase } from '../supabase';
+import { createSupabaseServerClient } from '../utils/supabase/server';
 import { logger } from '../client_utilities';
 
 // Mock dependencies
-jest.mock('../supabase', () => ({
-  supabase: {
-    from: jest.fn()
-  }
+jest.mock('../utils/supabase/server', () => ({
+  createSupabaseServerClient: jest.fn()
 }));
 jest.mock('../client_utilities', () => ({
   logger: {
@@ -28,7 +26,7 @@ jest.mock('../client_utilities', () => ({
   }
 }));
 
-type MockSupabaseClient = {
+type MockSupabaseChain = {
   select: jest.Mock;
   eq: jest.Mock;
   limit: jest.Mock;
@@ -38,8 +36,13 @@ type MockSupabaseClient = {
   order: jest.Mock;
 };
 
+type MockSupabaseClient = {
+  from: jest.Mock;
+};
+
 describe('TestingPipeline Service', () => {
-  let mockSupabase: MockSupabaseClient;
+  let mockChain: MockSupabaseChain;
+  let mockSupabaseClient: MockSupabaseClient;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -47,8 +50,8 @@ describe('TestingPipeline Service', () => {
     // Mock console.log to avoid clutter
     jest.spyOn(console, 'log').mockImplementation(() => {});
 
-    // Create mock Supabase client
-    mockSupabase = {
+    // Create mock Supabase chain (for chained methods like .select().eq())
+    mockChain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
@@ -58,7 +61,13 @@ describe('TestingPipeline Service', () => {
       order: jest.fn().mockReturnThis(),
     };
 
-    (supabase.from as jest.Mock).mockReturnValue(mockSupabase);
+    // Create mock Supabase client with from() method
+    mockSupabaseClient = {
+      from: jest.fn().mockReturnValue(mockChain)
+    };
+
+    // Mock createSupabaseServerClient to return our mock client
+    (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabaseClient);
   });
 
   afterEach(() => {
@@ -68,7 +77,7 @@ describe('TestingPipeline Service', () => {
   describe('checkTestingPipelineExists', () => {
     it('should return true when record exists', async () => {
       // Arrange
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: [{ id: 1 }],
         error: null
       });
@@ -78,16 +87,16 @@ describe('TestingPipeline Service', () => {
 
       // Assert
       expect(result).toBe(true);
-      expect(supabase.from).toHaveBeenCalledWith('testing_edits_pipeline');
-      expect(mockSupabase.eq).toHaveBeenCalledWith('set_name', 'test-set');
-      expect(mockSupabase.eq).toHaveBeenCalledWith('step', 'step1');
-      expect(mockSupabase.eq).toHaveBeenCalledWith('content', 'content');
-      expect(mockSupabase.limit).toHaveBeenCalledWith(1);
+      expect(mockSupabaseClient.from).toHaveBeenCalledWith('testing_edits_pipeline');
+      expect(mockChain.eq).toHaveBeenCalledWith('set_name', 'test-set');
+      expect(mockChain.eq).toHaveBeenCalledWith('step', 'step1');
+      expect(mockChain.eq).toHaveBeenCalledWith('content', 'content');
+      expect(mockChain.limit).toHaveBeenCalledWith(1);
     });
 
     it('should return false when record does not exist', async () => {
       // Arrange
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: [],
         error: null
       });
@@ -102,7 +111,7 @@ describe('TestingPipeline Service', () => {
     it('should throw error when query fails', async () => {
       // Arrange
       const mockError = { message: 'Query failed', code: '500' };
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: null,
         error: mockError
       });
@@ -114,7 +123,7 @@ describe('TestingPipeline Service', () => {
 
     it('should log debug information', async () => {
       // Arrange
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: [],
         error: null
       });
@@ -148,7 +157,7 @@ describe('TestingPipeline Service', () => {
         created_at: '2024-01-01T00:00:00Z'
       };
 
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: savedRecord,
         error: null
       });
@@ -158,8 +167,8 @@ describe('TestingPipeline Service', () => {
 
       // Assert
       expect(result).toEqual(savedRecord);
-      expect(supabase.from).toHaveBeenCalledWith('testing_edits_pipeline');
-      expect(mockSupabase.insert).toHaveBeenCalledWith({
+      expect(mockSupabaseClient.from).toHaveBeenCalledWith('testing_edits_pipeline');
+      expect(mockChain.insert).toHaveBeenCalledWith({
         set_name: 'test-set',
         step: 'step1',
         content: 'test content'
@@ -180,7 +189,7 @@ describe('TestingPipeline Service', () => {
         session_metadata: { test: 'data' }
       };
 
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: { id: 1, ...recordData },
         error: null
       });
@@ -189,7 +198,7 @@ describe('TestingPipeline Service', () => {
       await saveTestingPipelineRecord(recordData);
 
       // Assert
-      expect(mockSupabase.insert).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockChain.insert).toHaveBeenCalledWith(expect.objectContaining({
         session_id: 'session123',
         explanation_id: 1
       }));
@@ -204,7 +213,7 @@ describe('TestingPipeline Service', () => {
       };
 
       const mockError = { message: 'Save failed', code: '500' };
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: null,
         error: mockError
       });
@@ -218,7 +227,7 @@ describe('TestingPipeline Service', () => {
   describe('checkAndSaveTestingPipelineRecord', () => {
     it('should return saved: false when record already exists', async () => {
       // Arrange
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: [{ id: 1 }],
         error: null
       });
@@ -228,12 +237,12 @@ describe('TestingPipeline Service', () => {
 
       // Assert
       expect(result).toEqual({ saved: false });
-      expect(mockSupabase.insert).not.toHaveBeenCalled();
+      expect(mockChain.insert).not.toHaveBeenCalled();
     });
 
     it('should save and return record when it does not exist', async () => {
       // Arrange
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: [],
         error: null
       });
@@ -246,7 +255,7 @@ describe('TestingPipeline Service', () => {
         created_at: '2024-01-01T00:00:00Z'
       };
 
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: savedRecord,
         error: null
       });
@@ -256,12 +265,12 @@ describe('TestingPipeline Service', () => {
 
       // Assert
       expect(result).toEqual({ saved: true, record: savedRecord });
-      expect(mockSupabase.insert).toHaveBeenCalled();
+      expect(mockChain.insert).toHaveBeenCalled();
     });
 
     it('should include session data when provided', async () => {
       // Arrange
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: [],
         error: null
       });
@@ -279,7 +288,7 @@ describe('TestingPipeline Service', () => {
         created_at: '2024-01-01T00:00:00Z'
       };
 
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: savedRecord,
         error: null
       });
@@ -296,7 +305,7 @@ describe('TestingPipeline Service', () => {
       await checkAndSaveTestingPipelineRecord('test-set', 'step1', 'content', sessionData);
 
       // Assert
-      expect(mockSupabase.insert).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockChain.insert).toHaveBeenCalledWith(expect.objectContaining({
         session_id: 'session123'
       }));
     });
@@ -304,7 +313,7 @@ describe('TestingPipeline Service', () => {
     it('should throw error when check or save fails', async () => {
       // Arrange
       const mockError = { message: 'Error' };
-      mockSupabase.limit.mockResolvedValue({
+      mockChain.limit.mockResolvedValue({
         data: null,
         error: mockError
       });
@@ -327,7 +336,7 @@ describe('TestingPipeline Service', () => {
         created_at: '2024-01-01T00:00:00Z'
       };
 
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: updatedRecord,
         error: null
       });
@@ -337,15 +346,15 @@ describe('TestingPipeline Service', () => {
 
       // Assert
       expect(result).toEqual(updatedRecord);
-      expect(supabase.from).toHaveBeenCalledWith('testing_edits_pipeline');
-      expect(mockSupabase.update).toHaveBeenCalledWith({ set_name: 'new-name' });
-      expect(mockSupabase.eq).toHaveBeenCalledWith('id', 1);
+      expect(mockSupabaseClient.from).toHaveBeenCalledWith('testing_edits_pipeline');
+      expect(mockChain.update).toHaveBeenCalledWith({ set_name: 'new-name' });
+      expect(mockChain.eq).toHaveBeenCalledWith('id', 1);
     });
 
     it('should throw error when update fails', async () => {
       // Arrange
       const mockError = { message: 'Update failed', code: '500' };
-      mockSupabase.single.mockResolvedValue({
+      mockChain.single.mockResolvedValue({
         data: null,
         error: mockError
       });
@@ -376,7 +385,7 @@ describe('TestingPipeline Service', () => {
         }
       ];
 
-      mockSupabase.order.mockResolvedValue({
+      mockChain.order.mockResolvedValue({
         data: mockRecords,
         error: null
       });
@@ -386,14 +395,14 @@ describe('TestingPipeline Service', () => {
 
       // Assert
       expect(result).toEqual(mockRecords);
-      expect(supabase.from).toHaveBeenCalledWith('testing_edits_pipeline');
-      expect(mockSupabase.eq).toHaveBeenCalledWith('set_name', 'test-set');
-      expect(mockSupabase.order).toHaveBeenCalledWith('created_at', { ascending: true });
+      expect(mockSupabaseClient.from).toHaveBeenCalledWith('testing_edits_pipeline');
+      expect(mockChain.eq).toHaveBeenCalledWith('set_name', 'test-set');
+      expect(mockChain.order).toHaveBeenCalledWith('created_at', { ascending: true });
     });
 
     it('should return empty array when no records found', async () => {
       // Arrange
-      mockSupabase.order.mockResolvedValue({
+      mockChain.order.mockResolvedValue({
         data: null,
         error: null
       });
@@ -408,7 +417,7 @@ describe('TestingPipeline Service', () => {
     it('should throw error when query fails', async () => {
       // Arrange
       const mockError = { message: 'Query failed' };
-      mockSupabase.order.mockResolvedValue({
+      mockChain.order.mockResolvedValue({
         data: null,
         error: mockError
       });

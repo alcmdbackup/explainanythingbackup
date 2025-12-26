@@ -21,7 +21,7 @@ jest.mock('@/lib/errorHandling');
 jest.mock('@/lib/logging/server/automaticServerLoggingBase');
 jest.mock('@/lib/client_utilities');
 jest.mock('../../lib/services/testingPipeline');
-jest.mock('../../lib/supabase');
+jest.mock('../../lib/utils/supabase/server');
 
 // Mock the aiSuggestion module including functions used by dynamic imports
 jest.mock('../../editorFiles/aiSuggestion', () => ({
@@ -49,7 +49,7 @@ import {
   checkAndSaveTestingPipelineRecord,
   updateTestingPipelineRecordSetName,
 } from '../../lib/services/testingPipeline';
-import { supabase } from '../../lib/supabase';
+import { createSupabaseServerClient } from '../../lib/utils/supabase/server';
 
 // Mock withLogging to return the original function
 jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
@@ -337,7 +337,13 @@ describe('getTestingPipelineRecordsByStepAction', () => {
   });
 
   it('should return records ordered by created_at DESC', async () => {
-    const mockData = [
+    const mockDbData = [
+      { id: 2, set_name: 'set-2', content: 'content-2', created_at: '2024-01-02' },
+      { id: 1, set_name: 'set-1', content: 'content-1', created_at: '2024-01-01' },
+    ];
+
+    // Expected mapped data (set_name -> name)
+    const expectedData = [
       { id: 2, name: 'set-2', content: 'content-2', created_at: '2024-01-02' },
       { id: 1, name: 'set-1', content: 'content-1', created_at: '2024-01-01' },
     ];
@@ -346,16 +352,16 @@ describe('getTestingPipelineRecordsByStepAction', () => {
       from: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      order: jest.fn().mockResolvedValue({ data: mockData, error: null }),
+      order: jest.fn().mockResolvedValue({ data: mockDbData, error: null }),
     };
 
-    (supabase as unknown as jest.Mock) = mockSupabaseChain as never;
+    (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabaseChain);
 
     const result = await getTestingPipelineRecordsByStepAction('step1');
 
     expect(result).toEqual({
       success: true,
-      data: mockData,
+      data: expectedData,
       error: null,
     });
   });
@@ -368,7 +374,7 @@ describe('getTestingPipelineRecordsByStepAction', () => {
       order: jest.fn().mockResolvedValue({ data: [], error: null }),
     };
 
-    (supabase as unknown as jest.Mock) = mockSupabaseChain as never;
+    (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabaseChain);
 
     const result = await getTestingPipelineRecordsByStepAction('nonexistent-step');
 
@@ -390,7 +396,7 @@ describe('getTestingPipelineRecordsByStepAction', () => {
       order: jest.fn().mockResolvedValue({ data: null, error: mockError }),
     };
 
-    (supabase as unknown as jest.Mock) = mockSupabaseChain as never;
+    (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabaseChain);
     (handleError as jest.Mock).mockReturnValue(mockErrorResponse);
 
     const result = await getTestingPipelineRecordsByStepAction('step1');

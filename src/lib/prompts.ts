@@ -120,6 +120,47 @@ Example format:
 }
 
 /**
+ * Creates a prompt for LLM to extract link candidates from article content
+ *
+ * • Takes article content and title as input
+ * • Instructs LLM to identify 5-15 educational terms
+ * • Criteria: standalone-worthy, not too generic, not the main topic
+ * • Forces structured JSON response
+ * • Used by extractLinkCandidates in returnExplanation for candidate generation
+ *
+ * @param content - The article content to analyze
+ * @param articleTitle - The title of the article (to exclude from candidates)
+ * @returns A formatted prompt string for LLM processing
+ */
+export function createLinkCandidatesPrompt(content: string, articleTitle: string): string {
+  return `Analyze the following encyclopedia article and identify 5-15 terms that would make good encyclopedia links.
+
+Article Title: "${articleTitle}"
+
+Article Content:
+${content}
+
+Select terms that:
+1. Are educational concepts readers might want to learn more about
+2. Could be standalone encyclopedia articles themselves
+3. Are specific enough (avoid generic words like "example", "process", "system", "method")
+4. Are NOT the article's main topic ("${articleTitle}" or close variants)
+5. Appear in the article content
+
+Return your response as a JSON object with a "candidates" array containing the terms.
+
+Example format:
+{
+  "candidates": [
+    "quantum entanglement",
+    "photon",
+    "wave function",
+    "Heisenberg uncertainty principle"
+  ]
+}`;
+}
+
+/**
  * Creates a prompt for LLM to select the best match from a list of potential sources
  * 
  * • Takes user query and formatted matches as input
@@ -193,6 +234,62 @@ Return your response as a JSON object with:
 - simpleTags: array of integers (tag IDs) or null if none apply. Values here start at 7.
 
 Example: {"difficultyLevel": 2, "length": 5, "simpleTags": [7, 8]}
+`;
+}
+
+/**
+ * Creates a prompt for generating explanations with source citations
+ *
+ * • Takes user query and array of source content
+ * • Instructs LLM to use [n] notation for inline citations
+ * • Distinguishes between verbatim and summarized source content
+ * • Used by returnExplanationLogic when sources are provided
+ *
+ * @param title - The topic/title to explain
+ * @param sources - Array of source data with index, title, domain, content, isVerbatim
+ * @param additionalRules - Additional rules for content generation
+ * @returns A formatted prompt string for LLM processing
+ */
+export function createExplanationWithSourcesPrompt(
+  title: string,
+  sources: Array<{
+    index: number;
+    title: string;
+    domain: string;
+    content: string;
+    isVerbatim: boolean;
+  }>,
+  additionalRules: string[]
+): string {
+  const sourcesSection = sources.map(source => {
+    const sourceType = source.isVerbatim ? 'VERBATIM' : 'SUMMARIZED';
+    return `[Source ${source.index}] ${source.title} (${source.domain}) [${sourceType}]
+---
+${source.content}
+---`;
+  }).join('\n\n');
+
+  return `Write a clear, concise explanation of the topic below using modular paragraphs of 5-10 sentences each.
+Ground your explanation in the provided sources and cite them using [n] notation.
+
+Title: ${title}
+
+## Sources
+${sourcesSection}
+
+## Rules
+- Output the content only, the title has already been provided
+- Always format using Markdown. Content should not include anything larger than section headers (##)
+- Each section should have a section header beginning with ##
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**
+- For inline math using single dollars: $\\frac{2}{5}$, for block math use double dollars
+- Use lists and bullets sparingly
+- IMPORTANT: Cite sources inline using [n] notation where n is the source number (e.g., [1], [2])
+- Place citations at the end of sentences or clauses that use information from that source
+- Prefer direct information from VERBATIM sources; use SUMMARIZED sources for supporting context
+- You may synthesize information across multiple sources
+- If sources conflict, note the discrepancy and cite both${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
+
 `;
 }
 

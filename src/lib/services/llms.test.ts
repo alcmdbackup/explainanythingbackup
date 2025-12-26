@@ -9,7 +9,7 @@ import { zodResponseFormat } from "openai/helpers/zod";
 // Mock dependencies
 jest.mock('openai');
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServerClient: jest.fn()
+  createSupabaseServiceClient: jest.fn()
 }));
 jest.mock('@/lib/server_utilities', () => ({
   logger: {
@@ -29,7 +29,7 @@ jest.mock('../../../instrumentation', () => ({
 }));
 jest.mock('openai/helpers/zod');
 
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callOpenAIModel, default_model, lighter_model } from './llms';
 
@@ -71,7 +71,7 @@ describe('llms', () => {
       select: jest.fn().mockReturnThis(),
       single: jest.fn().mockResolvedValue({ data: {}, error: null })
     };
-    (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
 
     // Mock zodResponseFormat
     (zodResponseFormat as jest.Mock).mockReturnValue({ type: 'json_object' });
@@ -369,7 +369,7 @@ describe('llms', () => {
         error: new Error('Database error')
       });
 
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      const mockLogger = logger as jest.Mocked<typeof logger>;
 
       const result = await callOpenAIModel(
         'Test prompt',
@@ -385,9 +385,14 @@ describe('llms', () => {
 
       // Should still return result despite database error
       expect(result).toBe('Test response');
-      expect(consoleSpy).toHaveBeenCalledWith('Error saving LLM call tracking:', expect.any(Error));
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Failed to save LLM call tracking',
+        expect.objectContaining({
+          error: expect.any(String),
+          callSource: 'test_source',
+          userId: 'user123'
+        })
+      );
     });
 
     it('should handle streaming with reasoning tokens', async () => {
@@ -506,7 +511,7 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       });
 
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+      const mockLogger = logger as jest.Mocked<typeof logger>;
 
       const result = await callOpenAIModel(
         'Test prompt',
@@ -522,9 +527,7 @@ describe('llms', () => {
 
       // Should still return result
       expect(result).toBe('Test');
-      expect(consoleSpy).toHaveBeenCalled();
-
-      consoleSpy.mockRestore();
+      expect(mockLogger.error).toHaveBeenCalled();
     });
 
     it('should handle streaming interruption gracefully', async () => {

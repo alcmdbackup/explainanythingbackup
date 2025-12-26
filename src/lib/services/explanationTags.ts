@@ -2,6 +2,7 @@
 'use server'
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { logger } from '@/lib/server_utilities';
 import { type ExplanationTagFullDbType, type ExplanationTagInsertType, type TagFullDbType, explanationTagInsertSchema, TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/schemas/schemas';
 import { getTagsById, getTagsByPresetId, convertTagsToUIFormat } from './tags';
 
@@ -252,7 +253,9 @@ export async function replaceTagsForExplanationWithValidation(
     try {
       await removeAllTagsFromExplanation(explanationId);
     } catch (restoreError) {
-      console.error('Failed to restore explanation tags after error:', restoreError);
+      logger.error('Failed to restore explanation tags after error', {
+        error: restoreError instanceof Error ? restoreError.message : String(restoreError)
+      });
     }
     
     return {

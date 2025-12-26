@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { logger } from '@/lib/server_utilities';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
+import { assertUserId } from '@/lib/utils/validation';
 
 //const supabase = await createClient()
 
@@ -21,6 +23,7 @@ export async function saveExplanationToLibrary(
   explanationid: number,
   userid: string
 ): Promise<userLibraryType> {
+  assertUserId(userid, 'saveExplanationToLibrary');
   const supabase = await createSupabaseServerClient()
 
   const { data, error } = await supabase
@@ -30,13 +33,13 @@ export async function saveExplanationToLibrary(
     .single();
 
   if (error) {
-    console.error('Error saving explanation to user library:', error);
+    logger.error('Error saving explanation to user library', { error: error.message });
     throw error;
   }
 
   // Update aggregate metrics (run in background, don't wait)
   incrementExplanationSaves(explanationid).catch(metricsError => {
-    console.error('Failed to update explanation metrics after save:', {
+    logger.error('Failed to update explanation metrics after save', {
       explanationid,
       error: metricsError instanceof Error ? metricsError.message : String(metricsError)
     });
@@ -62,6 +65,7 @@ export async function getExplanationIdsForUser(
   userid: string,
   getCreateDate: boolean = false
 ): Promise<number[] | { explanationid: number; created: string }[]> {
+  assertUserId(userid, 'getExplanationIdsForUser');
   const supabase = await createSupabaseServerClient()
   
   const selectFields = getCreateDate ? 'explanationid, created' : 'explanationid';
@@ -71,7 +75,7 @@ export async function getExplanationIdsForUser(
     .eq('userid', userid);
 
   if (error) {
-    console.error('Error fetching explanation IDs for user:', error);
+    logger.error('Error fetching explanation IDs for user', { error: error.message, userid });
     throw error;
   }
 
@@ -99,6 +103,7 @@ export async function getExplanationIdsForUser(
  * It calls getExplanationIdsForUser and getExplanationsByIds.
  */
 export async function getUserLibraryExplanations(userid: string) {
+  assertUserId(userid, 'getUserLibraryExplanations');
   const idCreatedArr = await getExplanationIdsForUser(userid, true) as { explanationid: number; created: string }[];
   if (!idCreatedArr.length) return [];
   const explanations = await getExplanationsByIds(idCreatedArr.map(x => x.explanationid));
@@ -132,6 +137,7 @@ export async function isExplanationSavedByUser(
   explanationid: number,
   userid: string
 ): Promise<boolean> {
+  assertUserId(userid, 'isExplanationSavedByUser');
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -142,7 +148,7 @@ export async function isExplanationSavedByUser(
     .maybeSingle();
 
   if (error) {
-    console.error('Error checking if explanation is saved:', error);
+    logger.error('Error checking if explanation is saved', { error: error.message, userid, explanationid });
     throw error;
   }
 

@@ -3,7 +3,7 @@
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanation } from '@/lib/services/explanations';
-import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
+import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, type ExplanationMetricsTableType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
 import { processContentToStoreEmbedding, loadFromPineconeUsingExplanationId } from '@/lib/services/vectorsim';
 import { createUserQuery, getUserQueryById } from '@/lib/services/userQueries';
 import { userQueryInsertSchema } from '@/lib/schemas/schemas';
@@ -23,7 +23,36 @@ import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation 
 import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
-import { supabase } from '../lib/supabase';
+import { createSupabaseServerClient } from '../lib/utils/supabase/server';
+import { resolveLinksForArticle, applyLinksToContent, getOverridesForArticle, setOverride, removeOverride } from '@/lib/services/linkResolver';
+import {
+  createWhitelistTerm,
+  updateWhitelistTerm,
+  deleteWhitelistTerm,
+  getAllActiveWhitelistTerms,
+  getWhitelistTermById,
+  addAliases,
+  removeAlias,
+  getAliasesForTerm,
+  getSnapshot,
+  getHeadingLinksForArticle
+} from '@/lib/services/linkWhitelist';
+import {
+  getAllCandidates,
+  getCandidateById,
+  approveCandidate,
+  rejectCandidate,
+  deleteCandidate,
+  updateOccurrencesForArticle
+} from '@/lib/services/linkCandidates';
+import type {
+  LinkWhitelistInsertType,
+  LinkWhitelistFullType,
+  LinkAliasFullType,
+  ArticleLinkOverrideFullType,
+  LinkCandidateFullType
+} from '@/lib/schemas/schemas';
+import { CandidateStatus } from '@/lib/schemas/schemas';
 
 
 const FILE_DEBUG = true;
@@ -146,6 +175,19 @@ const _updateExplanationAndTopic = withLogging(
                     explanationId,
                     updatedExplanation.primary_topic_id
                 );
+            }
+
+            // If content was updated, re-count candidate occurrences
+            if (updates.content) {
+                try {
+                    await updateOccurrencesForArticle(explanationId, updates.content, FILE_DEBUG);
+                } catch (occError) {
+                    // Log but don't fail the update if occurrence recounting fails
+                    logger.error('Failed to update candidate occurrences', {
+                        explanationId,
+                        error: occError instanceof Error ? occError.message : String(occError)
+                    });
+                }
             }
 
             return {
@@ -332,6 +374,81 @@ const _getExplanationByIdAction = async function(params: { id: number }) {
 export const getExplanationByIdAction = serverReadRequestId(_getExplanationByIdAction);
 
 /**
+ * Resolves and applies links to explanation content at render time (server action)
+ *
+ * • Fetches heading links from article_heading_links table
+ * • Matches whitelist terms (first occurrence only)
+ * • Applies per-article overrides
+ * • Returns content with markdown links applied
+ * • Falls back to raw content if resolution fails
+ * • Calls: resolveLinksForArticle, applyLinksToContent
+ * • Used by: useExplanationLoader hook when displaying content
+ */
+const _resolveLinksForDisplayAction = async function(params: {
+    explanationId: number;
+    content: string;
+}) {
+    const links = await resolveLinksForArticle(params.explanationId, params.content);
+    return applyLinksToContent(params.content, links);
+};
+
+export const resolveLinksForDisplayAction = serverReadRequestId(_resolveLinksForDisplayAction);
+
+/**
+ * Data structure for Lexical-level link overlay
+ * Used by LexicalEditor.applyLinkOverlay() to apply links at the editor tree level
+ */
+export interface LexicalLinkOverlayData {
+    headingLinks: { headingTextLower: string; standaloneTitle: string }[];
+    whitelistTerms: { termLower: string; canonicalTerm: string; standaloneTitle: string }[];
+    overrides: { termLower: string; type: 'disabled' | 'custom_title'; customTitle?: string }[];
+}
+
+/**
+ * Fetches link data for Lexical-level overlay (server action)
+ *
+ * • Fetches heading links from article_heading_links table
+ * • Fetches whitelist terms from snapshot cache
+ * • Fetches per-article overrides
+ * • Returns data in format suitable for Lexical tree-level processing
+ * • Used by: LexicalEditor.applyLinkOverlay()
+ */
+const _getLinkDataForLexicalOverlayAction = async function(params: {
+    explanationId: number;
+}): Promise<LexicalLinkOverlayData> {
+    // Fetch heading links
+    const headingLinksMap = await getHeadingLinksForArticle(params.explanationId);
+    const headingLinks = Array.from(headingLinksMap.entries()).map(([headingTextLower, standaloneTitle]) => ({
+        headingTextLower,
+        standaloneTitle
+    }));
+
+    // Fetch whitelist snapshot
+    const snapshot = await getSnapshot();
+    const whitelistTerms = Object.entries(snapshot.data).map(([termLower, entry]) => ({
+        termLower,
+        canonicalTerm: entry.canonical_term,
+        standaloneTitle: entry.standalone_title
+    }));
+
+    // Fetch per-article overrides
+    const overridesMap = await getOverridesForArticle(params.explanationId);
+    const overrides = Array.from(overridesMap.entries()).map(([termLower, override]) => ({
+        termLower,
+        type: override.override_type as 'disabled' | 'custom_title',
+        customTitle: override.custom_standalone_title ?? undefined
+    }));
+
+    return {
+        headingLinks,
+        whitelistTerms,
+        overrides
+    };
+};
+
+export const getLinkDataForLexicalOverlayAction = serverReadRequestId(_getLinkDataForLexicalOverlayAction);
+
+/**
  * Saves an explanation to the user's library (server action)
  *
  * • Calls saveExplanationToLibrary service to insert a record for the user and explanation
@@ -370,8 +487,12 @@ export const isExplanationSavedByUserAction = serverReadRequestId(_isExplanation
  * • Calls: getRecentExplanations
  * • Used by: ExplanationsPage, other client components
  */
-const _getRecentExplanationsAction = async function(limit?: number, offset?: number, orderBy?: string, order?: 'asc' | 'desc') {
-    return await getRecentExplanations(limit, offset, orderBy, order);
+const _getRecentExplanationsAction = async function(
+    limit?: number,
+    offset?: number,
+    options?: { sort?: 'new' | 'top'; period?: 'today' | 'week' | 'month' | 'all' }
+) {
+    return await getRecentExplanations(limit, offset, options);
 };
 
 export const getRecentExplanationsAction = serverReadRequestId(_getRecentExplanationsAction); 
@@ -833,7 +954,7 @@ export const getTempTagsForRewriteWithTagsAction = serverReadRequestId(_getTempT
  * • Calls: getMultipleExplanationMetrics
  * • Used by: UI components displaying explanation performance data
  */
-const _getExplanationMetricsAction = async function(explanationId: number): Promise<ExplanationMetricsType | null> {
+const _getExplanationMetricsAction = async function(explanationId: number): Promise<ExplanationMetricsTableType | null> {
     const results = await getMultipleExplanationMetrics([explanationId]);
     return results[0];
 };
@@ -849,7 +970,7 @@ export const getExplanationMetricsAction = serverReadRequestId(_getExplanationMe
  * • Calls: getMultipleExplanationMetrics
  * • Used by: List views, dashboard components showing multiple explanation stats
  */
-const _getMultipleExplanationMetricsAction = async function(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
+const _getMultipleExplanationMetricsAction = async function(explanationIds: number[]): Promise<(ExplanationMetricsTableType | null)[]> {
     return await getMultipleExplanationMetrics(explanationIds);
 };
 
@@ -1189,6 +1310,7 @@ const _getTestingPipelineRecordsByStepAction = withLogging(
     }> {
         try {
             // Get all records for this step from the database
+            const supabase = await createSupabaseServerClient();
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
                 .select('id, set_name, content, created_at')
@@ -1311,6 +1433,7 @@ const _getAISuggestionSessionsAction = withLogging(
         error: ErrorResponse | null;
     }> {
         try {
+            const supabase = await createSupabaseServerClient();
             let query = supabase
                 .from('testing_edits_pipeline')
                 .select('session_id, explanation_id, explanation_title, user_prompt, created_at')
@@ -1396,6 +1519,7 @@ const _loadAISuggestionSessionAction = withLogging(
         error: ErrorResponse | null;
     }> {
         try {
+            const supabase = await createSupabaseServerClient();
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
                 .select('step, content, session_id, explanation_id, explanation_title, user_prompt, source_content, session_metadata, created_at')
@@ -1464,4 +1588,504 @@ const _loadAISuggestionSessionAction = withLogging(
 );
 
 export const loadAISuggestionSessionAction = serverReadRequestId(_loadAISuggestionSessionAction);
+
+// ============================================================================
+// LINK WHITELIST CRUD ACTIONS
+// ============================================================================
+
+/**
+ * Create a new whitelist term (server action)
+ *
+ * • Creates a new term in the link_whitelist table
+ * • Automatically rebuilds the snapshot cache
+ * • Used by admin UI for managing whitelisted terms
+ */
+const _createWhitelistTermAction = withLogging(
+    async function createWhitelistTermAction(
+        term: LinkWhitelistInsertType
+    ): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const created = await createWhitelistTerm(term);
+            return { success: true, data: created, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'createWhitelistTermAction', { term: term.canonical_term })
+            };
+        }
+    },
+    'createWhitelistTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const createWhitelistTermAction = serverReadRequestId(_createWhitelistTermAction);
+
+/**
+ * Get all active whitelist terms (server action)
+ *
+ * • Fetches all active terms from link_whitelist table
+ * • Used by admin UI to display whitelist
+ */
+const _getAllWhitelistTermsAction = withLogging(
+    async function getAllWhitelistTermsAction(): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const terms = await getAllActiveWhitelistTerms();
+            return { success: true, data: terms, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAllWhitelistTermsAction', {})
+            };
+        }
+    },
+    'getAllWhitelistTermsAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getAllWhitelistTermsAction = serverReadRequestId(_getAllWhitelistTermsAction);
+
+/**
+ * Get a whitelist term by ID (server action)
+ *
+ * • Fetches a single term by ID from link_whitelist table
+ * • Used by admin UI for editing a term
+ */
+const _getWhitelistTermByIdAction = withLogging(
+    async function getWhitelistTermByIdAction(id: number): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const term = await getWhitelistTermById(id);
+            return { success: true, data: term, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getWhitelistTermByIdAction', { id })
+            };
+        }
+    },
+    'getWhitelistTermByIdAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getWhitelistTermByIdAction = serverReadRequestId(_getWhitelistTermByIdAction);
+
+/**
+ * Update a whitelist term (server action)
+ *
+ * • Updates an existing term in link_whitelist table
+ * • Automatically rebuilds the snapshot cache
+ * • Used by admin UI for editing terms
+ */
+const _updateWhitelistTermAction = withLogging(
+    async function updateWhitelistTermAction(
+        id: number,
+        updates: Partial<LinkWhitelistInsertType>
+    ): Promise<{
+        success: boolean;
+        data: LinkWhitelistFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const updated = await updateWhitelistTerm(id, updates);
+            return { success: true, data: updated, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'updateWhitelistTermAction', { id, updates })
+            };
+        }
+    },
+    'updateWhitelistTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const updateWhitelistTermAction = serverReadRequestId(_updateWhitelistTermAction);
+
+/**
+ * Delete a whitelist term (server action)
+ *
+ * • Deletes a term from link_whitelist table (cascades to aliases)
+ * • Automatically rebuilds the snapshot cache
+ * • Used by admin UI for removing terms
+ */
+const _deleteWhitelistTermAction = withLogging(
+    async function deleteWhitelistTermAction(id: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await deleteWhitelistTerm(id);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'deleteWhitelistTermAction', { id })
+            };
+        }
+    },
+    'deleteWhitelistTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const deleteWhitelistTermAction = serverReadRequestId(_deleteWhitelistTermAction);
+
+// ============================================================================
+// ALIAS CRUD ACTIONS
+// ============================================================================
+
+/**
+ * Add aliases to a whitelist term (server action)
+ *
+ * • Creates new aliases for a whitelist term
+ * • Deduplicates and skips existing aliases
+ * • Automatically rebuilds the snapshot cache
+ */
+const _addAliasesAction = withLogging(
+    async function addAliasesAction(
+        whitelistId: number,
+        aliases: string[]
+    ): Promise<{
+        success: boolean;
+        data: LinkAliasFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const created = await addAliases(whitelistId, aliases);
+            return { success: true, data: created, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'addAliasesAction', { whitelistId, aliasCount: aliases.length })
+            };
+        }
+    },
+    'addAliasesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const addAliasesAction = serverReadRequestId(_addAliasesAction);
+
+/**
+ * Remove an alias (server action)
+ *
+ * • Deletes an alias from link_whitelist_aliases table
+ * • Automatically rebuilds the snapshot cache
+ */
+const _removeAliasAction = withLogging(
+    async function removeAliasAction(aliasId: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await removeAlias(aliasId);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'removeAliasAction', { aliasId })
+            };
+        }
+    },
+    'removeAliasAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const removeAliasAction = serverReadRequestId(_removeAliasAction);
+
+/**
+ * Get aliases for a whitelist term (server action)
+ *
+ * • Fetches all aliases for a whitelist term
+ * • Used by admin UI for managing aliases
+ */
+const _getAliasesForTermAction = withLogging(
+    async function getAliasesForTermAction(whitelistId: number): Promise<{
+        success: boolean;
+        data: LinkAliasFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const aliases = await getAliasesForTerm(whitelistId);
+            return { success: true, data: aliases, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAliasesForTermAction', { whitelistId })
+            };
+        }
+    },
+    'getAliasesForTermAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getAliasesForTermAction = serverReadRequestId(_getAliasesForTermAction);
+
+// ============================================================================
+// LINK CANDIDATE ACTIONS
+// ============================================================================
+
+/**
+ * Get all link candidates (server action)
+ *
+ * • Fetches all candidates, optionally filtered by status
+ * • Ordered by total_occurrences DESC
+ * • Used by admin UI for candidate queue
+ */
+const _getAllCandidatesAction = withLogging(
+    async function getAllCandidatesAction(
+        status?: CandidateStatus
+    ): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const candidates = await getAllCandidates(status);
+            return { success: true, data: candidates, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getAllCandidatesAction', { status })
+            };
+        }
+    },
+    'getAllCandidatesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getAllCandidatesAction = serverReadRequestId(_getAllCandidatesAction);
+
+/**
+ * Get a candidate by ID (server action)
+ *
+ * • Fetches a single candidate by ID
+ * • Used by admin UI for viewing candidate details
+ */
+const _getCandidateByIdAction = withLogging(
+    async function getCandidateByIdAction(id: number): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const candidate = await getCandidateById(id);
+            return { success: true, data: candidate, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getCandidateByIdAction', { id })
+            };
+        }
+    },
+    'getCandidateByIdAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getCandidateByIdAction = serverReadRequestId(_getCandidateByIdAction);
+
+/**
+ * Approve a candidate (server action)
+ *
+ * • Creates a whitelist entry with the provided standalone_title
+ * • Updates candidate status to 'approved'
+ * • Used by admin UI to promote candidates to whitelist
+ */
+const _approveCandidateAction = withLogging(
+    async function approveCandidateAction(
+        id: number,
+        standaloneTitle: string
+    ): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const approved = await approveCandidate(id, standaloneTitle);
+            return { success: true, data: approved, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'approveCandidateAction', { id, standaloneTitle })
+            };
+        }
+    },
+    'approveCandidateAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const approveCandidateAction = serverReadRequestId(_approveCandidateAction);
+
+/**
+ * Reject a candidate (server action)
+ *
+ * • Updates candidate status to 'rejected'
+ * • Candidate is kept for deduplication
+ * • Used by admin UI to reject candidates
+ */
+const _rejectCandidateAction = withLogging(
+    async function rejectCandidateAction(id: number): Promise<{
+        success: boolean;
+        data: LinkCandidateFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const rejected = await rejectCandidate(id);
+            return { success: true, data: rejected, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'rejectCandidateAction', { id })
+            };
+        }
+    },
+    'rejectCandidateAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const rejectCandidateAction = serverReadRequestId(_rejectCandidateAction);
+
+/**
+ * Delete a candidate (server action)
+ *
+ * • Permanently deletes a candidate and its occurrences
+ * • Used by admin UI for removing candidates
+ */
+const _deleteCandidateAction = withLogging(
+    async function deleteCandidateAction(id: number): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await deleteCandidate(id);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'deleteCandidateAction', { id })
+            };
+        }
+    },
+    'deleteCandidateAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const deleteCandidateAction = serverReadRequestId(_deleteCandidateAction);
+
+// ============================================================================
+// ARTICLE LINK OVERRIDE ACTIONS
+// ============================================================================
+
+/**
+ * Set an override for a term in a specific article (server action)
+ *
+ * • Creates or updates an override in article_link_overrides table
+ * • overrideType: 'custom_title' (provide customTitle) or 'disabled' (hide link)
+ */
+const _setArticleLinkOverrideAction = withLogging(
+    async function setArticleLinkOverrideAction(
+        explanationId: number,
+        term: string,
+        overrideType: 'custom_title' | 'disabled',
+        customTitle?: string
+    ): Promise<{
+        success: boolean;
+        data: ArticleLinkOverrideFullType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const override = await setOverride(explanationId, term, overrideType, customTitle);
+            return { success: true, data: override, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'setArticleLinkOverrideAction', { explanationId, term, overrideType })
+            };
+        }
+    },
+    'setArticleLinkOverrideAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const setArticleLinkOverrideAction = serverReadRequestId(_setArticleLinkOverrideAction);
+
+/**
+ * Remove an override for a term in a specific article (server action)
+ *
+ * • Deletes the override, reverting to global default behavior
+ */
+const _removeArticleLinkOverrideAction = withLogging(
+    async function removeArticleLinkOverrideAction(
+        explanationId: number,
+        term: string
+    ): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            await removeOverride(explanationId, term);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'removeArticleLinkOverrideAction', { explanationId, term })
+            };
+        }
+    },
+    'removeArticleLinkOverrideAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const removeArticleLinkOverrideAction = serverReadRequestId(_removeArticleLinkOverrideAction);
+
+/**
+ * Get all overrides for an article (server action)
+ *
+ * • Fetches all overrides for a specific explanation
+ * • Returns as array for easier consumption in UI
+ */
+const _getArticleLinkOverridesAction = withLogging(
+    async function getArticleLinkOverridesAction(explanationId: number): Promise<{
+        success: boolean;
+        data: ArticleLinkOverrideFullType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const overridesMap = await getOverridesForArticle(explanationId);
+            const overrides = Array.from(overridesMap.values());
+            return { success: true, data: overrides, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getArticleLinkOverridesAction', { explanationId })
+            };
+        }
+    },
+    'getArticleLinkOverridesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getArticleLinkOverridesAction = serverReadRequestId(_getArticleLinkOverridesAction);
 

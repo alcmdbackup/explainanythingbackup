@@ -15,6 +15,14 @@ import {
     validateAISuggestionOutputAction,
     getAndApplyAISuggestionsAction
 } from '@/editorFiles/actions/actions';
+import { ValidationSummaryDashboard, ValidationChecksTable } from './ValidationSummaryDashboard';
+import { ValidationStatusBadge } from './ValidationStatusBadge';
+import {
+    PipelineValidationResults,
+    VALIDATION_DESCRIPTIONS,
+    validateStep2Output,
+    validateCriticMarkup,
+} from '@/editorFiles/validation/pipelineValidation';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,6 +59,12 @@ function EditorTestPageContent() {
 
     // Validation state for preprocessed step
     const [validationErrors, setValidationErrors] = useState<string[]>([]);
+
+    // Pipeline validation results state
+    const [pipelineValidationResults, setPipelineValidationResults] = useState<PipelineValidationResults>({});
+
+    // Export fixture state
+    const [fixtureExported, setFixtureExported] = useState<boolean>(false);
 
     // Pipeline function state
     const [isPipelineRunning, setIsPipelineRunning] = useState<boolean>(false);
@@ -238,6 +252,13 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 if (step2) setAppliedEdits(step2.content);
                 if (step3) setMarkdownASTDiffResult(step3.content);
                 if (step4) setPreprocessedMarkdown(step4.content);
+
+                // Load validation results from step4's session_metadata if available
+                if (step4?.session_metadata?.validationResults) {
+                    const validationResults = step4.session_metadata.validationResults as PipelineValidationResults;
+                    setPipelineValidationResults(validationResults);
+                    console.log('📊 Loaded validation results from session:', validationResults);
+                }
 
                 // Set test set name based on session
                 setTestSetName(`session-${sessionId.slice(0, 8)}`);
@@ -586,6 +607,13 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             if (result.success && result.data) {
                 setAppliedEdits(result.data);
 
+                // Run Step 2 validation
+                const step2Validation = validateStep2Output(currentContent, result.data);
+                setPipelineValidationResults(prev => ({
+                    ...prev,
+                    step2: { ...step2Validation, description: VALIDATION_DESCRIPTIONS.step2 },
+                }));
+
                 // Step 2: Save edits applied to database
                 try {
                     const saveResult = await saveTestingPipelineStepAction(
@@ -640,6 +668,13 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             
             const criticMarkup = RenderCriticMarkupFromMDAstDiff(beforeAST, afterAST);
             setMarkdownASTDiffResult(criticMarkup);
+
+            // Run Step 3 validation
+            const step3Validation = validateCriticMarkup(criticMarkup);
+            setPipelineValidationResults(prev => ({
+                ...prev,
+                step3: { ...step3Validation, description: VALIDATION_DESCRIPTIONS.step3 },
+            }));
 
             // Step 3: Save raw markdown to database
             try {
@@ -748,6 +783,53 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
         }
     };
 
+    // Handle exporting current pipeline state as a test fixture
+    const handleExportAsFixture = async () => {
+        if (!currentContent || !appliedEdits || !markdownASTDiffResult || !preprocessedMarkdown) {
+            alert('Please complete all pipeline steps before exporting a fixture.');
+            return;
+        }
+
+        // Count diff operations in the CriticMarkup
+        const insCount = (markdownASTDiffResult.match(/\{\+\+/g) || []).length;
+        const delCount = (markdownASTDiffResult.match(/\{--/g) || []).length;
+        const updateCount = (markdownASTDiffResult.match(/\{~~/g) || []).length;
+        const totalOperations = insCount + delCount + updateCount;
+
+        // Determine expected diff types
+        const expectedDiffTypes: string[] = [];
+        if (insCount > 0) expectedDiffTypes.push('ins');
+        if (delCount > 0) expectedDiffTypes.push('del');
+        if (updateCount > 0) expectedDiffTypes.push('update');
+
+        // Generate fixture JSON
+        const fixture = {
+            name: '',
+            description: '',
+            category: '',
+            originalMarkdown: currentContent,
+            editedMarkdown: appliedEdits,
+            expectedStep3Output: markdownASTDiffResult,
+            expectedStep4Output: preprocessedMarkdown,
+            expectedDiffNodeCount: totalOperations,
+            expectedDiffTypes: expectedDiffTypes
+        };
+
+        const fixtureJson = JSON.stringify(fixture, null, 2);
+
+        try {
+            await navigator.clipboard.writeText(fixtureJson);
+            setFixtureExported(true);
+            console.log('Fixture exported to clipboard:', fixtureJson);
+
+            // Reset feedback after 3 seconds
+            setTimeout(() => setFixtureExported(false), 3000);
+        } catch (error) {
+            console.error('Failed to copy fixture to clipboard:', error);
+            alert('Failed to copy fixture to clipboard. Check console for the JSON.');
+        }
+    };
+
     // Handle running the complete AI pipeline
     const handleRunPipeline = async () => {
         if (!currentContent.trim()) {
@@ -769,6 +851,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
             if (result.success) {
                 console.log('✅ Pipeline completed successfully');
                 console.log('Final content:', result.content);
+
+                // Capture validation results from pipeline
+                if (result.validationResults) {
+                    setPipelineValidationResults(result.validationResults);
+                }
             } else {
                 setPipelineError(result.error || 'Pipeline failed');
                 console.error('❌ Pipeline failed:', result.error);
@@ -922,6 +1009,34 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                         </div>
                     </div>
                 )}
+
+                {/* Pipeline Validation Summary Dashboard */}
+                <ValidationSummaryDashboard
+                    results={pipelineValidationResults}
+                    step4Result={validationErrors.length > 0 ? {
+                        valid: false,
+                        issues: validationErrors,
+                        severity: 'warning' as const,
+                    } : preprocessedMarkdown ? {
+                        valid: true,
+                        issues: [],
+                        severity: 'warning' as const,
+                    } : undefined}
+                />
+
+                {/* Validation Checks Table - shows all checks with status and descriptions */}
+                <ValidationChecksTable
+                    results={pipelineValidationResults}
+                    step4Result={validationErrors.length > 0 ? {
+                        valid: false,
+                        issues: validationErrors,
+                        severity: 'warning' as const,
+                    } : preprocessedMarkdown ? {
+                        valid: true,
+                        issues: [],
+                        severity: 'warning' as const,
+                    } : undefined}
+                />
 
                 <div className="max-w-4xl mx-auto space-y-6">
                     {/* Main Editor */}
@@ -1116,12 +1231,19 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     {/* Edits Applied Panel */}
                     <div className="bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                         <div className="p-6">
-                            <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-3">
+                            <h3 className="text-lg font-semibold text-green-900 dark:text-green-100 mb-3 flex items-center gap-3">
                                 Edits Applied
+                                <ValidationStatusBadge
+                                    result={pipelineValidationResults.step2}
+                                    stepName="B2: Content Preservation"
+                                />
                             </h3>
                             <div className="text-green-800 dark:text-green-200 text-sm space-y-4">
                                 <p>
                                     Apply the AI suggestions to your content to see the improved version.
+                                </p>
+                                <p className="text-xs text-green-600 dark:text-green-400 italic">
+                                    Validation (B2): Checks length ratio (50-200%), heading retention (&gt;50%), no unexpanded markers
                                 </p>
 
                                 <div className="flex flex-wrap gap-2 items-end">
@@ -1198,15 +1320,21 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     {/* Diff Applied Panel */}
                     <div className="bg-purple-50 dark:bg-purple-900/20 rounded-lg border border-purple-200 dark:border-purple-800">
                         <div className="p-6">
-                            <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-3">
+                            <h3 className="text-lg font-semibold text-purple-900 dark:text-purple-100 mb-3 flex items-center gap-3">
                                 Diff Applied
+                                <ValidationStatusBadge
+                                    result={pipelineValidationResults.step3}
+                                    stepName="B3: CriticMarkup Syntax"
+                                />
                             </h3>
                             <div className="text-purple-800 dark:text-purple-200 text-sm space-y-4">
                                 <p>
                                     Apply a diff between the original content and the applied edits using markdown AST diff.
                                 </p>
-                                
-                                
+                                <p className="text-xs text-purple-600 dark:text-purple-400 italic">
+                                    Validation (B3): Checks balanced CriticMarkup markers: {`{++ ++}`}, {`{-- --}`}, {`{~~ ~> ~~}`}
+                                </p>
+
                                 <div className="flex flex-wrap gap-2 items-end">
                                     <div className="flex-grow">
                                         <div className="text-xs text-purple-600 dark:text-purple-400 mb-2">
@@ -1217,15 +1345,26 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                         </div>
                                         <button
                                             onClick={handleApplyDiff}
-                                            disabled={!currentContent || !appliedEdits || isApplyingDiff}
+                                            disabled={
+                                                !currentContent ||
+                                                !appliedEdits ||
+                                                isApplyingDiff ||
+                                                (pipelineValidationResults.step2?.severity === 'error' && !pipelineValidationResults.step2?.valid)
+                                            }
                                             className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                !currentContent || !appliedEdits || isApplyingDiff
+                                                !currentContent || !appliedEdits || isApplyingDiff ||
+                                                (pipelineValidationResults.step2?.severity === 'error' && !pipelineValidationResults.step2?.valid)
                                                     ? 'bg-purple-300 text-white cursor-not-allowed'
                                                     : 'bg-purple-600 hover:bg-purple-700 text-white'
                                             }`}
                                         >
                                             {isApplyingDiff ? 'Processing...' : 'Apply Diff'}
                                         </button>
+                                        {pipelineValidationResults.step2?.severity === 'error' && !pipelineValidationResults.step2?.valid && (
+                                            <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                                                Step 3 blocked: Step 2 validation failed with error-severity issues.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex flex-col">
                                         <label className="text-xs text-purple-600 dark:text-purple-400 mb-1">
@@ -1289,27 +1428,54 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                     {/* Preprocessed Panel */}
                     <div className="bg-orange-50 dark:bg-orange-900/20 rounded-lg border border-orange-200 dark:border-orange-800">
                         <div className="p-6">
-                            <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3">
+                            <h3 className="text-lg font-semibold text-orange-900 dark:text-orange-100 mb-3 flex items-center gap-3">
                                 Preprocessed
+                                <ValidationStatusBadge
+                                    result={validationErrors.length > 0 ? {
+                                        valid: false,
+                                        issues: validationErrors,
+                                        severity: 'warning' as const,
+                                        description: VALIDATION_DESCRIPTIONS.step4,
+                                    } : preprocessedMarkdown ? {
+                                        valid: true,
+                                        issues: [],
+                                        severity: 'warning' as const,
+                                        description: VALIDATION_DESCRIPTIONS.step4,
+                                    } : undefined}
+                                    stepName="Step4: Heading Format"
+                                />
                             </h3>
                             <div className="text-orange-800 dark:text-orange-200 text-sm space-y-4">
                                 <p>
                                     Apply preprocessing to normalize multiline patterns and fix formatting issues.
+                                </p>
+                                <p className="text-xs text-orange-600 dark:text-orange-400 italic">
+                                    Validation (Step4): Checks headings start on newlines, CriticMarkup blocks with headings are formatted
                                 </p>
 
                                 <div className="flex flex-wrap gap-2 items-end">
                                     <div className="flex-grow">
                                         <button
                                             onClick={handlePreprocessing}
-                                            disabled={!markdownASTDiffResult || isPreprocessing}
+                                            disabled={
+                                                !markdownASTDiffResult ||
+                                                isPreprocessing ||
+                                                (pipelineValidationResults.step3?.severity === 'error' && !pipelineValidationResults.step3?.valid)
+                                            }
                                             className={`px-4 py-2 rounded-md font-medium transition-colors ${
-                                                !markdownASTDiffResult || isPreprocessing
+                                                !markdownASTDiffResult || isPreprocessing ||
+                                                (pipelineValidationResults.step3?.severity === 'error' && !pipelineValidationResults.step3?.valid)
                                                     ? 'bg-gray-400 text-white cursor-not-allowed'
                                                     : 'bg-orange-600 hover:bg-orange-700 text-white'
                                             }`}
                                         >
                                             {isPreprocessing ? 'Preprocessing...' : 'Apply Preprocessing'}
                                         </button>
+                                        {pipelineValidationResults.step3?.severity === 'error' && !pipelineValidationResults.step3?.valid && (
+                                            <p className="text-xs text-red-600 dark:text-red-400 mt-2">
+                                                Step 4 blocked: Step 3 validation failed with error-severity issues.
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex flex-col">
                                         <label className="text-xs text-orange-600 dark:text-orange-400 mb-1">
@@ -1389,7 +1555,7 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                             </pre>
                                         </div>
 
-                                        <div className="mt-4">
+                                        <div className="mt-4 flex flex-wrap gap-2 items-center">
                                             <button
                                                 onClick={handleUpdateEditorWithMarkdown}
                                                 disabled={!preprocessedMarkdown}
@@ -1401,7 +1567,23 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                                             >
                                                 Update Editor Window with Markdown
                                             </button>
+                                            <button
+                                                onClick={handleExportAsFixture}
+                                                disabled={!currentContent || !appliedEdits || !markdownASTDiffResult || !preprocessedMarkdown}
+                                                className={`px-4 py-2 rounded-md font-medium transition-colors ${
+                                                    !currentContent || !appliedEdits || !markdownASTDiffResult || !preprocessedMarkdown
+                                                        ? 'bg-gray-400 text-white cursor-not-allowed'
+                                                        : 'bg-green-600 hover:bg-green-700 text-white'
+                                                }`}
+                                            >
+                                                {fixtureExported ? 'Copied to Clipboard!' : 'Export as Fixture'}
+                                            </button>
                                         </div>
+                                        {fixtureExported && (
+                                            <p className="mt-2 text-xs text-green-600 dark:text-green-400">
+                                                Fixture JSON copied! Paste into editor-test-helpers.ts AI_PIPELINE_FIXTURES.
+                                            </p>
+                                        )}
                                     </div>
                                 )}
                             </div>

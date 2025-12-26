@@ -7,7 +7,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../../lib/services/testingPipeline';
-import { supabase } from '../../lib/supabase';
+import { createSupabaseServerClient } from '../../lib/utils/supabase/server';
 
 const FILE_DEBUG = true;
 
@@ -222,9 +222,10 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
     }> {
         try {
             // Get all records for this step from the database
+            const supabase = await createSupabaseServerClient();
             const { data, error } = await supabase
                 .from('testing_edits_pipeline')
-                .select('id, name, content, created_at')
+                .select('id, set_name, content, created_at')
                 .eq('step', step)
                 .order('created_at', { ascending: false });
 
@@ -237,9 +238,17 @@ export const getTestingPipelineRecordsByStepAction = withLogging(
                 throw error;
             }
 
+            // Map set_name to name for backwards compatibility
+            const mappedData = data?.map(record => ({
+                id: record.id,
+                name: record.set_name,
+                content: record.content,
+                created_at: record.created_at
+            })) || [];
+
             return {
                 success: true,
-                data: data || [],
+                data: mappedData,
                 error: null
             };
         } catch (error) {
@@ -332,6 +341,7 @@ export const runAISuggestionsPipelineAction = withLogging(
         content?: string;
         error?: string;
         session_id?: string;
+        validationResults?: import('../validation/pipelineValidation').PipelineValidationResults;
     }> {
         try {
             // Import the function here to avoid client-side import issues
@@ -503,6 +513,7 @@ export const getAndApplyAISuggestionsAction = withLogging(
         content?: string;
         error?: string;
         session_id?: string;
+        validationResults?: import('../validation/pipelineValidation').PipelineValidationResults;
     }> {
         try {
             // Import the function here to avoid client-side import issues
@@ -548,6 +559,76 @@ export const getAndApplyAISuggestionsAction = withLogging(
         }
     },
     'getAndApplyAISuggestionsAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+/**
+ * Gets validation results for a specific AI suggestion session (server action)
+ *
+ * • Retrieves the step4_preprocessed record for a given session_id
+ * • Extracts validationResults from session_metadata
+ * • Returns validation results if found, null otherwise
+ * • Used by: AISuggestionsPanel to display validation results for loaded sessions
+ */
+export const getSessionValidationResultsAction = withLogging(
+    async function getSessionValidationResultsAction(
+        sessionId: string
+    ): Promise<{
+        success: boolean;
+        data: import('../validation/pipelineValidation').PipelineValidationResults | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const supabase = await createSupabaseServerClient();
+            const { data, error } = await supabase
+                .from('testing_edits_pipeline')
+                .select('session_metadata')
+                .eq('session_id', sessionId)
+                .eq('step', 'step4_preprocessed')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .single();
+
+            if (error) {
+                // No record found is not an error, just return null
+                if (error.code === 'PGRST116') {
+                    return {
+                        success: true,
+                        data: null,
+                        error: null
+                    };
+                }
+                logger.error('Supabase error fetching session validation results:', {
+                    error: error.message,
+                    errorCode: error.code,
+                    sessionId
+                });
+                throw error;
+            }
+
+            const validationResults = data?.session_metadata?.validationResults || null;
+
+            return {
+                success: true,
+                data: validationResults,
+                error: null
+            };
+        } catch (error) {
+            logger.error('Get Session Validation Results Error', {
+                error: error instanceof Error ? error.message : String(error),
+                sessionId
+            });
+
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getSessionValidationResultsAction', { sessionId })
+            };
+        }
+    },
+    'getSessionValidationResultsAction',
     {
         enabled: FILE_DEBUG
     }

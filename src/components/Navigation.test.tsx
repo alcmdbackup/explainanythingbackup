@@ -2,10 +2,15 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import Navigation from './Navigation';
 import { signOut } from '@/app/login/actions';
+import { clearRememberMe } from '@/lib/utils/supabase/rememberMe';
 
 // Mock dependencies
 jest.mock('@/app/login/actions', () => ({
   signOut: jest.fn(),
+}));
+
+jest.mock('@/lib/utils/supabase/rememberMe', () => ({
+  clearRememberMe: jest.fn(),
 }));
 
 jest.mock('./SearchBar', () => {
@@ -54,7 +59,7 @@ describe('Navigation', () => {
     it('should render all navigation links', () => {
       render(<Navigation />);
       expect(screen.getByText('Home')).toBeInTheDocument();
-      expect(screen.getByText('My Library')).toBeInTheDocument();
+      expect(screen.getByText('Saved')).toBeInTheDocument();
       expect(screen.getByText('Explore')).toBeInTheDocument();
     });
 
@@ -97,7 +102,7 @@ describe('Navigation', () => {
 
     it('should use default placeholder when not provided', () => {
       render(<Navigation showSearchBar={true} />);
-      expect(screen.getByText('Search the archives...')).toBeInTheDocument();
+      expect(screen.getByText('Search...')).toBeInTheDocument();
     });
 
     it('should forward searchBarProps to SearchBar component', () => {
@@ -131,9 +136,9 @@ describe('Navigation', () => {
       expect(homeLink).toHaveAttribute('href', '/');
     });
 
-    it('should render My Library link with correct href', () => {
+    it('should render Saved link with correct href', () => {
       render(<Navigation />);
-      const libraryLink = screen.getByText('My Library').closest('a');
+      const libraryLink = screen.getByText('Saved').closest('a');
       expect(libraryLink).toHaveAttribute('href', '/userlibrary');
     });
 
@@ -174,6 +179,16 @@ describe('Navigation', () => {
       await user.click(logoutButton);
 
       expect(signOut).toHaveBeenCalledWith();
+    });
+
+    it('should clear remember me preference when signing out', async () => {
+      const user = userEvent.setup();
+      render(<Navigation />);
+
+      const logoutButton = screen.getByRole('button', { name: /logout/i });
+      await user.click(logoutButton);
+
+      expect(clearRememberMe).toHaveBeenCalledTimes(1);
     });
 
     it('should handle multiple logout clicks', async () => {
@@ -250,7 +265,7 @@ describe('Navigation', () => {
 
     it('should support keyboard navigation for all links', () => {
       render(<Navigation />);
-      const links = ['Home', 'My Library', 'Explore'].map(text =>
+      const links = ['Home', 'Saved', 'Explore'].map(text =>
         screen.getByText(text).closest('a')
       );
       links.forEach(link => {

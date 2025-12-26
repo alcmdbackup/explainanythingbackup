@@ -1,0 +1,1609 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure adjacent-diffs expected outputs are consistent 1`] = `
+{
+  "fixture": "adjacent-diffs",
+  "step3": "{--old--}{++new++} word.",
+  "step4Computed": "{--old--}{++new++} word.",
+  "step4Expected": "{--old--}{++new++} word.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure code-block-edits expected outputs are consistent 1`] = `
+{
+  "fixture": "code-block-edits",
+  "step3": "{--\`\`\`js
+const x = 1;
+\`\`\`--}
+
+{++\`\`\`js
+const x = 2;
+\`\`\`++}",
+  "step4Computed": "{--\`\`\`js<br>const x = 1;<br>\`\`\`--}
+
+{++\`\`\`js<br>const x = 2;<br>\`\`\`++}",
+  "step4Expected": "{--\`\`\`js<br>const x = 1;<br>\`\`\`--}
+
+{++\`\`\`js<br>const x = 2;<br>\`\`\`++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure complex-edit expected outputs are consistent 1`] = `
+{
+  "fixture": "complex-edit",
+  "step3": "First {++modified ++}line.
+
+{--Second--}{++Third++} line.",
+  "step4Computed": "First {++modified ++}line.
+
+{--Second--}{++Third++} line.",
+  "step4Expected": "First {++modified ++}line.
+
+{--Second--}{++Third++} line.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure empty-paragraph expected outputs are consistent 1`] = `
+{
+  "fixture": "empty-paragraph",
+  "step3": "One.
+
+{++Middle.++}
+
+Two.",
+  "step4Computed": "One.
+
+{++Middle.++}
+
+Two.",
+  "step4Expected": "One.
+
+{++Middle.++}
+
+Two.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure escaped-chars expected outputs are consistent 1`] = `
+{
+  "fixture": "escaped-chars",
+  "step3": "Use {++\`++}code{++\` here++}.",
+  "step4Computed": "Use {++\`++}code{++\` here++}.",
+  "step4Expected": "Use {++\`++}code{++\` here++}.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure heading-changes expected outputs are consistent 1`] = `
+{
+  "fixture": "heading-changes",
+  "step3": "{--# Title--}
+
+{++## Title++}",
+  "step4Computed": "{--# Title--}
+
+{++## Title++}",
+  "step4Expected": "{--# Title--}
+
+{++## Title++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure image-in-diff expected outputs are consistent 1`] = `
+{
+  "fixture": "image-in-diff",
+  "step3": "Before.{++ ![alt](img.png)++}",
+  "step4Computed": "Before.{++ ![alt](img.png)++}",
+  "step4Expected": "Before.{++ ![alt](img.png)++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure improve-entire-article expected outputs are consistent 1`] = `
+{
+  "fixture": "improve-entire-article",
+  "step3": "# {--Climate Change--}{++Understanding Climate Change++}
+
+{--Climate change is bad. It makes things hotter. The ice is melting and that's not good.--}{++Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.++}
+
+## {--Effects--}{++Environmental and Social Effects++}
+
+{--There are many effects. Some are bad for animals. Some are bad for people.--}{++The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.++}",
+  "step4Computed": "# {--Climate Change--}{++Understanding Climate Change++}
+
+{--Climate change is bad. It makes things hotter. The ice is melting and that's not good.--}{++Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.++}
+
+## {--Effects--}{++Environmental and Social Effects++}
+
+{--There are many effects. Some are bad for animals. Some are bad for people.--}{++The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.++}",
+  "step4Expected": "# {--Climate Change--}{++Understanding Climate Change++}
+
+{--Climate change is bad. It makes things hotter. The ice is melting and that's not good.--}{++Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.++}
+
+## {--Effects--}{++Environmental and Social Effects++}
+
+{--There are many effects. Some are bad for animals. Some are bad for people.--}{++The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure inline-code-diff expected outputs are consistent 1`] = `
+{
+  "fixture": "inline-code-diff",
+  "step3": "Run {++\`npm install\` ++}command.",
+  "step4Computed": "Run {++\`npm install\` ++}command.",
+  "step4Expected": "Run {++\`npm install\` ++}command.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure insert-and-delete expected outputs are consistent 1`] = `
+{
+  "fixture": "insert-and-delete",
+  "step3": "Start {--middle--}{++new++} end.",
+  "step4Computed": "Start {--middle--}{++new++} end.",
+  "step4Expected": "Start {--middle--}{++new++} end.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure insertion-with-formatting expected outputs are consistent 1`] = `
+{
+  "fixture": "insertion-with-formatting",
+  "step3": "Text{++ **bold**++}.",
+  "step4Computed": "Text{++ **bold**++}.",
+  "step4Expected": "Text{++ **bold**++}.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure link-in-diff expected outputs are consistent 1`] = `
+{
+  "fixture": "link-in-diff",
+  "step3": "Text {++[link](https://example.com) ++}here.",
+  "step4Computed": "Text {++[link](https://example.com) ++}here.",
+  "step4Expected": "Text {++[link](https://example.com) ++}here.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure list-modifications expected outputs are consistent 1`] = `
+{
+  "fixture": "list-modifications",
+  "step3": "- Item 1
+- Item 2{++
+- Item 3++}",
+  "step4Computed": "- Item 1
+- Item 2{++<br>- Item 3++}",
+  "step4Expected": "- Item 1
+- Item 2{++<br>- Item 3++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure long-content expected outputs are consistent 1`] = `
+{
+  "fixture": "long-content",
+  "step3": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A {++modified ++}end.",
+  "step4Computed": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A {++modified ++}end.",
+  "step4Expected": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A {++modified ++}end.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure multi-word-insertion expected outputs are consistent 1`] = `
+{
+  "fixture": "multi-word-insertion",
+  "step3": "Hello {++beautiful new ++}world.",
+  "step4Computed": "Hello {++beautiful new ++}world.",
+  "step4Expected": "Hello {++beautiful new ++}world.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure multiline-in-single-diff expected outputs are consistent 1`] = `
+{
+  "fixture": "multiline-in-single-diff",
+  "step3": "Start.
+
+{++Line 1
+Line 2++}",
+  "step4Computed": "Start.
+
+{++Line 1<br>Line 2++}",
+  "step4Expected": "Start.
+
+{++Line 1<br>Line 2++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure multiple-updates expected outputs are consistent 1`] = `
+{
+  "fixture": "multiple-updates",
+  "step3": "The {--big red--}{++small blue++} ball.",
+  "step4Computed": "The {--big red--}{++small blue++} ball.",
+  "step4Expected": "The {--big red--}{++small blue++} ball.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure nested-formatting expected outputs are consistent 1`] = `
+{
+  "fixture": "nested-formatting",
+  "step3": "{--Plain--}{++**bold** and *italic*++} text.",
+  "step4Computed": "{--Plain--}{++**bold** and *italic*++} text.",
+  "step4Expected": "{--Plain--}{++**bold** and *italic*++} text.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure paragraph-deletion expected outputs are consistent 1`] = `
+{
+  "fixture": "paragraph-deletion",
+  "step3": "Para 1.
+
+{--Para 2.--}",
+  "step4Computed": "Para 1.
+
+{--Para 2.--}",
+  "step4Expected": "Para 1.
+
+{--Para 2.--}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure paragraph-insertion expected outputs are consistent 1`] = `
+{
+  "fixture": "paragraph-insertion",
+  "step3": "Para 1.
+
+{++Para 2.++}",
+  "step4Computed": "Para 1.
+
+{++Para 2.++}",
+  "step4Expected": "Para 1.
+
+{++Para 2.++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure phrase-update expected outputs are consistent 1`] = `
+{
+  "fixture": "phrase-update",
+  "step3": "The {--quick brown--}{++slow red++} fox.",
+  "step4Computed": "The {--quick brown--}{++slow red++} fox.",
+  "step4Expected": "The {--quick brown--}{++slow red++} fox.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure remove-first-sentence expected outputs are consistent 1`] = `
+{
+  "fixture": "remove-first-sentence",
+  "step3": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.",
+  "step4Computed": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.",
+  "step4Expected": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure sentence-deletion expected outputs are consistent 1`] = `
+{
+  "fixture": "sentence-deletion",
+  "step3": "First.{-- Second.--}",
+  "step4Computed": "First.{-- Second.--}",
+  "step4Expected": "First.{-- Second.--}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure sentence-insertion expected outputs are consistent 1`] = `
+{
+  "fixture": "sentence-insertion",
+  "step3": "First.{++ Second.++}",
+  "step4Computed": "First.{++ Second.++}",
+  "step4Expected": "First.{++ Second.++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure sentence-rewrite expected outputs are consistent 1`] = `
+{
+  "fixture": "sentence-rewrite",
+  "step3": "It was {--good.--}{++excellent.++}",
+  "step4Computed": "It was {--good.--}{++excellent.++}",
+  "step4Expected": "It was {--good.--}{++excellent.++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure shorten-first-paragraph expected outputs are consistent 1`] = `
+{
+  "fixture": "shorten-first-paragraph",
+  "step3": "# Machine Learning Basics
+
+{--Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.--}{++Machine learning builds systems that learn from data and improve over time without explicit programming.++}
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.",
+  "step4Computed": "# Machine Learning Basics
+
+{--Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.--}{++Machine learning builds systems that learn from data and improve over time without explicit programming.++}
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.",
+  "step4Expected": "# Machine Learning Basics
+
+{--Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.--}{++Machine learning builds systems that learn from data and improve over time without explicit programming.++}
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure single-word-deletion expected outputs are consistent 1`] = `
+{
+  "fixture": "single-word-deletion",
+  "step3": "The {--black --}cat sat.",
+  "step4Computed": "The {--black --}cat sat.",
+  "step4Expected": "The {--black --}cat sat.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure single-word-insertion expected outputs are consistent 1`] = `
+{
+  "fixture": "single-word-insertion",
+  "step3": "The {++black ++}cat sat.",
+  "step4Computed": "The {++black ++}cat sat.",
+  "step4Expected": "The {++black ++}cat sat.",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure table-cell-edit expected outputs are consistent 1`] = `
+{
+  "fixture": "table-cell-edit",
+  "step3": "| A | B |
+|---|---|
+| {--1--}{++X++} | 2 |",
+  "step4Computed": "| A | B |
+|---|---|
+| {--1--}{++X++} | 2 |",
+  "step4Expected": "| A | B |
+|---|---|
+| {--1--}{++X++} | 2 |",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure table-row-add expected outputs are consistent 1`] = `
+{
+  "fixture": "table-row-add",
+  "step3": "| A | B |
+|---|---|
+| 1 | 2 |{++
+| 3 | 4 |++}",
+  "step4Computed": "| A | B |
+|---|---|
+| 1 | 2 |{++<br>| 3 | 4 |++}",
+  "step4Expected": "| A | B |
+|---|---|
+| 1 | 2 |{++<br>| 3 | 4 |++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure unicode-content expected outputs are consistent 1`] = `
+{
+  "fixture": "unicode-content",
+  "step3": "Hello{++ 🎉++}",
+  "step4Computed": "Hello{++ 🎉++}",
+  "step4Expected": "Hello{++ 🎉++}",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure whitespace-only expected outputs are consistent 1`] = `
+{
+  "fixture": "whitespace-only",
+  "step3": "Hello{--  --}{++ ++}world.
+
+",
+  "step4Computed": "Hello{--  --}{++ ++}world.
+
+",
+  "step4Expected": "Hello{--  --}{++ ++}world.
+
+",
+}
+`;
+
+exports[`Golden Tests: Expected Outputs Validation expectedStep3Output matches expectedStep4Output structure word-replacement expected outputs are consistent 1`] = `
+{
+  "fixture": "word-replacement",
+  "step3": "The {--cat--}{++dog++} sat.",
+  "step4Computed": "The {--cat--}{++dog++} sat.",
+  "step4Expected": "The {--cat--}{++dog++} sat.",
+}
+`;
+
+exports[`Golden Tests: Fixture Metadata all fixtures have required properties 1`] = `
+[
+  {
+    "category": "insertion",
+    "description": "Insert a single word into existing text",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "single-word-insertion",
+  },
+  {
+    "category": "insertion",
+    "description": "Insert multiple words into existing text",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "multi-word-insertion",
+  },
+  {
+    "category": "insertion",
+    "description": "Insert a full sentence",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "sentence-insertion",
+  },
+  {
+    "category": "insertion",
+    "description": "Insert a new paragraph",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "paragraph-insertion",
+  },
+  {
+    "category": "insertion",
+    "description": "Insert formatted text",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "insertion-with-formatting",
+  },
+  {
+    "category": "deletion",
+    "description": "Delete a single word from text",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "del",
+    ],
+    "name": "single-word-deletion",
+  },
+  {
+    "category": "deletion",
+    "description": "Delete a sentence",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "del",
+    ],
+    "name": "sentence-deletion",
+  },
+  {
+    "category": "deletion",
+    "description": "Delete a paragraph",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "del",
+    ],
+    "name": "paragraph-deletion",
+  },
+  {
+    "category": "update",
+    "description": "Replace one word with another",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "word-replacement",
+  },
+  {
+    "category": "update",
+    "description": "Rewrite a sentence significantly",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "sentence-rewrite",
+  },
+  {
+    "category": "update",
+    "description": "Update a phrase within text",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "phrase-update",
+  },
+  {
+    "category": "mixed",
+    "description": "Insert and delete in same document",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "insert-and-delete",
+  },
+  {
+    "category": "mixed",
+    "description": "Multiple word replacements",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "multiple-updates",
+  },
+  {
+    "category": "mixed",
+    "description": "Multiple changes across document",
+    "expectedDiffNodeCount": 3,
+    "expectedDiffTypes": [
+      "ins",
+      "del",
+      "ins",
+    ],
+    "name": "complex-edit",
+  },
+  {
+    "category": "edge-case",
+    "description": "Change heading level",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "heading-changes",
+  },
+  {
+    "category": "edge-case",
+    "description": "Add item to list",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "list-modifications",
+  },
+  {
+    "category": "edge-case",
+    "description": "Changes inside code blocks",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "code-block-edits",
+  },
+  {
+    "category": "edge-case",
+    "description": "Nested bold and italic",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "nested-formatting",
+  },
+  {
+    "category": "edge-case",
+    "description": "Emoji and unicode in diffs",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "unicode-content",
+  },
+  {
+    "category": "edge-case",
+    "description": "Link within diff markup",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "link-in-diff",
+  },
+  {
+    "category": "edge-case",
+    "description": "Image within diff markup",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "image-in-diff",
+  },
+  {
+    "category": "edge-case",
+    "description": "Insertion immediately after deletion",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "adjacent-diffs",
+  },
+  {
+    "category": "edge-case",
+    "description": "Only whitespace changes",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "whitespace-only",
+  },
+  {
+    "category": "edge-case",
+    "description": "Backticks and brackets in diff",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "ins",
+      "ins",
+    ],
+    "name": "escaped-chars",
+  },
+  {
+    "category": "edge-case",
+    "description": "Add new paragraph between existing ones",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "empty-paragraph",
+  },
+  {
+    "category": "edge-case",
+    "description": "Inline code in diff",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "inline-code-diff",
+  },
+  {
+    "category": "edge-case",
+    "description": "Stress test with long paragraph",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "long-content",
+  },
+  {
+    "category": "edge-case",
+    "description": "Add row to markdown table",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "table-row-add",
+  },
+  {
+    "category": "edge-case",
+    "description": "Modify cell content in table",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "table-cell-edit",
+  },
+  {
+    "category": "edge-case",
+    "description": "Multiple lines in single diff block",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "ins",
+    ],
+    "name": "multiline-in-single-diff",
+  },
+  {
+    "category": "deletion",
+    "description": "Remove the first sentence from a paragraph",
+    "expectedDiffNodeCount": 1,
+    "expectedDiffTypes": [
+      "del",
+    ],
+    "name": "remove-first-sentence",
+  },
+  {
+    "category": "mixed",
+    "description": "Condense the first paragraph to key points",
+    "expectedDiffNodeCount": 2,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+    ],
+    "name": "shorten-first-paragraph",
+  },
+  {
+    "category": "mixed",
+    "description": "Rewrite entire article for clarity and better structure",
+    "expectedDiffNodeCount": 8,
+    "expectedDiffTypes": [
+      "del",
+      "ins",
+      "del",
+      "ins",
+      "del",
+      "ins",
+      "del",
+      "ins",
+    ],
+    "name": "improve-entire-article",
+  },
+]
+`;
+
+exports[`Golden Tests: Fixture Metadata category distribution is balanced 1`] = `
+{
+  "deletion": 4,
+  "edge-case": 16,
+  "insertion": 5,
+  "mixed": 5,
+  "update": 3,
+}
+`;
+
+exports[`Golden Tests: Full Pipeline adjacent-diffs complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "adjacent-diffs",
+  "step3": "{~~old word.
+
+~>new word.
+
+~~}",
+  "step4": "{~~old word.<br><br>~>new word.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline code-block-edits complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "code-block-edits",
+  "step3": "{~~\`\`\`js
+const x = 1;
+
+\`\`\`
+
+~>\`\`\`js
+const x = 2;
+
+\`\`\`
+
+~~}",
+  "step4": "{~~\`\`\`js<br>const x = 1;<br><br>\`\`\`<br><br>~>\`\`\`js<br>const x = 2;<br><br>\`\`\`<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline complex-edit complete pipeline output matches snapshot 1`] = `
+{
+  "category": "mixed",
+  "name": "complex-edit",
+  "step3": "{--First line.--}{++First modified line.++}
+
+{~~Second line.
+
+~>Third line.
+
+~~}",
+  "step4": "{--First line.--}{++First modified line.++}
+
+{~~Second line.<br><br>~>Third line.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline empty-paragraph complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "empty-paragraph",
+  "step3": "One.
+
+{~~Two.
+
+~>Middle.
+
+~~}{++Two.
+
+++}",
+  "step4": "One.
+
+{~~Two.<br><br>~>Middle.<br><br>~~}{++Two.<br><br>++}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline escaped-chars complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "escaped-chars",
+  "step3": "{~~Use code.
+
+~>Use \`code\` here.
+
+~~}",
+  "step4": "{~~Use code.<br><br>~>Use \`code\` here.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline heading-changes complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "heading-changes",
+  "step3": "{--# Title
+
+--}{++## Title
+
+++}",
+  "step4": "{--# Title<br><br>--}
+
+{++## Title<br><br>++}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline image-in-diff complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "image-in-diff",
+  "step3": "{~~Before.
+
+~>Before. ![alt](img.png)
+
+~~}",
+  "step4": "{~~Before.<br><br>~>Before. ![alt](img.png)<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline improve-entire-article complete pipeline output matches snapshot 1`] = `
+{
+  "category": "mixed",
+  "name": "improve-entire-article",
+  "step3": "{~~# Climate Change
+
+~># Understanding Climate Change
+
+~~}{~~Climate change is bad. It makes things hotter. The ice is melting and that's not good.
+
+~>Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.
+
+~~}{~~## Effects
+
+~>## Environmental and Social Effects
+
+~~}{~~There are many effects. Some are bad for animals. Some are bad for people.
+
+~>The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.
+
+~~}",
+  "step4": "{~~# Climate Change<br><br>~># Understanding Climate Change<br><br>~~}
+{~~Climate change is bad. It makes things hotter. The ice is melting and that's not good.<br><br>~>Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.<br><br>~~}
+{~~## Effects<br><br>~>## Environmental and Social Effects<br><br>~~}
+{~~There are many effects. Some are bad for animals. Some are bad for people.<br><br>~>The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline inline-code-diff complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "inline-code-diff",
+  "step3": "{~~Run command.
+
+~>Run \`npm install\` command.
+
+~~}",
+  "step4": "{~~Run command.<br><br>~>Run \`npm install\` command.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline insert-and-delete complete pipeline output matches snapshot 1`] = `
+{
+  "category": "mixed",
+  "name": "insert-and-delete",
+  "step3": "{--Start middle end.--}{++Start new end.++}
+
+",
+  "step4": "{--Start middle end.--}{++Start new end.++}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline insertion-with-formatting complete pipeline output matches snapshot 1`] = `
+{
+  "category": "insertion",
+  "name": "insertion-with-formatting",
+  "step3": "{~~Text.
+
+~>Text **bold**.
+
+~~}",
+  "step4": "{~~Text.<br><br>~>Text **bold**.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline link-in-diff complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "link-in-diff",
+  "step3": "{--Text here.--}{++Text [link](https://example.com) here.++}
+
+",
+  "step4": "{--Text here.--}{++Text [link](https://example.com) here.++}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline list-modifications complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "list-modifications",
+  "step3": "{~~- Item 1
+- Item 2
+
+~>- Item 1
+- Item 2
+- Item 3
+
+~~}",
+  "step4": "{~~- Item 1<br>- Item 2<br><br>~>- Item 1<br>- Item 2<br>- Item 3<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline long-content complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "long-content",
+  "step3": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A {++modified ++}end.
+
+",
+  "step4": "A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A {++modified ++}end.
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline multi-word-insertion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "insertion",
+  "name": "multi-word-insertion",
+  "step3": "{~~Hello world.
+
+~>Hello beautiful new world.
+
+~~}",
+  "step4": "{~~Hello world.<br><br>~>Hello beautiful new world.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline multiline-in-single-diff complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "multiline-in-single-diff",
+  "step3": "Start.
+
+{++Line 1
+Line 2
+
+++}",
+  "step4": "Start.
+
+{++Line 1<br>Line 2<br><br>++}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline multiple-updates complete pipeline output matches snapshot 1`] = `
+{
+  "category": "mixed",
+  "name": "multiple-updates",
+  "step3": "{~~The big red ball.
+
+~>The small blue ball.
+
+~~}",
+  "step4": "{~~The big red ball.<br><br>~>The small blue ball.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline nested-formatting complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "nested-formatting",
+  "step3": "{~~Plain text.
+
+~>**bold** and *italic* text.
+
+~~}",
+  "step4": "{~~Plain text.<br><br>~>**bold** and *italic* text.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline paragraph-deletion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "deletion",
+  "name": "paragraph-deletion",
+  "step3": "Para 1.
+
+{--Para 2.
+
+--}",
+  "step4": "Para 1.
+
+{--Para 2.<br><br>--}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline paragraph-insertion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "insertion",
+  "name": "paragraph-insertion",
+  "step3": "Para 1.
+
+{++Para 2.
+
+++}",
+  "step4": "Para 1.
+
+{++Para 2.<br><br>++}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline phrase-update complete pipeline output matches snapshot 1`] = `
+{
+  "category": "update",
+  "name": "phrase-update",
+  "step3": "{~~The quick brown fox.
+
+~>The slow red fox.
+
+~~}",
+  "step4": "{~~The quick brown fox.<br><br>~>The slow red fox.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline remove-first-sentence complete pipeline output matches snapshot 1`] = `
+{
+  "category": "deletion",
+  "name": "remove-first-sentence",
+  "step3": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.
+
+",
+  "step4": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline sentence-deletion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "deletion",
+  "name": "sentence-deletion",
+  "step3": "{~~First. Second.
+
+~>First.
+
+~~}",
+  "step4": "{~~First. Second.<br><br>~>First.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline sentence-insertion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "insertion",
+  "name": "sentence-insertion",
+  "step3": "{~~First.
+
+~>First. Second.
+
+~~}",
+  "step4": "{~~First.<br><br>~>First. Second.<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline sentence-rewrite complete pipeline output matches snapshot 1`] = `
+{
+  "category": "update",
+  "name": "sentence-rewrite",
+  "step3": "{--It was good.--}{++It was excellent.++}
+
+",
+  "step4": "{--It was good.--}{++It was excellent.++}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline shorten-first-paragraph complete pipeline output matches snapshot 1`] = `
+{
+  "category": "mixed",
+  "name": "shorten-first-paragraph",
+  "step3": "# Machine Learning Basics
+
+{~~Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.
+
+~>Machine learning builds systems that learn from data and improve over time without explicit programming.
+
+~~}## Types of Learning
+
+Supervised learning uses labeled data to train models.
+
+",
+  "step4": "# Machine Learning Basics
+
+{~~Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.<br><br>~>Machine learning builds systems that learn from data and improve over time without explicit programming.<br><br>~~}
+## Types of Learning
+
+Supervised learning uses labeled data to train models.
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline single-word-deletion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "deletion",
+  "name": "single-word-deletion",
+  "step3": "{~~The black cat sat.~>The cat sat.~~}
+
+",
+  "step4": "{~~The black cat sat.~>The cat sat.~~}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline single-word-insertion complete pipeline output matches snapshot 1`] = `
+{
+  "category": "insertion",
+  "name": "single-word-insertion",
+  "step3": "{~~The cat sat.~>The black cat sat.~~}
+
+",
+  "step4": "{~~The cat sat.~>The black cat sat.~~}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline table-cell-edit complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "table-cell-edit",
+  "step3": "| A | B |
+|---|---|
+{~~| 1 | 2 |~>| X | 2 |~~}
+
+",
+  "step4": "| A | B |
+|---|---|
+{~~| 1 | 2 |~>| X | 2 |~~}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline table-row-add complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "table-row-add",
+  "step3": "| A | B |
+|---|---|
+{~~| 1 | 2 |~>| 1 | 2 |
+~~}{++| 3 | 4 |++}
+
+",
+  "step4": "| A | B |
+|---|---|
+{~~| 1 | 2 |~>| 1 | 2 |<br>~~}{++| 3 | 4 |++}
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline unicode-content complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "unicode-content",
+  "step3": "{~~Hello
+
+~>Hello 🎉
+
+~~}",
+  "step4": "{~~Hello<br><br>~>Hello 🎉<br><br>~~}",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline whitespace-only complete pipeline output matches snapshot 1`] = `
+{
+  "category": "edge-case",
+  "name": "whitespace-only",
+  "step3": "Hello{--  --}{++ ++}world.
+
+",
+  "step4": "Hello{--  --}{++ ++}world.
+
+",
+}
+`;
+
+exports[`Golden Tests: Full Pipeline word-replacement complete pipeline output matches snapshot 1`] = `
+{
+  "category": "update",
+  "name": "word-replacement",
+  "step3": "{--The cat sat.--}{++The dog sat.++}
+
+",
+  "step4": "{--The cat sat.--}{++The dog sat.++}
+
+",
+}
+`;
+
+exports[`Golden Tests: Known Regression Cases delete first sentence regression 1`] = `
+{
+  "caseName": "delete-first-sentence",
+  "input": {
+    "edited": "# Understanding Quantum Physics
+
+Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.",
+    "original": "# Understanding Quantum Physics
+
+This introductory sentence is outdated. Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.",
+  },
+  "output": {
+    "criticMarkup": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.
+
+",
+    "preprocessed": "# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.
+
+",
+  },
+}
+`;
+
+exports[`Golden Tests: Known Regression Cases improve entire article regression 1`] = `
+{
+  "caseName": "improve-entire-article",
+  "input": {
+    "edited": "# Understanding Climate Change
+
+Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.
+
+## Environmental and Social Effects
+
+The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.",
+    "original": "# Climate Change
+
+Climate change is bad. It makes things hotter. The ice is melting and that's not good.
+
+## Effects
+
+There are many effects. Some are bad for animals. Some are bad for people.",
+  },
+  "output": {
+    "criticMarkup": "{~~# Climate Change
+
+~># Understanding Climate Change
+
+~~}{~~Climate change is bad. It makes things hotter. The ice is melting and that's not good.
+
+~>Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.
+
+~~}{~~## Effects
+
+~>## Environmental and Social Effects
+
+~~}{~~There are many effects. Some are bad for animals. Some are bad for people.
+
+~>The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.
+
+~~}",
+    "preprocessed": "{~~# Climate Change<br><br>~># Understanding Climate Change<br><br>~~}
+{~~Climate change is bad. It makes things hotter. The ice is melting and that's not good.<br><br>~>Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.<br><br>~~}
+{~~## Effects<br><br>~>## Environmental and Social Effects<br><br>~~}
+{~~There are many effects. Some are bad for animals. Some are bad for people.<br><br>~>The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.<br><br>~~}",
+  },
+}
+`;
+
+exports[`Golden Tests: Known Regression Cases shorten paragraph regression 1`] = `
+{
+  "caseName": "shorten-paragraph",
+  "input": {
+    "edited": "# Machine Learning Basics
+
+Machine learning builds systems that learn from data and improve over time without explicit programming.
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.",
+    "original": "# Machine Learning Basics
+
+Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.
+
+## Types of Learning
+
+Supervised learning uses labeled data to train models.",
+  },
+  "output": {
+    "criticMarkup": "# Machine Learning Basics
+
+{~~Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.
+
+~>Machine learning builds systems that learn from data and improve over time without explicit programming.
+
+~~}## Types of Learning
+
+Supervised learning uses labeled data to train models.
+
+",
+    "preprocessed": "# Machine Learning Basics
+
+{~~Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.<br><br>~>Machine learning builds systems that learn from data and improve over time without explicit programming.<br><br>~~}
+## Types of Learning
+
+Supervised learning uses labeled data to train models.
+
+",
+  },
+}
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Prompt-Specific Cases improve-entire-article RenderCriticMarkupFromMDAstDiff output matches snapshot 1`] = `
+"{~~# Climate Change
+
+~># Understanding Climate Change
+
+~~}{~~Climate change is bad. It makes things hotter. The ice is melting and that's not good.
+
+~>Climate change refers to long-term shifts in global temperatures and weather patterns. Rising greenhouse gas emissions have accelerated warming trends since the industrial era.
+
+~~}{~~## Effects
+
+~>## Environmental and Social Effects
+
+~~}{~~There are many effects. Some are bad for animals. Some are bad for people.
+
+~>The consequences of climate change are far-reaching. Ecosystems face disruption as species struggle to adapt. Human communities experience increased extreme weather events, threatening food security and infrastructure.
+
+~~}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Prompt-Specific Cases remove-first-sentence RenderCriticMarkupFromMDAstDiff output matches snapshot 1`] = `
+"# Understanding Quantum Physics
+
+{--This introductory sentence is outdated. --}Quantum physics describes nature at the smallest scales. It revolutionized our understanding of matter and energy.
+
+## Key Concepts
+
+The wave-particle duality is fundamental to quantum mechanics.
+
+"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Prompt-Specific Cases shorten-first-paragraph RenderCriticMarkupFromMDAstDiff output matches snapshot 1`] = `
+"# Machine Learning Basics
+
+{~~Machine learning is a subset of artificial intelligence that focuses on building systems that can learn from data. These systems improve their performance over time without being explicitly programmed. The field has grown significantly in recent years due to advances in computing power and the availability of large datasets.
+
+~>Machine learning builds systems that learn from data and improve over time without explicit programming.
+
+~~}## Types of Learning
+
+Supervised learning uses labeled data to train models.
+
+"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Deletions paragraph-deletion diff generation matches snapshot 1`] = `
+"Para 1.
+
+{--Para 2.
+
+--}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Deletions sentence-deletion diff generation matches snapshot 1`] = `
+"{~~First. Second.
+
+~>First.
+
+~~}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Deletions single-word-deletion diff generation matches snapshot 1`] = `
+"{~~The black cat sat.~>The cat sat.~~}
+
+"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Insertions insertion-with-formatting diff generation matches snapshot 1`] = `
+"{~~Text.
+
+~>Text **bold**.
+
+~~}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Insertions multi-word-insertion diff generation matches snapshot 1`] = `
+"{~~Hello world.
+
+~>Hello beautiful new world.
+
+~~}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Insertions paragraph-insertion diff generation matches snapshot 1`] = `
+"Para 1.
+
+{++Para 2.
+
+++}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Insertions sentence-insertion diff generation matches snapshot 1`] = `
+"{~~First.
+
+~>First. Second.
+
+~~}"
+`;
+
+exports[`Golden Tests: Step 3 CriticMarkup Generation Simple Insertions single-word-insertion diff generation matches snapshot 1`] = `
+"{~~The cat sat.~>The black cat sat.~~}
+
+"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Deletions paragraph-deletion preprocessCriticMarkup output matches snapshot 1`] = `
+"Para 1.
+
+{--Para 2.--}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Deletions sentence-deletion preprocessCriticMarkup output matches snapshot 1`] = `"First.{-- Second.--}"`;
+
+exports[`Golden Tests: Step 4 Preprocessing Deletions single-word-deletion preprocessCriticMarkup output matches snapshot 1`] = `"The {--black --}cat sat."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases adjacent-diffs preprocessCriticMarkup output matches snapshot 1`] = `"{--old--}{++new++} word."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases code-block-edits preprocessCriticMarkup output matches snapshot 1`] = `
+"{--\`\`\`js<br>const x = 1;<br>\`\`\`--}
+
+{++\`\`\`js<br>const x = 2;<br>\`\`\`++}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases empty-paragraph preprocessCriticMarkup output matches snapshot 1`] = `
+"One.
+
+{++Middle.++}
+
+Two."
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases escaped-chars preprocessCriticMarkup output matches snapshot 1`] = `"Use {++\`++}code{++\` here++}."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases heading-changes preprocessCriticMarkup output matches snapshot 1`] = `
+"{--# Title--}
+
+{++## Title++}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases image-in-diff preprocessCriticMarkup output matches snapshot 1`] = `"Before.{++ ![alt](img.png)++}"`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases inline-code-diff preprocessCriticMarkup output matches snapshot 1`] = `"Run {++\`npm install\` ++}command."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases link-in-diff preprocessCriticMarkup output matches snapshot 1`] = `"Text {++[link](https://example.com) ++}here."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases list-modifications preprocessCriticMarkup output matches snapshot 1`] = `
+"- Item 1
+- Item 2{++<br>- Item 3++}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases long-content preprocessCriticMarkup output matches snapshot 1`] = `"A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A A {++modified ++}end."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases multiline-in-single-diff preprocessCriticMarkup output matches snapshot 1`] = `
+"Start.
+
+{++Line 1<br>Line 2++}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases nested-formatting preprocessCriticMarkup output matches snapshot 1`] = `"{--Plain--}{++**bold** and *italic*++} text."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases table-cell-edit preprocessCriticMarkup output matches snapshot 1`] = `
+"| A | B |
+|---|---|
+| {--1--}{++X++} | 2 |"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases table-row-add preprocessCriticMarkup output matches snapshot 1`] = `
+"| A | B |
+|---|---|
+| 1 | 2 |{++<br>| 3 | 4 |++}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases unicode-content preprocessCriticMarkup output matches snapshot 1`] = `"Hello{++ 🎉++}"`;
+
+exports[`Golden Tests: Step 4 Preprocessing Edge Cases whitespace-only preprocessCriticMarkup output matches snapshot 1`] = `
+"Hello{--  --}{++ ++}world.
+
+"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Insertions insertion-with-formatting preprocessCriticMarkup output matches snapshot 1`] = `"Text{++ **bold**++}."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Insertions multi-word-insertion preprocessCriticMarkup output matches snapshot 1`] = `"Hello {++beautiful new ++}world."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Insertions paragraph-insertion preprocessCriticMarkup output matches snapshot 1`] = `
+"Para 1.
+
+{++Para 2.++}"
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Insertions sentence-insertion preprocessCriticMarkup output matches snapshot 1`] = `"First.{++ Second.++}"`;
+
+exports[`Golden Tests: Step 4 Preprocessing Insertions single-word-insertion preprocessCriticMarkup output matches snapshot 1`] = `"The {++black ++}cat sat."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Mixed complex-edit preprocessCriticMarkup output matches snapshot 1`] = `
+"First {++modified ++}line.
+
+{--Second--}{++Third++} line."
+`;
+
+exports[`Golden Tests: Step 4 Preprocessing Mixed insert-and-delete preprocessCriticMarkup output matches snapshot 1`] = `"Start {--middle--}{++new++} end."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Mixed multiple-updates preprocessCriticMarkup output matches snapshot 1`] = `"The {--big red--}{++small blue++} ball."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Updates phrase-update preprocessCriticMarkup output matches snapshot 1`] = `"The {--quick brown--}{++slow red++} fox."`;
+
+exports[`Golden Tests: Step 4 Preprocessing Updates sentence-rewrite preprocessCriticMarkup output matches snapshot 1`] = `"It was {--good.--}{++excellent.++}"`;
+
+exports[`Golden Tests: Step 4 Preprocessing Updates word-replacement preprocessCriticMarkup output matches snapshot 1`] = `"The {--cat--}{++dog++} sat."`;

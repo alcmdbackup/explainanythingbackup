@@ -58,11 +58,11 @@ describe('serverReadRequestId', () => {
       const mockFn = jest.fn().mockResolvedValue('result');
       const wrapped = serverReadRequestId(mockFn);
 
-      const args = { __requestId: { requestId: 'custom-id', userId: 'user-123' } };
+      const args = { __requestId: { requestId: 'custom-id', userId: 'user-123', sessionId: 'unknown' } };
       await wrapped(args);
 
       expect(RequestIdContext.run).toHaveBeenCalledWith(
-        { requestId: 'custom-id', userId: 'user-123' },
+        { requestId: 'custom-id', userId: 'user-123', sessionId: 'unknown' },
         expect.any(Function)
       );
     });
@@ -71,11 +71,11 @@ describe('serverReadRequestId', () => {
       const mockFn = jest.fn().mockResolvedValue('result');
       const wrapped = serverReadRequestId(mockFn);
 
-      const args = { __requestId: { requestId: 'req-456', userId: 'user-789' } };
+      const args = { __requestId: { requestId: 'req-456', userId: 'user-789', sessionId: 'unknown' } };
       await wrapped(args);
 
       expect(RequestIdContext.run).toHaveBeenCalledWith(
-        { requestId: 'req-456', userId: 'user-789' },
+        { requestId: 'req-456', userId: 'user-789', sessionId: 'unknown' },
         expect.any(Function)
       );
     });
@@ -88,7 +88,7 @@ describe('serverReadRequestId', () => {
 
       expect(randomUUID).toHaveBeenCalled();
       expect(RequestIdContext.run).toHaveBeenCalledWith(
-        { requestId: 'generated-uuid-123', userId: 'anonymous' },
+        { requestId: 'generated-uuid-123', userId: 'anonymous', sessionId: 'unknown' },
         expect.any(Function)
       );
     });
@@ -111,7 +111,7 @@ describe('serverReadRequestId', () => {
       await wrapped({});
 
       expect(RequestIdContext.run).toHaveBeenCalledWith(
-        { requestId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', userId: 'anonymous' },
+        { requestId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', userId: 'anonymous', sessionId: 'unknown' },
         expect.any(Function)
       );
     });
@@ -123,7 +123,7 @@ describe('serverReadRequestId', () => {
       const wrapped = serverReadRequestId(mockFn);
 
       const args = {
-        __requestId: { requestId: 'custom-id', userId: 'user-123' },
+        __requestId: { requestId: 'custom-id', userId: 'user-123', sessionId: 'unknown' },
         otherProp: 'value',
       };
       await wrapped(args);
@@ -192,7 +192,7 @@ describe('serverReadRequestId', () => {
 
       expect(randomUUID).toHaveBeenCalled();
       expect(RequestIdContext.run).toHaveBeenCalledWith(
-        { requestId: 'generated-uuid-123', userId: 'anonymous' },
+        { requestId: 'generated-uuid-123', userId: 'anonymous', sessionId: 'unknown' },
         expect.any(Function)
       );
     });
@@ -247,12 +247,12 @@ describe('serverReadRequestId', () => {
       const wrapped = serverReadRequestId(mockFn);
 
       await wrapped(
-        { __requestId: { requestId: 'id-1', userId: 'user-1' } },
-        { __requestId: { requestId: 'id-2', userId: 'user-2' } }
+        { __requestId: { requestId: 'id-1', userId: 'user-1', sessionId: 'unknown' } },
+        { __requestId: { requestId: 'id-2', userId: 'user-2', sessionId: 'unknown' } }
       );
 
       expect(RequestIdContext.run).toHaveBeenCalledWith(
-        { requestId: 'id-1', userId: 'user-1' },
+        { requestId: 'id-1', userId: 'user-1', sessionId: 'unknown' },
         expect.any(Function)
       );
     });
@@ -303,10 +303,10 @@ describe('serverReadRequestId', () => {
       const mockFn = jest.fn().mockResolvedValue('result');
       const wrapped = serverReadRequestId(mockFn);
 
-      await wrapped({ __requestId: { requestId: 'test-id', userId: 'test-user' } });
+      await wrapped({ __requestId: { requestId: 'test-id', userId: 'test-user', sessionId: 'unknown' } });
 
       const contextData = (RequestIdContext.run as jest.Mock).mock.calls[0][0];
-      expect(contextData).toEqual({ requestId: 'test-id', userId: 'test-user' });
+      expect(contextData).toEqual({ requestId: 'test-id', userId: 'test-user', sessionId: 'unknown' });
     });
 
     it('should execute wrapped function inside context callback', async () => {

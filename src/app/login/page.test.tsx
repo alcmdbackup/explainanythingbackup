@@ -2,11 +2,18 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import LoginPage from './page';
 import { login, signup } from './actions';
+import { setRememberMe, clearSupabaseLocalStorage } from '@/lib/utils/supabase/rememberMe';
 
 // Mock the login actions
 jest.mock('./actions', () => ({
   login: jest.fn(),
   signup: jest.fn(),
+}));
+
+// Mock rememberMe utilities
+jest.mock('@/lib/utils/supabase/rememberMe', () => ({
+  setRememberMe: jest.fn(),
+  clearSupabaseLocalStorage: jest.fn(),
 }));
 
 // Mock next/navigation
@@ -25,13 +32,13 @@ describe('LoginPage', () => {
   });
 
   describe('Rendering', () => {
-    it('should render login form with card', () => {
+    it('should render login form with hero layout', () => {
       render(<LoginPage />);
 
-      // Title and submit button both say "Enter the Library"
-      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
+      // Title and submit button both say "Sign In" / "Welcome Back"
+      expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
       expect(
-        screen.getByText('Welcome back, scholar')
+        screen.getByText('Welcome Back')
       ).toBeInTheDocument();
     });
 
@@ -53,10 +60,10 @@ describe('LoginPage', () => {
       expect(passwordInput).toHaveAttribute('id', 'password');
     });
 
-    it('should render enter the library button', () => {
+    it('should render sign in button', () => {
       render(<LoginPage />);
 
-      const loginButton = screen.getByRole('button', { name: /enter the library/i });
+      const loginButton = screen.getByRole('button', { name: /sign in/i });
       expect(loginButton).toBeInTheDocument();
     });
 
@@ -64,7 +71,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupButton = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       expect(signupButton).toBeInTheDocument();
     });
@@ -174,14 +181,121 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
+
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
 
       const rememberMeCheckbox = screen.queryByRole('checkbox', {
         name: /remember me/i,
       });
       expect(rememberMeCheckbox).not.toBeInTheDocument();
+    });
+
+    it('should call setRememberMe with true when checkbox is checked on login', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const rememberMeCheckbox = screen.getByRole('checkbox', { name: /remember me/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(rememberMeCheckbox);
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(setRememberMe).toHaveBeenCalledWith(true);
+      });
+    });
+
+    it('should call setRememberMe with false when checkbox is unchecked on login', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(setRememberMe).toHaveBeenCalledWith(false);
+      });
+    });
+
+    it('should call clearSupabaseLocalStorage when remember me is unchecked', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      // rememberMe is false by default
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(clearSupabaseLocalStorage).toHaveBeenCalled();
+      });
+    });
+
+    it('should not call clearSupabaseLocalStorage when remember me is checked', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const rememberMeCheckbox = screen.getByRole('checkbox', { name: /remember me/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(rememberMeCheckbox);
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(setRememberMe).toHaveBeenCalledWith(true);
+      });
+      expect(clearSupabaseLocalStorage).not.toHaveBeenCalled();
+    });
+
+    it('should not call setRememberMe during signup', async () => {
+      const user = userEvent.setup();
+      render(<LoginPage />);
+
+      // Switch to signup mode
+      const signupToggle = screen.getByRole('button', {
+        name: /new here\? create account/i,
+      });
+      await user.click(signupToggle);
+
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
+
+      const emailInput = screen.getByLabelText(/email/i);
+      const passwordInput = screen.getByLabelText(/^password$/i);
+      const submitButton = screen.getByRole('button', { name: /create account/i });
+
+      await user.type(emailInput, 'test@example.com');
+      await user.type(passwordInput, 'password123');
+      await user.click(submitButton);
+
+      await waitFor(() => {
+        expect(signup).toHaveBeenCalled();
+      });
+      expect(setRememberMe).not.toHaveBeenCalled();
     });
   });
 
@@ -199,9 +313,14 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
+
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
 
       const forgotLink = screen.queryByRole('link', {
         name: /forgot password/i,
@@ -216,17 +335,20 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       // Verify we start in login mode
-      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
-      expect(screen.getByText('Join the Library')).toBeInTheDocument();
-      expect(
-        screen.getByText('Create your scholarly account')
-      ).toBeInTheDocument();
+      // Wait for transition (200ms) plus render
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+        expect(
+          screen.getByText('Create your scholarly account')
+        ).toBeInTheDocument();
+      });
     });
 
     it('should switch from signup back to login mode', async () => {
@@ -234,16 +356,26 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
 
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByRole('button', {
+          name: /already have an account\? sign in/i,
+        })).toBeInTheDocument();
+      });
+
       const loginToggle = screen.getByRole('button', {
-        name: /already a member\? enter/i,
+        name: /already have an account\? sign in/i,
       });
       await user.click(loginToggle);
 
-      expect(screen.getAllByText('Enter the Library').length).toBeGreaterThan(0);
+      // Wait for transition back
+      await waitFor(() => {
+        expect(screen.getAllByText(/sign in/i).length).toBeGreaterThan(0);
+      });
     });
   });
 
@@ -273,7 +405,7 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(passwordInput, 'short');
       await user.click(submitButton);
@@ -289,7 +421,7 @@ describe('LoginPage', () => {
       const user = userEvent.setup();
       render(<LoginPage />);
 
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
       await user.click(submitButton);
 
       await waitFor(() => {
@@ -305,7 +437,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -321,9 +453,14 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
+
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
@@ -345,9 +482,14 @@ describe('LoginPage', () => {
       render(<LoginPage />);
 
       const signupToggle = screen.getByRole('button', {
-        name: /new here\? join us/i,
+        name: /new here\? create account/i,
       });
       await user.click(signupToggle);
+
+      // Wait for transition
+      await waitFor(() => {
+        expect(screen.getByText('Begin Your Journey')).toBeInTheDocument();
+      });
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
@@ -374,7 +516,7 @@ describe('LoginPage', () => {
       const rememberMeCheckbox = screen.getByRole('checkbox', {
         name: /remember me/i,
       });
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
@@ -400,14 +542,14 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'password123');
       await user.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/entering/i)).toBeInTheDocument();
+        expect(screen.getByText(/signing in/i)).toBeInTheDocument();
       });
     });
 
@@ -424,7 +566,7 @@ describe('LoginPage', () => {
         /^password$/i
       ) as HTMLInputElement;
       const submitButton = screen.getByRole('button', {
-        name: /enter the library/i,
+        name: /sign in/i,
       }) as HTMLButtonElement;
 
       await user.type(emailInput, 'test@example.com');
@@ -450,7 +592,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       await user.type(emailInput, 'test@example.com');
       await user.type(passwordInput, 'wrongpassword');
@@ -473,7 +615,7 @@ describe('LoginPage', () => {
 
       const emailInput = screen.getByLabelText(/email/i);
       const passwordInput = screen.getByLabelText(/^password$/i);
-      const submitButton = screen.getByRole('button', { name: /enter the library/i });
+      const submitButton = screen.getByRole('button', { name: /sign in/i });
 
       // First submission with error
       await user.type(emailInput, 'test@example.com');

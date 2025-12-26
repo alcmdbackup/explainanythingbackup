@@ -137,23 +137,34 @@ export const createMockTagBarProps = (overrides = {}) => ({
 /**
  * Creates mock props for AISuggestionsPanel component
  */
-export const createMockAISuggestionsPanelProps = (overrides = {}) => ({
-  isVisible: true,
-  onClose: jest.fn(),
-  currentContent: faker.lorem.paragraph(),
-  editorRef: {
-    current: {
-      getContentAsMarkdown: jest.fn(() => faker.lorem.paragraph()),
-      setContentFromMarkdown: jest.fn(),
-      setEditMode: jest.fn(),
-      focus: jest.fn(),
+export const createMockAISuggestionsPanelProps = (overrides: Record<string, unknown> = {}) => {
+  // Determine isOpen value
+  let isOpenValue = true;
+  if (overrides.isOpen !== undefined) {
+    isOpenValue = overrides.isOpen as boolean;
+  }
+
+  // Remove isOpen from overrides to apply default
+  const { isOpen, ...restOverrides } = overrides;
+
+  return {
+    isOpen: isOpenValue,
+    onOpenChange: jest.fn(),
+    currentContent: faker.lorem.paragraph(),
+    editorRef: {
+      current: {
+        getContentAsMarkdown: jest.fn(() => faker.lorem.paragraph()),
+        setContentFromMarkdown: jest.fn(),
+        setEditMode: jest.fn(),
+        focus: jest.fn(),
+      },
     },
-  },
-  onContentChange: jest.fn(),
-  onEnterEditMode: jest.fn(),
-  sessionData: undefined,
-  ...overrides,
-});
+    onContentChange: jest.fn(),
+    onEnterEditMode: jest.fn(),
+    sessionData: undefined,
+    ...restOverrides,
+  };
+};
 
 /**
  * Creates mock session data for AISuggestionsPanel

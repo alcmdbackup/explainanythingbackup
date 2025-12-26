@@ -11,15 +11,18 @@ setup('authenticate', async ({ page }) => {
     process.env.TEST_USER_PASSWORD || 'password'
   );
 
-  await page.waitForLoadState('networkidle');
-  await page.waitForURL('/', { timeout: 30000 });
+  // Wait for auth cookie directly instead of networkidle (which can hang in CI)
+  // Supabase sets httpOnly cookies, so we poll the context cookies
+  await expect(async () => {
+    const cookies = await page.context().cookies();
+    const hasAuthCookie = cookies.some(
+      (c) => c.name.includes('supabase') || c.name.startsWith('sb-')
+    );
+    expect(hasAuthCookie).toBe(true);
+  }).toPass({ timeout: 60000 });
 
-  // Verify auth worked
-  const cookies = await page.context().cookies();
-  const hasAuthCookie = cookies.some(
-    (c) => c.name.includes('supabase') || c.name.startsWith('sb-')
-  );
-  expect(hasAuthCookie).toBe(true);
+  // Wait for redirect to complete (with longer timeout for CI)
+  await page.waitForURL('/', { timeout: 60000 });
 
   // Save auth state for reuse by other tests
   await page.context().storageState({ path: authFile });

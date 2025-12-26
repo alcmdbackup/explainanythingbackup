@@ -1,156 +1,82 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
-import { DiffTagNodeInline, DiffTagNodeBlock, $isDiffTagNodeInline, $isDiffTagNodeBlock, $isDiffUpdateContainerInline } from './DiffTagNode';
-import DiffTagInlineControls from './DiffTagInlineControls';
-import { $getNodeByKey } from 'lexical';
+import { $nodesOfType } from 'lexical';
+import { DiffTagNodeInline, DiffTagNodeBlock } from './DiffTagNode';
+import { acceptDiffTag, rejectDiffTag } from './diffTagMutations';
 
-interface DiffTagState {
-  element: HTMLElement;
-  nodeKey: string;
-  diffTag: 'ins' | 'del' | 'update';
+interface DiffTagHoverPluginProps {
+  /** Callback when pending AI suggestions change (true = suggestions exist) */
+  onPendingSuggestionsChange?: (hasPendingSuggestions: boolean) => void;
 }
 
-export default function DiffTagHoverPlugin() {
+/**
+ * Simplified DiffTagHoverPlugin using event delegation
+ *
+ * Instead of tracking nodes in React state and using portals, this plugin:
+ * 1. Uses a single click event listener on the editor root (event delegation)
+ * 2. Reads Lexical state directly to count pending suggestions
+ * 3. No DOM querying, no RAF calls, no synchronization issues
+ */
+export default function DiffTagHoverPlugin({ onPendingSuggestionsChange }: DiffTagHoverPluginProps = {}) {
   const [editor] = useLexicalComposerContext();
-  const [activeDiffTags, setActiveDiffTags] = useState<Map<string, DiffTagState>>(new Map());
+  const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
 
-  // Scan for all diff tag elements in the editor
-  const scanForDiffTags = useCallback(() => {
-    const rootElement = editor.getRootElement();
-    if (!rootElement) return;
-
-    const newDiffTags = new Map<string, DiffTagState>();
-
-    // Find all elements with data-diff-key attribute
-    const diffElements = rootElement.querySelectorAll('[data-diff-key]');
-    diffElements.forEach((element) => {
-      const nodeKey = element.getAttribute('data-diff-key');
-      const diffType = element.getAttribute('data-diff-type') as 'ins' | 'del' | 'update';
-
-      if (nodeKey && diffType) {
-        newDiffTags.set(nodeKey, {
-          element: element as HTMLElement,
-          nodeKey,
-          diffTag: diffType
-        });
-      }
+  // Count diff tag nodes directly from Lexical state
+  const updatePendingCount = useCallback(() => {
+    editor.getEditorState().read(() => {
+      const inlineNodes = $nodesOfType(DiffTagNodeInline);
+      const blockNodes = $nodesOfType(DiffTagNodeBlock);
+      const count = inlineNodes.length + blockNodes.length;
+      setHasPendingSuggestions(count > 0);
     });
-
-    setActiveDiffTags(newDiffTags);
   }, [editor]);
+
+  // Notify parent when pending suggestions change
+  useEffect(() => {
+    onPendingSuggestionsChange?.(hasPendingSuggestions);
+  }, [hasPendingSuggestions, onPendingSuggestionsChange]);
 
   useEffect(() => {
-    // Initial scan
-    scanForDiffTags();
+    // Initial count
+    updatePendingCount();
 
-    // Register mutation listeners for both inline and block diff tags
-    const removeMutationListener = editor.registerMutationListener(DiffTagNodeInline, () => {
-      // Use requestAnimationFrame to ensure DOM is updated
-      requestAnimationFrame(scanForDiffTags);
-    });
-
-    const removeBlockMutationListener = editor.registerMutationListener(DiffTagNodeBlock, () => {
-      requestAnimationFrame(scanForDiffTags);
-    });
-
-    // Also listen to general editor updates for cleanup
+    // Listen for editor updates to track pending suggestions count
     const removeUpdateListener = editor.registerUpdateListener(() => {
-      requestAnimationFrame(scanForDiffTags);
+      updatePendingCount();
     });
+
+    // Event delegation: single click handler on editor root
+    const rootElement = editor.getRootElement();
+    if (!rootElement) return removeUpdateListener;
+
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement;
+
+      // Check if clicked element is an accept/reject button
+      const action = target.getAttribute('data-action');
+      const nodeKey = target.getAttribute('data-node-key');
+
+      if (!action || !nodeKey) return;
+
+      // Prevent default behavior and stop propagation
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (action === 'accept') {
+        acceptDiffTag(editor, nodeKey);
+      } else if (action === 'reject') {
+        rejectDiffTag(editor, nodeKey);
+      }
+    };
+
+    rootElement.addEventListener('click', handleClick);
 
     return () => {
-      removeMutationListener();
-      removeBlockMutationListener();
       removeUpdateListener();
+      rootElement.removeEventListener('click', handleClick);
     };
-  }, [editor, scanForDiffTags]);
+  }, [editor, updatePendingCount]);
 
-  const handleAccept = useCallback((nodeKey: string) => {
-    editor.update(() => {
-      const node = $getNodeByKey(nodeKey);
-      if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-        const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
-
-        if (tag === 'ins') {
-          // Accept insertion: keep content, remove diff tag
-          const children = node.getChildren();
-          children.forEach(child => {
-            node.insertBefore(child);
-          });
-          node.remove();
-        } else if (tag === 'del') {
-          // Accept deletion: remove the entire node
-          node.remove();
-        } else if (tag === 'update') {
-          // Accept update: keep the second child (after text), remove first child and diff tag
-          const children = node.getChildren();
-          if (children.length >= 2) {
-            const afterContent = children[1];
-
-            if ($isDiffUpdateContainerInline(afterContent)) {
-              const containerChildren = afterContent.getChildren();
-              containerChildren.forEach(child => {
-                node.insertBefore(child);
-              });
-            } else {
-              node.insertBefore(afterContent);
-            }
-          }
-          node.remove();
-        }
-      }
-    });
-  }, [editor]);
-
-  const handleReject = useCallback((nodeKey: string) => {
-    editor.update(() => {
-      const node = $getNodeByKey(nodeKey);
-      if ($isDiffTagNodeInline(node) || $isDiffTagNodeBlock(node)) {
-        const tag = (node as DiffTagNodeInline | DiffTagNodeBlock).__tag;
-
-        if (tag === 'ins') {
-          // Reject insertion: remove the entire node
-          node.remove();
-        } else if (tag === 'del') {
-          // Reject deletion: keep content, remove diff tag
-          const children = node.getChildren();
-          children.forEach(child => {
-            node.insertBefore(child);
-          });
-          node.remove();
-        } else if (tag === 'update') {
-          // Reject update: keep the first child (before text), remove second child and diff tag
-          const children = node.getChildren();
-          if (children.length >= 1) {
-            const beforeContent = children[0];
-
-            if ($isDiffUpdateContainerInline(beforeContent)) {
-              const containerChildren = beforeContent.getChildren();
-              containerChildren.forEach(child => {
-                node.insertBefore(child);
-              });
-            } else {
-              node.insertBefore(beforeContent);
-            }
-          }
-          node.remove();
-        }
-      }
-    });
-  }, [editor]);
-
-  return (
-    <>
-      {Array.from(activeDiffTags.values()).map(({ element, nodeKey, diffTag }) => (
-        <DiffTagInlineControls
-          key={nodeKey}
-          targetElement={element}
-          nodeKey={nodeKey}
-          diffTagType={diffTag}
-          onAccept={() => handleAccept(nodeKey)}
-          onReject={() => handleReject(nodeKey)}
-        />
-      ))}
-    </>
-  );
+  // No React rendering needed - buttons are rendered in DiffTagNode.createDOM()
+  return null;
 }

@@ -46,6 +46,31 @@ describe('UserQueries Service', () => {
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
   });
 
+  describe('createUserQuery userId validation', () => {
+    const baseQueryData: UserQueryInsertType = {
+      user_query: 'What is React?',
+      explanation_id: 123,
+      matches: [],
+      userid: 'test-user',
+      newExplanation: true,
+      userInputType: UserInputType.Query,
+      allowedQuery: true,
+      previousExplanationViewedId: null
+    };
+
+    it('should throw error when userid is null', async () => {
+      await expect(createUserQuery({ ...baseQueryData, userid: null as any })).rejects.toThrow('userId is required for createUserQuery');
+    });
+
+    it('should throw error when userid is undefined', async () => {
+      await expect(createUserQuery({ ...baseQueryData, userid: undefined as any })).rejects.toThrow('userId is required for createUserQuery');
+    });
+
+    it('should throw error when userid is empty string', async () => {
+      await expect(createUserQuery({ ...baseQueryData, userid: '' })).rejects.toThrow('userId is required for createUserQuery');
+    });
+  });
+
   describe('createUserQuery', () => {
     it('should create a user query successfully', async () => {
       // Arrange

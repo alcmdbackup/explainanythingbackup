@@ -181,7 +181,7 @@ describe('SearchBar', () => {
       const button = screen.getByRole('button');
       await user.click(button);
 
-      expect(mockOnSearch).toHaveBeenCalledWith('Test search');
+      expect(mockOnSearch).toHaveBeenCalledWith('Test search', undefined);
       expect(mockOnSearch).toHaveBeenCalledTimes(1);
     });
 
@@ -251,7 +251,7 @@ describe('SearchBar', () => {
       await user.click(button);
 
       // Note: The component passes the full value with spaces, not trimmed
-      expect(mockOnSearch).toHaveBeenCalledWith('  test  ');
+      expect(mockOnSearch).toHaveBeenCalledWith('  test  ', undefined);
     });
   });
 
@@ -447,7 +447,7 @@ describe('SearchBar', () => {
       const input = screen.getByRole('textbox');
       await user.type(input, 'Test{Enter}');
 
-      expect(mockOnSearch).toHaveBeenCalledWith('Test');
+      expect(mockOnSearch).toHaveBeenCalledWith('Test', undefined);
     });
 
     it('should have focus outline removal', () => {

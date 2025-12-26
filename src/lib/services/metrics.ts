@@ -2,11 +2,14 @@
 'use server'
 
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { 
-  userExplanationEventsSchema, 
+import { logger } from '@/lib/server_utilities';
+import {
+  userExplanationEventsSchema,
   type UserExplanationEventsType,
   explanationMetricsSchema,
+  explanationMetricsTableSchema,
   type ExplanationMetricsType,
+  type ExplanationMetricsTableType,
   type ExplanationMetricsInsertType
 } from '@/lib/schemas/schemas';
 
@@ -42,7 +45,7 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
   // Validate input data against schema
   const validationResult = userExplanationEventsSchema.safeParse(eventData);
   if (!validationResult.success) {
-    console.error('Invalid event data:', validationResult.error);
+    logger.error('Invalid event data', { error: validationResult.error.message });
     throw new Error(`Invalid event data: ${validationResult.error.message}`);
   }
   
@@ -55,20 +58,19 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
     .single();
 
   if (error) {
-    console.error('Error creating user explanation event:', error);
-    console.error('Error details:', {
+    logger.error('Error creating user explanation event', {
       message: error.message,
       details: error.details,
       hint: error.hint,
       code: error.code
     });
     throw error;
-  }  
-  
+  }
+
   // Update aggregate metrics if this is a view event (run in background, don't wait)
   if (validationResult.data.event_name === 'explanation_viewed') {
     incrementExplanationViews(validationResult.data.explanationid).catch(metricsError => {
-      console.error('Failed to update explanation metrics after view event:', {
+      logger.error('Failed to update explanation metrics after view event', {
         explanationid: validationResult.data.explanationid,
         event_name: validationResult.data.event_name,
         error: metricsError instanceof Error ? metricsError.message : String(metricsError)
@@ -112,7 +114,7 @@ export async function refreshExplanationMetrics(options: {
       .rpc('refresh_all_explanation_metrics');
 
     if (error) {
-      console.error('Error refreshing all explanation metrics:', error);
+      logger.error('Error refreshing all explanation metrics', { error: error.message });
       throw error;
     }
 
@@ -134,7 +136,7 @@ export async function refreshExplanationMetrics(options: {
       .rpc('refresh_explanation_metrics', { explanation_ids: idsArray });
 
     if (error) {
-      console.error('Error refreshing explanation metrics:', error);
+      logger.error('Error refreshing explanation metrics', { error: error.message });
       throw error;
     }
 
@@ -147,7 +149,7 @@ export async function refreshExplanationMetrics(options: {
     for (const item of data) {
       const validationResult = explanationMetricsSchema.safeParse(item);
       if (!validationResult.success) {
-        console.error('Invalid metrics data returned from stored procedure:', validationResult.error);
+        logger.error('Invalid metrics data returned from stored procedure', { error: validationResult.error.message });
         throw new Error(`Invalid metrics data: ${validationResult.error.message}`);
       }
       results.push(validationResult.data);
@@ -170,25 +172,25 @@ export async function refreshExplanationMetrics(options: {
  * @param explanationIds - Array of explanation IDs to get metrics for
  * @returns Array of metrics records (null for missing explanations)
  */
-export async function getMultipleExplanationMetrics(explanationIds: number[]): Promise<(ExplanationMetricsType | null)[]> {
+export async function getMultipleExplanationMetrics(explanationIds: number[]): Promise<(ExplanationMetricsTableType | null)[]> {
   if (explanationIds.length === 0) return [];
-  
+
   const supabase = await createSupabaseServerClient();
-  
+
   const { data, error } = await supabase
     .from('explanationMetrics')
     .select('*')
     .in('explanationid', explanationIds);
 
   if (error) {
-    console.error('Error fetching multiple explanation metrics:', error);
+    logger.error('Error fetching multiple explanation metrics', { error: error.message });
     throw error;
   }
 
-  // Create a map for quick lookup
-  const metricsMap = new Map<number, ExplanationMetricsType>();
+  // Create a map for quick lookup (uses table schema with explanationid)
+  const metricsMap = new Map<number, ExplanationMetricsTableType>();
   data?.forEach(metric => {
-    metricsMap.set(metric.explanationid, metric);
+    metricsMap.set(metric.explanationid, metric as ExplanationMetricsTableType);
   });
 
   // Return results in the same order as input, with null for missing
@@ -205,14 +207,15 @@ export async function getMultipleExplanationMetrics(explanationIds: number[]): P
  * @returns Updated metrics record
  */
 export async function incrementExplanationViews(explanationId: number): Promise<ExplanationMetricsType> {
-  const supabase = await createSupabaseServerClient();
+  // Use service client to bypass RLS for background metrics tracking
+  const supabase = await createSupabaseServiceClient();
   
   // Call stored procedure to increment views and recalculate metrics
   const { data, error } = await supabase
     .rpc('increment_explanation_views', { p_explanation_id: explanationId });
 
   if (error) {
-    console.error('Error incrementing explanation views:', error);
+    logger.error('Error incrementing explanation views', { error: error.message });
     throw error;
   }
 
@@ -222,13 +225,15 @@ export async function incrementExplanationViews(explanationId: number): Promise<
   }
 
   // Debug: log the actual data format
-  console.log('Raw data from stored procedure:', JSON.stringify(data[0], null, 2));
-  
+  logger.debug('Raw data from stored procedure', { data: data[0] });
+
   // Validate the returned data
   const validationResult = explanationMetricsSchema.safeParse(data[0]);
   if (!validationResult.success) {
-    console.error('Invalid metrics data returned from increment procedure:', validationResult.error);
-    console.error('Raw data that failed validation:', data[0]);
+    logger.error('Invalid metrics data returned from increment procedure', {
+      error: validationResult.error.message,
+      rawData: data[0]
+    });
     throw new Error(`Invalid metrics data: ${validationResult.error.message}`);
   }
 
@@ -245,14 +250,15 @@ export async function incrementExplanationViews(explanationId: number): Promise<
  * @returns Updated metrics record
  */
 export async function incrementExplanationSaves(explanationId: number): Promise<ExplanationMetricsType> {
-  const supabase = await createSupabaseServerClient();
+  // Use service client to bypass RLS for background metrics tracking
+  const supabase = await createSupabaseServiceClient();
   
   // Call stored procedure to increment saves and recalculate metrics
   const { data, error } = await supabase
     .rpc('increment_explanation_saves', { p_explanation_id: explanationId });
 
   if (error) {
-    console.error('Error incrementing explanation saves:', error);
+    logger.error('Error incrementing explanation saves', { error: error.message });
     throw error;
   }
 
@@ -264,7 +270,7 @@ export async function incrementExplanationSaves(explanationId: number): Promise<
   // Validate the returned data
   const validationResult = explanationMetricsSchema.safeParse(data[0]);
   if (!validationResult.success) {
-    console.error('Invalid metrics data returned from increment procedure:', validationResult.error);
+    logger.error('Invalid metrics data returned from increment procedure', { error: validationResult.error.message });
     throw new Error(`Invalid metrics data: ${validationResult.error.message}`);
   }
 

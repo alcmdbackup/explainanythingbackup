@@ -13,6 +13,8 @@
 # testing
 /coverage
 /.auth
+/playwright-report
+/test-results
 
 # next.js
 /.next/
@@ -44,3 +46,5 @@ server.log
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.playwright-mcp/
+test-results-debug/

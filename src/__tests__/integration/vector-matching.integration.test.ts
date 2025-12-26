@@ -13,6 +13,7 @@
 import { setupTestDatabase, teardownTestDatabase, createTestContext } from '@/testing/utils/integration-helpers';
 import { createTestVectorData, createTestVectorBatch } from '@/testing/fixtures/database-records';
 import { SupabaseClient } from '@supabase/supabase-js';
+import type { VectorSearchResult } from '@/lib/schemas/schemas';
 
 // Access global mocks from jest.integration-setup.js
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -81,9 +82,9 @@ describe('Vector Matching Integration Tests', () => {
 
       // Mock Pinecone high-similarity match
       const highSimilarityMatch = createTestVectorData(explanationId, 3072, {
-        topic: 'Quantum Physics',
-        title: 'What is Quantum Entanglement?',
-        content_preview: 'Quantum entanglement is a physical phenomenon...',
+        text: 'Quantum entanglement is a physical phenomenon...',
+        explanation_id: 1,
+        topic_id: 10, // Physics topic
       });
 
       mockPineconeQuery.mockResolvedValueOnce({
@@ -120,7 +121,7 @@ describe('Vector Matching Integration Tests', () => {
 
       expect(results).toHaveLength(1);
       expect(results[0].score).toBe(0.92);
-      expect(results[0].metadata.title).toBe('What is Quantum Entanglement?');
+      expect(results[0].metadata.text).toBe('Quantum entanglement is a physical phenomenon...');
     });
   });
 
@@ -137,9 +138,9 @@ describe('Vector Matching Integration Tests', () => {
 
       // Mock Pinecone low-similarity match
       const lowSimilarityMatch = createTestVectorData(explanationId, 3072, {
-        topic: 'Cooking',
-        title: 'How to bake a cake',
-        content_preview: 'Baking a cake requires flour, eggs, and sugar...',
+        text: 'Baking a cake requires flour, eggs, and sugar...',
+        explanation_id: 2,
+        topic_id: 20, // Cooking topic
       });
 
       mockPineconeQuery.mockResolvedValueOnce({
@@ -160,8 +161,8 @@ describe('Vector Matching Integration Tests', () => {
       // Assert - verify low similarity match is returned
       expect(results).toHaveLength(1);
       expect(results[0].score).toBe(0.32);
-      expect(results[0].metadata.topic).toBe('Cooking');
-      expect(results[0].metadata.title).toBe('How to bake a cake');
+      expect(results[0].metadata.topic_id).toBe(20);
+      expect(results[0].metadata.text).toBe('Baking a cake requires flour, eggs, and sugar...');
     });
   });
 
@@ -182,25 +183,25 @@ describe('Vector Matching Integration Tests', () => {
           {
             id: testVectors[0].id,
             score: 0.88,
-            metadata: { ...testVectors[0].metadata, topic: 'Physics' },
+            metadata: { ...testVectors[0].metadata, topic_id: 10 }, // Physics
             values: testVectors[0].values,
           },
           {
             id: testVectors[1].id,
             score: 0.85,
-            metadata: { ...testVectors[1].metadata, topic: 'Physics' },
+            metadata: { ...testVectors[1].metadata, topic_id: 10 }, // Physics
             values: testVectors[1].values,
           },
           {
             id: testVectors[2].id,
             score: 0.82,
-            metadata: { ...testVectors[2].metadata, topic: 'Chemistry' },
+            metadata: { ...testVectors[2].metadata, topic_id: 20 }, // Chemistry
             values: testVectors[2].values,
           },
           {
             id: testVectors[3].id,
             score: 0.78,
-            metadata: { ...testVectors[3].metadata, topic: 'Mathematics' },
+            metadata: { ...testVectors[3].metadata, topic_id: 30 }, // Mathematics
             values: testVectors[3].values,
           },
         ],
@@ -213,16 +214,16 @@ describe('Vector Matching Integration Tests', () => {
       // Assert - verify multiple matches are returned in order
       expect(results).toHaveLength(4);
       expect(results[0].score).toBe(0.88);
-      expect(results[0].metadata.topic).toBe('Physics');
+      expect(results[0].metadata.topic_id).toBe(10); // Physics
       expect(results[1].score).toBe(0.85);
       expect(results[2].score).toBe(0.82);
-      expect(results[2].metadata.topic).toBe('Chemistry');
+      expect(results[2].metadata.topic_id).toBe(20); // Chemistry
       expect(results[3].score).toBe(0.78);
-      expect(results[3].metadata.topic).toBe('Mathematics');
+      expect(results[3].metadata.topic_id).toBe(30); // Mathematics
 
       // Verify scores are in descending order
       for (let i = 0; i < results.length - 1; i++) {
-        expect(results[i].score).toBeGreaterThanOrEqual(results[i + 1].score);
+        expect((results[i].score ?? 0)).toBeGreaterThanOrEqual(results[i + 1].score ?? 0);
       }
     });
   });
@@ -269,11 +270,11 @@ describe('Vector Matching Integration Tests', () => {
 
       // Mock Pinecone returning anchor vectors with metadata filter
       const anchorVector = createTestVectorData(anchorId, 3072, {
-        topic: 'Test Anchor Topic',
-        title: 'Anchor Explanation',
+        text: 'Anchor explanation content for physics fundamentals',
+        explanation_id: 100,
+        topic_id: 10,
         isAnchor: true,
         anchorSet: anchorSetValue,
-        presetTagId: 123,
       });
 
       mockPineconeQuery.mockResolvedValueOnce({
@@ -315,16 +316,30 @@ describe('Vector Matching Integration Tests', () => {
   });
 
   describe('Calculate Allowed Scores', () => {
+    // Helper to create proper VectorSearchResult for tests
+    const createMockMatch = (id: string, score: number): VectorSearchResult => ({
+      id,
+      score,
+      metadata: {
+        text: 'Test content',
+        explanation_id: parseInt(id, 10) || 1,
+        topic_id: 1,
+        startIdx: 0,
+        length: 100,
+        isAnchor: false,
+      },
+    });
+
     it('should calculate scores correctly from anchor and explanation matches', async () => {
       // Arrange - create mock match data
-      const anchorMatches = [
-        { id: '1', score: 0.8, metadata: {} },
+      const anchorMatches: VectorSearchResult[] = [
+        createMockMatch('1', 0.8),
       ];
 
-      const explanationMatches = [
-        { id: '2', score: 0.7, metadata: {} },
-        { id: '3', score: 0.6, metadata: {} },
-        { id: '4', score: 0.5, metadata: {} },
+      const explanationMatches: VectorSearchResult[] = [
+        createMockMatch('2', 0.7),
+        createMockMatch('3', 0.6),
+        createMockMatch('4', 0.5),
       ];
 
       // Act
@@ -341,8 +356,8 @@ describe('Vector Matching Integration Tests', () => {
 
     it('should handle less than 3 explanation matches by padding with zeros', async () => {
       // Arrange
-      const anchorMatches = [{ id: '1', score: 0.9, metadata: {} }];
-      const explanationMatches = [{ id: '2', score: 0.8, metadata: {} }];
+      const anchorMatches: VectorSearchResult[] = [createMockMatch('1', 0.9)];
+      const explanationMatches: VectorSearchResult[] = [createMockMatch('2', 0.8)];
 
       // Act
       const result = await calculateAllowedScores(anchorMatches, explanationMatches);

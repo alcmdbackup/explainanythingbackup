@@ -26,7 +26,22 @@ import {
   loadFromPineconeUsingExplanationId,
   searchForSimilarVectors
 } from './vectorsim';
-import { AnchorSet } from '@/lib/schemas/schemas';
+import { AnchorSet, type VectorSearchResult } from '@/lib/schemas/schemas';
+
+// Helper to create mock VectorSearchResult with minimal required fields
+const createMockVectorResult = (overrides: Partial<VectorSearchResult> = {}): VectorSearchResult => ({
+  id: 'mock-id',
+  score: 0,
+  metadata: {
+    text: 'mock text',
+    explanation_id: 1,
+    topic_id: 1,
+    startIdx: 0,
+    length: 100,
+    isAnchor: false,
+  },
+  ...overrides,
+});
 jest.mock('@/lib/server_utilities', () => ({
   logger: {
     debug: jest.fn(),
@@ -118,14 +133,14 @@ describe('vectorsim', () => {
   describe('calculateAllowedScores', () => {
     it('should calculate scores correctly with valid matches', async () => {
       const anchorMatches = [
-        { score: 0.8 },
-        { score: 0.7 }
+        createMockVectorResult({ score: 0.8 }),
+        createMockVectorResult({ score: 0.7 })
       ];
       const explanationMatches = [
-        { score: 0.9 },
-        { score: 0.8 },
-        { score: 0.7 },
-        { score: 0.6 } // Should only use top 3
+        createMockVectorResult({ score: 0.9 }),
+        createMockVectorResult({ score: 0.8 }),
+        createMockVectorResult({ score: 0.7 }),
+        createMockVectorResult({ score: 0.6 }) // Should only use top 3
       ];
 
       const result = await calculateAllowedScores(anchorMatches, explanationMatches);
@@ -136,8 +151,8 @@ describe('vectorsim', () => {
     });
 
     it('should pad with zeros when less than 3 explanation matches', async () => {
-      const anchorMatches = [{ score: 0.3 }];
-      const explanationMatches = [{ score: 0.5 }];
+      const anchorMatches = [createMockVectorResult({ score: 0.3 })];
+      const explanationMatches = [createMockVectorResult({ score: 0.5 })];
 
       const result = await calculateAllowedScores(anchorMatches, explanationMatches);
 
@@ -156,8 +171,12 @@ describe('vectorsim', () => {
     });
 
     it('should handle matches without scores', async () => {
-      const anchorMatches = [{}];
-      const explanationMatches = [{}, {}, {}];
+      const anchorMatches = [createMockVectorResult({ score: undefined })];
+      const explanationMatches = [
+        createMockVectorResult({ score: undefined }),
+        createMockVectorResult({ score: undefined }),
+        createMockVectorResult({ score: undefined })
+      ];
 
       const result = await calculateAllowedScores(anchorMatches, explanationMatches);
 

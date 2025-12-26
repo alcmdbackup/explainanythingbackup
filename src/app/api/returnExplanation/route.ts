@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
-import { MatchMode, UserInputType } from '@/lib/schemas/schemas';
+import { MatchMode, UserInputType, type SourceCacheFullType } from '@/lib/schemas/schemas';
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
+import { getOrCreateCachedSource } from '@/lib/services/sourceCache';
 import { logger } from '@/lib/server_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
@@ -9,12 +10,13 @@ const FILE_DEBUG = true;
 
 export async function POST(request: NextRequest) {
     try {
-        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, __requestId } = await request.json();
+        const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = await request.json();
 
         // Extract request ID data or create fallback
-        const requestIdData = __requestId || {
-            requestId: `api-${randomUUID()}`,
-            userId: userid || 'anonymous'
+        const requestIdData = {
+            requestId: __requestId?.requestId || `api-${randomUUID()}`,
+            userId: __requestId?.userId || userid || 'anonymous',
+            sessionId: __requestId?.sessionId || 'unknown'
         };
 
         // Wrap the entire logic in RequestIdContext
@@ -50,6 +52,33 @@ export async function POST(request: NextRequest) {
         const finalPreviousExplanationViewedId = previousExplanationViewedId ?? null;
         const finalPreviousExplanationViewedVector = previousExplanationViewedVector ?? null;
 
+        // Resolve sources - either from direct sources array or from sourceUrls
+        let finalSources: SourceCacheFullType[] | undefined = sources ?? undefined;
+
+        // If sourceUrls are provided, fetch the full source data
+        if (!finalSources && sourceUrls && Array.isArray(sourceUrls) && sourceUrls.length > 0) {
+            logger.debug('Fetching sources from URLs', { sourceUrls }, FILE_DEBUG);
+            const resolvedSources: SourceCacheFullType[] = [];
+
+            for (const url of sourceUrls) {
+                try {
+                    const cachedSource = await getOrCreateCachedSource(url, userid);
+                    if (cachedSource.source && cachedSource.source.fetch_status === 'success') {
+                        resolvedSources.push(cachedSource.source);
+                    } else {
+                        logger.debug('Source fetch failed or not successful', { url, status: cachedSource.source?.fetch_status }, FILE_DEBUG);
+                    }
+                } catch (error) {
+                    logger.error('Failed to fetch source from URL', { url, error });
+                }
+            }
+
+            if (resolvedSources.length > 0) {
+                finalSources = resolvedSources;
+                logger.debug('Resolved sources from URLs', { count: resolvedSources.length }, FILE_DEBUG);
+            }
+        }
+
         // Create streaming response
         const encoder = new TextEncoder();
         
@@ -65,14 +94,12 @@ export async function POST(request: NextRequest) {
 
                     // Streaming callback that forwards content to the client
                     const streamingCallback = (content: string) => {
-                        console.log('API route streamingCallback called with content:', content);
-                        logger.debug('API route streamingCallback called with content', { content }, FILE_DEBUG);
+                        logger.debug('API route streamingCallback called', { contentLength: content?.length }, FILE_DEBUG);
                         try {
                             // Check if this is a progress event (JSON string)
                             const parsedContent = JSON.parse(content);
                             if (parsedContent.type === 'progress') {
                                 // Forward progress events directly
-                                console.log('API route forwarding progress event:', parsedContent);
                                 logger.debug('API route forwarding progress event', parsedContent, FILE_DEBUG);
                                 const data = JSON.stringify({ 
                                     type: 'progress',
@@ -114,7 +141,8 @@ export async function POST(request: NextRequest) {
                         streamingCallback,
                         finalExistingContent,
                         finalPreviousExplanationViewedId,
-                        finalPreviousExplanationViewedVector
+                        finalPreviousExplanationViewedVector,
+                        finalSources
                     );
 
                     // Add debug logging for rewrite operations
@@ -172,7 +200,7 @@ export async function POST(request: NextRequest) {
         }); // Close RequestIdContext.run()
 
     } catch (error) {
-        console.error('Error in returnExplanation API:', error);
+        logger.error('Error in returnExplanation API', { error: error instanceof Error ? error.message : String(error) });
         return Response.json(
             { error: 'Internal server error' },
             { status: 500 }

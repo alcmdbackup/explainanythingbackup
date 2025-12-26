@@ -1,0 +1,1 @@
+export { withClientLogging } from './clientLogging';

@@ -8,6 +8,7 @@ import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
 import { userLibraryType } from '@/lib/schemas/schemas';
+import { logger } from '@/lib/server_utilities';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -22,16 +23,22 @@ jest.mock('@/lib/services/metrics', () => ({
   incrementExplanationSaves: jest.fn()
 }));
 
+jest.mock('@/lib/server_utilities', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn()
+  }
+}));
+
 describe('UserLibrary Service', () => {
   let mockSupabase: any;
-  let consoleErrorSpy: jest.SpyInstance;
+  const mockLogger = logger as jest.Mocked<typeof logger>;
 
   beforeEach(() => {
     // Reset all mocks before each test
     jest.clearAllMocks();
-
-    // Spy on console.error to verify error logging
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     // Create mock Supabase client with chainable methods
     mockSupabase = {
@@ -45,10 +52,6 @@ describe('UserLibrary Service', () => {
 
     // Setup the mock to return our mockSupabase
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
   });
 
   describe('saveExplanationToLibrary', () => {
@@ -83,8 +86,8 @@ describe('UserLibrary Service', () => {
       expect(mockSupabase.select).toHaveBeenCalledWith('id, explanationid, userid, created');
       expect(mockSupabase.single).toHaveBeenCalled();
 
-      // Verify metrics are updated (async, not awaited)
-      // Wait a bit for the async call to complete
+      // Verify metrics are updated (async, not awaited in production code)
+      // Intentional wait for fire-and-forget async call to complete for testing
       await new Promise(resolve => setTimeout(resolve, 10));
       expect(incrementExplanationSaves).toHaveBeenCalledWith(explanationId);
     });
@@ -102,7 +105,10 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(saveExplanationToLibrary(explanationId, userId)).rejects.toEqual(mockError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error saving explanation to user library:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error saving explanation to user library',
+        { error: 'Duplicate key violation' }
+      );
       expect(incrementExplanationSaves).not.toHaveBeenCalled();
     });
 
@@ -131,10 +137,10 @@ describe('UserLibrary Service', () => {
       // Assert - Should still return successfully even if metrics fail
       expect(result).toEqual(expectedData);
 
-      // Wait for async metrics call to complete
+      // Intentional wait for fire-and-forget async call to complete for testing
       await new Promise(resolve => setTimeout(resolve, 10));
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Failed to update explanation metrics after save:',
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Failed to update explanation metrics after save',
         {
           explanationid: explanationId,
           error: 'Metrics service unavailable'
@@ -213,7 +219,10 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(getExplanationIdsForUser('user-123')).rejects.toEqual(mockError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error fetching explanation IDs for user:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error fetching explanation IDs for user',
+        { error: 'Database error', userid: 'user-123' }
+      );
     });
 
     it('should handle empty result set gracefully', async () => {
@@ -384,6 +393,64 @@ describe('UserLibrary Service', () => {
     });
   });
 
+  describe('userId validation', () => {
+    describe('saveExplanationToLibrary', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(saveExplanationToLibrary(123, null as any)).rejects.toThrow('userId is required for saveExplanationToLibrary');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(saveExplanationToLibrary(123, undefined as any)).rejects.toThrow('userId is required for saveExplanationToLibrary');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(saveExplanationToLibrary(123, '')).rejects.toThrow('userId is required for saveExplanationToLibrary');
+      });
+    });
+
+    describe('getExplanationIdsForUser', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(getExplanationIdsForUser(null as any)).rejects.toThrow('userId is required for getExplanationIdsForUser');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(getExplanationIdsForUser(undefined as any)).rejects.toThrow('userId is required for getExplanationIdsForUser');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(getExplanationIdsForUser('')).rejects.toThrow('userId is required for getExplanationIdsForUser');
+      });
+    });
+
+    describe('getUserLibraryExplanations', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(getUserLibraryExplanations(null as any)).rejects.toThrow('userId is required for getUserLibraryExplanations');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(getUserLibraryExplanations(undefined as any)).rejects.toThrow('userId is required for getUserLibraryExplanations');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(getUserLibraryExplanations('')).rejects.toThrow('userId is required for getUserLibraryExplanations');
+      });
+    });
+
+    describe('isExplanationSavedByUser', () => {
+      it('should throw error when userid is null', async () => {
+        await expect(isExplanationSavedByUser(123, null as any)).rejects.toThrow('userId is required for isExplanationSavedByUser');
+      });
+
+      it('should throw error when userid is undefined', async () => {
+        await expect(isExplanationSavedByUser(123, undefined as any)).rejects.toThrow('userId is required for isExplanationSavedByUser');
+      });
+
+      it('should throw error when userid is empty string', async () => {
+        await expect(isExplanationSavedByUser(123, '')).rejects.toThrow('userId is required for isExplanationSavedByUser');
+      });
+    });
+  });
+
   describe('isExplanationSavedByUser', () => {
     it('should return true when explanation is saved', async () => {
       // Arrange
@@ -428,7 +495,10 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(isExplanationSavedByUser(123, 'user-456')).rejects.toEqual(mockError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('Error checking if explanation is saved:', mockError);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'Error checking if explanation is saved',
+        { error: 'Query failed', userid: 'user-456', explanationid: 123 }
+      );
     });
   });
 });

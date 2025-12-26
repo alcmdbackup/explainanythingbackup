@@ -4,24 +4,31 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { ArrowUpIcon, ArrowDownIcon } from '@heroicons/react/24/solid';
 import { formatUserFriendlyDate } from '@/lib/utils/formatDate';
-import { type ExplanationFullDbType } from '@/lib/schemas/schemas';
+import { type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import Navigation from '@/components/Navigation';
+import ExploreTabs from '@/components/ExploreTabs';
 
 /**
- * ExplanationsTablePage component - Library Catalog
- * Midnight Scholar theme - Elegant table display for browsing explanations
+ * ExplanationsTablePage component
+ * Table display for browsing explanations
  */
 export default function ExplanationsTablePage({
     explanations,
     error,
     showNavigation = true,
-    pageTitle = 'The Archives',
+    pageTitle = 'Explore',
+    sort,
+    period,
 }: {
-    explanations: (ExplanationFullDbType & { dateSaved?: string })[];
+    explanations: (ExplanationWithViewCount & { dateSaved?: string })[];
     error: string | null;
     showNavigation?: boolean;
     pageTitle?: string;
+    sort?: SortMode;
+    period?: TimePeriod;
 }) {
+    // Only show ExploreTabs when sort/period are explicitly provided (i.e., on /explanations page)
+    const showExploreTabs = sort !== undefined && period !== undefined;
     const [sortBy, setSortBy] = useState<'title' | 'date'>('date');
     const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
 
@@ -30,6 +37,10 @@ export default function ExplanationsTablePage({
     }
 
     function getSortedExplanations() {
+        // When sort='top', preserve server's view-based ordering
+        if (sort === 'top') {
+            return explanations;
+        }
         const sorted = [...explanations];
         if (sortBy === 'title') {
             sorted.sort((a, b) => {
@@ -66,7 +77,7 @@ export default function ExplanationsTablePage({
                 <Navigation
                     showSearchBar={true}
                     searchBarProps={{
-                        placeholder: 'Search the archives...',
+                        placeholder: 'Search...',
                         maxLength: 100,
                         onSearch: (query: string) => {
                             if (!query.trim()) return;
@@ -84,14 +95,17 @@ export default function ExplanationsTablePage({
                     <div className="title-flourish mt-4"></div>
                 </div>
 
+                {/* Discovery Mode Tabs - only shown on /explanations page */}
+                {showExploreTabs && <ExploreTabs sort={sort!} period={period!} />}
+
                 {error && (
-                    <div className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
+                    <div data-testid="library-error" className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
                         <span className="font-serif">{error}</span>
                     </div>
                 )}
 
                 {explanations.length === 0 ? (
-                    <div className="text-center py-16 scholar-card">
+                    <div data-testid="library-empty-state" className="text-center py-16 scholar-card">
                         <svg
                             className="w-16 h-16 mx-auto mb-4 text-[var(--accent-gold)]/50"
                             viewBox="0 0 24 24"
@@ -101,13 +115,13 @@ export default function ExplanationsTablePage({
                         >
                             <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                        <p className="font-serif text-[var(--text-muted)] italic text-lg">Your library awaits its first manuscript.</p>
-                        <p className="font-sans text-sm text-[var(--text-muted)] mt-2">Save explanations to build your personal collection.</p>
+                        <p className="font-serif text-[var(--text-muted)] text-lg">Nothing saved yet</p>
+                        <p className="font-sans text-sm text-[var(--text-muted)] mt-2">Save explanations you want to revisit.</p>
                         <Link
                             href="/"
                             className="inline-flex items-center mt-6 px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-page shadow-warm hover:shadow-warm-md transition-all duration-200"
                         >
-                            Begin Exploring
+                            Start exploring
                         </Link>
                     </div>
                 ) : (
@@ -141,6 +155,11 @@ export default function ExplanationsTablePage({
                                                 )}
                                             </span>
                                         </th>
+                                        {sort === 'top' && (
+                                            <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider">
+                                                Views
+                                            </th>
+                                        )}
                                         {hasDateSaved && (
                                             <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                                 Saved
@@ -156,7 +175,7 @@ export default function ExplanationsTablePage({
                                             data-testid="explanation-row"
                                             className={`
                                                 ${index % 2 === 0 ? 'bg-[var(--surface-secondary)]' : 'bg-[var(--surface-elevated)]/50'}
-                                                hover:bg-[var(--accent-gold)]/5 transition-colors cursor-pointer
+                                                scholar-table-row cursor-pointer
                                             `}
                                             onClick={() => window.location.href = `/results?explanation_id=${explanation.id}`}
                                         >
@@ -175,6 +194,13 @@ export default function ExplanationsTablePage({
                                                     {formatUserFriendlyDate(explanation.timestamp)}
                                                 </span>
                                             </td>
+                                            {sort === 'top' && (
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className="text-sm font-sans text-[var(--accent-gold)]">
+                                                        {explanation.viewCount ?? 0}
+                                                    </span>
+                                                </td>
+                                            )}
                                             {hasDateSaved && (
                                                 <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap">
                                                     <span className="text-sm font-sans text-[var(--text-muted)]">

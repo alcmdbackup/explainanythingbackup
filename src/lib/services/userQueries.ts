@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type UserQueryInsertType } from '@/lib/schemas/schemas';
+import { assertUserId } from '@/lib/utils/validation';
 
 /**
  * Service for interacting with the user_queries table in Supabase
@@ -24,6 +25,7 @@ import { type UserQueryInsertType } from '@/lib/schemas/schemas';
  * @returns Created user query record
  */
 export async function createUserQuery(query: UserQueryInsertType) {
+  assertUserId(query.userid, 'createUserQuery');
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase

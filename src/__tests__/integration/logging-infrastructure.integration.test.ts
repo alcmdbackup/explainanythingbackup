@@ -161,11 +161,11 @@ describe('Logging Infrastructure Integration Tests', () => {
       const wrappedFn = withLogging(testFn, 'contextPreservation', { enabled: true });
 
       // Act
-      RequestIdContext.run({ requestId: testRequestId, userId: testUserId }, () => {
+      RequestIdContext.run({ requestId: testRequestId, userId: testUserId, sessionId: 'test-session' }, () => {
         return wrappedFn();
       });
 
-      // Wait for async completion
+      // Intentional wait for async callback completion - needed for RequestIdContext to propagate
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Assert - all logs should have requestId

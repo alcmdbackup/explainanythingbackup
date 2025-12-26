@@ -32,8 +32,8 @@ test.describe('Regeneration Flow', () => {
       // Wait for content to load on results page
       await resultsPage.waitForAnyContent(30000);
 
-      // Wait for loading to complete (rewrite button only shows when not loading)
-      await page.waitForTimeout(1000);
+      // Wait for rewrite button to appear (shows when loading is complete)
+      await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 
       // Verify rewrite button is visible
       const isVisible = await resultsPage.isRewriteButtonVisible();
@@ -57,7 +57,7 @@ test.describe('Regeneration Flow', () => {
       // Wait for navigation to results page
       await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(30000);
-      await page.waitForTimeout(1000);
+      await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 
       // Open dropdown
       await resultsPage.openRewriteDropdown();
@@ -84,7 +84,7 @@ test.describe('Regeneration Flow', () => {
       // Wait for navigation to results page
       await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(30000);
-      await page.waitForTimeout(1000);
+      await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 
       // Verify content is displayed with a title
       const title = await resultsPage.getTitle();
@@ -111,7 +111,7 @@ test.describe('Regeneration Flow', () => {
       // Wait for navigation to results page
       await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(30000);
-      await page.waitForTimeout(1000);
+      await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 
       // Verify rewrite button is visible and enabled
       const isVisible = await resultsPage.isRewriteButtonVisible();

@@ -17,6 +17,14 @@ jest.mock('next/navigation', () => {
     useSearchParams: mocks.useSearchParams,
   };
 });
+jest.mock('@/lib/server_utilities', () => ({
+  logger: {
+    error: jest.fn(),
+    warn: jest.fn(),
+    info: jest.fn(),
+    debug: jest.fn()
+  }
+}));
 
 import { GET } from './route';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
@@ -24,19 +32,17 @@ import { redirect } from '@/__mocks__/next/navigation';
 import { createMockNextRequest } from '@/__mocks__/next/server';
 import { createSupabaseError } from '@/testing/utils/phase9-test-helpers';
 import { NextRequest } from 'next/server';
+import { logger } from '@/lib/server_utilities';
 
 const mockCreateSupabaseServerClient = createSupabaseServerClient as jest.MockedFunction<typeof createSupabaseServerClient>;
 
 describe('Email Confirmation Route - GET', () => {
   let mockVerifyOtp: jest.Mock;
   let mockSupabaseClient: any;
-  let consoleErrorSpy: jest.SpyInstance;
+  const mockLogger = logger as jest.Mocked<typeof logger>;
 
   beforeEach(() => {
     jest.clearAllMocks();
-
-    // Spy on console.error
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
 
     // Setup default mock
     mockVerifyOtp = jest.fn().mockResolvedValue({
@@ -51,10 +57,6 @@ describe('Email Confirmation Route - GET', () => {
     };
 
     mockCreateSupabaseServerClient.mockResolvedValue(mockSupabaseClient);
-  });
-
-  afterEach(() => {
-    consoleErrorSpy.mockRestore();
   });
 
   describe('Successful Verification', () => {
@@ -196,7 +198,10 @@ describe('Email Confirmation Route - GET', () => {
       await expect(GET(request)).rejects.toThrow('NEXT_REDIRECT: /error');
 
       expect(mockVerifyOtp).toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith('OTP verification error:', error.error);
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        'OTP verification error',
+        { error: 'Invalid OTP' }
+      );
       expect(redirect).toHaveBeenCalledWith('/error');
     });
 

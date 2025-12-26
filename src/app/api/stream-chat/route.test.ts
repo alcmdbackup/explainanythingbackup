@@ -177,7 +177,7 @@ describe('POST /api/stream-chat', () => {
     await POST(request);
 
     expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-      { requestId: 'custom-id', userId: 'user123' },
+      { requestId: 'custom-id', userId: 'user123', sessionId: expect.any(String) },
       expect.any(Function)
     );
   });
@@ -193,7 +193,7 @@ describe('POST /api/stream-chat', () => {
     await POST(request);
 
     expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-      { requestId: 'api-test-uuid-123', userId: 'user123' },
+      { requestId: 'api-test-uuid-123', userId: 'user123', sessionId: expect.any(String) },
       expect.any(Function)
     );
   });

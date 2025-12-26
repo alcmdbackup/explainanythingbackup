@@ -12,6 +12,7 @@ import {
   createMockVector,
 } from '../utils/test-helpers';
 import { TEST_PREFIX } from '../utils/integration-helpers';
+import type { VectorSearchMetadata } from '@/lib/schemas/schemas';
 
 /**
  * Creates a test topic with proper structure
@@ -154,20 +155,26 @@ export function createTestUserEvent(
 }
 
 /**
- * Creates test vector data for Pinecone
+ * Creates test vector data for Pinecone with proper VectorSearchMetadata
  */
 export function createTestVectorData(
   explanationId: string,
   dimension: number = 3072,
-  overrides: Record<string, unknown> = {}
-) {
+  overrides: Partial<VectorSearchMetadata> = {}
+): { id: string; values: number[]; metadata: VectorSearchMetadata } {
+  // Parse numeric ID from string if possible, otherwise use a default
+  const numericId = parseInt(explanationId.replace(/\D/g, ''), 10) || 1;
+
   return {
     id: explanationId,
     values: createMockVector(dimension),
     metadata: {
-      topic: 'Test Topic',
-      title: 'Test Explanation',
-      content_preview: 'This is a test...',
+      text: 'This is test content for vector matching',
+      explanation_id: numericId,
+      topic_id: numericId,
+      startIdx: 0,
+      length: 100,
+      isAnchor: false,
       ...overrides,
     },
   };
@@ -184,7 +191,9 @@ export function createTestVectorBatch(
 
   return Array.from({ length: count }, (_, i) =>
     createTestVectorData(`${testId}-vector-${i}`, dimension, {
-      topic: `Test Topic ${i + 1}`,
+      text: `Test content for topic ${i + 1}`,
+      explanation_id: i + 1,
+      topic_id: i + 1,
     })
   );
 }

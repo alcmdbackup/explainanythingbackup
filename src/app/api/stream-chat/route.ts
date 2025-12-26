@@ -14,9 +14,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Extract request ID data or create fallback
-    const requestIdData = __requestId || {
-      requestId: `api-${randomUUID()}`,
-      userId: userid || 'anonymous'
+    const requestIdData = {
+      requestId: __requestId?.requestId || `api-${randomUUID()}`,
+      userId: __requestId?.userId || userid || 'anonymous',
+      sessionId: __requestId?.sessionId || 'unknown'
     };
 
     // Wrap the entire logic in RequestIdContext

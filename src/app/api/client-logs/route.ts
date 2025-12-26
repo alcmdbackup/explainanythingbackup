@@ -2,6 +2,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { appendFileSync } from 'fs';
 import { join } from 'path';
+import { logger } from '@/lib/server_utilities';
+import { RequestIdContext } from '@/lib/requestIdContext';
+import { randomUUID } from 'crypto';
 
 const clientLogFile = join(process.cwd(), 'client.log');
 
@@ -14,17 +17,26 @@ export async function POST(request: NextRequest) {
   try {
     const logEntry = await request.json();
 
-    // Append to client.log file
-    const logLine = JSON.stringify({
-      ...logEntry,
-      source: 'client'
-    }) + '\n';
+    // Extract requestId from client log or generate one
+    const requestIdData = {
+      requestId: logEntry.requestId || `client-log-${randomUUID()}`,
+      userId: logEntry.userId || `client-log-${randomUUID()}`,
+      sessionId: logEntry.data?.sessionId || logEntry.sessionId || 'unknown'
+    };
 
-    appendFileSync(clientLogFile, logLine);
+    return await RequestIdContext.run(requestIdData, async () => {
+      // Append to client.log file
+      const logLine = JSON.stringify({
+        ...logEntry,
+        source: 'client'
+      }) + '\n';
 
-    return NextResponse.json({ success: true });
+      appendFileSync(clientLogFile, logLine);
+
+      return NextResponse.json({ success: true });
+    });
   } catch (error) {
-    console.error('Failed to write client log:', error);
+    logger.error('Failed to write client log', { error: error instanceof Error ? error.message : String(error) });
     return NextResponse.json({ error: 'Failed to write log' }, { status: 500 });
   }
 }

@@ -1,17 +1,19 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges } from '@/actions/actions';
-import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus } from '@/lib/schemas/schemas';
+import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
+import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
+import FeedbackPanel from '@/components/FeedbackPanel';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AISuggestionsPanel from '@/components/AISuggestionsPanel';
+import Bibliography from '@/components/sources/Bibliography';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import {
     pageLifecycleReducer,
@@ -35,7 +37,11 @@ const FORCE_REGENERATION_ON_NAV = false;
 function ResultsPageContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
-    const { withRequestId } = useClientPassRequestId('anonymous');
+
+    // Initialize user authentication hook first (needed for request context)
+    const { userid, fetchUserid } = useUserAuth();
+
+    const { withRequestId } = useClientPassRequestId(userid || 'anonymous');
     const [prompt, setPrompt] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
@@ -44,6 +50,30 @@ function ResultsPageContent() {
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
     const [streamCompleted, setStreamCompleted] = useState(false);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
+
+    // Sources state for feedback/rewrite with sources
+    const [sources, setSources] = useState<SourceChipType[]>([]);
+    const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
+
+    // Track pending AI suggestions (blocks save when true)
+    const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
+
+    // AI Suggestions Panel state (visible by default, collapsible)
+    const [isAIPanelOpen, setIsAIPanelOpen] = useState(true);
+
+    // Convert sources to bibliography format (with index for citations)
+    const bibliographySources = useMemo(() =>
+        sources
+            .filter(s => s.status === 'success')
+            .map((s, idx) => ({
+                index: idx + 1,
+                title: s.title || s.domain,
+                domain: s.domain,
+                url: s.url,
+                favicon_url: s.favicon_url
+            })),
+        [sources]
+    );
 
     // Page lifecycle reducer (replaces 12 state variables with 1 reducer)
     const [lifecycleState, dispatchLifecycle] = useReducer(pageLifecycleReducer, initialPageLifecycleState);
@@ -73,6 +103,7 @@ function ResultsPageContent() {
         loadExplanation,
         clearSystemSavedId
     } = useExplanationLoader({
+        userId: userid || undefined,
         onTagsLoad: (tags) => dispatchTagAction({ type: 'LOAD_TAGS', tags }),
         onMatchesLoad: (matches) => setMatches(matches),
         onClearPrompt: () => setPrompt(''),
@@ -87,9 +118,6 @@ function ResultsPageContent() {
         }
     });
 
-    // Initialize user authentication hook
-    const { userid, fetchUserid } = useUserAuth();
-
     // Text reveal animation settings
     const { effect: textRevealEffect } = useTextRevealSettings();
 
@@ -102,6 +130,9 @@ function ResultsPageContent() {
     const lastStreamingUpdateRef = useRef<string>('');
     const isInitialLoadRef = useRef<boolean>(true);
     const hasInitializedContent = useRef<boolean>(false);
+
+    // Prevent duplicate API calls from useEffect re-firing (HMR, searchParams reference change)
+    const processedParamsRef = useRef<string | null>(null);
 
     // Close dropdown when clicking outside and reset tags
     useEffect(() => {
@@ -137,10 +168,10 @@ function ResultsPageContent() {
                 // Dispatch action to enter rewrite mode with temp tags
                 dispatchTagAction({ type: 'ENTER_REWRITE_MODE', tempTags: result.data });
             } else {
-                console.error('Failed to fetch temp tags for rewrite with tags:', result.error);
+                logger.error('Failed to fetch temp tags for rewrite with tags', { error: result.error });
             }
         } catch (error) {
-            console.error('Error initializing temp tags for rewrite with tags:', error);
+            logger.error('Error initializing temp tags for rewrite with tags', { error: error instanceof Error ? error.message : String(error) });
         }
     };
 
@@ -232,9 +263,8 @@ function ResultsPageContent() {
      * Used by: useEffect (initial query), Regenerate button, direct function calls
      * Calls: /api/returnExplanation, loadExplanation, saveUserQuery
      */
-    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null) => {
-        logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules }, FILE_DEBUG);
-        console.log('handleUserAction received matchMode:', matchMode);
+    const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null, sourcesForRewrite?: SourceChipType[]) => {
+        logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules, sourcesCount: sourcesForRewrite?.length }, FILE_DEBUG);
         if (!userInput.trim()) return;
         
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
@@ -253,11 +283,15 @@ function ResultsPageContent() {
         setExplanationVector(null); // Reset vector when generating new explanation
         setExplanationStatus(null); // Reset explanation status when generating new explanation
 
-        // Add console debugging for tag rules
+        // Debug logging for tag rules
         if (additionalRules.length > 0) {
-            console.log('Using additional rules for explanation generation:', additionalRules);
+            logger.debug('Using additional rules for explanation generation', { additionalRules }, FILE_DEBUG);
         }
         
+        // Prepare sources for the API - convert SourceChipType to the format expected by the API
+        // The API/service will handle fetching full source data via getOrCreateCachedSource
+        const validSourceUrls = sourcesForRewrite?.filter(s => s.status === 'success').map(s => s.url) || [];
+
         const requestBody = {
             userInput,
             savedId: systemSavedId,
@@ -267,9 +301,10 @@ function ResultsPageContent() {
             additionalRules,
             existingContent: userInputType === UserInputType.EditWithTags ? formattedExplanation : undefined,
             previousExplanationViewedId,
-            previousExplanationViewedVector
+            previousExplanationViewedVector,
+            sourceUrls: validSourceUrls.length > 0 ? validSourceUrls : undefined
         };
-        console.log('Sending request to API with matchMode:', matchMode, 'and body:', requestBody);
+        logger.debug('Sending request to API', { matchMode, requestBody }, FILE_DEBUG);
         
         // Add debug logging for rewrite operations
         if (userInputType === UserInputType.Rewrite) {
@@ -304,27 +339,33 @@ function ResultsPageContent() {
         if (!reader) {
             throw new Error('Failed to get response reader');
         }
+        logger.debug('Got response reader, starting to read SSE stream', null, FILE_DEBUG);
 
         const decoder = new TextDecoder();
         let finalResult: unknown = null;
+        let chunkCount = 0;
 
         while (true) {
             const { done, value } = await reader.read();
-            
-            if (done) break;
 
+            if (done) {
+                logger.debug('Stream done', { totalChunks: chunkCount }, FILE_DEBUG);
+                break;
+            }
+
+            chunkCount++;
             const chunk = decoder.decode(value);
-            logger.debug('Client received chunk:', { chunkLength: chunk.length, chunk: chunk.substring(0, 200) }, FILE_DEBUG);
+            logger.debug('Chunk received', { chunkCount, length: chunk.length }, FILE_DEBUG);
             const lines = chunk.split('\n');
 
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
-                        console.log('Client received streaming data:', data);
-                        logger.debug('Client received streaming data:', { data }, FILE_DEBUG);
-                        
+                        logger.debug('Client received streaming data', { data }, FILE_DEBUG);
+
                         if (data.type === 'error') {
+                            logger.debug('Error event received, dispatching ERROR action', { error: data.error }, FILE_DEBUG);
                             dispatchLifecycle({ type: 'ERROR', error: data.error });
                             setExplanationVector(null); // Reset vector on error
                             setExplanationStatus(null); // Reset status on error
@@ -346,8 +387,7 @@ function ResultsPageContent() {
 
                         if (data.type === 'progress') {
                             // Handle progress events
-                            console.log('Client received progress data:', data);
-                            logger.debug('Received progress data:', { data }, FILE_DEBUG);
+                            logger.debug('Received progress data', { data }, FILE_DEBUG);
                             if (data.stage === 'title_generated' && data.title) {
                                 dispatchLifecycle({ type: 'STREAM_TITLE', title: data.title });
                                 setExplanationTitle(data.title); // Also update useExplanationLoader
@@ -401,6 +441,21 @@ function ResultsPageContent() {
             setExplanationVector(null); // Reset vector on error
             setExplanationStatus(null); // Reset status on error
         } else {
+            // Resolve links for the newly created explanation before redirect
+            // This ensures links render correctly since loadExplanation may be skipped
+            // when explanationId is already set from streaming
+            if (explanationId && content) {
+                try {
+                    const contentWithLinks = await resolveLinksForDisplayAction(
+                        withRequestId({ explanationId, content })
+                    );
+                    setContent(contentWithLinks);
+                } catch (err) {
+                    logger.error('Failed to resolve links after creation:', { error: err });
+                    // Continue with redirect even if link resolution fails
+                }
+            }
+
             // Redirect to URL with explanation_id and userQueryId
             const params = new URLSearchParams();
             if (explanationId) {
@@ -409,7 +464,7 @@ function ResultsPageContent() {
             if (userQueryId) {
                 params.set('userQueryId', userQueryId.toString());
             }
-            
+
             router.push(`/results?${params.toString()}`);
             // Note: setIsLoading(false) will be handled by the page reload
         }
@@ -426,30 +481,71 @@ function ResultsPageContent() {
      * Calls: handleUserAction
      */
     const handleTagBarApplyClick = async (tagDescriptions: string[]) => {
-        console.log('handleTagBarApplyClick called with tagDescriptions:', tagDescriptions);
-        console.log('tagState.mode:', tagState.mode);
-        console.log('prompt:', prompt);
-        console.log('explanationTitle:', explanationTitle);
-        console.log('userid:', userid);
+        logger.debug('handleTagBarApplyClick called', { tagDescriptions, tagStateMode: tagState.mode, prompt, explanationTitle, userid }, FILE_DEBUG);
 
         // Handle apply button click in rewrite or edit mode
         if (tagState.mode === 'rewriteWithTags') {
-            console.log('Calling handleUserAction with RewriteWithTags');
-            console.log('Current mode:', mode);
             // For rewrite with tags, use the current explanation title as input
             const inputForRewrite = explanationTitle || prompt;
-            console.log('Using input for rewrite:', inputForRewrite);
+            logger.debug('Calling handleUserAction with RewriteWithTags', { mode, inputForRewrite }, FILE_DEBUG);
             await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null, null);
         } else if (tagState.mode === 'editWithTags') {
-            console.log('Calling handleUserAction with EditWithTags');
-            console.log('Current mode:', mode);
             // For edit with tags, use the current explanation title as input
             const inputForEdit = explanationTitle || prompt;
-            console.log('Using input for edit:', inputForEdit);
+            logger.debug('Calling handleUserAction with EditWithTags', { mode, inputForEdit }, FILE_DEBUG);
             await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null, null);
         } else {
-            console.log('No matching mode found, tagState.mode:', tagState.mode);
+            logger.debug('No matching mode found', { tagStateMode: tagState.mode }, FILE_DEBUG);
         }
+    };
+
+    /**
+     * Handles apply from FeedbackPanel (tags + sources combined)
+     *
+     * Uses RewriteWithTags user input type with sources attached
+     */
+    const handleFeedbackPanelApply = async (tagDescriptions: string[], panelSources: SourceChipType[]) => {
+        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length });
+
+        const inputForRewrite = explanationTitle || prompt;
+        if (!inputForRewrite) {
+            dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
+            return;
+        }
+
+        // Close the feedback panel
+        setShowFeedbackPanel(false);
+
+        // Call handleUserAction with sources
+        await handleUserAction(
+            inputForRewrite,
+            UserInputType.RewriteWithTags,
+            mode,
+            userid,
+            tagDescriptions,
+            null,
+            null,
+            panelSources
+        );
+    };
+
+    /**
+     * Handles reset from FeedbackPanel
+     */
+    const handleFeedbackPanelReset = () => {
+        dispatchTagAction({ type: 'RESET_TAGS' });
+        setSources([]);
+    };
+
+    /**
+     * Opens the FeedbackPanel for rewrite with feedback
+     */
+    const handleOpenFeedbackPanel = async () => {
+        // Initialize temp tags like rewrite with tags does
+        await initializeTempTagsForRewriteWithTags();
+        setShowFeedbackPanel(true);
+        // Close the dropdown
+        dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
     };
 
     /**
@@ -537,8 +633,9 @@ function ResultsPageContent() {
         }
     };
 
-    // Get content from lifecycle reducer instead of useExplanationLoader
-    const formattedExplanation = getPageContent(lifecycleState) || content || '';
+    // Get content from hook (has resolved links) first, fallback to lifecycle reducer
+    // The hook's content has resolved links from resolveLinksForDisplayAction
+    const formattedExplanation = content || getPageContent(lifecycleState) || '';
 
     /**
      * Handles edit mode toggle for Lexical editor
@@ -564,30 +661,27 @@ function ResultsPageContent() {
      * feedback loop that resets cursor. Content is synced when exiting edit mode.
      */
     const handleEditorContentChange = (newContent: string) => {
-        console.log('🔄 handleEditorContentChange called');
-        console.log('📝 newContent type:', typeof newContent);
-        console.log('📝 newContent length:', newContent?.length || 'undefined');
-        console.log('🎛️ isEditMode:', isEditMode);
-        console.log('🏁 isInitialLoadRef.current:', isInitialLoadRef.current);
+        logger.debug('handleEditorContentChange called', {
+            contentLength: newContent?.length,
+            isEditMode,
+            isInitialLoad: isInitialLoadRef.current
+        }, FILE_DEBUG);
 
         // Clear initial load flag on first user edit (when in edit mode)
         if (isEditMode && isInitialLoadRef.current) {
-            console.log('🏁 Clearing isInitialLoadRef.current on user edit');
+            logger.debug('Clearing isInitialLoadRef.current on user edit', null, FILE_DEBUG);
             isInitialLoadRef.current = false;
         }
 
         const shouldCallParent = isEditMode && !isInitialLoadRef.current;
-        console.log('🤔 shouldCall parent:', shouldCallParent);
 
         // Only propagate changes if user is in edit mode and this is not initial load
         if (shouldCallParent) {
-            console.log('✅ Content change from user edit (tracked by editor)');
+            logger.debug('Content change from user edit (tracked by editor)', null, FILE_DEBUG);
             // Don't update lifecycle state during editing - prevents cursor jumping
             // Content will be synced to lifecycle state when user exits edit mode or saves
         } else {
-            console.log('❌ NOT propagating content change because:');
-            if (!isEditMode) console.log('  - Not in edit mode (isEditMode = false)');
-            if (isInitialLoadRef.current) console.log('  - Still in initial load (isInitialLoadRef.current = true)');
+            logger.debug('NOT propagating content change', { isEditMode, isInitialLoad: isInitialLoadRef.current }, FILE_DEBUG);
         }
     };
 
@@ -604,9 +698,9 @@ function ResultsPageContent() {
      */
     const handleSearchSubmit = async (query: string) => {
         if (!query.trim()) return;
-        
+
         if (!FORCE_REGENERATION_ON_NAV) {
-            await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null);
+            await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null, sources);
         } else {
             router.push(`/results?q=${encodeURIComponent(query)}`);
         }
@@ -616,6 +710,21 @@ function ResultsPageContent() {
     useEffect(() => {
         fetchUserid();
     }, [fetchUserid]);
+
+    // Load sources from sessionStorage on mount (passed from home page)
+    useEffect(() => {
+        try {
+            const pendingSourcesStr = sessionStorage.getItem('pendingSources');
+            if (pendingSourcesStr) {
+                const pendingSources = JSON.parse(pendingSourcesStr) as SourceChipType[];
+                setSources(pendingSources);
+                // Clear after loading
+                sessionStorage.removeItem('pendingSources');
+            }
+        } catch (error) {
+            logger.error('Failed to load pending sources from sessionStorage:', { error });
+        }
+    }, []);
 
     // NOTE: Auto-loading useEffect removed - lifecycle reducer handles phase transitions explicitly
 
@@ -628,9 +737,29 @@ function ResultsPageContent() {
         }*/
 
         const processParams = async () => {
-            // Initialize request ID for page load
+            // Extract params early to create fingerprint
+            const urlExplanationId = searchParams.get('explanation_id');
+            const urlUserQueryId = searchParams.get('userQueryId');
+            const title = searchParams.get('t');
+            const query = searchParams.get('q');
+
+            // Create fingerprint from URL params to detect duplicate processing
+            // This prevents HMR/Fast Refresh from re-triggering API calls
+            const paramsFingerprint = `${query || ''}|${title || ''}|${urlExplanationId || ''}|${urlUserQueryId || ''}`;
+            if (processedParamsRef.current === paramsFingerprint) {
+                return; // Already processed these exact params
+            }
+            processedParamsRef.current = paramsFingerprint;
+
+            // Get effective user ID first for request context
+            const effectiveUserid = userid || await fetchUserid();
+
+            // Initialize request ID for page load with actual user ID
             const pageLoadRequestId = `page-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
-            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: 'anonymous' });
+            // Import session ID dynamically to avoid SSR issues
+            const { getOrCreateAnonymousSessionId } = await import('@/lib/sessionId');
+            const sessionId = getOrCreateAnonymousSessionId();
+            RequestIdContext.setClient({ requestId: pageLoadRequestId, userId: effectiveUserid || 'anonymous', sessionId });
 
             // Reset lifecycle to idle when processing new URL parameters
             dispatchLifecycle({ type: 'RESET' });
@@ -649,13 +778,6 @@ function ResultsPageContent() {
             if (initialMode !== mode) {
                 setMode(initialMode);
             }
-
-            const urlExplanationId = searchParams.get('explanation_id');
-            const urlUserQueryId = searchParams.get('userQueryId');
-            const title = searchParams.get('t');
-            const query = searchParams.get('q');
-
-            const effectiveUserid = userid || await fetchUserid();
             
             if (query) {
                 setPrompt(query);
@@ -664,11 +786,11 @@ function ResultsPageContent() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sources);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sources);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -756,7 +878,7 @@ function ResultsPageContent() {
                         }, 0);
                     }
                 } catch (error) {
-                    console.error('Error updating editor content during streaming:', error);
+                    logger.error('Error updating editor content during streaming', { error: error instanceof Error ? error.message : String(error) });
                 }
             }
         }, isStreaming ? 100 : 0);
@@ -766,32 +888,34 @@ function ResultsPageContent() {
     useEffect(() => {
         // Early return if editor ref is not yet initialized
         if (!editorRef.current) {
-            console.log('⏳ Editor ref not yet initialized, skipping content sync');
+            logger.debug('Editor ref not yet initialized, skipping content sync', null, FILE_DEBUG);
             return;
         }
 
-        const currentPageContent = getPageContent(lifecycleState) || content;
+        // Prioritize content from hook (has resolved links) over lifecycle state
+        const currentPageContent = content || getPageContent(lifecycleState);
 
         // On first run, just sync the state without updating the editor
         // LexicalEditor handles initialContent on its own
         if (!hasInitializedContent.current) {
-            console.log('📝 First content sync - initializing state only');
+            logger.debug('First content sync - initializing state only', null, FILE_DEBUG);
             setEditorCurrentContent(currentPageContent);
             hasInitializedContent.current = true;
             return;
         }
 
-        console.log('🔄 useEffect triggered - content comparison');
-        console.log('🔍 content length:', currentPageContent?.length || 'undefined');
-        console.log('🔍 editorCurrentContent length:', editorCurrentContent?.length || 'undefined');
-        console.log('🔍 content !== editorCurrentContent:', currentPageContent !== editorCurrentContent);
-        console.log('🔍 isEditMode:', isEditMode);
+        logger.debug('Content comparison useEffect', {
+            contentLength: currentPageContent?.length,
+            editorContentLength: editorCurrentContent?.length,
+            contentChanged: currentPageContent !== editorCurrentContent,
+            isEditMode
+        }, FILE_DEBUG);
 
         if (currentPageContent !== editorCurrentContent) {
             // IMPORTANT: Don't overwrite editor content during edit mode
             // This prevents AI suggestions from being destroyed
             if (isEditMode && !isStreaming) {
-                console.log('⚠️ Skipping content update - editor is in edit mode');
+                logger.debug('Skipping content update - editor is in edit mode', null, FILE_DEBUG);
                 return;
             }
 
@@ -808,14 +932,11 @@ function ResultsPageContent() {
 
             // After first content update, mark as no longer initial load
             if (isInitialLoadRef.current) {
-                console.log('🏁 About to clear isInitialLoadRef, isStreaming:', isStreaming);
+                logger.debug('About to clear isInitialLoadRef', { isStreaming }, FILE_DEBUG);
                 if (!isStreaming) {
-                    console.log('🏁 Setting isInitialLoadRef.current = false immediately (non-streaming)');
                     isInitialLoadRef.current = false;
                 } else {
-                    console.log('🏁 Setting isInitialLoadRef.current = false via setTimeout (streaming)');
                     setTimeout(() => {
-                        console.log('🏁 setTimeout executed: setting isInitialLoadRef.current = false');
                         isInitialLoadRef.current = false;
                     }, 0);
                 }
@@ -838,7 +959,7 @@ function ResultsPageContent() {
             <Navigation
                 showSearchBar={true}
                 searchBarProps={{
-                    placeholder: "Search the archives...",
+                    placeholder: "Search...",
                     maxLength: 100,
                     initialValue: prompt,
                     onSearch: handleSearchSubmit,
@@ -896,13 +1017,13 @@ function ResultsPageContent() {
                                     <div className="mb-6">
                                         <div className="flex items-center justify-between">
                                             <h1 className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
-                                                Related Manuscripts
+                                                Related
                                             </h1>
                                             <button
                                                 onClick={() => setShowMatches(false)}
                                                 className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
                                             >
-                                                ← Return to manuscript
+                                                ← Back
                                             </button>
                                         </div>
                                         <div className="title-flourish mt-4"></div>
@@ -939,8 +1060,8 @@ function ResultsPageContent() {
                                                 </div>
                                             ))
                                         ) : (
-                                            <p className="font-serif text-[var(--text-muted)] text-center italic py-8">
-                                                No related manuscripts found. Generate an explanation to discover connections.
+                                            <p className="font-serif text-[var(--text-muted)] text-center py-8">
+                                                No related explanations found.
                                             </p>
                                         )}
                                     </div>
@@ -1041,7 +1162,7 @@ function ResultsPageContent() {
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Rewrite with bookmarks
+                                                                Rewrite with tags
                                                             </button>
                                                             <button
                                                                 data-testid="edit-with-tags"
@@ -1051,7 +1172,16 @@ function ResultsPageContent() {
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Edit with bookmarks
+                                                                Edit with tags
+                                                            </button>
+                                                            <div className="border-t border-[var(--border-default)] my-1"></div>
+                                                            <button
+                                                                data-testid="rewrite-with-feedback"
+                                                                disabled={isPageLoading || isStreaming}
+                                                                onClick={handleOpenFeedbackPanel}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                Rewrite with feedback
                                                             </button>
                                                         </div>
                                                     </div>
@@ -1060,8 +1190,9 @@ function ResultsPageContent() {
                                         )}
                                         <button
                                             onClick={handleSave}
-                                            disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming}
+                                            disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming || hasPendingSuggestions}
                                             data-testid="save-to-library"
+                                            title={hasPendingSuggestions ? "Accept or reject AI suggestions before saving" : undefined}
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isSaving ? 'Saving...' : userSaved ? 'Saved ✓' : 'Save'}
@@ -1069,7 +1200,9 @@ function ResultsPageContent() {
                                         {(hasUnsavedChanges || explanationStatus === ExplanationStatus.Draft) && (
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
-                                                disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming}
+                                                disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming || hasPendingSuggestions}
+                                                data-testid="publish-button"
+                                                title={hasPendingSuggestions ? "Accept or reject AI suggestions before publishing" : undefined}
                                                 className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
@@ -1078,6 +1211,7 @@ function ResultsPageContent() {
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
                                             disabled={isStreaming}
+                                            data-testid="format-toggle-button"
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
@@ -1085,6 +1219,7 @@ function ResultsPageContent() {
                                         <button
                                             onClick={handleEditModeToggle}
                                             disabled={isStreaming}
+                                            data-testid="edit-button"
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isEditMode ? 'Done' : 'Edit'}
@@ -1103,6 +1238,7 @@ function ResultsPageContent() {
                                                 setMode(e.target.value as MatchMode);
                                             }}
                                             disabled={isStreaming}
+                                            data-testid="mode-select"
                                             className="rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-3 py-1.5 text-sm font-sans text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             <option value={MatchMode.Normal}>Normal</option>
@@ -1113,29 +1249,45 @@ function ResultsPageContent() {
                                 </div>
                                 )}
                                 
-                                {/* Tags Bar - shown during streaming with only add tag button */}
+                                {/* Tags/Feedback section */}
                                 <div className="mb-2">
-                                    <TagBar
-                                        tagState={tagState}
-                                        dispatch={dispatchTagAction}
-                                        className="mb-2"
-                                        explanationId={explanationId}
-                                        onTagClick={(tag) => {
-                                            // Handle tag clicks here - you can implement search, filtering, etc.
-                                            console.log('Tag clicked:', tag);
-                                            // Example: could trigger a search for explanations with this tag
-                                            // or navigate to a tag-specific page
-                                        }}
-                                        tagBarApplyClickHandler={handleTagBarApplyClick}
-                                        isStreaming={isStreaming}
-                                    />
+                                    {showFeedbackPanel ? (
+                                        <FeedbackPanel
+                                            tagState={tagState}
+                                            dispatchTagAction={dispatchTagAction}
+                                            sources={sources}
+                                            onSourcesChange={setSources}
+                                            onApply={handleFeedbackPanelApply}
+                                            onReset={handleFeedbackPanelReset}
+                                            explanationId={explanationId}
+                                            isStreaming={isStreaming}
+                                            className="mb-2"
+                                        />
+                                    ) : (
+                                        <TagBar
+                                            tagState={tagState}
+                                            dispatch={dispatchTagAction}
+                                            className="mb-2"
+                                            explanationId={explanationId}
+                                            onTagClick={(tag) => {
+                                                // Handle tag clicks here - you can implement search, filtering, etc.
+                                                logger.debug('Tag clicked', { tag }, FILE_DEBUG);
+                                                // Example: could trigger a search for explanations with this tag
+                                                // or navigate to a tag-specific page
+                                            }}
+                                            tagBarApplyClickHandler={handleTagBarApplyClick}
+                                            isStreaming={isStreaming}
+                                        />
+                                    )}
                                 </div>
                                 {/* Debug logging */}
                                 {(() => {
-                                    console.log('TagBar props:', {
+                                    logger.debug('TagBar/FeedbackPanel props', {
+                                        showFeedbackPanel,
                                         tagState,
-                                        explanationId: explanationId
-                                    });
+                                        explanationId,
+                                        sourcesCount: sources.length
+                                    }, FILE_DEBUG);
                                     return null;
                                 })()}
                                 
@@ -1171,24 +1323,29 @@ function ResultsPageContent() {
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
                                                 <div className="ink-dots"></div>
-                                                <p className="text-sm font-serif italic text-[var(--text-muted)]">The scholar is composing...</p>
+                                                <p className="text-sm font-serif text-[var(--text-muted)]">Writing...</p>
                                             </div>
                                         ) : isMarkdownMode ? (
-                                            <LexicalEditor
-                                                ref={editorRef}
-                                                placeholder="Content will appear here..."
-                                                className="w-full"
-                                                initialContent={formattedExplanation}
-                                                isMarkdownMode={true}
-                                                isEditMode={isEditMode && !isStreaming}
-                                                showEditorState={false}
-                                                showTreeView={false}
-                                                showToolbar={true}
-                                                hideEditingUI={isStreaming}
-                                                onContentChange={handleEditorContentChange}
-                                                isStreaming={isStreaming}
-                                                textRevealEffect={textRevealEffect}
-                                            />
+                                            <>
+                                                <LexicalEditor
+                                                    ref={editorRef}
+                                                    placeholder="Content will appear here..."
+                                                    className="w-full"
+                                                    initialContent={formattedExplanation}
+                                                    isMarkdownMode={true}
+                                                    isEditMode={isEditMode && !isStreaming}
+                                                    showEditorState={false}
+                                                    showTreeView={false}
+                                                    showToolbar={true}
+                                                    hideEditingUI={isStreaming}
+                                                    onContentChange={handleEditorContentChange}
+                                                    isStreaming={isStreaming}
+                                                    textRevealEffect={textRevealEffect}
+                                                    sources={bibliographySources}
+                                                    onPendingSuggestionsChange={setHasPendingSuggestions}
+                                                />
+                                                <Bibliography sources={bibliographySources} />
+                                            </>
                                         ) : (
                                             <pre className="whitespace-pre-wrap text-sm font-mono text-[var(--text-secondary)] leading-relaxed">
                                                 {formattedExplanation}
@@ -1201,45 +1358,42 @@ function ResultsPageContent() {
                         </div>
                     </div>
 
-                    {/* Gap between main content and AI panel */}
-                    <div className="w-8"></div>
-
-                    {/* Detached AI Suggestions Panel */}
-                    <div className="w-96 py-8 pr-4">
+                    {/* AI Suggestions Panel (Collapsible Sidebar) */}
+                    <div className="relative h-full flex-shrink-0">
                         <AISuggestionsPanel
-                            isVisible={true}
-                            currentContent={content}
-                            editorRef={editorRef}
-                            onContentChange={(newContent) => {
-                                console.log('🎭 results/page.tsx: AISuggestionsPanel onContentChange called', {
-                                    contentLength: newContent?.length || 0,
-                                    hasEditorRef: !!editorRef.current,
-                                    contentPreview: newContent?.substring(0, 100)
-                                });
+                        isOpen={isAIPanelOpen}
+                        onOpenChange={setIsAIPanelOpen}
+                        currentContent={content}
+                        editorRef={editorRef}
+                        onContentChange={(newContent) => {
+                            logger.debug('AISuggestionsPanel onContentChange called', {
+                                contentLength: newContent?.length || 0,
+                                hasEditorRef: !!editorRef.current
+                            }, FILE_DEBUG);
 
-                                setContent(newContent);
+                            setContent(newContent);
 
-                                // CRITICAL: Directly update the editor with the new content
-                                if (editorRef.current) {
-                                    console.log('🎭 results/page.tsx: Calling editorRef.current.setContentFromMarkdown');
-                                    // Update both internal state and editor content
-                                    setEditorCurrentContent(newContent);
-                                    editorRef.current.setContentFromMarkdown(newContent);
-                                    console.log('🎭 results/page.tsx: editorRef.current.setContentFromMarkdown called successfully');
-                                } else {
-                                    console.error('🎭 results/page.tsx: editorRef.current is null - cannot update editor');
-                                }
-                            }}
-                            onEnterEditMode={() => {
-                                console.log('🎭 results/page.tsx: Entering edit mode via AI suggestions');
-                                dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
-                            }}
-                            sessionData={explanationId && explanationTitle ? {
-                                explanation_id: explanationId,
-                                explanation_title: explanationTitle
-                            } : undefined}
+                            // CRITICAL: Directly update the editor with the new content
+                            if (editorRef.current) {
+                                logger.debug('Updating editor with new content from AI suggestions', null, FILE_DEBUG);
+                                // Update both internal state and editor content
+                                setEditorCurrentContent(newContent);
+                                editorRef.current.setContentFromMarkdown(newContent);
+                            } else {
+                                logger.error('editorRef.current is null - cannot update editor');
+                            }
+                        }}
+                        onEnterEditMode={() => {
+                            logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
+                            dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
+                        }}
+                        sessionData={explanationId && explanationTitle ? {
+                            explanation_id: explanationId,
+                            explanation_title: explanationTitle
+                        } : undefined}
                         />
                     </div>
+
                 </div>
             </main>
         </div>
@@ -1251,7 +1405,7 @@ export default function ResultsPage() {
         <Suspense fallback={
             <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
                 <div className="ink-dots"></div>
-                <p className="text-sm font-serif italic text-[var(--text-muted)]">Opening the archives...</p>
+                <p className="text-sm font-serif text-[var(--text-muted)]">Loading...</p>
             </div>
         }>
             <ResultsPageContent />
