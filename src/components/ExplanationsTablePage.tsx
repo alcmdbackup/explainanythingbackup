@@ -19,6 +19,7 @@ export default function ExplanationsTablePage({
     pageTitle = 'Explore',
     sort,
     period,
+    isLoading = false,
 }: {
     explanations: (ExplanationWithViewCount & { dateSaved?: string })[];
     error: string | null;
@@ -26,6 +27,7 @@ export default function ExplanationsTablePage({
     pageTitle?: string;
     sort?: SortMode;
     period?: TimePeriod;
+    isLoading?: boolean;
 }) {
     // Only show ExploreTabs when sort/period are explicitly provided (i.e., on /explanations page)
     const showExploreTabs = sort !== undefined && period !== undefined;
@@ -104,7 +106,12 @@ export default function ExplanationsTablePage({
                     </div>
                 )}
 
-                {explanations.length === 0 ? (
+                {isLoading ? (
+                    <div data-testid="library-loading" className="text-center py-16 scholar-card">
+                        <div className="w-16 h-16 mx-auto mb-4 border-4 border-[var(--accent-gold)]/30 border-t-[var(--accent-gold)] rounded-full animate-spin"></div>
+                        <p className="font-serif text-[var(--text-muted)] text-lg">Loading your library...</p>
+                    </div>
+                ) : explanations.length === 0 ? (
                     <div data-testid="library-empty-state" className="text-center py-16 scholar-card">
                         <svg
                             className="w-16 h-16 mx-auto mb-4 text-[var(--accent-gold)]/50"

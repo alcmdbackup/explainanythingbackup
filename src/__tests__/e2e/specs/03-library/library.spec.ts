@@ -2,6 +2,9 @@ import { test, expect } from '../../fixtures/auth';
 import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 
 test.describe('User Library Management', () => {
+  // Run tests serially to avoid shared data contention
+  test.describe.configure({ mode: 'serial' });
+
   let libraryPage: UserLibraryPage;
 
   test.beforeEach(async ({ authenticatedPage }) => {

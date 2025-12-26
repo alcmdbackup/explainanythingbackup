@@ -357,12 +357,10 @@ From Phase 0 verification:
 - ✅ Verification passed (96.9% pass rate on non-skipped tests)
 
 **Current Status (2025-12-26):**
-- 31 passed, 1 failed, 91 skipped
-- Data seeding works correctly (verified via SQL query)
-- **ROOT CAUSE FOUND:** Cookie uses base64, Supabase SSR expects base64url
-- Fix #1 (localStorage injection) failed - wrong hypothesis
-- Fix #2 (base64url encoding) applied to auth.ts
-- Fix #3 (systematic debugging) next step
+- **97 passed, 19 failed, 5 skipped** (was: 30 passed, 91 skipped)
+- Auth working correctly (verified via E2E DEBUG logs)
+- Data seeding works correctly
+- Loading state added to prevent race condition
 
 **Investigation Progress:**
 1. ✅ Verified TEST_USER_ID matches actual Supabase auth user ID
@@ -370,18 +368,22 @@ From Phase 0 verification:
 3. ✅ Traced data flow: userlibrary uses `supabase_browser` (cookie-based, not localStorage)
 4. ✅ Found encoding mismatch: base64 vs base64url
 5. ✅ Applied base64url fix to auth.ts (lines 95-97)
-6. 🔄 **NEXT:** Run tests to gather evidence from E2E DEBUG logs
+6. ✅ Verified auth works via E2E DEBUG logs (`serverAuthUid` matches, `rowCount: 1`)
+7. ✅ Fixed race condition: added loading state to userlibrary page
+8. ✅ Added serial mode to library tests to prevent parallel data contention
 
-**Systematic Debugging Approach (Fix #3):**
-Per systematic debugging skill: "NO FIXES WITHOUT ROOT CAUSE INVESTIGATION FIRST"
+**Root Cause of 91 Skips (FIXED):**
+The page showed empty state before data loaded because:
+1. Initial state was `explanations = []`
+2. Test's `waitForContentOrError` saw empty state before data arrived
+3. Tests skipped because `hasTable` was false
 
-The base64url fix was applied but we haven't verified it works. Before attempting more fixes:
-1. Run tests and capture E2E DEBUG logs from `userLibrary.ts:71-99`
-2. Analyze: `serverAuthUid` (NULL = parsing broken, mismatch = ID issue)
-3. Fix based on evidence, not speculation
+**Fix Applied:**
+- Added `isLoading` state to `userlibrary/page.tsx`
+- Added loading UI to `ExplanationsTablePage.tsx`
+- Updated test helper to wait for loading to finish
+- Added serial mode to library tests
 
 **Remaining items:**
-1. **[NEXT]** Run tests, gather evidence from E2E DEBUG logs
-2. Fix based on evidence (not guessing)
-3. Fix save button test failure
-4. CI secrets configuration
+1. Fix 19 failing tests (mostly action-buttons, tags, ai-suggestions)
+2. CI secrets configuration

@@ -10,6 +10,7 @@ import { supabase_browser } from '@/lib/supabase';
 export default function UserLibraryPage() {
     const [userExplanations, setUserExplanations] = useState<UserSavedExplanationType[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
         loadUserExplanations();
@@ -29,6 +30,8 @@ export default function UserLibraryPage() {
             const errorMessage = error instanceof Error ? error.message : 'Failed to load user library explanations';
             logger.error('Failed to load user library explanations:', { error: errorMessage });
             setError(errorMessage);
+        } finally {
+            setIsLoading(false);
         }
     };
 
@@ -37,6 +40,7 @@ export default function UserLibraryPage() {
             explanations={userExplanations.map(e => ({ ...e, dateSaved: e.saved_timestamp }))}
             error={error}
             pageTitle="My Library"
+            isLoading={isLoading}
         />
     );
 } 

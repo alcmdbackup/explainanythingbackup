@@ -23,6 +23,9 @@ export class UserLibraryPage extends BasePage {
   }
 
   async waitForContentOrError(timeout: number = 30000): Promise<'table' | 'error' | 'empty' | 'title' | 'timeout'> {
+    // First, wait for loading to finish if it's showing
+    await this.waitForLoadingToFinish();
+
     // Wait for either the table, error, or empty state to appear
     // Return which state won to allow proper handling
     try {
