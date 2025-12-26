@@ -1,6 +1,6 @@
 # Editor State Management Refactor - Progress
 
-## Status: Phase 4 Complete, Phase 5 Next
+## Status: Phase 5 Complete, Phase 6 Next
 
 ---
 
@@ -206,11 +206,78 @@ interface StreamingSyncPluginProps {
 
 ---
 
+## Phase 5: Clean up results/page.tsx ✅ COMPLETE
+
+**Files modified:**
+- `src/editorFiles/lexicalEditor/LexicalEditor.tsx`
+- `src/app/results/page.tsx`
+
+### Implementation Summary
+
+Integrated mutation queue and streaming sync plugins into the component hierarchy.
+
+#### LexicalEditor.tsx Changes
+
+1. **Added imports:**
+   - `MutationQueuePlugin`
+   - `StreamingSyncPlugin`
+   - `MutationOp` type from reducer
+
+2. **Extended props interface with 7 new props:**
+   - `pendingMutations?: MutationOp[]`
+   - `processingMutation?: MutationOp | null`
+   - `onStartMutation?: (id: string) => void`
+   - `onCompleteMutation?: (id: string, newContent: string) => void`
+   - `onFailMutation?: (id: string, error: string) => void`
+   - `onQueueMutation?: (nodeKey: string, type: 'accept' | 'reject') => void`
+   - `syncContent?: string`
+
+3. **Wired up plugins:**
+   - `DiffTagHoverPlugin` now receives `onQueueMutation` and `isProcessing` props
+   - `MutationQueuePlugin` conditionally rendered when queue is non-empty
+   - `StreamingSyncPlugin` conditionally rendered when `syncContent` is provided
+
+#### results/page.tsx Changes
+
+1. **Removed old state management:**
+   - `editorCurrentContent` useState
+   - `debounceTimeoutRef` ref
+   - `isInitialLoadRef` ref
+   - `hasInitializedContent` ref
+   - `debouncedUpdateContent` useCallback function
+   - Content sync useEffect (87 lines)
+   - Cleanup useEffect for debounce
+   - Unused `useCallback` import
+
+2. **Updated LexicalEditor usage:**
+   - Added all new mutation queue props
+   - Added `syncContent` prop from `getPageContent(lifecycleState)`
+   - Dispatch actions: `START_MUTATION`, `COMPLETE_MUTATION`, `FAIL_MUTATION`, `QUEUE_MUTATION`
+
+3. **Updated AISuggestionsPanel callback:**
+   - Removed direct `editorRef.current.setContentFromMarkdown()` calls
+   - Now dispatches `UPDATE_CONTENT` action to reducer
+   - `StreamingSyncPlugin` handles pushing content to editor
+
+4. **Updated handleEditorContentChange:**
+   - Added content comparison guard to prevent redundant processing
+   - Simplified logic (removed isInitialLoadRef references)
+
+### Lines Removed
+~100 lines of scattered synchronization logic consolidated into plugins
+
+### Validation
+- ✅ TypeScript compiles without errors
+- ✅ ESLint passes (no warnings)
+- ✅ Build succeeds
+- ✅ All 2176 unit tests pass
+
+---
+
 ## Remaining Phases
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 5 | Clean up results/page.tsx | Pending |
 | 6 | Refactor AISuggestionsPanel | Pending |
 | 7 | Delete useStreamingEditor.ts | Pending |
 
@@ -218,6 +285,6 @@ interface StreamingSyncPluginProps {
 
 ## Notes
 
-- Phase 4 plugin is standalone - Phase 5 will integrate it
-- The branch has diverged from `origin/main` (3 local commits vs 5 remote)
-- Will need to rebase or merge before creating PR
+- Phase 5 successfully removed duplicated state management from results/page.tsx
+- Content sync now flows through reducer → StreamingSyncPlugin → editor
+- Mutation processing now flows through DiffTagHoverPlugin → reducer → MutationQueuePlugin

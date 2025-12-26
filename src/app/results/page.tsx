@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo } from 'react';
+import { useState, useEffect, useRef, useReducer, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
@@ -123,13 +123,6 @@ function ResultsPageContent() {
 
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<LexicalEditorRef>(null); // For AI suggestions panel
-
-    // Editor synchronization state (moved from ResultsLexicalEditor)
-    const [editorCurrentContent, setEditorCurrentContent] = useState('');
-    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-    const lastStreamingUpdateRef = useRef<string>('');
-    const isInitialLoadRef = useRef<boolean>(true);
-    const hasInitializedContent = useRef<boolean>(false);
 
     // Prevent duplicate API calls from useEffect re-firing (HMR, searchParams reference change)
     const processedParamsRef = useRef<string | null>(null);
@@ -661,27 +654,17 @@ function ResultsPageContent() {
      * feedback loop that resets cursor. Content is synced when exiting edit mode.
      */
     const handleEditorContentChange = (newContent: string) => {
-        logger.debug('handleEditorContentChange called', {
-            contentLength: newContent?.length,
-            isEditMode,
-            isInitialLoad: isInitialLoadRef.current
-        }, FILE_DEBUG);
+        // Content comparison guard to prevent redundant processing
+        const currentContent = getPageContent(lifecycleState);
+        if (newContent === currentContent) return;
 
-        // Clear initial load flag on first user edit (when in edit mode)
-        if (isEditMode && isInitialLoadRef.current) {
-            logger.debug('Clearing isInitialLoadRef.current on user edit', null, FILE_DEBUG);
-            isInitialLoadRef.current = false;
-        }
-
-        const shouldCallParent = isEditMode && !isInitialLoadRef.current;
-
-        // Only propagate changes if user is in edit mode and this is not initial load
-        if (shouldCallParent) {
-            logger.debug('Content change from user edit (tracked by editor)', null, FILE_DEBUG);
+        // Only track changes when in edit mode
+        if (isEditMode) {
+            logger.debug('User edit detected', {
+                contentLength: newContent?.length,
+            }, FILE_DEBUG);
             // Don't update lifecycle state during editing - prevents cursor jumping
             // Content will be synced to lifecycle state when user exits edit mode or saves
-        } else {
-            logger.debug('NOT propagating content change', { isEditMode, isInitialLoad: isInitialLoadRef.current }, FILE_DEBUG);
         }
     };
 
@@ -855,103 +838,6 @@ function ResultsPageContent() {
             editorRef.current.setEditMode(isEditMode);
         }
     }, [isStreaming, isEditMode]);
-
-    // Debounced update function for streaming content
-    const debouncedUpdateContent = useCallback((newContent: string) => {
-        // Clear any existing debounce timeout
-        if (debounceTimeoutRef.current) {
-            clearTimeout(debounceTimeoutRef.current);
-        }
-
-        // Set a new debounce timeout
-        debounceTimeoutRef.current = setTimeout(() => {
-            if (editorRef.current && newContent !== lastStreamingUpdateRef.current) {
-                try {
-                    editorRef.current.setContentFromMarkdown(newContent);
-                    lastStreamingUpdateRef.current = newContent;
-                    setEditorCurrentContent(newContent);
-
-                    // After first content update, mark as no longer initial load
-                    if (isInitialLoadRef.current) {
-                        setTimeout(() => {
-                            isInitialLoadRef.current = false;
-                        }, 0);
-                    }
-                } catch (error) {
-                    logger.error('Error updating editor content during streaming', { error: error instanceof Error ? error.message : String(error) });
-                }
-            }
-        }, isStreaming ? 100 : 0);
-    }, [isStreaming]);
-
-    // Update editor content when content prop changes (streaming updates)
-    useEffect(() => {
-        // Early return if editor ref is not yet initialized
-        if (!editorRef.current) {
-            logger.debug('Editor ref not yet initialized, skipping content sync', null, FILE_DEBUG);
-            return;
-        }
-
-        // Prioritize content from hook (has resolved links) over lifecycle state
-        const currentPageContent = content || getPageContent(lifecycleState);
-
-        // On first run, just sync the state without updating the editor
-        // LexicalEditor handles initialContent on its own
-        if (!hasInitializedContent.current) {
-            logger.debug('First content sync - initializing state only', null, FILE_DEBUG);
-            setEditorCurrentContent(currentPageContent);
-            hasInitializedContent.current = true;
-            return;
-        }
-
-        logger.debug('Content comparison useEffect', {
-            contentLength: currentPageContent?.length,
-            editorContentLength: editorCurrentContent?.length,
-            contentChanged: currentPageContent !== editorCurrentContent,
-            isEditMode
-        }, FILE_DEBUG);
-
-        if (currentPageContent !== editorCurrentContent) {
-            // IMPORTANT: Don't overwrite editor content during edit mode
-            // This prevents AI suggestions from being destroyed
-            if (isEditMode && !isStreaming) {
-                logger.debug('Skipping content update - editor is in edit mode', null, FILE_DEBUG);
-                return;
-            }
-
-            if (isStreaming) {
-                // Use debounced updates during streaming for better performance
-                debouncedUpdateContent(currentPageContent);
-            } else {
-                // Immediate update when not streaming
-                if (editorRef.current) {
-                    editorRef.current.setContentFromMarkdown(currentPageContent);
-                    setEditorCurrentContent(currentPageContent);
-                }
-            }
-
-            // After first content update, mark as no longer initial load
-            if (isInitialLoadRef.current) {
-                logger.debug('About to clear isInitialLoadRef', { isStreaming }, FILE_DEBUG);
-                if (!isStreaming) {
-                    isInitialLoadRef.current = false;
-                } else {
-                    setTimeout(() => {
-                        isInitialLoadRef.current = false;
-                    }, 0);
-                }
-            }
-        }
-    }, [content, editorCurrentContent, isStreaming, isEditMode, debouncedUpdateContent, lifecycleState]);
-
-    // Cleanup debounce timeout on unmount
-    useEffect(() => {
-        return () => {
-            if (debounceTimeoutRef.current) {
-                clearTimeout(debounceTimeoutRef.current);
-            }
-        };
-    }, []);
 
     return (
         <div className="h-screen bg-[var(--surface-primary)] flex flex-col">
@@ -1343,6 +1229,17 @@ function ResultsPageContent() {
                                                     textRevealEffect={textRevealEffect}
                                                     sources={bibliographySources}
                                                     onPendingSuggestionsChange={setHasPendingSuggestions}
+                                                    // Mutation queue props
+                                                    pendingMutations={(lifecycleState.phase === 'viewing' || lifecycleState.phase === 'editing')
+                                                        ? lifecycleState.pendingMutations : []}
+                                                    processingMutation={(lifecycleState.phase === 'viewing' || lifecycleState.phase === 'editing')
+                                                        ? lifecycleState.processingMutation : null}
+                                                    onStartMutation={(id) => dispatchLifecycle({ type: 'START_MUTATION', id })}
+                                                    onCompleteMutation={(id, newContent) => dispatchLifecycle({ type: 'COMPLETE_MUTATION', id, newContent })}
+                                                    onFailMutation={(id, error) => dispatchLifecycle({ type: 'FAIL_MUTATION', id, error })}
+                                                    onQueueMutation={(nodeKey, mutationType) => dispatchLifecycle({ type: 'QUEUE_MUTATION', nodeKey, mutationType })}
+                                                    // Streaming sync prop
+                                                    syncContent={getPageContent(lifecycleState)}
                                                 />
                                                 <Bibliography sources={bibliographySources} />
                                             </>
@@ -1368,20 +1265,11 @@ function ResultsPageContent() {
                         onContentChange={(newContent) => {
                             logger.debug('AISuggestionsPanel onContentChange called', {
                                 contentLength: newContent?.length || 0,
-                                hasEditorRef: !!editorRef.current
                             }, FILE_DEBUG);
 
                             setContent(newContent);
-
-                            // CRITICAL: Directly update the editor with the new content
-                            if (editorRef.current) {
-                                logger.debug('Updating editor with new content from AI suggestions', null, FILE_DEBUG);
-                                // Update both internal state and editor content
-                                setEditorCurrentContent(newContent);
-                                editorRef.current.setContentFromMarkdown(newContent);
-                            } else {
-                                logger.error('editorRef.current is null - cannot update editor');
-                            }
+                            // Update reducer - StreamingSyncPlugin will handle pushing to editor
+                            dispatchLifecycle({ type: 'UPDATE_CONTENT', content: newContent });
                         }}
                         onEnterEditMode={() => {
                             logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
