@@ -15,7 +15,7 @@ import {
     validateAISuggestionOutputAction,
     getAndApplyAISuggestionsAction
 } from '@/editorFiles/actions/actions';
-import { ValidationSummaryDashboard } from './ValidationSummaryDashboard';
+import { ValidationSummaryDashboard, ValidationChecksTable } from './ValidationSummaryDashboard';
 import { ValidationStatusBadge } from './ValidationStatusBadge';
 import {
     PipelineValidationResults,
@@ -1005,6 +1005,20 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
                 {/* Pipeline Validation Summary Dashboard */}
                 <ValidationSummaryDashboard
+                    results={pipelineValidationResults}
+                    step4Result={validationErrors.length > 0 ? {
+                        valid: false,
+                        issues: validationErrors,
+                        severity: 'warning' as const,
+                    } : preprocessedMarkdown ? {
+                        valid: true,
+                        issues: [],
+                        severity: 'warning' as const,
+                    } : undefined}
+                />
+
+                {/* Validation Checks Table - shows all checks with status and descriptions */}
+                <ValidationChecksTable
                     results={pipelineValidationResults}
                     step4Result={validationErrors.length > 0 ? {
                         valid: false,

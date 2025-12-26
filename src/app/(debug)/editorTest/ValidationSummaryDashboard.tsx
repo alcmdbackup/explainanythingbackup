@@ -8,14 +8,26 @@ interface ValidationSummaryDashboardProps {
   step4Result?: ValidationResult;
 }
 
+interface ValidationChecksTableProps {
+  results: PipelineValidationResults;
+  step4Result?: ValidationResult;
+}
+
 interface CheckDefinition {
   id: string;
   name: string;
   description: string;
 }
 
+// Step labels for the table
+const STEP_LABELS: Record<string, string> = {
+  step2: 'Step 2: Apply Suggestions',
+  step3: 'Step 3: Generate Diff',
+  step4: 'Step 4: Preprocess',
+};
+
 // Detailed check definitions for each step
-const STEP_CHECKS: Record<string, CheckDefinition[]> = {
+export const STEP_CHECKS: Record<string, CheckDefinition[]> = {
   step2: [
     {
       id: 'length_ratio',
@@ -247,6 +259,132 @@ export function ValidationSummaryDashboard({ results, step4Result }: ValidationS
       <p className="text-xs text-gray-500 dark:text-gray-400 mt-3 text-center">
         Click a step to see detailed check information
       </p>
+    </div>
+  );
+}
+
+/**
+ * ValidationChecksTable - A table showing all validation checks with their status
+ *
+ * Displays:
+ * A) Each check performed (name)
+ * B) Which stage of pipeline it belonged to (step)
+ * C) If it passed or failed (status)
+ * D) A 1-2 sentence description of what it checks for
+ */
+export function ValidationChecksTable({ results, step4Result }: ValidationChecksTableProps) {
+  const steps = [
+    { key: 'step2', result: results.step2 },
+    { key: 'step3', result: results.step3 },
+    { key: 'step4', result: step4Result },
+  ];
+
+  const runSteps = steps.filter((s) => s.result);
+
+  if (runSteps.length === 0) {
+    return null;
+  }
+
+  // Build flat list of all checks with their status
+  const allChecks: Array<{
+    checkName: string;
+    stepLabel: string;
+    status: 'passed' | 'failed' | 'not_run';
+    description: string;
+  }> = [];
+
+  for (const { key, result } of steps) {
+    const checks = STEP_CHECKS[key] || [];
+    for (const check of checks) {
+      let status: 'passed' | 'failed' | 'not_run' = 'not_run';
+      if (result) {
+        const checkResult = getCheckStatus(key, check.id, result.issues);
+        // Map 'unknown' to 'not_run' for consistency
+        status = checkResult === 'unknown' ? 'not_run' : checkResult;
+      }
+      allChecks.push({
+        checkName: check.name,
+        stepLabel: STEP_LABELS[key],
+        status,
+        description: check.description,
+      });
+    }
+  }
+
+  const passedCount = allChecks.filter(c => c.status === 'passed').length;
+  const failedCount = allChecks.filter(c => c.status === 'failed').length;
+  const notRunCount = allChecks.filter(c => c.status === 'not_run').length;
+
+  return (
+    <div className="max-w-4xl mx-auto rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden mb-6">
+      <div className="bg-gray-50 dark:bg-gray-800 px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            Validation Checks Details
+          </h3>
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-green-600 dark:text-green-400">{passedCount} passed</span>
+            <span className="text-red-600 dark:text-red-400">{failedCount} failed</span>
+            {notRunCount > 0 && (
+              <span className="text-gray-500 dark:text-gray-400">{notRunCount} not run</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-100 dark:bg-gray-700">
+            <tr>
+              <th className="px-4 py-2 text-left font-medium text-gray-700 dark:text-gray-300 w-40">Check Name</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-700 dark:text-gray-300 w-48">Pipeline Stage</th>
+              <th className="px-4 py-2 text-center font-medium text-gray-700 dark:text-gray-300 w-24">Status</th>
+              <th className="px-4 py-2 text-left font-medium text-gray-700 dark:text-gray-300">Description</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+            {allChecks.map((check, idx) => (
+              <tr
+                key={idx}
+                className={`${
+                  check.status === 'failed'
+                    ? 'bg-red-50 dark:bg-red-900/10'
+                    : check.status === 'not_run'
+                      ? 'bg-gray-50 dark:bg-gray-800/50'
+                      : 'bg-white dark:bg-gray-900'
+                }`}
+              >
+                <td className="px-4 py-3 font-medium text-gray-900 dark:text-gray-100">
+                  {check.checkName}
+                </td>
+                <td className="px-4 py-3 text-gray-600 dark:text-gray-400">
+                  {check.stepLabel}
+                </td>
+                <td className="px-4 py-3 text-center">
+                  {check.status === 'passed' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300">
+                      ✓ PASSED
+                    </span>
+                  )}
+                  {check.status === 'failed' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300">
+                      ✗ FAILED
+                    </span>
+                  )}
+                  {check.status === 'not_run' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">
+                      — NOT RUN
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs leading-relaxed">
+                  {check.description}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
