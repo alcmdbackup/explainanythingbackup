@@ -20,7 +20,7 @@ Status tracking for the implementation of `e2e_test_major_fixes.md`.
 
 ## Issues Found During Verification
 
-### Issue 1: E2E_TEST_MODE Not Available to globalSetup (BLOCKING)
+### Issue 1: E2E_TEST_MODE Not Available to globalSetup ✅ FIXED
 
 **Symptom:**
 ```
@@ -29,66 +29,56 @@ Status tracking for the implementation of `e2e_test_major_fixes.md`.
 ```
 
 **Root Cause:**
-- `E2E_TEST_MODE: 'true'` is set in `playwright.config.ts` → `webServer.env` (line 59)
+- `E2E_TEST_MODE: 'true'` was only set in `playwright.config.ts` → `webServer.env`
 - `globalSetup` runs BEFORE the webServer starts
-- globalSetup loads `.env.local` via dotenv, but `E2E_TEST_MODE` isn't in `.env.local`
-- Result: globalSetup sees `E2E_TEST_MODE === undefined`, skips seeding
+- globalSetup loads `.env.local` via dotenv, but `E2E_TEST_MODE` wasn't there
 
-**Impact:**
-- Shared fixtures not seeded
-- globalTeardown may also be affected
-- SSE test-mode bypass works (webServer has the env var), but setup/teardown don't
+**Fix Applied:**
+Added `process.env.E2E_TEST_MODE = 'true'` at the top of `playwright.config.ts` before config is evaluated.
 
-**Fix Required:**
-Option A: Add to `.env.local`:
-```bash
-E2E_TEST_MODE=true
-```
-
-Option B: Set env var at Playwright config root level (before globalSetup runs):
 ```typescript
-// playwright.config.ts - at top level
+// playwright.config.ts
+import { defineConfig, devices } from '@playwright/test';
+
+// Set E2E_TEST_MODE before config is evaluated so globalSetup/globalTeardown can access it
 process.env.E2E_TEST_MODE = 'true';
-```
 
-Option C: Use Playwright's `env` option at config level (not just webServer):
-```typescript
 export default defineConfig({
-  // This doesn't exist - webServer.env is the only env option
+  // ...
 });
 ```
 
-**Recommended:** Option B - set `process.env.E2E_TEST_MODE = 'true'` at the top of playwright.config.ts
+**Verified:** Global setup now runs correctly:
+```
+🚀 E2E Global Setup: Starting...
+   ✓ Seeded test topic
+✅ E2E Global Setup: Complete
+```
 
 ---
 
-### Issue 2: Failing Test - "should not crash with very long query"
+### Issue 2: Failing Test - "should not crash with very long query" ✅ FIXED
 
 **Location:** `src/__tests__/e2e/specs/02-search-generate/search-generate.spec.ts:175`
 
-**Symptom:**
-```
-Test timeout of 30000ms exceeded.
-Error: page.waitForURL: Test timeout of 30000ms exceeded.
-waiting for navigation until "load"
-```
+**Root Cause:**
+The test created a query longer than the SearchBar's `maxLength=150`:
+- Original: `'explain '.repeat(50) + 'quantum physics'` = ~415 characters
+- SearchBar HTML `maxLength` attribute truncates input to 150 chars
+- `fillQuery()` verification failed (`value !== query`) because of truncation
+- Fallback to `pressSequentially` with 415 chars at 50ms/char = ~20 seconds
 
-**Test Code:**
+**Fix Applied:**
+Changed test to use a query that respects maxLength:
 ```typescript
-test('should not crash with very long query', async ({ authenticatedPage }) => {
-  // ... creates 2000 char query
-  await page.waitForURL(/\/results/, { timeout: 10000 });  // Line 188 - FAILS
-});
+// Before: ~415 chars (exceeds maxLength=150)
+const longQuery = 'explain '.repeat(50) + 'quantum physics';
+
+// After: 151 chars (truncated to 150 by maxLength)
+const longQuery = 'explain '.repeat(18) + 'quantum';
 ```
 
-**Possible Causes:**
-1. Very long query causes server-side error/hang
-2. Frontend validation blocks submission
-3. Network timeout on large payload
-
-**Impact:** First test failure stops test run with `-x` flag
-
-**Priority:** Medium - should investigate if this is a real bug or test issue
+**Verified:** Test now passes without timeout.
 
 ---
 
@@ -150,6 +140,32 @@ First failure at test 18/123:
 
 **Pass Rate:** Unknown (stopped at first failure)
 **Skipped:** Unknown (conditional skips depend on data)
+
+---
+
+### Run 2: 2024-12-26 (After Fixes)
+
+```
+Running 123 tests using 4 workers
+🚀 E2E Global Setup: Starting...
+   ✓ Seeded test topic
+✅ E2E Global Setup: Complete
+
+  2 failed
+  91 skipped
+  30 passed (2.8m)
+```
+
+**Pass Rate:** 30/32 non-skipped = 93.75%
+**Skipped:** 91 (conditional skips - no test data in library)
+
+**Remaining Failures:** (unrelated to original issues)
+1. `action-buttons.spec.ts:28` - "should save explanation to library when save button clicked"
+2. `action-buttons.spec.ts:62` - "should disable save button after successful save"
+
+Both failures are because the Save button is disabled after mock streaming completes.
+The mock doesn't provide `is_saved: false` in the result, so the button stays disabled.
+This is a separate issue with the mock response schema, not the infrastructure.
 
 ---
 

@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Set E2E_TEST_MODE before config is evaluated so globalSetup/globalTeardown can access it
+// (webServer.env only applies to the dev server, not to setup scripts)
+process.env.E2E_TEST_MODE = 'true';
+
 export default defineConfig({
   globalSetup: './src/__tests__/e2e/setup/global-setup.ts',
   globalTeardown: './src/__tests__/e2e/setup/global-teardown.ts',

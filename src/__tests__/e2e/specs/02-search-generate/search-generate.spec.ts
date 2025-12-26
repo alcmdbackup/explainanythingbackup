@@ -178,7 +178,9 @@ test.describe('Search and Generate Flow', () => {
 
       await mockReturnExplanationAPI(page, shortMockExplanation);
 
-      const longQuery = 'explain '.repeat(50) + 'quantum physics';
+      // SearchBar has maxLength=150, so use a query that fills it completely
+      // 'explain ' is 8 chars, repeat 18 times = 144, plus 'quantum' = 151 (truncated to 150)
+      const longQuery = 'explain '.repeat(18) + 'quantum';
 
       await searchPage.navigate();
       await searchPage.fillQuery(longQuery);

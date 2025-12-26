@@ -113,7 +113,7 @@ const scenarios: Record<ScenarioName, Scenario> = {
  * 2. Keyword detection in user input
  * 3. Default scenario
  */
-function detectScenario(request: Request, userInput: string): Scenario {
+function detectScenario(request: Request, userInput?: string): Scenario {
   // Priority 1: Explicit header
   const headerScenario = request.headers.get('X-Test-Scenario') as ScenarioName | null;
   if (headerScenario && scenarios[headerScenario]) {
@@ -135,7 +135,12 @@ function detectScenario(request: Request, userInput: string): Scenario {
  * predictable streaming behavior for tests.
  */
 export async function streamMockResponse(request: Request): Promise<Response> {
-  const body = await request.json();
+  let body: { userInput?: string } = {};
+  try {
+    body = await request.json();
+  } catch {
+    // Empty or malformed body - use default scenario
+  }
   const scenario = detectScenario(request, body.userInput);
   const encoder = new TextEncoder();
 
