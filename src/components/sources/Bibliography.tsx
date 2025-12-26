@@ -60,8 +60,9 @@ export default function Bibliography({ sources, className = '' }: BibliographyPr
                 rel="noopener noreferrer"
                 className="group/link inline-flex items-start gap-2 text-sm"
               >
-                {/* Favicon */}
+                {/* Favicon - using img for dynamic external URLs */}
                 {source.favicon_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={source.favicon_url}
                     alt=""

@@ -138,20 +138,18 @@ export const createMockTagBarProps = (overrides = {}) => ({
  * Creates mock props for AISuggestionsPanel component
  */
 export const createMockAISuggestionsPanelProps = (overrides: Record<string, unknown> = {}) => {
-  // Determine isVisible value: prefer isVisible, fall back to isOpen for legacy tests
-  let isVisibleValue = true;
-  if (overrides.isVisible !== undefined) {
-    isVisibleValue = overrides.isVisible as boolean;
-  } else if (overrides.isOpen !== undefined) {
-    isVisibleValue = overrides.isOpen as boolean;
+  // Determine isOpen value
+  let isOpenValue = true;
+  if (overrides.isOpen !== undefined) {
+    isOpenValue = overrides.isOpen as boolean;
   }
 
-  // Remove isOpen from overrides to avoid confusion
-  const { isVisible, isOpen, ...restOverrides } = overrides;
+  // Remove isOpen from overrides to apply default
+  const { isOpen, ...restOverrides } = overrides;
 
   return {
-    isVisible: isVisibleValue,
-    onClose: jest.fn(),
+    isOpen: isOpenValue,
+    onOpenChange: jest.fn(),
     currentContent: faker.lorem.paragraph(),
     editorRef: {
       current: {

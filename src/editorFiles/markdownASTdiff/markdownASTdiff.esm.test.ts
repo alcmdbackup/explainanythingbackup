@@ -42,7 +42,6 @@ function parseMarkdown(markdown: string): Root {
 function runStep3(original: string, edited: string): string {
   const beforeAST = parseMarkdown(original);
   const afterAST = parseMarkdown(edited);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return RenderCriticMarkupFromMDAstDiff(beforeAST as any, afterAST as any);
 }
 

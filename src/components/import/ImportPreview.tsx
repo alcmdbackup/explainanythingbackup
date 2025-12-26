@@ -74,7 +74,7 @@ export default function ImportPreview({
             setState('error');
             setError(err instanceof Error ? err.message : 'An error occurred');
         }
-    }, [title, content, source, router, onOpenChange]);
+    }, [title, content, source, router]);
 
     const handleClose = useCallback(() => {
         if (state !== 'publishing') {

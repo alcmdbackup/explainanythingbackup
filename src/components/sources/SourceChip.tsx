@@ -37,8 +37,9 @@ export default function SourceChip({
         className
       )}
     >
-      {/* Favicon */}
+      {/* Favicon - using img for dynamic external URLs */}
       {source.favicon_url && !isLoading ? (
+        // eslint-disable-next-line @next/next/no-img-element
         <img
           src={source.favicon_url}
           alt=""
