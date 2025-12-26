@@ -253,6 +253,13 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
                 if (step3) setMarkdownASTDiffResult(step3.content);
                 if (step4) setPreprocessedMarkdown(step4.content);
 
+                // Load validation results from step4's session_metadata if available
+                if (step4?.session_metadata?.validationResults) {
+                    const validationResults = step4.session_metadata.validationResults as PipelineValidationResults;
+                    setPipelineValidationResults(validationResults);
+                    console.log('📊 Loaded validation results from session:', validationResults);
+                }
+
                 // Set test set name based on session
                 setTestSetName(`session-${sessionId.slice(0, 8)}`);
                 setLoadedExplanationTitle(result.data.session_metadata.explanation_title);
