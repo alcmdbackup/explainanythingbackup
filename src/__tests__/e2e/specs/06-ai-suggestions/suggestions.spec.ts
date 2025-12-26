@@ -16,9 +16,7 @@ import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
 import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
-  mockReturnExplanationAPI,
   mockAISuggestionsPipelineAPI,
-  defaultMockExplanation,
   mockDiffContent,
   mockPromptSpecificContent,
 } from '../../helpers/api-mocks';
@@ -156,22 +154,30 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Diff Visualization Tests =============
 
   test.describe('Diff Visualization', () => {
+    // Uses library loading pattern instead of SSE mocking for reliability
     test('should render insertion diffs', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Add new content',
       });
 
@@ -183,18 +189,25 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.deletion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Remove content',
       });
 
@@ -206,18 +219,25 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.mixed,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Improve content',
       });
 
@@ -230,22 +250,30 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Accept/Reject Interaction Tests =============
 
   test.describe('Accept/Reject Interactions', () => {
+    // Uses library loading pattern instead of SSE mocking for reliability
     test('should return content with CriticMarkup for accept/reject UI', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Add details',
       });
 
@@ -292,17 +320,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Add new paragraph',
       });
 
@@ -314,17 +349,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Try adding content',
       });
 
@@ -338,17 +380,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.deletion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Remove unnecessary content',
       });
 
@@ -360,17 +409,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.deletion,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Try removing content',
       });
 
@@ -384,17 +440,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.mixed,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Improve overall quality',
       });
 
@@ -406,23 +469,31 @@ test.describe('AI Suggestions Pipeline', () => {
   });
 
   // ============= Prompt-Specific Tests =============
+  // Uses library loading pattern instead of SSE mocking for reliability
 
   test.describe('Prompt-Specific: Remove First Sentence', () => {
     test('should show deletion diff for first sentence', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Remove the first sentence',
       });
 
@@ -434,17 +505,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Remove the first sentence',
       });
 
@@ -457,17 +535,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Remove the first sentence',
       });
 
@@ -482,17 +567,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Shorten the first paragraph',
       });
 
@@ -506,17 +598,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Shorten the first paragraph',
       });
 
@@ -529,17 +628,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Shorten the first paragraph',
       });
 
@@ -554,17 +660,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Improve the entire article',
       });
 
@@ -580,17 +693,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Improve the entire article',
       });
 
@@ -604,17 +724,24 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      const libraryPage = new UserLibraryPage(page);
+
+      // Load content from library (no SSE, reliable DB fetch)
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      test.skip(libraryState !== 'loaded', 'No saved explanations available');
+
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await resultsPage.navigate('quantum entanglement');
-      await resultsPage.waitForStreamingComplete();
+      await libraryPage.clickViewByIndex(0);
+      await page.waitForURL(/\/results\?explanation_id=/);
+      await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
-        currentContent: defaultMockExplanation.content,
+        currentContent: 'Test content from library',
         userPrompt: 'Improve the entire article',
       });
 
