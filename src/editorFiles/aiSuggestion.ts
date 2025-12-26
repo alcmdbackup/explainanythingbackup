@@ -151,7 +151,7 @@ export function validateAISuggestionOutput(rawOutput: string): { success: true; 
 
 // K: Safe AST parsing with fallback
 interface SafeParseResult {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   ast: any;
   issues: string[];
 }
@@ -161,7 +161,7 @@ interface SafeParseResult {
  *
  * Wraps remark parse calls in try-catch to prevent crashes from malformed markdown
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export async function safeParseMarkdown(content: string): Promise<SafeParseResult> {
   const { unified } = await import('unified');
   const { default: remarkParse } = await import('remark-parse');
