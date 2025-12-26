@@ -1,6 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
+  globalSetup: './src/__tests__/e2e/setup/global-setup.ts',
+  globalTeardown: './src/__tests__/e2e/setup/global-teardown.ts',
   testDir: './src/__tests__/e2e',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
@@ -17,21 +19,14 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    // Auth setup - runs once before all tests
-    {
-      name: 'setup',
-      testMatch: /auth\.setup\.ts/,
-    },
-    // Chromium - default for local and PR (authenticated)
+    // Chromium - default for local and PR (authenticated via per-worker API auth)
     {
       name: 'chromium',
       testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,
       testIgnore: /auth\.setup\.ts/,
       use: {
         ...devices['Desktop Chrome'],
-        storageState: '.auth/user.json',
       },
-      dependencies: ['setup'],
     },
     // Chromium unauthenticated - for testing auth redirects
     {
@@ -42,16 +37,14 @@ export default defineConfig({
         storageState: { cookies: [], origins: [] },
       },
     },
-    // Firefox - for nightly runs only (authenticated)
+    // Firefox - for nightly runs only (authenticated via per-worker API auth)
     {
       name: 'firefox',
       testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,
       testIgnore: /auth\.setup\.ts/,
       use: {
         ...devices['Desktop Firefox'],
-        storageState: '.auth/user.json',
       },
-      dependencies: ['setup'],
     },
   ],
   webServer: {
@@ -62,6 +55,8 @@ export default defineConfig({
     env: {
       // Enable API route for AI suggestions (mockable in E2E tests)
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
+      // Enable E2E test mode for SSE streaming bypass
+      E2E_TEST_MODE: 'true',
     },
   },
   timeout: process.env.CI ? 60000 : 30000,

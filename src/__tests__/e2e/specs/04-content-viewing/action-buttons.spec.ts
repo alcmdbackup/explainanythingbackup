@@ -11,8 +11,8 @@ test.describe('Action Buttons', () => {
   let resultsPage: ResultsPage;
   let libraryPage: UserLibraryPage;
 
-  // Use serial mode to avoid test isolation issues with network requests
-  test.describe.configure({ mode: 'serial', retries: 1 });
+  // Add retries for flaky network conditions
+  test.describe.configure({ retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading and streaming
   test.setTimeout(60000);
@@ -23,11 +23,9 @@ test.describe('Action Buttons', () => {
   });
 
   test.describe('Save Button Flow (P0)', () => {
-    // SKIP: These tests require generating new explanations via real OpenAI API calls.
-    // The API can timeout in CI environments, making these tests flaky.
-    // Save functionality is covered by unit tests in userLibrary.test.ts
-    // and by the "should show already saved state" test below which uses existing data.
-    test.skip('should save explanation to library when save button clicked', async ({ authenticatedPage }) => {
+    // Note: With E2E_TEST_MODE, the API returns mock SSE streaming,
+    // so these tests no longer require real OpenAI API calls.
+    test('should save explanation to library when save button clicked', async ({ authenticatedPage }) => {
       // Generate a new explanation that isn't saved yet
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();
@@ -61,8 +59,7 @@ test.describe('Action Buttons', () => {
       expect(savedText).toContain('Saved');
     });
 
-    // SKIP: Requires generating new explanation via real OpenAI API (see above)
-    test.skip('should disable save button after successful save', async ({ authenticatedPage }) => {
+    test('should disable save button after successful save', async ({ authenticatedPage }) => {
       // Generate new explanation
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();

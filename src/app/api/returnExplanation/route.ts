@@ -8,7 +8,17 @@ import { randomUUID } from 'crypto';
 
 const FILE_DEBUG = true;
 
+// Production guard: E2E_TEST_MODE cannot be enabled in production
+if (process.env.E2E_TEST_MODE === 'true' && process.env.NODE_ENV === 'production') {
+  throw new Error('E2E_TEST_MODE cannot be enabled in production');
+}
+
 export async function POST(request: NextRequest) {
+  // E2E test mode bypass - use mock streaming for reliable testing
+  if (process.env.E2E_TEST_MODE === 'true') {
+    const { streamMockResponse } = await import('./test-mode');
+    return streamMockResponse(request);
+  }
     try {
         const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = await request.json();
 

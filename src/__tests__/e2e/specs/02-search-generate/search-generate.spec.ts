@@ -70,16 +70,17 @@ test.describe('Search and Generate Flow', () => {
   });
 
   test.describe('Explanation Generation', () => {
-    // SKIP: SSE mock streaming is flaky with Playwright route.fulfill - the mock
-    // provides the entire SSE body at once, but timing issues cause the streaming
-    // handler to miss events. These are covered by search navigation tests which
-    // work because they navigate from home page rather than directly to results.
-    test.skip('should show title during streaming', async ({ authenticatedPage: page }, testInfo) => {
+    // Note: SSE streaming is now handled via E2E_TEST_MODE in the API route,
+    // which provides real incremental streaming instead of buffered route.fulfill().
+
+    test('should show title during streaming', async ({ authenticatedPage: page }, testInfo) => {
       // Firefox is slower with SSE streaming
       if (testInfo.project.name === 'firefox') test.slow();
 
       const resultsPage = new ResultsPage(page);
 
+      // With E2E_TEST_MODE, the API returns real SSE stream - no mock needed
+      // But we still mock to control the exact content
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
       await resultsPage.navigate('quantum entanglement');
@@ -89,10 +90,9 @@ test.describe('Search and Generate Flow', () => {
       expect(title).toContain('Understanding Quantum Entanglement');
     });
 
-    // SKIP: See above - SSE mock streaming is flaky
-    test.skip('should display full content after streaming completes', async ({ authenticatedPage: page }, testInfo) => {
-      // Firefox SSE mock streaming is unreliable - skip
-      if (testInfo.project.name === 'firefox') test.skip();
+    test('should display full content after streaming completes', async ({ authenticatedPage: page }, testInfo) => {
+      // Firefox is slower with SSE streaming
+      if (testInfo.project.name === 'firefox') test.slow();
 
       const resultsPage = new ResultsPage(page);
 
@@ -109,8 +109,7 @@ test.describe('Search and Generate Flow', () => {
       expect(hasContent).toBe(true);
     });
 
-    // SKIP: See above - SSE mock streaming is flaky
-    test.skip('should show stream-complete indicator when generation finishes', async ({ authenticatedPage: page }) => {
+    test('should show stream-complete indicator when generation finishes', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
       await mockReturnExplanationAPI(page, shortMockExplanation);
@@ -194,8 +193,8 @@ test.describe('Search and Generate Flow', () => {
 
   test.describe('URL State', () => {
     test('should preserve query in URL after generation', async ({ authenticatedPage: page }, testInfo) => {
-      // Firefox has flaky route interception for SSE mocks - skip until fixed
-      test.skip(testInfo.project.name === 'firefox', 'Firefox SSE mock interception is flaky');
+      // Firefox is slower with SSE streaming
+      if (testInfo.project.name === 'firefox') test.slow();
 
       const resultsPage = new ResultsPage(page);
 

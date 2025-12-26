@@ -1,8 +1,8 @@
 import { test, expect } from '../../fixtures/auth';
 import { ImportPage } from '../../helpers/pages/ImportPage';
 
-// These tests hit real LLM APIs so run them serially to avoid conflicts
-test.describe.configure({ mode: 'serial' });
+// Add retries for flaky LLM API conditions
+test.describe.configure({ retries: 1 });
 
 /**
  * E2E tests for Import Articles feature

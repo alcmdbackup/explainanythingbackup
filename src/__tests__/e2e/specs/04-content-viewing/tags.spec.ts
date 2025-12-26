@@ -6,9 +6,8 @@ test.describe('Tag Management', () => {
   let resultsPage: ResultsPage;
   let libraryPage: UserLibraryPage;
 
-  // Use serial mode to avoid test isolation issues with network requests
-  // Also add retries for flaky network conditions
-  test.describe.configure({ mode: 'serial', retries: 1 });
+  // Add retries for flaky network conditions
+  test.describe.configure({ retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading
   test.setTimeout(60000);

@@ -16,8 +16,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Firefox SSE mocking is unreliable in Playwright - run only chromium until fixed
-        browser: [chromium]
+        # With E2E_TEST_MODE providing real SSE streaming, Firefox should now work
+        browser: [chromium, firefox]
     env:
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
@@ -29,6 +29,12 @@ jobs:
       PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
       # Enable API route for AI suggestions (mockable in E2E tests)
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
+      # Enable E2E test mode for SSE streaming bypass
+      E2E_TEST_MODE: 'true'
+      # Test user credentials for per-worker auth and cleanup
+      TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+      TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+      TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
