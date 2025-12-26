@@ -199,7 +199,7 @@ Running 123 tests using 4 workers
 
 ---
 
-### Issue 5: 91 Tests Still Skipping Despite Seeded Data 🔍 INVESTIGATING
+### Issue 5: 91 Tests Still Skipping Despite Seeded Data 🔍 ROOT CAUSE IDENTIFIED
 
 **Symptom:**
 Tests that check `libraryState === 'empty'` or `explanationCount === 0` skip, even though:
@@ -209,29 +209,66 @@ Tests that check `libraryState === 'empty'` or `explanationCount === 0` skip, ev
 **Systematic Debugging (Phase 1 - Root Cause Investigation):**
 
 1. **DB Layer Check (Service Role):** ✅ Data IS created
-   - Explanation ID 7952 created successfully
-   - userLibrary entry ID 811 inserted correctly
-   - Verification query confirms data exists during globalSetup
+   - Verified via SQL: `SELECT * FROM "userLibrary" WHERE userid = '08b3f7d2-...'`
+   - Found 1 entry: id=816, explanationid=8002, title="Tim Hardaway"
+   - TEST_USER_ID in .env.local matches actual Supabase auth user ID ✅
 
-2. **Timing Analysis:** Data exists during tests but UI shows empty
-   - Setup creates data → Tests run → Teardown cleans data
-   - Data should be visible during test execution
+2. **RLS Policy Analysis:** ✅ Policies exist and are correct
+   - userLibrary SELECT: `using ((( SELECT auth.uid() AS uid) = userid))`
+   - explanations SELECT: `using (true)` (public access)
+   - Service role bypasses RLS (used for seeding)
 
-3. **Auth Flow Analysis:**
-   - Auth fixture: Uses API-based auth, injects `sb-{projectRef}-auth-token` cookie
-   - Server client: Uses `createSupabaseServerClient()` which reads cookies via `next/headers`
-   - Library page: Calls `supabase_browser.auth.getUser()` then server action
+3. **Auth Flow Trace:**
+   ```
+   Auth fixture → Sets cookie: sb-{projectRef}-auth-token (base64 session)
+        ↓
+   Browser navigates to /userlibrary
+        ↓
+   Middleware validates cookie → allows access ✅
+        ↓
+   Page calls supabase_browser.auth.getUser() → gets user ✅
+        ↓
+   Page calls getUserLibraryExplanationsAction(userId)
+        ↓
+   Server action creates Supabase client via createSupabaseServerClient()
+        ↓
+   Server queries userLibrary with .eq('userid', userId)
+        ↓
+   RLS checks: auth.uid() = userid → NULL = UUID → BLOCKED ✗
+        ↓
+   Empty result returned → libraryState === 'empty' → test.skip()
+   ```
 
-**Current Hypothesis:**
-The authenticated user cannot see the seeded data. Possible causes:
-- RLS policy blocking access (data created with service role, queried with user role)
-- Auth cookie not propagating correctly to server actions
-- User ID mismatch between auth session and seeded data
+**Root Cause Confirmed:**
+The server Supabase client cannot establish `auth.uid()` from the cookie. The RLS policy `auth.uid() = userid` evaluates to `NULL = UUID`, which is FALSE, blocking all rows.
+
+**Evidence:**
+- Tests see 'empty' (not 'error') → browser auth works, middleware allows access
+- But server query returns empty → RLS blocking
+- Database has data for this user (verified via service role query)
+
+**Why `auth.uid()` is NULL on server:**
+1. Browser client (`src/lib/utils/supabase/client.ts`) uses **custom storage** (localStorage/sessionStorage)
+2. Auth fixture only sets a **cookie**, not localStorage
+3. Server client reads cookie, but may not properly parse session to establish `auth.uid()`
+
+**Potential mismatch:**
+- Browser client expects session in localStorage (custom storage config)
+- Auth fixture provides session in cookie only
+- Server client may not properly decode the base64 cookie format
+
+**Proposed Fixes:**
+
+| Fix | Description | Pros | Cons |
+|-----|-------------|------|------|
+| **A. Inject localStorage** | Auth fixture sets both cookie AND localStorage | Ensures browser client works | Requires page.addInitScript |
+| **B. Use default storage** | Remove custom storage from browser client | Consistent with server | May affect "remember me" feature |
+| **C. Fix cookie parsing** | Debug why server can't parse cookie | Fixes root cause | Need to understand Supabase SSR internals |
 
 **Next Steps:**
-1. Add logging to library page to see what user ID it's using
-2. Check RLS policies on userLibrary table
-3. Verify auth cookie contains correct user ID
+1. Add diagnostic logging to verify `auth.uid()` is NULL on server
+2. Run single test with debug output
+3. Apply Fix A or B based on findings
 
 ---
 
@@ -289,13 +326,16 @@ From Phase 0 verification:
 - ✅ Test migration complete (serial mode removed, fixtures updated)
 - ✅ Verification passed (96.9% pass rate on non-skipped tests)
 
-**Current Status (2024-12-26):**
+**Current Status (2025-12-26):**
 - 31 passed, 1 failed, 91 skipped
-- Data seeding works correctly (verified via debug logging)
-- **Blocking issue:** 91 tests skip because library UI shows empty despite data existing in DB
-- Investigation in progress using systematic debugging approach
+- Data seeding works correctly (verified via SQL query)
+- **ROOT CAUSE IDENTIFIED:** Server `auth.uid()` is NULL due to cookie/storage mismatch
+- RLS policy blocks queries even though data exists and user ID is correct
+
+**Root Cause Details:**
+The auth fixture sets a cookie, but the browser Supabase client uses custom localStorage storage. The server cannot properly establish `auth.uid()` from the cookie, causing RLS to block all rows.
 
 **Remaining items:**
-1. **[BLOCKING]** Fix Issue 5: Library data not visible to authenticated user
+1. **[BLOCKING]** Fix Issue 5: Add diagnostic logging → confirm → apply fix
 2. Fix save button test failure
 3. CI secrets configuration
