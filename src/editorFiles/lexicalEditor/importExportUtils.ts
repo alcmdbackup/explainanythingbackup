@@ -729,28 +729,10 @@ function normalizeMultilineCriticMarkup(markdown: string): string {
       return match;
     }
 
-    // Replace newlines in content with <br> tags, but protect code blocks within the content
-    let normalizedContent = content;
+    // Replace newlines in content with <br> tags
+    const normalizedContent = content.replace(/\n/g, '<br>');
 
-    // Find code blocks within content and protect them
-    const codeBlockPattern = /```[\s\S]*?```/g;
-    const codeBlocks: { placeholder: string; content: string }[] = [];
-
-    normalizedContent = normalizedContent.replace(codeBlockPattern, (codeBlock: string) => {
-      const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
-      codeBlocks.push({ placeholder, content: codeBlock });
-      return placeholder;
-    });
-
-    // Replace newlines with <br> tags in non-code content
-    normalizedContent = normalizedContent.replace(/\n/g, '<br>');
-
-    // Restore code blocks (with their original newlines)
-    codeBlocks.forEach(({ placeholder, content: codeContent }) => {
-      normalizedContent = normalizedContent.replace(placeholder, codeContent);
-    });
-
-    // Then remove any remaining newlines from the marks part only
+    // Then remove any remaining newlines from the entire match (should be none after above replace)
     const result = `{${marks}${normalizedContent}${marks}}`.replace(/\n/g, '');
 
     console.log('  result:', JSON.stringify(result));

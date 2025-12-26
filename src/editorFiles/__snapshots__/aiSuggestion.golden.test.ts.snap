@@ -19,9 +19,9 @@ const x = 1;
 {++\`\`\`js
 const x = 2;
 \`\`\`++}",
-  "step4Computed": "{--\`\`\`jsconst x = 1;\`\`\`--}
+  "step4Computed": "{--\`\`\`js<br>const x = 1;<br>\`\`\`--}
 
-{++\`\`\`jsconst x = 2;\`\`\`++}",
+{++\`\`\`js<br>const x = 2;<br>\`\`\`++}",
   "step4Expected": "{--\`\`\`js<br>const x = 1;<br>\`\`\`--}
 
 {++\`\`\`js<br>const x = 2;<br>\`\`\`++}",
@@ -789,7 +789,7 @@ const x = 2;
 \`\`\`
 
 ~~}",
-  "step4": "{~~\`\`\`jsconst x = 1;\`\`\`<br><br>~>\`\`\`jsconst x = 2;\`\`\`<br><br>~~}",
+  "step4": "{~~\`\`\`js<br>const x = 1;<br><br>\`\`\`<br><br>~>\`\`\`js<br>const x = 2;<br><br>\`\`\`<br><br>~~}",
 }
 `;
 
@@ -1516,9 +1516,9 @@ exports[`Golden Tests: Step 4 Preprocessing Deletions single-word-deletion prepr
 exports[`Golden Tests: Step 4 Preprocessing Edge Cases adjacent-diffs preprocessCriticMarkup output matches snapshot 1`] = `"{--old--}{++new++} word."`;
 
 exports[`Golden Tests: Step 4 Preprocessing Edge Cases code-block-edits preprocessCriticMarkup output matches snapshot 1`] = `
-"{--\`\`\`jsconst x = 1;\`\`\`--}
+"{--\`\`\`js<br>const x = 1;<br>\`\`\`--}
 
-{++\`\`\`jsconst x = 2;\`\`\`++}"
+{++\`\`\`js<br>const x = 2;<br>\`\`\`++}"
 `;
 
 exports[`Golden Tests: Step 4 Preprocessing Edge Cases empty-paragraph preprocessCriticMarkup output matches snapshot 1`] = `
