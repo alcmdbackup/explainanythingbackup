@@ -1258,10 +1258,9 @@ function ResultsPageContent() {
                     {/* AI Suggestions Panel (Collapsible Sidebar) */}
                     <div className="relative h-full flex-shrink-0">
                         <AISuggestionsPanel
-                            isVisible={isAIPanelOpen}
-                            onClose={() => setIsAIPanelOpen(false)}
+                            isOpen={isAIPanelOpen}
+                            onOpenChange={setIsAIPanelOpen}
                             currentContent={content}
-                            editorRef={editorRef}
                             dispatch={dispatchLifecycle}
                             isStreaming={isStreaming}
                             sessionData={explanationId && explanationTitle ? {
