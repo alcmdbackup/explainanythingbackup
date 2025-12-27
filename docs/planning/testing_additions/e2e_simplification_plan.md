@@ -18,9 +18,15 @@ Implementation plan for reducing E2E test overhead while maintaining coverage.
 
 ---
 
-## Phase 1: Critical Test Tagging (1 day)
+## Phase 1: Critical Test Tagging (1 day) ✅ COMPLETE
 
 **Objective:** Enable running a subset of ~50 critical tests for faster PR feedback.
+
+**Status:** Implemented on 2025-12-27
+- Tagged 36 tests with `@critical` across all spec files
+- Added `chromium-critical` project to playwright.config.ts
+- Added npm scripts: `test:e2e:critical`, `test:e2e:full`
+- Documented in E2E_TESTING_PLAN.md Section 11
 
 ### 1.1 Define Critical Test Criteria
 
@@ -126,17 +132,23 @@ projects: [
 
 ### 1.6 Deliverables
 
-- [ ] Tag ~44 tests with `@critical`
-- [ ] Add `chromium-critical` project to playwright.config.ts
-- [ ] Add `test:e2e:critical` npm script
-- [ ] Verify critical suite runs in <2 minutes
-- [ ] Document tagging criteria in E2E_TESTING_PLAN.md
+- [x] Tag ~44 tests with `@critical` (actual: 36 tests)
+- [x] Add `chromium-critical` project to playwright.config.ts
+- [x] Add `test:e2e:critical` npm script
+- [x] Verify critical suite runs in <2 minutes
+- [x] Document tagging criteria in E2E_TESTING_PLAN.md
 
 ---
 
-## Phase 2: Production Build in CI (0.5 days)
+## Phase 2: Production Build in CI (0.5 days) ✅ COMPLETE
 
 **Objective:** Use production build for more stable, faster E2E tests in CI.
+
+**Status:** Implemented on 2025-12-27
+- Updated webServer to use `npm run build && npm start` in CI
+- Increased CI workers from 1 to 2
+- Added server health check in global-setup.ts
+- Extended CI timeout to 180s for build step
 
 ### 2.1 Update Playwright Config
 
@@ -179,10 +191,11 @@ e2e-test:
 
 ### 2.4 Deliverables
 
-- [ ] Update webServer command for CI
-- [ ] Increase workers to 2
-- [ ] Verify tests pass with production build
-- [ ] Measure time improvement
+- [x] Update webServer command for CI
+- [x] Increase workers to 2
+- [x] Add server health check to global-setup.ts
+- [ ] Verify tests pass with production build (requires CI run)
+- [ ] Measure time improvement (requires CI run)
 
 ---
 

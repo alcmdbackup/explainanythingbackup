@@ -11,7 +11,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : 2,  // Limit workers to avoid ECONNRESET from dev server overload
+  workers: process.env.CI ? 2 : 2,  // Production build in CI is more stable, allows 2 workers
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],
@@ -62,10 +62,13 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'npm run dev -- -p 3008',
+    // Use production build in CI for stability; dev server locally for HMR
+    command: process.env.CI
+      ? 'npm run build && npm start -- -p 3008'
+      : 'npm run dev -- -p 3008',
     url: 'http://localhost:3008',
     reuseExistingServer: !process.env.CI,
-    timeout: 120000,
+    timeout: process.env.CI ? 180000 : 120000,  // Extra time for build in CI
     env: {
       // Enable API route for AI suggestions (mockable in E2E tests)
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',

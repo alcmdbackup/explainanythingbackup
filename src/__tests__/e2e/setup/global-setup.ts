@@ -3,6 +3,41 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 /**
+ * Waits for the web server to be ready by polling the health endpoint.
+ * This is especially important when using production builds in CI,
+ * where the build step adds significant startup time.
+ */
+async function waitForServerReady(
+  url: string,
+  options: { maxRetries?: number; retryInterval?: number } = {}
+): Promise<void> {
+  const { maxRetries = 30, retryInterval = 1000 } = options;
+
+  console.log(`   Waiting for server at ${url}...`);
+
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const response = await fetch(url, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (response.ok || response.status === 304) {
+        console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
+        return;
+      }
+    } catch {
+      // Server not ready yet, continue polling
+    }
+
+    if (i < maxRetries - 1) {
+      await new Promise((resolve) => setTimeout(resolve, retryInterval));
+    }
+  }
+
+  throw new Error(`Server at ${url} did not become ready within ${maxRetries * retryInterval / 1000}s`);
+}
+
+/**
  * Ensures a tag is associated with the explanation.
  * Creates the tag if it doesn't exist, and associates it if not already associated.
  */
@@ -71,6 +106,18 @@ async function globalSetup() {
   if (process.env.E2E_TEST_MODE !== 'true') {
     console.log('⏭️  E2E_TEST_MODE not enabled, skipping setup');
     return;
+  }
+
+  // Wait for server to be ready (especially important for production builds in CI)
+  const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
+  try {
+    await waitForServerReady(baseUrl, {
+      maxRetries: process.env.CI ? 60 : 30,  // 60s for CI (build takes time), 30s locally
+      retryInterval: 1000,
+    });
+  } catch (error) {
+    console.error('❌ Server did not become ready:', error);
+    throw error;
   }
 
   // Verify required environment variables
