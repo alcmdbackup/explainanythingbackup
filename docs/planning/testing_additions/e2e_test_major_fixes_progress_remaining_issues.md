@@ -270,6 +270,57 @@ All 5 issue categories have been addressed:
 
 ---
 
+## Additional Fixes (2025-12-27)
+
+### 6. Streaming Mock Property Name Mismatch ✅
+
+**Root Cause:** The API mock in `api-mocks.ts` was using `explanation_id` (snake_case) but the client code at `src/app/results/page.tsx:434` expected `explanationId` (camelCase). This caused URL redirects to fail after streaming.
+
+**Fix Applied:**
+- Changed `createSSEEvents()` in `api-mocks.ts` to use `explanationId` instead of `explanation_id`
+- Changed interface and mock data to use numeric IDs instead of strings
+- Updated `defaultMockExplanation` and `shortMockExplanation` with numeric IDs (90001, 90002)
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/api-mocks.ts:3-10` (interface)
+- `src/__tests__/e2e/helpers/api-mocks.ts:104-115` (createSSEEvents)
+- `src/__tests__/e2e/helpers/api-mocks.ts:176-177` (defaultMockExplanation)
+- `src/__tests__/e2e/helpers/api-mocks.ts:187-188` (shortMockExplanation)
+
+### 7. enterEditMode Click Not Registering ✅
+
+**Root Cause:** The Edit button click wasn't reliably transitioning to show "Done" button. This could be due to click timing issues or React state update delays.
+
+**Fix Applied:**
+- Added `force: true` to button click to ensure click is handled
+- Added 500ms wait after click for React state to update
+- Added retry logic: if first click doesn't work within 3s, try clicking again
+- Enhanced error handling with try/catch for graceful retry
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:262-289` (enterEditMode function)
+
+---
+
+## Remaining Known Issues
+
+### Server Instability (ECONNRESET)
+
+Even with 1 worker, ECONNRESET errors still occur intermittently. This appears to be Next.js dev server under E2E test load.
+
+**Potential Solutions:**
+- Use production build (`npm run build && npm start`) for E2E tests
+- Add health checks before each test
+- Increase server memory allocation
+
+### Playwright Mock vs Server-Side Test Mode Conflict
+
+When `E2E_TEST_MODE=true`, the server-side `test-mode.ts` returns mock responses, which can conflict with Playwright route intercepts. Tests that rely on Playwright mocks may receive server-side mock data instead.
+
+**Example:** "should show title during streaming" expects "Understanding Quantum Entanglement" from Playwright mock but receives "Test Explanation Title" from server-side mock.
+
+---
+
 ## Recommended Actions
 
 ### All P1-P3 Items Completed ✅

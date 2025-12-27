@@ -4,8 +4,9 @@ interface MockExplanationResponse {
   title: string;
   content: string;
   tags?: Array<{ tag_name: string; tag_type?: string }>;
-  explanation_id?: string;
-  userQueryId?: string;
+  // Use numeric IDs to match the production API and client expectations
+  explanation_id?: number;
+  userQueryId?: number;
 }
 
 /**
@@ -101,10 +102,12 @@ function createSSEEvents(response: MockExplanationResponse): string {
   events.push(`data: ${JSON.stringify({ type: 'streaming_end' })}\n\n`);
 
   // 5. complete event with full result
+  // NOTE: Client expects 'explanationId' (camelCase), not 'explanation_id' (snake_case)
+  // See src/app/results/page.tsx line ~434 where it destructures: { explanationId, userQueryId }
   const completeResult = {
     success: true,
-    explanation_id: response.explanation_id || 'test-explanation-123',
-    userQueryId: response.userQueryId || 'test-query-456',
+    explanationId: response.explanation_id || 12345,
+    userQueryId: response.userQueryId || 67890,
     title: response.title,
     content: response.content,
     tags: response.tags || [
@@ -170,8 +173,8 @@ This fascinating phenomenon challenges our classical understanding of physics an
     { tag_name: 'quantum-mechanics', tag_type: 'simple' },
     { tag_name: 'advanced', tag_type: 'preset' },
   ],
-  explanation_id: 'mock-explanation-001',
-  userQueryId: 'mock-query-001',
+  explanation_id: 90001,
+  userQueryId: 91001,
 };
 
 /**
@@ -181,8 +184,8 @@ export const shortMockExplanation: MockExplanationResponse = {
   title: 'Brief Explanation',
   content: 'This is a short explanation for testing purposes.',
   tags: [{ tag_name: 'test', tag_type: 'simple' }],
-  explanation_id: 'mock-short-001',
-  userQueryId: 'mock-query-short-001',
+  explanation_id: 90002,
+  userQueryId: 91002,
 };
 
 /**

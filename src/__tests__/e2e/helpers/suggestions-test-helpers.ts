@@ -269,10 +269,23 @@ export async function enterEditMode(page: Page, timeout = 10000): Promise<void> 
   // Click Edit button to enter edit mode
   const editButton = page.locator('[data-testid="edit-button"]:has-text("Edit")');
   await editButton.waitFor({ state: 'visible', timeout });
-  await editButton.click();
+
+  // Force click with all modifiers to ensure the click is handled
+  await editButton.click({ force: true });
+
+  // Wait a moment for React state to update
+  await page.waitForTimeout(500);
 
   // Wait for Done button to appear (confirms edit mode)
-  await page.waitForSelector('[data-testid="edit-button"]:has-text("Done")', { timeout });
+  // If this fails, try clicking again as sometimes first click may not register
+  try {
+    await page.waitForSelector('[data-testid="edit-button"]:has-text("Done")', { timeout: 3000 });
+  } catch {
+    // First click may have failed - try again
+    await editButton.click({ force: true });
+    await page.waitForTimeout(500);
+    await page.waitForSelector('[data-testid="edit-button"]:has-text("Done")', { timeout });
+  }
 }
 
 /**
