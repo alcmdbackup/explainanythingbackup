@@ -257,6 +257,11 @@ export class ResultsPage extends BasePage {
     await this.page.waitForSelector('[data-lifecycle-phase="viewing"]', { timeout });
   }
 
+  // Wait for userSaved state to be determined (async check completes)
+  async waitForUserSavedState(timeout = 30000) {
+    await this.page.waitForSelector('[data-testid="save-to-library"][data-user-saved-loaded="true"]', { timeout });
+  }
+
   // Error handling methods
   async getErrorMessage(): Promise<string | null> {
     const errorElement = this.page.locator(this.errorMessage);

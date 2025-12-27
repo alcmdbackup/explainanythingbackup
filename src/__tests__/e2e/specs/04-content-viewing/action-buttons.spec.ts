@@ -100,6 +100,8 @@ test.describe('Action Buttons', () => {
       await resultsPage.waitForAnyContent(60000);
       // Wait for lifecycle phase to reach 'viewing' so userSaved state is set
       await resultsPage.waitForViewingPhase();
+      // Wait for userSaved async check to complete
+      await resultsPage.waitForUserSavedState();
 
       // Save button should show "Saved" for already saved explanations
       const saveText = await resultsPage.getSaveButtonText();

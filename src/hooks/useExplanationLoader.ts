@@ -67,6 +67,7 @@ export interface UseExplanationLoaderReturn {
     explanationVector: { values: number[] } | null;
     systemSavedId: number | null;
     userSaved: boolean;
+    userSavedLoaded: boolean;
     isLoading: boolean;
     error: string | null;
 
@@ -104,6 +105,7 @@ export function useExplanationLoader(
     const [explanationVector, setExplanationVector] = useState<{ values: number[] } | null>(null);
     const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [userSaved, setUserSaved] = useState(false);
+    const [userSavedLoaded, setUserSavedLoaded] = useState(false);
 
     // Loading and error states
     const [isLoading, setIsLoading] = useState(false);
@@ -119,6 +121,7 @@ export function useExplanationLoader(
      */
     const checkUserSaved = useCallback(async (targetExplanationId: number, userid: string) => {
         if (!targetExplanationId || !userid) return;
+        setUserSavedLoaded(false); // Reset before check
         try {
             const saved = await isExplanationSavedByUserAction(
                 withRequestId({ explanationid: targetExplanationId, userid })
@@ -126,6 +129,8 @@ export function useExplanationLoader(
             setUserSaved(saved);
         } catch {
             setUserSaved(false);
+        } finally {
+            setUserSavedLoaded(true); // Mark as loaded after check completes
         }
     }, [withRequestId]);
 
@@ -324,6 +329,7 @@ export function useExplanationLoader(
         explanationVector,
         systemSavedId,
         userSaved,
+        userSavedLoaded,
         isLoading,
         error,
 
