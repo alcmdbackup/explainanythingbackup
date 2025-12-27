@@ -1,12 +1,12 @@
-import { TagUIType, TagBarMode } from '@/lib/schemas/schemas';
+import { TagUIType, FeedbackMode } from '@/lib/schemas/schemas';
 
 /**
- * Tag Mode State Machine Reducer
+ * Feedback Mode State Machine Reducer
  *
- * Manages the complex state transitions between 3 tag modes:
+ * Manages the complex state transitions between 3 feedback modes:
  * - Normal: Standard tag modification with database persistence
- * - RewriteWithTags: Generate new explanation using selected tags
- * - EditWithTags: Edit existing explanation with tag-based instructions
+ * - RewriteWithFeedback: Generate new explanation using selected tags + sources
+ * - EditWithFeedback: Edit existing explanation with tag-based instructions + sources
  *
  * Prevents impossible states by using discriminated unions and centralizing
  * all state transitions in a single reducer function.
@@ -30,44 +30,44 @@ type NormalModeState = {
 };
 
 /**
- * RewriteWithTags mode state
+ * RewriteWithFeedback mode state
  * - tempTags: tags used for rewrite operation (preset tags ID 2, 5)
  * - originalTags: preserved from before entering mode
  * - dropdown always closed in this mode
  */
-type RewriteWithTagsModeState = {
-  mode: 'rewriteWithTags';
+type RewriteWithFeedbackModeState = {
+  mode: 'rewriteWithFeedback';
   tempTags: TagUIType[];
   originalTags: TagUIType[];
   showRegenerateDropdown: false;
 };
 
 /**
- * EditWithTags mode state
+ * EditWithFeedback mode state
  * - tags: tags used for edit operation (restored from originalTags)
  * - originalTags: preserved from before entering mode
  * - dropdown always closed in this mode
  */
-type EditWithTagsModeState = {
-  mode: 'editWithTags';
+type EditWithFeedbackModeState = {
+  mode: 'editWithFeedback';
   tags: TagUIType[];
   originalTags: TagUIType[];
   showRegenerateDropdown: false;
 };
 
 /**
- * Discriminated union of all possible tag mode states
+ * Discriminated union of all possible feedback mode states
  */
-export type TagModeState = NormalModeState | RewriteWithTagsModeState | EditWithTagsModeState;
+export type FeedbackModeState = NormalModeState | RewriteWithFeedbackModeState | EditWithFeedbackModeState;
 
 // ============================================================================
 // Action Type Definitions
 // ============================================================================
 
-export type TagModeAction =
+export type FeedbackModeAction =
   | { type: 'LOAD_TAGS'; tags: TagUIType[] }
-  | { type: 'ENTER_REWRITE_MODE'; tempTags: TagUIType[] }
-  | { type: 'ENTER_EDIT_MODE' }
+  | { type: 'ENTER_REWRITE_FEEDBACK_MODE'; tempTags: TagUIType[] }
+  | { type: 'ENTER_EDIT_FEEDBACK_MODE' }
   | { type: 'EXIT_TO_NORMAL' }
   | { type: 'TOGGLE_DROPDOWN' }
   | { type: 'UPDATE_TAGS'; tags: TagUIType[] }
@@ -96,12 +96,12 @@ function hasModifiedTags(tags: TagUIType[]): boolean {
 /**
  * Determines if tags are modified based on mode and state
  */
-export function isTagsModified(state: TagModeState): boolean {
+export function isTagsModified(state: FeedbackModeState): boolean {
   if (state.mode === 'normal') {
     return hasModifiedTags(state.tags);
-  } else if (state.mode === 'rewriteWithTags') {
+  } else if (state.mode === 'rewriteWithFeedback') {
     return true; // Always considered modified in special modes
-  } else if (state.mode === 'editWithTags') {
+  } else if (state.mode === 'editWithFeedback') {
     return true; // Always considered modified in special modes
   }
   return false;
@@ -110,23 +110,23 @@ export function isTagsModified(state: TagModeState): boolean {
 /**
  * Gets the current tags array based on mode
  */
-export function getCurrentTags(state: TagModeState): TagUIType[] {
-  if (state.mode === 'rewriteWithTags') {
+export function getCurrentTags(state: FeedbackModeState): TagUIType[] {
+  if (state.mode === 'rewriteWithFeedback') {
     return state.tempTags;
-  } else if (state.mode === 'normal' || state.mode === 'editWithTags') {
+  } else if (state.mode === 'normal' || state.mode === 'editWithFeedback') {
     return state.tags;
   }
   return [];
 }
 
 /**
- * Gets the TagBarMode enum value from state
+ * Gets the FeedbackMode enum value from state
  */
-export function getTagBarMode(state: TagModeState): TagBarMode {
-  if (state.mode === 'normal') return TagBarMode.Normal;
-  if (state.mode === 'rewriteWithTags') return TagBarMode.RewriteWithTags;
-  if (state.mode === 'editWithTags') return TagBarMode.EditWithTags;
-  return TagBarMode.Normal;
+export function getFeedbackMode(state: FeedbackModeState): FeedbackMode {
+  if (state.mode === 'normal') return FeedbackMode.Normal;
+  if (state.mode === 'rewriteWithFeedback') return FeedbackMode.RewriteWithFeedback;
+  if (state.mode === 'editWithFeedback') return FeedbackMode.EditWithFeedback;
+  return FeedbackMode.Normal;
 }
 
 // ============================================================================
@@ -134,9 +134,9 @@ export function getTagBarMode(state: TagModeState): TagBarMode {
 // ============================================================================
 
 /**
- * Creates initial state for the tag mode reducer
+ * Creates initial state for the feedback mode reducer
  */
-export function createInitialTagModeState(): TagModeState {
+export function createInitialFeedbackModeState(): FeedbackModeState {
   return {
     mode: 'normal',
     tags: [],
@@ -150,10 +150,10 @@ export function createInitialTagModeState(): TagModeState {
 // ============================================================================
 
 /**
- * Tag mode state reducer
- * Handles all state transitions for the tag mode state machine
+ * Feedback mode state reducer
+ * Handles all state transitions for the feedback mode state machine
  */
-export function tagModeReducer(state: TagModeState, action: TagModeAction): TagModeState {
+export function feedbackModeReducer(state: FeedbackModeState, action: FeedbackModeAction): FeedbackModeState {
   switch (action.type) {
     // ------------------------------------------------------------------------
     // LOAD_TAGS: Load tags when explanation is loaded
@@ -168,11 +168,11 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
     }
 
     // ------------------------------------------------------------------------
-    // ENTER_REWRITE_MODE: Enter rewrite with tags mode
+    // ENTER_REWRITE_FEEDBACK_MODE: Enter rewrite with feedback mode
     // ------------------------------------------------------------------------
-    case 'ENTER_REWRITE_MODE': {
+    case 'ENTER_REWRITE_FEEDBACK_MODE': {
       return {
-        mode: 'rewriteWithTags',
+        mode: 'rewriteWithFeedback',
         tempTags: action.tempTags,
         originalTags: state.mode === 'normal' ? state.originalTags : state.originalTags,
         showRegenerateDropdown: false,
@@ -180,12 +180,12 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
     }
 
     // ------------------------------------------------------------------------
-    // ENTER_EDIT_MODE: Enter edit with tags mode
+    // ENTER_EDIT_FEEDBACK_MODE: Enter edit with feedback mode
     // ------------------------------------------------------------------------
-    case 'ENTER_EDIT_MODE': {
+    case 'ENTER_EDIT_FEEDBACK_MODE': {
       if (state.mode === 'normal') {
         return {
-          mode: 'editWithTags',
+          mode: 'editWithFeedback',
           tags: state.originalTags, // Restore original tags
           originalTags: state.originalTags,
           showRegenerateDropdown: false,
@@ -237,12 +237,12 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
           ...state,
           tags: action.tags,
         };
-      } else if (state.mode === 'rewriteWithTags') {
+      } else if (state.mode === 'rewriteWithFeedback') {
         return {
           ...state,
           tempTags: action.tags,
         };
-      } else if (state.mode === 'editWithTags') {
+      } else if (state.mode === 'editWithFeedback') {
         return {
           ...state,
           tags: action.tags,
@@ -268,7 +268,7 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
           ...state,
           tags: resetTags,
         };
-      } else if (state.mode === 'rewriteWithTags') {
+      } else if (state.mode === 'rewriteWithFeedback') {
         // Reset temp tags to initial temp tags (reload from server would be needed)
         // For now, just return to normal mode
         return {
@@ -277,7 +277,7 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
           originalTags: state.originalTags,
           showRegenerateDropdown: false,
         };
-      } else if (state.mode === 'editWithTags') {
+      } else if (state.mode === 'editWithFeedback') {
         // Reset and exit back to normal mode
         return {
           mode: 'normal',
@@ -323,3 +323,14 @@ export function tagModeReducer(state: TagModeState, action: TagModeAction): TagM
       return state;
   }
 }
+
+// ============================================================================
+// Backwards Compatibility Aliases
+// ============================================================================
+
+// These aliases maintain backwards compatibility during migration
+export type TagModeState = FeedbackModeState;
+export type TagModeAction = FeedbackModeAction;
+export const tagModeReducer = feedbackModeReducer;
+export const createInitialTagModeState = createInitialFeedbackModeState;
+export const getTagBarMode = getFeedbackMode;

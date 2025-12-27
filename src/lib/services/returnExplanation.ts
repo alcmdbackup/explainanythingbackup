@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
-import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt, createExplanationWithSourcesPrompt } from '@/lib/prompts';
+import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt, createExplanationWithSourcesPrompt, editExplanationWithSourcesPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema, type SourceCacheFullType, type SourceForPromptType } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
@@ -228,16 +228,33 @@ export const generateNewExplanation = withLogging(
     }> {
         try {
             // Choose prompt function based on userInputType and sources
+            // Decision matrix:
+            // | UserInputType | Sources? | ExistingContent? | Prompt Function |
+            // |---------------|----------|------------------|-----------------|
+            // | EditWithTags  | Yes      | Yes              | editExplanationWithSourcesPrompt |
+            // | Any           | Yes      | No               | createExplanationWithSourcesPrompt |
+            // | EditWithTags  | No       | Yes              | editExplanationPrompt |
+            // | Other         | No       | —                | createExplanationPrompt |
             let formattedPrompt: string;
 
             if (sources && sources.length > 0) {
-                // Use sources prompt when sources are provided
-                formattedPrompt = createExplanationWithSourcesPrompt(titleResult, sources, additionalRules);
-                logger.debug('Using createExplanationWithSourcesPrompt with sources', {
-                    titleResult,
-                    additionalRulesCount: additionalRules.length,
-                    sourceCount: sources.length
-                });
+                // Sources provided - check if edit or rewrite
+                if (userInputType === UserInputType.EditWithTags && existingContent) {
+                    formattedPrompt = editExplanationWithSourcesPrompt(titleResult, sources, additionalRules, existingContent);
+                    logger.debug('Using editExplanationWithSourcesPrompt for EditWithTags + sources', {
+                        titleResult,
+                        additionalRulesCount: additionalRules.length,
+                        sourceCount: sources.length,
+                        hasExistingContent: !!existingContent
+                    });
+                } else {
+                    formattedPrompt = createExplanationWithSourcesPrompt(titleResult, sources, additionalRules);
+                    logger.debug('Using createExplanationWithSourcesPrompt with sources', {
+                        titleResult,
+                        additionalRulesCount: additionalRules.length,
+                        sourceCount: sources.length
+                    });
+                }
             } else if (userInputType === UserInputType.EditWithTags && existingContent) {
                 formattedPrompt = editExplanationPrompt(titleResult, additionalRules, existingContent);
                 logger.debug('Using editExplanationPrompt for EditWithTags mode', {

@@ -144,27 +144,27 @@ function ResultsPageContent() {
     }, [tagState.mode, tagState.showRegenerateDropdown]);
 
     /**
-     * Initializes temporary tags for "rewrite with tags" functionality
+     * Initializes temporary tags for "rewrite with feedback" functionality
      *
      * • Fetches two preset tags from database: "medium" (ID 2) and "moderate" (ID 5)
      * • Converts database tags to TagUIType format with both active states set to true
      * • Uses getTempTagsForRewriteWithTagsAction to retrieve actual tag data
-     * • Dispatches ENTER_REWRITE_MODE action with fetched tags
+     * • Dispatches ENTER_REWRITE_FEEDBACK_MODE action with fetched tags
      *
-     * Used by: "Rewrite with tags" button click handler
+     * Used by: "Rewrite with feedback" button click handler
      * Calls: getTempTagsForRewriteWithTagsAction, dispatchTagAction
      */
-    const initializeTempTagsForRewriteWithTags = async () => {
+    const initializeTempTagsForRewriteWithFeedback = async () => {
         try {
             const result = await getTempTagsForRewriteWithTagsAction();
             if (result.success && result.data) {
-                // Dispatch action to enter rewrite mode with temp tags
-                dispatchTagAction({ type: 'ENTER_REWRITE_MODE', tempTags: result.data });
+                // Dispatch action to enter rewrite feedback mode with temp tags
+                dispatchTagAction({ type: 'ENTER_REWRITE_FEEDBACK_MODE', tempTags: result.data });
             } else {
-                logger.error('Failed to fetch temp tags for rewrite with tags', { error: result.error });
+                logger.error('Failed to fetch temp tags for rewrite with feedback', { error: result.error });
             }
         } catch (error) {
-            logger.error('Error initializing temp tags for rewrite with tags', { error: error instanceof Error ? error.message : String(error) });
+            logger.error('Error initializing temp tags for rewrite with feedback', { error: error instanceof Error ? error.message : String(error) });
         }
     };
 
@@ -465,11 +465,11 @@ function ResultsPageContent() {
 
     /**
      * Handles apply button clicks from TagBar in rewrite or edit mode
-     * 
+     *
      * • Routes to appropriate UserInputType based on current modeOverride
      * • Calls handleUserAction with tag descriptions as additional rules
-     * • Supports both rewrite with tags and edit with tags modes
-     * 
+     * • Supports both rewrite with feedback and edit with feedback modes
+     *
      * Used by: TagBar component tagBarApplyClickHandler prop
      * Calls: handleUserAction
      */
@@ -477,13 +477,13 @@ function ResultsPageContent() {
         logger.debug('handleTagBarApplyClick called', { tagDescriptions, tagStateMode: tagState.mode, prompt, explanationTitle, userid }, FILE_DEBUG);
 
         // Handle apply button click in rewrite or edit mode
-        if (tagState.mode === 'rewriteWithTags') {
-            // For rewrite with tags, use the current explanation title as input
+        if (tagState.mode === 'rewriteWithFeedback') {
+            // For rewrite with feedback, use the current explanation title as input
             const inputForRewrite = explanationTitle || prompt;
             logger.debug('Calling handleUserAction with RewriteWithTags', { mode, inputForRewrite }, FILE_DEBUG);
             await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null, null);
-        } else if (tagState.mode === 'editWithTags') {
-            // For edit with tags, use the current explanation title as input
+        } else if (tagState.mode === 'editWithFeedback') {
+            // For edit with feedback, use the current explanation title as input
             const inputForEdit = explanationTitle || prompt;
             logger.debug('Calling handleUserAction with EditWithTags', { mode, inputForEdit }, FILE_DEBUG);
             await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null, null);
@@ -495,31 +495,51 @@ function ResultsPageContent() {
     /**
      * Handles apply from FeedbackPanel (tags + sources combined)
      *
-     * Uses RewriteWithTags user input type with sources attached
+     * Branches on mode to use either RewriteWithTags or EditWithTags
      */
-    const handleFeedbackPanelApply = async (tagDescriptions: string[], panelSources: SourceChipType[]) => {
-        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length });
-
-        const inputForRewrite = explanationTitle || prompt;
-        if (!inputForRewrite) {
-            dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
-            return;
-        }
+    const handleFeedbackPanelApply = async (
+        tagDescriptions: string[],
+        panelSources: SourceChipType[],
+        feedbackMode: 'rewrite' | 'edit'
+    ) => {
+        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length, feedbackMode });
 
         // Close the feedback panel
         setShowFeedbackPanel(false);
 
-        // Call handleUserAction with sources
-        await handleUserAction(
-            inputForRewrite,
-            UserInputType.RewriteWithTags,
-            mode,
-            userid,
-            tagDescriptions,
-            null,
-            null,
-            panelSources
-        );
+        if (feedbackMode === 'edit') {
+            const inputForEdit = explanationTitle || prompt;
+            if (!inputForEdit) {
+                dispatchLifecycle({ type: 'ERROR', error: 'No input available for editing.' });
+                return;
+            }
+            await handleUserAction(
+                inputForEdit,
+                UserInputType.EditWithTags,
+                mode,
+                userid,
+                tagDescriptions,
+                null,
+                null,
+                panelSources  // NOW PASSES SOURCES FOR EDIT
+            );
+        } else {
+            const inputForRewrite = explanationTitle || prompt;
+            if (!inputForRewrite) {
+                dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting.' });
+                return;
+            }
+            await handleUserAction(
+                inputForRewrite,
+                UserInputType.RewriteWithTags,
+                mode,
+                userid,
+                tagDescriptions,
+                null,
+                null,
+                panelSources
+            );
+        }
     };
 
     /**
@@ -533,12 +553,21 @@ function ResultsPageContent() {
     /**
      * Opens the FeedbackPanel for rewrite with feedback
      */
-    const handleOpenFeedbackPanel = async () => {
+    const handleRewriteWithFeedback = async () => {
         // Initialize temp tags like rewrite with tags does
-        await initializeTempTagsForRewriteWithTags();
+        await initializeTempTagsForRewriteWithFeedback();
         setShowFeedbackPanel(true);
-        // Close the dropdown
-        dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
+        // Dropdown closes automatically when mode changes from 'normal'
+    };
+
+    /**
+     * Opens the FeedbackPanel for edit with feedback
+     */
+    const handleEditWithFeedback = () => {
+        // Use original tags (not temp tags like rewrite mode)
+        dispatchTagAction({ type: 'ENTER_EDIT_FEEDBACK_MODE' });
+        setShowFeedbackPanel(true);
+        // Dropdown closes automatically when mode changes from 'normal'
     };
 
     /**
@@ -1038,36 +1067,23 @@ function ResultsPageContent() {
                                                     </button>
                                                 </div>
                                                 {tagState.mode === 'normal' && tagState.showRegenerateDropdown && (
-                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
+                                                    <div className="absolute top-full left-0 mt-1 w-52 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
                                                         <div className="py-1">
-                                                            <button
-                                                                data-testid="rewrite-with-tags"
-                                                                disabled={isPageLoading || isStreaming}
-                                                                onClick={async () => {
-                                                                    await initializeTempTagsForRewriteWithTags();
-                                                                }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                                            >
-                                                                Rewrite with tags
-                                                            </button>
-                                                            <button
-                                                                data-testid="edit-with-tags"
-                                                                disabled={isPageLoading || isStreaming}
-                                                                onClick={() => {
-                                                                    dispatchTagAction({ type: 'ENTER_EDIT_MODE' });
-                                                                }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                                            >
-                                                                Edit with tags
-                                                            </button>
-                                                            <div className="border-t border-[var(--border-default)] my-1"></div>
                                                             <button
                                                                 data-testid="rewrite-with-feedback"
                                                                 disabled={isPageLoading || isStreaming}
-                                                                onClick={handleOpenFeedbackPanel}
+                                                                onClick={handleRewriteWithFeedback}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
                                                                 Rewrite with feedback
+                                                            </button>
+                                                            <button
+                                                                data-testid="edit-with-feedback"
+                                                                disabled={isPageLoading || isStreaming}
+                                                                onClick={handleEditWithFeedback}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                Edit with feedback
                                                             </button>
                                                         </div>
                                                     </div>

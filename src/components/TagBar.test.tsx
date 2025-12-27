@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import TagBar from './TagBar';
 import { getAllTagsAction } from '@/actions/actions';
 import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
-import { TagBarMode } from '@/lib/schemas/schemas';
+import { FeedbackMode } from '@/lib/schemas/schemas';
 import {
   createMockTagBarProps,
   createMockSimpleTag,
@@ -23,21 +23,21 @@ jest.mock('@/lib/services/explanationTags', () => ({
 }));
 
 jest.mock('@/reducers/tagModeReducer', () => {
-  const { TagBarMode } = jest.requireActual('@/lib/schemas/schemas');
+  const { FeedbackMode } = jest.requireActual('@/lib/schemas/schemas');
   return {
     ...jest.requireActual('@/reducers/tagModeReducer'),
     getCurrentTags: jest.fn((state) => {
-      if (state.mode === 'rewriteWithTags') return state.tempTags || [];
+      if (state.mode === 'rewriteWithFeedback') return state.tempTags || [];
       return state.tags || [];
     }),
-    getTagBarMode: jest.fn((state) => {
-      if (state.mode === 'rewriteWithTags') return TagBarMode.RewriteWithTags;
-      if (state.mode === 'editWithTags') return TagBarMode.EditWithTags;
-      return TagBarMode.Normal;
+    getFeedbackMode: jest.fn((state) => {
+      if (state.mode === 'rewriteWithFeedback') return FeedbackMode.RewriteWithFeedback;
+      if (state.mode === 'editWithFeedback') return FeedbackMode.EditWithFeedback;
+      return FeedbackMode.Normal;
     }),
     isTagsModified: jest.fn((state) => {
-      // rewriteWithTags and editWithTags modes are always modified
-      if (state.mode === 'rewriteWithTags' || state.mode === 'editWithTags') {
+      // rewriteWithFeedback and editWithFeedback modes are always modified
+      if (state.mode === 'rewriteWithFeedback' || state.mode === 'editWithFeedback') {
         return true;
       }
       const tags = state.tags || [];
@@ -145,7 +145,7 @@ describe('TagBar', () => {
       expect(screen.getByText('Apply Tags')).toBeInTheDocument();
     });
 
-    it('should display correct title based on mode - RewriteWithTags', () => {
+    it('should display correct title based on mode - RewriteWithFeedback', () => {
       const simpleTag = createMockSimpleTag({
         tag_active_current: true,
         tag_active_initial: false, // Modified: was not initially active
@@ -153,15 +153,15 @@ describe('TagBar', () => {
       const props = createMockTagBarProps({
         tagState: createMockTagState({
           tags: [simpleTag],
-          mode: 'rewriteWithTags', // Use exact enum value with spaces
+          mode: 'rewriteWithFeedback',
         }),
       });
       render(<TagBar {...props} />);
 
-      expect(screen.getByText('Rewrite with Tags')).toBeInTheDocument();
+      expect(screen.getByText('Rewrite with Feedback')).toBeInTheDocument();
     });
 
-    it('should display correct title based on mode - EditWithTags', () => {
+    it('should display correct title based on mode - EditWithFeedback', () => {
       const simpleTag = createMockSimpleTag({
         tag_active_current: true,
         tag_active_initial: false,
@@ -169,12 +169,12 @@ describe('TagBar', () => {
       const props = createMockTagBarProps({
         tagState: createMockTagState({
           tags: [simpleTag],
-          mode: 'editWithTags',
+          mode: 'editWithFeedback',
         }),
       });
       render(<TagBar {...props} />);
 
-      expect(screen.getByText('Edit with Tags')).toBeInTheDocument();
+      expect(screen.getByText('Edit with Feedback')).toBeInTheDocument();
     });
 
     it('should show apply and reset buttons in modified state', () => {
@@ -923,7 +923,7 @@ describe('TagBar', () => {
       });
     });
 
-    it('should call tagBarApplyClickHandler with descriptions in rewrite mode', async () => {
+    it('should call tagBarApplyClickHandler with descriptions in rewrite feedback mode', async () => {
       const mockTagBarApplyClickHandler = jest.fn();
       const simpleTag = createMockSimpleTag({
         tag_name: 'Test Tag',
@@ -932,7 +932,7 @@ describe('TagBar', () => {
         tag_active_initial: false,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [simpleTag], mode: 'rewriteWithTags' }),
+        tagState: createMockTagState({ tags: [simpleTag], mode: 'rewriteWithFeedback' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);
@@ -945,7 +945,7 @@ describe('TagBar', () => {
       });
     });
 
-    it('should call tagBarApplyClickHandler with descriptions in edit mode', async () => {
+    it('should call tagBarApplyClickHandler with descriptions in edit feedback mode', async () => {
       const mockTagBarApplyClickHandler = jest.fn();
       const simpleTag = createMockSimpleTag({
         tag_name: 'Edit Tag',
@@ -954,7 +954,7 @@ describe('TagBar', () => {
         tag_active_initial: false,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [simpleTag], mode: 'editWithTags' }),
+        tagState: createMockTagState({ tags: [simpleTag], mode: 'editWithFeedback' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);
@@ -980,7 +980,7 @@ describe('TagBar', () => {
         tag_active_initial: true,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [activeTag, inactiveTag], mode: 'rewriteWithTags' }),
+        tagState: createMockTagState({ tags: [activeTag, inactiveTag], mode: 'rewriteWithFeedback' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);
@@ -1009,7 +1009,7 @@ describe('TagBar', () => {
         tag_active_current: true,
       });
       const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [presetTag], mode: 'rewriteWithTags' }),
+        tagState: createMockTagState({ tags: [presetTag], mode: 'rewriteWithFeedback' }),
         tagBarApplyClickHandler: mockTagBarApplyClickHandler,
       });
       render(<TagBar {...props} />);

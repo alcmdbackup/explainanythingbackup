@@ -4,7 +4,7 @@
  */
 
 import { faker } from '@faker-js/faker';
-import type { TagModeState } from '@/reducers/tagModeReducer';
+import type { FeedbackModeState } from '@/reducers/tagModeReducer';
 import type { SimpleTagUIType, PresetTagUIType, TagUIType } from '@/lib/schemas/schemas';
 
 // ============================================================================
@@ -58,27 +58,27 @@ export const createMockPresetTag = (overrides: Partial<PresetTagUIType> = {}): P
 };
 
 // ============================================================================
-// TagModeState Mock Factory
+// FeedbackModeState Mock Factory
 // ============================================================================
 
 /**
- * Creates a mock TagModeState for testing TagBar
+ * Creates a mock FeedbackModeState for testing TagBar
  */
-export const createMockTagState = (overrides: any = {}): TagModeState => {
+export const createMockTagState = (overrides: any = {}): FeedbackModeState => {
   const mode = overrides.mode || 'normal';
 
-  if (mode === 'rewriteWithTags') {
+  if (mode === 'rewriteWithFeedback') {
     return {
-      mode: 'rewriteWithTags',
+      mode: 'rewriteWithFeedback',
       tempTags: overrides.tags || overrides.tempTags || [],
       originalTags: overrides.originalTags || [],
       showRegenerateDropdown: false,
     };
   }
 
-  if (mode === 'editWithTags') {
+  if (mode === 'editWithFeedback') {
     return {
-      mode: 'editWithTags',
+      mode: 'editWithFeedback',
       tags: overrides.tags || [],
       originalTags: overrides.originalTags || [],
       showRegenerateDropdown: false,
