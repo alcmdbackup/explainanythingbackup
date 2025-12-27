@@ -8,10 +8,14 @@ Status tracking for remaining E2E test issues after the major fixes implementati
 
 After implementing the major E2E test fixes (auth, data seeding, streaming mock, lifecycle waits), there are still several categories of test failures. This document tracks the remaining issues and their root causes.
 
-**Latest Run (2025-12-27 - After Issue #12 and #13 Fixes):**
-- 116 passed ✅
-- 4 failed (pre-existing error recovery issues)
+**Latest Run (2025-12-27 - After Issue #14 Fix):**
+- 120 passed ✅
+- 0 failed
 - 3 skipped
+
+**Previous Run (2025-12-27 - After Issue #12 and #13 Fixes):**
+- 116 passed ✅
+- 4 failed (error recovery issues - now fixed)
 
 **Status Update (2025-12-26):**
 All 5 issue categories have been fixed in commit `2332e88`. See "Fixed Issues" section below for details.
@@ -724,5 +728,83 @@ waiting for locator('[data-testid="add-tag-trigger"]') to be visible
 4. `error-recovery.spec.ts:160` - "should handle malformed API response gracefully"
 
 These are error recovery scenario tests that have timing issues with editor content loading. They are not regressions from the fixes applied.
+
+---
+
+## Status Update (2025-12-27 - Error Recovery Tests Fixed)
+
+**Commit:** `f3c7d48` - fix(e2e): fix getEditorTextContent to wait for content in Lexical editor
+
+### Issue #14: getEditorTextContent Timeout in Error Recovery Tests ✅ FIXED
+
+**Problem:** All 4 error recovery tests were failing with:
+```
+Error: locator.textContent: Test timeout exceeded.
+waiting for locator('[contenteditable="true"]').or(locator('[data-testid="lexical-editor"]'))
+```
+
+**Root Cause Analysis (Systematic Debugging):**
+
+1. **Phase 1 - Evidence Gathering:**
+   - Read error context files showing page state at failure
+   - The editor was showing as `textbox` in Playwright's accessibility tree
+   - Neither `[contenteditable="true"]` (edit mode only) nor `[data-testid="lexical-editor"]` (doesn't exist) were present
+
+2. **Phase 2 - Pattern Analysis:**
+   - The Lexical editor component uses `.lexical-editor` class on ContentEditable
+   - This class is present in both edit mode and read-only mode
+   - The tests call `getEditorTextContent` BEFORE entering edit mode to capture content
+
+3. **Phase 3 - Hypothesis:**
+   - The selector was wrong (fixed by using `.lexical-editor` class)
+   - Even with correct selector, content was empty because Lexical initializes asynchronously
+
+**Fix Applied:**
+- Changed selector from `[contenteditable="true"].or([data-testid="lexical-editor"])` to `.lexical-editor`
+- Added explicit wait for editor visibility with configurable timeout
+- Added polling loop to wait for content to actually be present (Lexical async initialization)
+
+```typescript
+export async function getEditorTextContent(page: Page, timeout = 10000): Promise<string> {
+  const editor = page.locator('.lexical-editor');
+  await editor.waitFor({ state: 'visible', timeout });
+
+  // Wait for content to actually be present (Lexical initializes async)
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    const content = await editor.textContent() ?? '';
+    if (content.trim().length > 0) {
+      return content;
+    }
+    await page.waitForTimeout(100);
+  }
+
+  return await editor.textContent() ?? '';
+}
+```
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:212-231`
+
+### Test Results After Fix
+
+**Run on Chromium:**
+- **120 passed** ✅
+- **0 failed**
+- **3 skipped**
+
+All 4 error recovery tests now pass:
+1. ✅ `editor-integration.spec.ts:238` - "should show error in panel and keep editor unchanged"
+2. ✅ `error-recovery.spec.ts:35` - "should show error for API 500 and allow retry"
+3. ✅ `error-recovery.spec.ts:127` - "should preserve original content on pipeline error"
+4. ✅ `error-recovery.spec.ts:160` - "should handle malformed API response gracefully"
+
+### Lessons Learned
+
+1. **Use stable selectors**: The `.lexical-editor` class is more reliable than `contenteditable` attribute which depends on edit mode state.
+
+2. **Handle async initialization**: Lexical editor content loads asynchronously. Just waiting for the element to be visible isn't enough - must wait for content to be present.
+
+3. **Read error context files**: The Playwright error context markdown files show the exact page state, making it easy to identify why selectors fail.
 
 ---
