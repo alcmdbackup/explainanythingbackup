@@ -23,6 +23,7 @@ import {
   clickAcceptOnFirstDiff,
   clickRejectOnFirstDiff,
   waitForEditMode,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('Save Blocking with Pending AI Suggestions', () => {
@@ -46,6 +47,9 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // Submit AI suggestion to create pending diffs
     await submitAISuggestionPrompt(page, 'Remove the first sentence');
@@ -84,6 +88,9 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // Submit AI suggestion to create pending diffs
     await submitAISuggestionPrompt(page, 'Remove the first sentence');
@@ -125,6 +132,9 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     // Submit AI suggestion to create pending diffs
     await submitAISuggestionPrompt(page, 'Remove the first sentence');
     await waitForSuggestionsSuccess(page);
@@ -150,8 +160,8 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     // (may still be disabled for other reasons like already saved)
     const saveButton = page.locator('[data-testid="save-to-library"]');
     const title = await saveButton.getAttribute('title');
-    // Title should not contain the suggestions warning anymore
-    expect(title).not.toContain('Accept or reject AI suggestions');
+    // Title should not contain the suggestions warning anymore (null when no pending suggestions)
+    expect(title ?? '').not.toContain('Accept or reject AI suggestions');
   });
 
   test('save button should be enabled after rejecting all suggestions', async ({ authenticatedPage: page }, testInfo) => {
@@ -172,6 +182,9 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // Submit AI suggestion to create pending diffs
     await submitAISuggestionPrompt(page, 'Remove the first sentence');
@@ -197,7 +210,7 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     // Verify save button is no longer disabled due to suggestions
     const saveButton = page.locator('[data-testid="save-to-library"]');
     const title = await saveButton.getAttribute('title');
-    // Title should not contain the suggestions warning anymore
-    expect(title).not.toContain('Accept or reject AI suggestions');
+    // Title should not contain the suggestions warning anymore (null when no pending suggestions)
+    expect(title ?? '').not.toContain('Accept or reject AI suggestions');
   });
 });

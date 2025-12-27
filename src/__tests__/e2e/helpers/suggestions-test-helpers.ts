@@ -256,6 +256,26 @@ export async function getDiffCounts(page: Page): Promise<{
 }
 
 /**
+ * Enters edit mode by clicking the Edit button if not already in edit mode.
+ * This is required before AI suggestions can modify the editor content.
+ */
+export async function enterEditMode(page: Page, timeout = 10000): Promise<void> {
+  // Check if already in edit mode (Done button visible)
+  const doneButton = page.locator('[data-testid="edit-button"]:has-text("Done")');
+  if (await doneButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+    return; // Already in edit mode
+  }
+
+  // Click Edit button to enter edit mode
+  const editButton = page.locator('[data-testid="edit-button"]:has-text("Edit")');
+  await editButton.waitFor({ state: 'visible', timeout });
+  await editButton.click();
+
+  // Wait for Done button to appear (confirms edit mode)
+  await page.waitForSelector('[data-testid="edit-button"]:has-text("Done")', { timeout });
+}
+
+/**
  * Waits for the editor to be in edit mode (after AI suggestions).
  */
 export async function waitForEditMode(page: Page, timeout = 10000): Promise<void> {

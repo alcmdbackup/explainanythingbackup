@@ -11,7 +11,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : undefined,  // Reduced from 4 to avoid resource contention
+  workers: process.env.CI ? 1 : 2,  // Limit workers to avoid ECONNRESET from dev server overload
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],

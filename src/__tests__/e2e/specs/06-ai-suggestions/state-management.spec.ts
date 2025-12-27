@@ -27,6 +27,7 @@ import {
   clickAcceptOnFirstDiff,
   clickRejectOnFirstDiff,
   waitForEditMode,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions State Management', () => {
@@ -51,6 +52,9 @@ test.describe('AI Suggestions State Management', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       await submitAISuggestionPrompt(page, 'Remove the first sentence');
       await waitForSuggestionsSuccess(page);
@@ -102,6 +106,9 @@ test.describe('AI Suggestions State Management', () => {
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
 
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
+
       await submitAISuggestionPrompt(page, 'Remove the first sentence');
       await waitForSuggestionsSuccess(page);
       await waitForEditMode(page);
@@ -142,6 +149,9 @@ test.describe('AI Suggestions State Management', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       await submitAISuggestionPrompt(page, 'Improve the entire article');
       await waitForSuggestionsSuccess(page);
@@ -187,6 +197,9 @@ test.describe('AI Suggestions State Management', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       await submitAISuggestionPrompt(page, 'Improve the entire article');
       await waitForSuggestionsSuccess(page);
@@ -236,6 +249,9 @@ test.describe('AI Suggestions State Management', () => {
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
 
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
+
       await submitAISuggestionPrompt(page, 'Add content');
       await waitForSuggestionsSuccess(page);
       await waitForEditMode(page);
@@ -279,6 +295,9 @@ test.describe('AI Suggestions State Management', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       await submitAISuggestionPrompt(page, 'Add content');
       await waitForSuggestionsSuccess(page);

@@ -28,6 +28,7 @@ import {
   clickRejectOnFirstDiff,
   waitForEditMode,
   getEditorTextContent,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions Editor Integration', () => {
@@ -57,6 +58,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions (required for editor to be editable)
+      await enterEditMode(page);
 
       // Submit via the panel UI
       await submitAISuggestionPrompt(page, 'Remove the first sentence');
@@ -90,6 +94,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       await submitAISuggestionPrompt(page, 'Remove the first sentence');
       await waitForSuggestionsSuccess(page);
@@ -126,6 +133,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       await submitAISuggestionPrompt(page, 'Remove the first sentence');
       await waitForSuggestionsSuccess(page);
@@ -171,6 +181,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
 
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
+
       await submitAISuggestionPrompt(page, 'Shorten the first paragraph');
       await waitForSuggestionsSuccess(page);
       await waitForEditMode(page);
@@ -205,6 +218,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
 
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
+
       await submitAISuggestionPrompt(page, 'Add more details');
       await waitForSuggestionsSuccess(page);
       await waitForEditMode(page);
@@ -235,6 +251,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       await resultsPage.waitForAnyContent(60000);
 
       const contentBefore = await getEditorTextContent(page);
+
+      // Enter edit mode before submitting AI suggestions
+      await enterEditMode(page);
 
       // Mock error response
       await mockAISuggestionsPipelineAPI(page, {

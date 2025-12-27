@@ -28,6 +28,7 @@ import {
   waitForSuggestionsLoading,
   waitForDiffNodes,
   waitForEditMode,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions Pipeline', () => {
@@ -84,6 +85,9 @@ test.describe('AI Suggestions Pipeline', () => {
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
 
+      // Enter edit mode before submitting AI suggestions (required for editor to be editable)
+      await enterEditMode(page);
+
       // Submit via the panel UI (not direct API call)
       await submitAISuggestionPrompt(page, 'Add more details');
 
@@ -113,6 +117,9 @@ test.describe('AI Suggestions Pipeline', () => {
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
 
+      // Enter edit mode before submitting AI suggestions (required for editor to be editable)
+      await enterEditMode(page);
+
       // Submit via the panel UI
       await submitAISuggestionPrompt(page, 'Add more details');
 
@@ -141,6 +148,9 @@ test.describe('AI Suggestions Pipeline', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions (required for editor to be editable)
+      await enterEditMode(page);
 
       // Submit via the panel UI
       await submitAISuggestionPrompt(page, 'Add more details');
@@ -301,6 +311,9 @@ test.describe('AI Suggestions Pipeline', () => {
       await libraryPage.clickViewByIndex(0);
       await page.waitForURL(/\/results\?explanation_id=/);
       await resultsPage.waitForAnyContent(60000);
+
+      // Enter edit mode before submitting AI suggestions (required for editor to be editable)
+      await enterEditMode(page);
 
       // Submit AI suggestion via panel UI
       await submitAISuggestionPrompt(page, 'Add more details');

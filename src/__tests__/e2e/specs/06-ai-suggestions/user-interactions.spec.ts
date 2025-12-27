@@ -24,6 +24,7 @@ import {
   waitForDiffNodes,
   clickAcceptOnFirstDiff,
   waitForEditMode,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions User Interactions', () => {
@@ -49,6 +50,9 @@ test.describe('AI Suggestions User Interactions', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // Submit first request
     await submitAISuggestionPrompt(page, 'Add more details');
@@ -134,6 +138,9 @@ test.describe('AI Suggestions User Interactions', () => {
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     // First round of suggestions
     await submitAISuggestionPrompt(page, 'Add more details');
     await waitForSuggestionsSuccess(page);
@@ -180,6 +187,9 @@ test.describe('AI Suggestions User Interactions', () => {
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     await submitAISuggestionPrompt(page, 'Add more details');
     await waitForSuggestionsLoading(page);
 
@@ -213,6 +223,9 @@ test.describe('AI Suggestions User Interactions', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     await submitAISuggestionPrompt(page, 'Add more details');
 

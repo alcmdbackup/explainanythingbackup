@@ -26,6 +26,7 @@ import {
   getDiffCounts,
   getEditorTextContent,
   waitForEditMode,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 test.describe('AI Suggestions Error Recovery', () => {
@@ -46,6 +47,9 @@ test.describe('AI Suggestions Error Recovery', () => {
     await resultsPage.waitForAnyContent(60000);
 
     const contentBefore = await getEditorTextContent(page);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // First request fails
     await mockAISuggestionsPipelineAPI(page, {
@@ -97,6 +101,9 @@ test.describe('AI Suggestions Error Recovery', () => {
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     // Mock 429 response
     await page.route('**/api/runAISuggestionsPipeline', async (route) => {
       await route.fulfill({
@@ -133,6 +140,9 @@ test.describe('AI Suggestions Error Recovery', () => {
 
     const contentBefore = await getEditorTextContent(page);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     // Error response
     await mockAISuggestionsPipelineAPI(page, {
       success: false,
@@ -162,6 +172,9 @@ test.describe('AI Suggestions Error Recovery', () => {
     await resultsPage.waitForAnyContent(60000);
 
     const contentBefore = await getEditorTextContent(page);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // Mock malformed response
     await page.route('**/api/runAISuggestionsPipeline', async (route) => {
@@ -198,6 +211,9 @@ test.describe('AI Suggestions Error Recovery', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // First: error
     await mockAISuggestionsPipelineAPI(page, {
@@ -238,6 +254,9 @@ test.describe('AI Suggestions Error Recovery', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     // Mock a very slow response (simulating timeout scenario)
     // Note: The actual timeout handling depends on client-side implementation

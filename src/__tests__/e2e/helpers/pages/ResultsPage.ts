@@ -57,15 +57,19 @@ export class ResultsPage extends BasePage {
   }
 
   async waitForStreamingComplete(timeout = 60000) {
-    // Wait for element to be attached (not visible, since it has hidden class)
-    await this.page.locator(this.streamCompleteIndicator).waitFor({ state: 'attached', timeout });
+    // Wait for URL redirect first - this happens after streaming completes
+    // The redirect is the reliable signal (stream-complete indicator may race with router.push)
+    await this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout });
 
-    // After streaming completes, the page redirects to include explanation_id in URL
-    // Wait for the redirect to complete so buttons become enabled
-    await this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout: timeout / 2 });
-
-    // Wait a moment for state to settle after redirect
+    // Wait for state to settle after redirect
     await this.page.waitForTimeout(500);
+
+    // Optionally verify stream-complete indicator is attached (should be present after redirect)
+    try {
+      await this.page.locator(this.streamCompleteIndicator).waitFor({ state: 'attached', timeout: 5000 });
+    } catch {
+      // Indicator might not be present on page reload - URL is the authoritative signal
+    }
   }
 
   async isStreamComplete() {
@@ -567,6 +571,8 @@ export class ResultsPage extends BasePage {
 
   // Tag addition methods
   async clickAddTagTrigger() {
+    // Wait for element to be visible before clicking (it's conditionally rendered)
+    await this.page.locator('[data-testid="add-tag-trigger"]').waitFor({ state: 'visible', timeout: 5000 });
     await this.page.click('[data-testid="add-tag-trigger"]');
   }
 

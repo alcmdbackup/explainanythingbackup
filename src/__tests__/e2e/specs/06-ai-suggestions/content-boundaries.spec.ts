@@ -21,6 +21,7 @@ import {
   waitForDiffNodes,
   getDiffCounts,
   waitForEditMode,
+  enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
 
 // Mock responses with modifications
@@ -104,6 +105,9 @@ test.describe('AI Suggestions Content Boundaries', () => {
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     await submitAISuggestionPrompt(page, 'Improve the explanation');
     await waitForSuggestionsSuccess(page);
     await waitForEditMode(page);
@@ -132,6 +136,9 @@ test.describe('AI Suggestions Content Boundaries', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     await submitAISuggestionPrompt(page, 'Add a new list item');
     await waitForSuggestionsSuccess(page);
@@ -162,6 +169,9 @@ test.describe('AI Suggestions Content Boundaries', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     await submitAISuggestionPrompt(page, 'Add an introduction');
     await waitForSuggestionsSuccess(page, 30000);
@@ -222,6 +232,9 @@ test.describe('AI Suggestions Content Boundaries', () => {
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
 
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
+
     await submitAISuggestionPrompt(page, 'Add more emojis');
     await waitForSuggestionsSuccess(page);
     await waitForEditMode(page);
@@ -261,6 +274,9 @@ test.describe('AI Suggestions Content Boundaries', () => {
     await libraryPage.clickViewByIndex(0);
     await page.waitForURL(/\/results\?explanation_id=/);
     await resultsPage.waitForAnyContent(60000);
+
+    // Enter edit mode before submitting AI suggestions
+    await enterEditMode(page);
 
     await submitAISuggestionPrompt(page, 'Add a blockquote');
     await waitForSuggestionsSuccess(page);
