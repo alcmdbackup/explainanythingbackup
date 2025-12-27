@@ -387,3 +387,160 @@ The page showed empty state before data loaded because:
 **Remaining items:**
 1. Fix 19 failing tests (mostly action-buttons, tags, ai-suggestions)
 2. CI secrets configuration
+
+---
+
+### Issue 6: Mock Response Missing `is_saved` Field ✅ FIXED
+
+**Symptom:**
+Save button tests failing in `action-buttons.spec.ts`:
+- Line 28: "should save explanation to library when save button clicked"
+- Line 62: "should disable save button after successful save"
+
+**Root Cause:**
+The mock response in `test-mode.ts` was missing the `is_saved: false` field.
+
+The save button in `results/page.tsx:1193` is disabled when `userSaved` is true:
+```typescript
+disabled={isSaving || !explanationTitle || !content || userSaved || isStreaming || hasPendingSuggestions}
+```
+
+**Fix Applied (2025-12-26):**
+Added `is_saved: false` to the mock result in `test-mode.ts:16-25`:
+
+```typescript
+function createMockResult() {
+  return {
+    id: randomUUID(),
+    title: 'Test Explanation Title',
+    content: '<p>This is mock explanation content for E2E testing.</p>',
+    topic: 'Test Topic',
+    isMatch: false,
+    matchScore: 0,
+    is_saved: false,  // ADDED
+  };
+}
+```
+
+**Status:** Fix applied. Test run shows 20 failures remain (down from 47). The `is_saved` field alone wasn't sufficient - the save button still remains disabled after streaming.
+
+---
+
+### Run 4: 2025-12-27 (After is_saved Fix)
+
+```
+Running 123 tests using 4 workers
+🚀 E2E Global Setup: Starting...
+   ✓ Seeded test topic
+   ✓ Seeded test explanation (no tag)
+✅ E2E Global Setup: Complete
+
+  20 failed
+  1 flaky
+  5 skipped
+  97 passed (13.7m)
+```
+
+**Pass Rate:** 97/122 non-skipped = 79.5%
+
+**Remaining Failures Analysis:**
+
+| Category | Count | Root Cause |
+|----------|-------|------------|
+| Save Button (action-buttons) | 3 | Button disabled after streaming - `userSaved` not reset properly |
+| Edit Mode (action-buttons) | 2 | Button text doesn't change to "Done" |
+| Mode Dropdown (action-buttons) | 2 | Getting `skipMatch` instead of `skip` |
+| Rewrite Flow (action-buttons) | 1 | Title not appearing after rewrite click |
+| Tags Add Flow | 2 | Missing `data-testid="add-tag-trigger"` element |
+| AI Suggestions Error Recovery | 5 | Timeout waiting for contenteditable editor |
+| Regenerate Flow | 3 | Timeout navigating to /userlibrary |
+| Auth Flow | 1 | Timeout navigating to /userlibrary |
+
+**Key Insights:**
+1. The `is_saved: false` fix was necessary but not sufficient
+2. Many failures are related to `contenteditable` editor not appearing (AI suggestions tests)
+3. Some failures are due to slow page loads or missing UI elements
+4. Mode dropdown returns `skipMatch` instead of `skip` - test assertion mismatch
+
+---
+
+### Run 5: 2025-12-26 (Extended Run)
+
+```
+Running 123 tests using 4 workers
+
+  40 failed
+  5 flaky
+  29 skipped
+  23 passed (8.9m)
+```
+
+**Pass Rate:** 23/94 non-skipped = 24.5%
+
+**Failure Categories:**
+
+| Category | Count | Error Type |
+|----------|-------|------------|
+| AI Suggestions (all 06-ai-suggestions specs) | 31 | `TimeoutError: locator.waitFor: Timeout 30000ms exceeded` waiting for `[contenteditable="true"]` |
+| Import Articles | 8 | `net::ERR_CONNECTION_REFUSED at http://localhost:3008/` |
+| Smoke Test | 1 | `net::ERR_CONNECTION_REFUSED at http://localhost:3008/` |
+
+**Root Cause Analysis:**
+
+#### Issue 7: AI Suggestions Tests - Editor Not in Edit Mode 🔍 INVESTIGATING
+
+**Symptom:**
+All 31 AI suggestions tests fail with:
+```
+TimeoutError: locator.waitFor: Timeout 30000ms exceeded.
+Call log:
+  - waiting for locator('[contenteditable="true"]')
+```
+
+**Analysis:**
+1. Tests use `getEditorTextContent(page)` from `suggestions-test-helpers.ts:211-214`
+2. This function waits for `[contenteditable="true"]` selector
+3. The editor only becomes contenteditable when in "edit mode"
+4. Tests are viewing saved explanations from library, which may not auto-enter edit mode
+
+**Potential Fixes:**
+- Add explicit "Edit" button click before testing editor interactions
+- Or ensure AI suggestions panel triggers edit mode when opened
+- Or update test helpers to wait for edit mode before accessing editor
+
+#### Issue 8: Server Crash During Test Run 🔍 INVESTIGATING
+
+**Symptom:**
+9 tests fail with `net::ERR_CONNECTION_REFUSED` or `net::ERR_EMPTY_RESPONSE` at localhost:3008
+
+**Analysis:**
+- These errors appear mid-run (not at start)
+- Suggests the Next.js dev server crashed under load
+- 4 parallel workers may be overwhelming the server
+- Heavy AI suggestions tests may cause memory pressure
+
+**Potential Fixes:**
+- Reduce worker count from 4 to 2 for stability
+- Add server health checks between test suites
+- Increase webServer timeout in playwright.config.ts
+- Consider running AI suggestions tests in separate shard
+
+---
+
+## Summary
+
+**Current Status (2025-12-26):**
+- **23 passed, 40 failed, 5 flaky, 29 skipped**
+- Server stability issues causing ~9 failures
+- AI suggestions tests need edit mode handling (~31 failures)
+
+**Investigation Progress:**
+1. ✅ Added `is_saved: false` to mock response
+2. 🔍 AI suggestions tests fail on contenteditable selector
+3. 🔍 Server crashes under heavy parallel load
+
+**Remaining items:**
+1. Fix AI suggestions tests - add edit mode trigger
+2. Improve server stability - reduce workers or add health checks
+3. Fix import articles tests (dependent on server stability)
+4. CI secrets configuration

@@ -21,6 +21,7 @@ function createMockResult() {
     topic: 'Test Topic',
     isMatch: false,
     matchScore: 0,
+    is_saved: false,
   };
 }
 
