@@ -206,7 +206,8 @@ export async function updateExplanation(
   id: number,
   updates: Partial<ExplanationInsertType>
 ): Promise<ExplanationFullDbType> {
-  const supabase = await createSupabaseServerClient()
+  // Use service client to bypass RLS - user auth is verified at API layer
+  const supabase = await createSupabaseServiceClient()
 
   const { data, error } = await supabase
     .from('explanations')
