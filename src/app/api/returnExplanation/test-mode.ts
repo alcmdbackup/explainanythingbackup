@@ -1,5 +1,3 @@
-import { randomUUID } from 'crypto';
-
 type ScenarioName = 'default' | 'slow' | 'error' | 'mid_stream_error';
 
 interface SSEEvent {

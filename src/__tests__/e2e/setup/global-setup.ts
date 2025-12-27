@@ -88,7 +88,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Check if test explanation already exists via userLibrary join
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   const { data: existing, error: existingError } = await supabase
     .from('userLibrary')
     .select('explanationid, explanations!inner(explanation_title)')
