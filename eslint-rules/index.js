@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-require-imports */
+ 
 /**
  * ESLint plugin for test flakiness prevention rules.
  *
