@@ -9,7 +9,7 @@ import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 
 test.describe('Regeneration Flow', () => {
   test.describe('Rewrite Button', () => {
-    test('should show rewrite button after content loads', async ({ authenticatedPage: page }) => {
+    test('should show rewrite button after content loads', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
       const libraryPage = new UserLibraryPage(page);
 
@@ -67,7 +67,7 @@ test.describe('Regeneration Flow', () => {
       expect(isDropdownVisible).toBe(true);
     });
 
-    test('should show content with title after loading from library', async ({ authenticatedPage: page }) => {
+    test('should show content with title after loading from library', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
       const libraryPage = new UserLibraryPage(page);
 

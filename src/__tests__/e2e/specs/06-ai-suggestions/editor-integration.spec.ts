@@ -38,7 +38,7 @@ test.describe('AI Suggestions Editor Integration', () => {
   // ============= Deletion Diff Tests =============
 
   test.describe('Delete First Sentence', () => {
-    test('should show deletion diff in editor', async ({ authenticatedPage: page }, testInfo) => {
+    test('should show deletion diff in editor', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);

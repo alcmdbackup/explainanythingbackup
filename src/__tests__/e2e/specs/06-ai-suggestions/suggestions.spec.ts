@@ -39,7 +39,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
   test.describe('Panel Interaction', () => {
     // Uses library loading pattern instead of SSE mocking for reliability
-    test('should display AI suggestions panel', async ({ authenticatedPage: page }, testInfo) => {
+    test('should display AI suggestions panel', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);

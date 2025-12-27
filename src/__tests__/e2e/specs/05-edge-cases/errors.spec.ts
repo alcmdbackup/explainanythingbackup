@@ -16,7 +16,7 @@ import { waitForState, waitForRouteReady } from '../../helpers/wait-utils';
 
 test.describe('Error Handling', () => {
   test.describe('API Errors', () => {
-    test('should not display content when API returns 500', async ({ authenticatedPage: page }) => {
+    test('should not display content when API returns 500', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
       // Mock API to return 500 error
@@ -130,7 +130,7 @@ test.describe('Error Handling', () => {
   });
 
   test.describe('Error Recovery', () => {
-    test('should recover from error state on new query', async ({ authenticatedPage: page }) => {
+    test('should recover from error state on new query', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
       // First, trigger a stream error

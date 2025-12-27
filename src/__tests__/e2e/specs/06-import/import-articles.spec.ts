@@ -77,7 +77,7 @@ This approach has both benefits and challenges that developers should carefully 
 test.describe('Import Articles Feature', () => {
     test.describe('Full Import Flow', () => {
         // These tests hit real LLM APIs and DB operations
-        test('should import ChatGPT content with auto-detection', async ({ authenticatedPage }) => {
+        test('should import ChatGPT content with auto-detection', { tag: '@critical' }, async ({ authenticatedPage }) => {
             test.setTimeout(60000);
             const importPage = new ImportPage(authenticatedPage);
 
@@ -150,7 +150,7 @@ test.describe('Import Articles Feature', () => {
     });
 
     test.describe('Validation', () => {
-        test('should disable Process button when content is empty', async ({ authenticatedPage }) => {
+        test('should disable Process button when content is empty', { tag: '@critical' }, async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
@@ -190,7 +190,7 @@ test.describe('Import Articles Feature', () => {
     });
 
     test.describe('Modal Behavior', () => {
-        test('should cancel and clear form', async ({ authenticatedPage }) => {
+        test('should cancel and clear form', { tag: '@critical' }, async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');

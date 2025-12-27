@@ -25,7 +25,7 @@ test.describe('Action Buttons', () => {
   test.describe('Save Button Flow (P0)', () => {
     // Note: With E2E_TEST_MODE, the API returns mock SSE streaming,
     // so these tests no longer require real OpenAI API calls.
-    test('should save explanation to library when save button clicked', async ({ authenticatedPage }) => {
+    test('should save explanation to library when save button clicked', { tag: '@critical' }, async ({ authenticatedPage }) => {
       // Generate a new explanation that isn't saved yet
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();
@@ -79,7 +79,7 @@ test.describe('Action Buttons', () => {
       expect(isEnabled).toBe(false);
     });
 
-    test('should show already saved state for existing saved explanations', async ({ authenticatedPage }) => {
+    test('should show already saved state for existing saved explanations', { tag: '@critical' }, async ({ authenticatedPage }) => {
       // Navigate to library to get an existing saved explanation
       await libraryPage.navigate();
       const libraryState = await libraryPage.waitForLibraryReady();
@@ -110,7 +110,7 @@ test.describe('Action Buttons', () => {
   });
 
   test.describe('Edit Mode (P0)', () => {
-    test('should enter edit mode when edit button clicked', async ({ authenticatedPage }) => {
+    test('should enter edit mode when edit button clicked', { tag: '@critical' }, async ({ authenticatedPage }) => {
       // Get existing explanation
       await libraryPage.navigate();
       const libraryState = await libraryPage.waitForLibraryReady();

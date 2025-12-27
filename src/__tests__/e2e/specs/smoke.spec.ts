@@ -1,7 +1,7 @@
 import { test, expect } from '../fixtures/auth';
 
 test.describe('Smoke Tests', () => {
-  test('home page loads and has search bar', async ({ authenticatedPage: page }) => {
+  test('home page loads and has search bar', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
     await page.goto('/');
 
     // Verify page loads

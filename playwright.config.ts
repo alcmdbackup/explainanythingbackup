@@ -23,7 +23,17 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
-    // Chromium - default for local and PR (authenticated via per-worker API auth)
+    // Chromium Critical - fast subset for PR CI (~40 tests tagged @critical)
+    {
+      name: 'chromium-critical',
+      testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,
+      testIgnore: /auth\.setup\.ts/,
+      grep: /@critical/,
+      use: {
+        ...devices['Desktop Chrome'],
+      },
+    },
+    // Chromium - full test suite for local and main branch (authenticated via per-worker API auth)
     {
       name: 'chromium',
       testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,

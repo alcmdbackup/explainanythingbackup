@@ -27,7 +27,7 @@ test.describe('User Library Management', () => {
     expect(true).toBe(true);
   });
 
-  test('should display user library page after authentication', async ({ authenticatedPage }) => {
+  test('should display user library page after authentication', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
@@ -106,7 +106,7 @@ test.describe('User Library Management', () => {
     expect(hasSortIndicator).toBe(true);
   });
 
-  test('should navigate to results page when clicking View link', async ({ authenticatedPage }) => {
+  test('should navigate to results page when clicking View link', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
@@ -141,7 +141,7 @@ test.describe('User Library Management', () => {
     expect(hasDateSavedHeader).toBe(true);
   });
 
-  test('should have search bar in navigation', async ({ authenticatedPage }) => {
+  test('should have search bar in navigation', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
@@ -155,7 +155,7 @@ test.describe('User Library Management', () => {
     expect(hasSearchBar).toBe(true);
   });
 
-  test('should handle search from library page', async ({ authenticatedPage }) => {
+  test('should handle search from library page', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 

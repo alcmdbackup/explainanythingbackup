@@ -907,3 +907,110 @@ npx playwright test src/__tests__/e2e/specs/02-search-generate/ --workers=1 --pr
 
 **Next Steps:**
 1. Phase 7: CI/CD GitHub Actions workflow integration
+
+---
+
+## 11. Critical Test Tagging System
+
+### Overview
+
+To enable faster CI feedback on PRs while maintaining full test coverage on main branch merges, we've implemented a **critical test tagging system** using Playwright's built-in tag filtering.
+
+### How It Works
+
+Tests tagged with `@critical` represent the most important user journeys and are run on every PR. The full test suite runs on main branch merges and nightly.
+
+### Running Tests
+
+```bash
+# Run critical tests only (~38 tests, ~2 minutes)
+npm run test:e2e:critical
+
+# Run full test suite (133+ tests, ~5 minutes)
+npm run test:e2e:full
+
+# Run default suite (chromium + chromium-unauth)
+npm run test:e2e
+```
+
+### Critical Test Criteria
+
+A test is marked `@critical` if it validates:
+- **Core authentication** - Login, logout, session persistence, protected routes
+- **Primary user journey** - Search → Generate → View flow
+- **Save functionality** - Save to library, view saved items
+- **Basic content display** - Load and display explanations
+- **Critical error handling** - API errors, recovery flows
+
+### Test Tagging Syntax
+
+```typescript
+// Add { tag: '@critical' } to critical tests
+test('should login with valid credentials', { tag: '@critical' }, async ({ page }) => {
+  // ...
+});
+
+// Non-critical tests have no tag
+test('should handle edge case', async ({ page }) => {
+  // ...
+});
+```
+
+### Current Critical Test Distribution
+
+| Spec File | Critical | Total | % Critical |
+|-----------|----------|-------|------------|
+| smoke.spec.ts | 1 | 1 | 100% |
+| 01-auth/auth.spec.ts | 3 | 3 | 100% |
+| auth.unauth.spec.ts | 5 | 12 | 42% |
+| 02-search-generate/search-generate.spec.ts | 5 | 9 | 56% |
+| 02-search-generate/regenerate.spec.ts | 2 | 4 | 50% |
+| 03-library/library.spec.ts | 4 | 10 | 40% |
+| 04-content-viewing/viewing.spec.ts | 4 | 5 | 80% |
+| 04-content-viewing/action-buttons.spec.ts | 3 | 11 | 27% |
+| 04-content-viewing/tags.spec.ts | 2 | 8 | 25% |
+| 05-edge-cases/errors.spec.ts | 2 | 5 | 40% |
+| 06-import/import-articles.spec.ts | 3 | 8 | 38% |
+| 06-ai-suggestions/*.spec.ts | 2 | 56 | 4% |
+| **Total** | **~36** | **~133** | **~27%** |
+
+### CI Configuration
+
+The `chromium-critical` project in `playwright.config.ts` uses the `grep: /@critical/` option to filter tests:
+
+```typescript
+{
+  name: 'chromium-critical',
+  testMatch: /^(?!.*\.unauth\.spec\.ts$).*\.spec\.ts$/,
+  testIgnore: /auth\.setup\.ts/,
+  grep: /@critical/,
+  use: { ...devices['Desktop Chrome'] },
+}
+```
+
+### Future: CI Workflow Split
+
+Recommended CI workflow (Phase 7):
+
+```yaml
+# Run critical tests on PRs (~2 min)
+e2e-critical:
+  if: github.event_name == 'pull_request'
+  run: npm run test:e2e:critical
+
+# Run full suite on main branch (~5 min)
+e2e-full:
+  if: github.ref == 'refs/heads/main'
+  run: npm run test:e2e:full
+```
+
+### Adding New Critical Tests
+
+When adding new E2E tests, consider whether they should be critical:
+
+1. **Does it test a core user journey?** → Mark as `@critical`
+2. **Does it test an edge case or detailed UI behavior?** → Leave untagged
+3. **Would a failure here indicate a major regression?** → Mark as `@critical`
+4. **Is this testing a secondary feature?** → Leave untagged
+
+---

@@ -11,7 +11,7 @@ import { waitForState } from '../../helpers/wait-utils';
 
 test.describe('Search and Generate Flow', () => {
   test.describe('Search Navigation', () => {
-    test('should submit query from home page and redirect to results', async ({ authenticatedPage: page }) => {
+    test('should submit query from home page and redirect to results', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const searchPage = new SearchPage(page);
       const resultsPage = new ResultsPage(page);
 
@@ -73,7 +73,7 @@ test.describe('Search and Generate Flow', () => {
     // Note: SSE streaming is now handled via E2E_TEST_MODE in the API route,
     // which provides real incremental streaming instead of buffered route.fulfill().
 
-    test('should show title during streaming', async ({ authenticatedPage: page }, testInfo) => {
+    test('should show title during streaming', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
       // Firefox is slower with SSE streaming
       if (testInfo.project.name === 'firefox') test.slow();
 
@@ -90,7 +90,7 @@ test.describe('Search and Generate Flow', () => {
       expect(title).toContain('Understanding Quantum Entanglement');
     });
 
-    test('should display full content after streaming completes', async ({ authenticatedPage: page }, testInfo) => {
+    test('should display full content after streaming completes', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
       // Firefox is slower with SSE streaming
       if (testInfo.project.name === 'firefox') test.slow();
 
@@ -154,7 +154,7 @@ test.describe('Search and Generate Flow', () => {
   });
 
   test.describe('Error Handling', () => {
-    test('should handle API error gracefully', async ({ authenticatedPage: page }) => {
+    test('should handle API error gracefully', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
       await mockReturnExplanationAPIError(page, 'Generation failed');
@@ -194,7 +194,7 @@ test.describe('Search and Generate Flow', () => {
   });
 
   test.describe('URL State', () => {
-    test('should preserve query in URL after generation', async ({ authenticatedPage: page }, testInfo) => {
+    test('should preserve query in URL after generation', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
       // Firefox is slower with SSE streaming
       if (testInfo.project.name === 'firefox') test.slow();
 

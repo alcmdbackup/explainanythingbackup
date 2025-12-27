@@ -3,7 +3,7 @@ import { LoginPage } from '../helpers/pages/LoginPage';
 import { waitForState, waitForPageStable } from '../helpers/wait-utils';
 
 test.describe('Unauthenticated User Tests', () => {
-  test('login page loads', async ({ page }) => {
+  test('login page loads', { tag: '@critical' }, async ({ page }) => {
     await page.goto('/login');
 
     // Verify email input is present
@@ -19,7 +19,7 @@ test.describe('Unauthenticated User Tests', () => {
     await expect(submitButton).toBeVisible();
   });
 
-  test('unauthenticated user redirected from protected route', async ({ page }) => {
+  test('unauthenticated user redirected from protected route', { tag: '@critical' }, async ({ page }) => {
     // Navigate to protected route without auth
     await page.goto('/userlibrary');
 
@@ -27,7 +27,7 @@ test.describe('Unauthenticated User Tests', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('should require authentication to access library', async ({ page }) => {
+  test('should require authentication to access library', { tag: '@critical' }, async ({ page }) => {
     // Try accessing library without authentication
     await page.goto('/userlibrary');
 
@@ -46,7 +46,7 @@ test.describe('Unauthenticated User Tests', () => {
     expect(['redirected', 'error', 'loginPrompt', 'loadingStuck', 'timeout']).toContain(state);
   });
 
-  test('should login with valid credentials', async ({ page }) => {
+  test('should login with valid credentials', { tag: '@critical' }, async ({ page }) => {
     console.log('[E2E-DEBUG] Login test starting');
 
     // Capture browser console for debugging
@@ -98,7 +98,7 @@ test.describe('Unauthenticated User Tests', () => {
     expect(isLoggedIn).toBe(true);
   });
 
-  test('should show error with invalid credentials', async ({ page }) => {
+  test('should show error with invalid credentials', { tag: '@critical' }, async ({ page }) => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 

@@ -17,7 +17,7 @@ test.describe('Content Viewing', () => {
     libraryPage = new UserLibraryPage(authenticatedPage);
   });
 
-  test('should load existing explanation by ID from URL', async ({ authenticatedPage }) => {
+  test('should load existing explanation by ID from URL', { tag: '@critical' }, async ({ authenticatedPage }) => {
     // First, we need to get an existing explanation ID from the library
     await authenticatedPage.goto('/userlibrary');
 
@@ -54,7 +54,7 @@ test.describe('Content Viewing', () => {
     expect(hasContent).toBe(true);
   });
 
-  test('should display explanation title', async ({ authenticatedPage }) => {
+  test('should display explanation title', { tag: '@critical' }, async ({ authenticatedPage }) => {
     // Navigate to library first
     await authenticatedPage.goto('/userlibrary');
     const libraryState = await libraryPage.waitForLibraryReady();
@@ -113,7 +113,7 @@ test.describe('Content Viewing', () => {
     expect(typeof hasTags).toBe('boolean');
   });
 
-  test('should show save button state correctly', async ({ authenticatedPage }) => {
+  test('should show save button state correctly', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await authenticatedPage.goto('/userlibrary');
     const libraryState = await libraryPage.waitForLibraryReady();
     if (libraryState === 'error') {
@@ -139,7 +139,7 @@ test.describe('Content Viewing', () => {
     expect(saveButtonExists).toBe(true);
   });
 
-  test('should preserve explanation ID in URL', async ({ authenticatedPage }) => {
+  test('should preserve explanation ID in URL', { tag: '@critical' }, async ({ authenticatedPage }) => {
     await authenticatedPage.goto('/userlibrary');
     const libraryState = await libraryPage.waitForLibraryReady();
     if (libraryState === 'error') {

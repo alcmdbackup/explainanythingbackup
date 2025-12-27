@@ -17,7 +17,7 @@ test.describe('Tag Management', () => {
     libraryPage = new UserLibraryPage(authenticatedPage);
   });
 
-  test('should display existing tags on explanation', async ({ authenticatedPage }) => {
+  test('should display existing tags on explanation', { tag: '@critical' }, async ({ authenticatedPage }) => {
     // Navigate to library first to get an explanation with tags
     await authenticatedPage.goto('/userlibrary');
     const libraryState = await libraryPage.waitForLibraryReady();
@@ -117,7 +117,7 @@ test.describe('Tag Management', () => {
     expect(typeof hasTagInput).toBe('boolean');
   });
 
-  test('should preserve tag state after page refresh', async ({ authenticatedPage }) => {
+  test('should preserve tag state after page refresh', { tag: '@critical' }, async ({ authenticatedPage }) => {
     // Navigate to an explanation
     await authenticatedPage.goto('/userlibrary');
     const libraryState = await libraryPage.waitForLibraryReady();
