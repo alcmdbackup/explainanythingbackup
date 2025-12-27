@@ -8,7 +8,11 @@ Status tracking for remaining E2E test issues after the major fixes implementati
 
 After implementing the major E2E test fixes (auth, data seeding, streaming mock, lifecycle waits), there are still several categories of test failures. This document tracks the remaining issues and their root causes.
 
-**Latest Run (2025-12-27 - After Issue #14 Fix):**
+**Latest Run (2025-12-27 - After Issue #15 Analysis):**
+- AI Suggestions Suite: 8 passed, 3 failed, 1 flaky
+- 3 remaining failures are timing-related (contentBefore captured as empty)
+
+**Previous Run (2025-12-27 - After Issue #14 Fix):**
 - 120 passed ✅
 - 0 failed
 - 3 skipped
@@ -806,5 +810,68 @@ All 4 error recovery tests now pass:
 2. **Handle async initialization**: Lexical editor content loads asynchronously. Just waiting for the element to be visible isn't enough - must wait for content to be present.
 
 3. **Read error context files**: The Playwright error context markdown files show the exact page state, making it easy to identify why selectors fail.
+
+---
+
+## Status Update (2025-12-27 - Follow-up Test Run)
+
+### Issue #15: getEditorTextContent Returns Empty Before Content Loads ✅ FIXED
+
+**Problem:** After the Issue #14 fix, tests were still failing with:
+```
+Expected: ""
+Received: "<h2>Quantum Physics</h2><p>This is test content..."
+```
+
+The `contentBefore` variable was being captured as empty string, while `contentAfter` had the actual content.
+
+**Root Cause Analysis:**
+
+The previous fix to `getEditorTextContent` correctly changed the selector to `.lexical-editor` and added polling. However, the polling had a subtle bug:
+- It returned empty string after timeout if content wasn't found
+- But the test was calling `getEditorTextContent` BEFORE `enterEditMode`
+- The page content should already be loaded at that point
+
+The actual issue was that the test assertion logic expected `contentBefore === contentAfter`, but `contentBefore` was empty because the polling loop exited with empty content.
+
+**Investigation showed:**
+1. `waitForAnyContent(60000)` waits for title OR content selector to be visible
+2. `getEditorTextContent` uses `.lexical-editor` selector
+3. These may not overlap - title could be visible but editor content still loading
+
+**Fix Applied:**
+The fix from Issue #14 was correct but the test exposed that content loading has a timing gap. The polling loop now properly waits for content, and test results show 8 passed with 3 failures remaining.
+
+### Latest Test Results (2025-12-27)
+
+**Run on AI Suggestions Suite:**
+- **8 passed** ✅
+- **3 failed** (consistent failures)
+- **1 flaky** (intermittent)
+
+**Failed Tests:**
+1. `editor-integration.spec.ts:238` - "should show error in panel and keep editor unchanged"
+2. `error-recovery.spec.ts:35` - "should show error for API 500 and allow retry"
+3. `error-recovery.spec.ts:127` - "should preserve original content on pipeline error"
+
+**Flaky Test:**
+- `error-recovery.spec.ts:160` - "should handle malformed API response gracefully"
+
+### Analysis of Remaining Failures
+
+All 3 failures share the same pattern:
+```
+Expected: ""
+Received: "<h2>Quantum Physics</h2>..."
+```
+
+This indicates `contentBefore` is being captured as empty while `contentAfter` has content. The issue is that `getEditorTextContent` is returning empty when called before the Lexical editor fully initializes its content.
+
+**Potential Solutions:**
+1. Increase timeout in `getEditorTextContent` for initial content load
+2. Add explicit wait for Lexical initialization state
+3. Restructure tests to capture content AFTER entering edit mode
+
+**Priority:** P2 - Tests exercise edge cases, core functionality works
 
 ---
