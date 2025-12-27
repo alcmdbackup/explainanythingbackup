@@ -199,9 +199,15 @@ e2e-test:
 
 ---
 
-## Phase 3: CI Workflow Updates (0.5 days)
+## Phase 3: CI Workflow Updates (0.5 days) ✅ COMPLETE
 
 **Objective:** Run critical tests on PRs, full suite on main.
+
+**Status:** Implemented on 2025-12-27
+- Created `e2e-critical` job for PRs (no sharding, ~36 tests)
+- Created `e2e-full` job for main branch (sharded 4x)
+- Added TEST_USER_ID to environment variables
+- Both jobs depend on integration-tests completing first
 
 ### 3.1 Update CI Workflow
 
@@ -268,10 +274,10 @@ jobs:
 
 ### 3.3 Deliverables
 
-- [ ] Update ci.yml with critical/full split
-- [ ] Add appropriate job conditions
-- [ ] Test PR workflow
-- [ ] Test main branch workflow
+- [x] Update ci.yml with critical/full split
+- [x] Add appropriate job conditions
+- [ ] Test PR workflow (requires CI run)
+- [ ] Test main branch workflow (requires CI run)
 
 ---
 
