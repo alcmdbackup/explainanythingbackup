@@ -8,10 +8,10 @@ Status tracking for remaining E2E test issues after the major fixes implementati
 
 After implementing the major E2E test fixes (auth, data seeding, streaming mock, lifecycle waits), there are still several categories of test failures. This document tracks the remaining issues and their root causes.
 
-**Latest Run (2025-12-27):**
-- ~16 failed (after retries)
-- ~50+ flaky (pass on retry)
-- ~50+ passed
+**Latest Run (2025-12-27 - After Issue #12 and #13 Fixes):**
+- 116 passed ✅
+- 4 failed (pre-existing error recovery issues)
+- 3 skipped
 
 **Status Update (2025-12-26):**
 All 5 issue categories have been fixed in commit `2332e88`. See "Fixed Issues" section below for details.
@@ -656,4 +656,73 @@ waiting for locator('[data-testid="add-tag-trigger"]') to be visible
 2. **Add data-testid to diff accept/reject buttons** - If not already present
 
 ### Short-term (P2)
-3. **Debug add-tag-trigger** - Investigate why element isn't visible after previous fix
+3. ~~**Debug add-tag-trigger** - Investigate why element isn't visible after previous fix~~ ✅ Fixed
+
+---
+
+## Status Update (2025-12-27 - Issue #12 and #13 Resolved)
+
+**Commit:** `6d13590` - fix(e2e): resolve tag seeding and diff button selector issues
+
+### Issue #12: clickAcceptOnFirstDiff Selector Too Broad ✅ FIXED
+
+**Problem:** The selector `button:has-text("✓")` was matching the "Saved ✓" button instead of the diff accept button.
+
+**Fix Applied:**
+- Changed `clickAcceptOnFirstDiff` to use `button[data-action="accept"]` selector
+- Changed `clickRejectOnFirstDiff` to use `button[data-action="reject"]` selector
+- These data-action attributes are specific to the diff UI buttons
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:224-236`
+
+### Issue #13: Add Tag Trigger Timeout ✅ FIXED
+
+**Root Cause Identified:** Tags weren't being loaded for seeded explanations because:
+1. The `seedTestExplanation` function in `global-setup.ts` returned early when explanation already exists, without ensuring tags were associated
+2. The `explanation_tags` insert didn't explicitly set `isDeleted: false`
+3. Soft-deleted tag associations weren't being reactivated
+4. The TagBar component returns `null` when there are no tags, making the "Add tag" trigger invisible
+
+**Fix Applied:**
+- Created `ensureTagAssociated` helper function in `global-setup.ts` that:
+  - Creates or gets the test tag with proper `tag_description`
+  - Checks for existing associations (including soft-deleted ones)
+  - Reactivates soft-deleted associations
+  - Creates new associations with explicit `isDeleted: false`
+- Added call to `ensureTagAssociated` in both code paths (new explanation and existing explanation)
+
+**Files Modified:**
+- `src/__tests__/e2e/setup/global-setup.ts:9-60` (new ensureTagAssociated function)
+- `src/__tests__/e2e/setup/global-setup.ts:148-149` (call for existing explanations)
+
+### Additional Fix: Cancel Button Click Reliability
+
+**Problem:** The cancel button click in tag input wasn't reliably hiding the input due to React state timing issues.
+
+**Fix Applied:**
+- Added retry logic to `clickCancelAddTag` helper
+- First click attempt with 2s timeout for input to hide
+- If first click doesn't register, retry click with 3s timeout
+- Improved `clickAddTagTrigger` to handle both trigger and input states
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/pages/ResultsPage.ts:573-593` (clickAddTagTrigger)
+- `src/__tests__/e2e/helpers/pages/ResultsPage.ts:636-650` (clickCancelAddTag)
+
+### Test Results After Fixes
+
+**Run on Chromium:**
+- **116 passed** ✅
+- **4 failed** (pre-existing error recovery test issues)
+- **3 skipped**
+
+**Remaining Failures (Pre-existing, unrelated to fixes):**
+1. `editor-integration.spec.ts:238` - "should show error in panel and keep editor unchanged"
+2. `error-recovery.spec.ts:35` - "should show error for API 500 and allow retry"
+3. `error-recovery.spec.ts:127` - "should preserve original content on pipeline error"
+4. `error-recovery.spec.ts:160` - "should handle malformed API response gracefully"
+
+These are error recovery scenario tests that have timing issues with editor content loading. They are not regressions from the fixes applied.
+
+---
