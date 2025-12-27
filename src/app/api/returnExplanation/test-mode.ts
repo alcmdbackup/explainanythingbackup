@@ -12,15 +12,27 @@ interface Scenario {
   events: SSEEvent[];
 }
 
+// Counter for generating incrementing mock IDs
+let mockExplanationIdCounter = 90000;
+
 // Generate a mock result that matches production schema
 function createMockResult() {
+  const explanationId = mockExplanationIdCounter++;
   return {
-    id: randomUUID(),
-    title: 'Test Explanation Title',
-    content: '<p>This is mock explanation content for E2E testing.</p>',
-    topic: 'Test Topic',
-    isMatch: false,
-    matchScore: 0,
+    originalUserInput: 'test query',
+    match_found: false,
+    error: null,
+    explanationId: explanationId, // Required for redirect after streaming
+    matches: [],
+    data: {
+      id: explanationId,
+      title: 'Test Explanation Title',
+      content: '<p>This is mock explanation content for E2E testing.</p>',
+      topic: 'Test Topic',
+      isMatch: false,
+      matchScore: 0,
+    },
+    userQueryId: explanationId + 1000,
     is_saved: false,
   };
 }

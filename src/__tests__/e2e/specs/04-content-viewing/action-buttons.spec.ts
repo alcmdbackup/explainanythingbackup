@@ -271,7 +271,7 @@ test.describe('Action Buttons', () => {
 
       // Verify mode was changed
       const selectedMode = await resultsPage.getSelectedMode();
-      expect(selectedMode).toBe('skip');
+      expect(selectedMode).toBe('skipMatch');
     });
 
     test('should change mode to Force Match', async ({ authenticatedPage }) => {
@@ -297,7 +297,7 @@ test.describe('Action Buttons', () => {
 
       // Verify mode was changed
       const selectedMode = await resultsPage.getSelectedMode();
-      expect(selectedMode).toBe('force');
+      expect(selectedMode).toBe('forceMatch');
     });
   });
 

@@ -544,3 +544,133 @@ Call log:
 2. Improve server stability - reduce workers or add health checks
 3. Fix import articles tests (dependent on server stability)
 4. CI secrets configuration
+
+---
+
+### Run 6: 2025-12-27 (Mock Action Fixes)
+
+**Session Focus:** Fix database errors for mock explanation IDs (>= 90000)
+
+**Problem Identified:**
+After streaming completes with mock data, the page redirects to `/results?explanation_id=90000`. The page then tries to load this explanation from the database, which fails because mock IDs don't exist in DB. This caused:
+- Supabase error displayed: `{code: ..., details: ..., hint: Null, message: ...}`
+- No explanation content shown
+- Save/Edit buttons not visible
+
+**Root Cause:**
+Mock streaming returns `explanationId: 90000+` which triggers:
+1. `getExplanationByIdAction(90000)` → DB error (not found)
+2. `resolveLinksForDisplayAction(90000, content)` → DB error
+3. `isExplanationSavedByUserAction(90000, userid)` → DB error
+4. `getTagsForExplanationAction(90000)` → DB error
+5. `loadFromPineconeUsingExplanationIdAction(90000)` → Pinecone error
+6. `saveExplanationToLibraryAction(90000, userid)` → DB error
+
+**Fixes Applied to `src/actions/actions.ts`:**
+
+1. **`_getExplanationByIdAction`** (lines 370-385):
+   ```typescript
+   // E2E test mode: return mock data for mock IDs (>= 90000)
+   if (process.env.E2E_TEST_MODE === 'true' && params.id >= 90000) {
+       return {
+           id: params.id,
+           timestamp: new Date().toISOString(),
+           explanation_title: 'Test Explanation Title',
+           content: '<p>This is mock explanation content for E2E testing.</p>',
+           primary_topic_id: 1,
+           secondary_topic_id: undefined,
+           status: ExplanationStatus.Published,
+       };
+   }
+   ```
+
+2. **`_resolveLinksForDisplayAction`** (lines 400-410):
+   ```typescript
+   // E2E test mode: skip link resolution for mock IDs
+   if (process.env.E2E_TEST_MODE === 'true' && params.explanationId >= 90000) {
+       return params.content;
+   }
+   ```
+
+3. **`_isExplanationSavedByUserAction`** (lines 492-498):
+   ```typescript
+   // E2E test mode: mock IDs are never saved initially
+   if (process.env.E2E_TEST_MODE === 'true' && params.explanationid >= 90000) {
+       return false;
+   }
+   ```
+
+4. **`_saveExplanationToLibraryAction`** (lines 477-483):
+   ```typescript
+   // E2E test mode: return success for mock IDs without hitting DB
+   if (process.env.E2E_TEST_MODE === 'true' && params.explanationid >= 90000) {
+       return { explanationid: params.explanationid, userid: params.userid };
+   }
+   ```
+
+5. **`_getTagsForExplanationAction`** (lines 833-840):
+   ```typescript
+   // E2E test mode: return empty tags for mock IDs
+   if (process.env.E2E_TEST_MODE === 'true' && params.explanationId >= 90000) {
+       return {
+           success: true,
+           data: [],
+           error: null
+       };
+   }
+   ```
+
+6. **`_loadFromPineconeUsingExplanationIdAction`** (lines 1073-1080):
+   ```typescript
+   // E2E test mode: return null (no vector) for mock IDs
+   if (process.env.E2E_TEST_MODE === 'true' && params.explanationId >= 90000) {
+       return {
+           success: true,
+           data: null,
+           error: null
+       };
+   }
+   ```
+
+**Previous Fixes (still in place):**
+
+1. **Mode Dropdown assertions** (`action-buttons.spec.ts` lines 274, 300):
+   - Changed `'skip'` to `'skipMatch'` and `'force'` to `'forceMatch'`
+   - These match the actual `MatchMode` enum values
+
+2. **AI Suggestions selector** (`suggestions-test-helpers.ts` lines 211-214):
+   ```typescript
+   // Try contenteditable first (edit mode), fall back to editor container (read-only mode)
+   const editor = page.locator('[contenteditable="true"]').or(
+     page.locator('[data-testid="lexical-editor"]')
+   );
+   ```
+
+**Test Results (partial run before interruption):**
+
+```
+Running 11 tests using 4 workers
+
+  4 failed
+  7 passed (1.2m)
+
+Failed:
+  - should save explanation to library when save button clicked
+  - should show already saved state for existing saved explanations
+  - should enter edit mode when edit button clicked
+  - should exit edit mode when done button clicked
+```
+
+**Progress:**
+- Mode dropdown tests now pass (2 tests fixed)
+- DB error no longer displayed
+- 4 remaining failures are Edit Mode related (button stays "Edit" instead of "Done")
+
+**Remaining Issues:**
+1. Edit mode toggle not working - clicking Edit button doesn't enter edit mode
+2. Save button shows "Save" instead of "Saved" for already-saved explanations
+
+**Next Steps:**
+1. Debug why `handleEditModeToggle` doesn't dispatch `ENTER_EDIT_MODE`
+2. Check if lifecycle phase is correct when Edit is clicked
+3. Verify `isEditMode` derived state is working correctly

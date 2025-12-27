@@ -207,9 +207,13 @@ export async function getAllDiffTexts(page: Page): Promise<string[]> {
 
 /**
  * Gets the text content from the editor (excluding diff controls).
+ * Works in both edit mode (contenteditable) and read-only mode.
  */
 export async function getEditorTextContent(page: Page): Promise<string> {
-  const editor = page.locator('[contenteditable="true"]');
+  // Try contenteditable first (edit mode), fall back to editor container (read-only mode)
+  const editor = page.locator('[contenteditable="true"]').or(
+    page.locator('[data-testid="lexical-editor"]')
+  );
   return await editor.textContent() ?? '';
 }
 

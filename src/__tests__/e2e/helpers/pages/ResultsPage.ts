@@ -59,6 +59,13 @@ export class ResultsPage extends BasePage {
   async waitForStreamingComplete(timeout = 60000) {
     // Wait for element to be attached (not visible, since it has hidden class)
     await this.page.locator(this.streamCompleteIndicator).waitFor({ state: 'attached', timeout });
+
+    // After streaming completes, the page redirects to include explanation_id in URL
+    // Wait for the redirect to complete so buttons become enabled
+    await this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout: timeout / 2 });
+
+    // Wait a moment for state to settle after redirect
+    await this.page.waitForTimeout(500);
   }
 
   async isStreamComplete() {
