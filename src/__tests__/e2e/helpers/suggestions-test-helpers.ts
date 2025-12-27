@@ -208,12 +208,25 @@ export async function getAllDiffTexts(page: Page): Promise<string[]> {
 /**
  * Gets the text content from the editor (excluding diff controls).
  * Works in both edit mode (contenteditable) and read-only mode.
+ * Waits for content to be present in the editor before returning.
  */
-export async function getEditorTextContent(page: Page): Promise<string> {
-  // Try contenteditable first (edit mode), fall back to editor container (read-only mode)
-  const editor = page.locator('[contenteditable="true"]').or(
-    page.locator('[data-testid="lexical-editor"]')
-  );
+export async function getEditorTextContent(page: Page, timeout = 10000): Promise<string> {
+  // Use .lexical-editor class which is always present on the ContentEditable component
+  // This works in both edit mode and read-only mode
+  const editor = page.locator('.lexical-editor');
+  await editor.waitFor({ state: 'visible', timeout });
+
+  // Wait for content to actually be present (Lexical initializes async)
+  const startTime = Date.now();
+  while (Date.now() - startTime < timeout) {
+    const content = await editor.textContent() ?? '';
+    if (content.trim().length > 0) {
+      return content;
+    }
+    await page.waitForTimeout(100);
+  }
+
+  // Return whatever we have after timeout (may be empty)
   return await editor.textContent() ?? '';
 }
 
