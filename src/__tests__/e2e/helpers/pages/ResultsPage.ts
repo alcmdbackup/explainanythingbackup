@@ -61,8 +61,22 @@ export class ResultsPage extends BasePage {
     // The redirect is the reliable signal (stream-complete indicator may race with router.push)
     await this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout });
 
-    // Wait for state to settle after redirect
-    await this.page.waitForTimeout(500);
+    // Wait for page to fully load after redirect
+    // The data-user-saved-loaded attribute is set when loadExplanation completes
+    try {
+      await this.page.waitForSelector('[data-testid="save-to-library"][data-user-saved-loaded="true"]', {
+        timeout: 30000
+      });
+    } catch {
+      // Fallback: wait for title or content to appear
+      await Promise.race([
+        this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout: 10000 }),
+        this.page.locator(this.explanationContent).waitFor({ state: 'visible', timeout: 10000 }),
+      ]).catch(() => {
+        // If both fail, just wait a bit and continue
+      });
+      await this.page.waitForTimeout(1000);
+    }
 
     // Optionally verify stream-complete indicator is attached (should be present after redirect)
     try {

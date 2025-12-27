@@ -42,15 +42,15 @@ const scenarios: Record<ScenarioName, Scenario> = {
       { type: 'streaming_start', isStreaming: true },
       {
         type: 'progress',
-        step: 'searching',
+        stage: 'searching_matches',  // Use 'stage' to match client expectations (page.tsx:389)
         message: 'Searching for matches...',
         isStreaming: true,
         isComplete: false,
       },
       {
         type: 'progress',
-        step: 'generating',
-        message: 'Generating explanation...',
+        stage: 'title_generated',  // Send title during streaming for UI display
+        title: 'Test Explanation Title',
         isStreaming: true,
         isComplete: false,
       },
@@ -67,8 +67,15 @@ const scenarios: Record<ScenarioName, Scenario> = {
       { type: 'streaming_start', isStreaming: true },
       {
         type: 'progress',
-        step: 'searching',
+        stage: 'searching_matches',
         message: 'Searching...',
+        isStreaming: true,
+        isComplete: false,
+      },
+      {
+        type: 'progress',
+        stage: 'title_generated',
+        title: 'Test Explanation Title',
         isStreaming: true,
         isComplete: false,
       },
@@ -100,8 +107,8 @@ const scenarios: Record<ScenarioName, Scenario> = {
       { type: 'streaming_start', isStreaming: true },
       {
         type: 'progress',
-        step: 'generating',
-        message: 'Generating...',
+        stage: 'title_generated',
+        title: 'Test Explanation Title',
         isStreaming: true,
         isComplete: false,
       },

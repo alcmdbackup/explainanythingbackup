@@ -22,6 +22,18 @@ Additional fixes applied in commit `e217339`:
 - Improved `enterEditMode()` reliability with force click and retry logic
 - Streaming tests now pass when run in isolation with 1 worker
 
+**Status Update (2025-12-27 - Systematic Debugging Session):**
+Used systematic debugging to resolve the Playwright mock vs server-side mock conflict. Four additional issues identified and fixed:
+- Mock handler title mismatch (issues #8)
+- Server-side mock progress event format (issue #9)
+- Missing getUserQueryByIdAction mock handler (issue #10)
+- waitForStreamingComplete not waiting for page load (issue #11)
+
+**Test Results After Fixes:**
+- `search-generate.spec.ts`: 13 passed, 2 skipped ✅
+- `action-buttons.spec.ts`: 11 passed ✅
+- Playwright mock vs server-side mock conflict: **RESOLVED**
+
 ---
 
 ## Issue Categories
@@ -306,6 +318,55 @@ All 5 issue categories have been addressed:
 **Files Modified:**
 - `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:262-289` (enterEditMode function)
 
+### 8. Mock Handler Title Mismatch ✅ (2025-12-27)
+
+**Root Cause:** The mock handler in `actions.ts:_getExplanationByIdAction` returned "Test Explanation Title" for ALL mock IDs >= 90000. When Playwright mock set a different title during streaming (e.g., "Understanding Quantum Entanglement"), the page redirect would load the explanation via `getExplanationByIdAction(90001)` which would overwrite the title with the hardcoded value.
+
+**Fix Applied:**
+- Updated `_getExplanationByIdAction` mock handler to return ID-specific titles:
+  - 90001: "Understanding Quantum Entanglement" (matches `defaultMockExplanation`)
+  - 90002: "Brief Explanation" (matches `shortMockExplanation`)
+  - Other IDs: "Test Explanation Title" (fallback for server-side mock)
+- Also added matching content for these IDs
+
+**Files Modified:**
+- `src/actions/actions.ts:373-408` (mock handler)
+
+### 9. Server-Side Mock Progress Event Format ✅ (2025-12-27)
+
+**Root Cause:** The server-side mock in `test-mode.ts` used `step` property but the client code at `page.tsx:389` expected `stage`. Also, no `title_generated` event was sent, so titles weren't displayed during streaming.
+
+**Fix Applied:**
+- Changed `step` to `stage` in all progress events
+- Added `stage: 'title_generated'` event with title to all scenarios
+- This ensures titles display during streaming when server-side mock is used
+
+**Files Modified:**
+- `src/app/api/returnExplanation/test-mode.ts:38-124` (all scenarios)
+
+### 10. Missing getUserQueryByIdAction Mock Handler ✅ (2025-12-27)
+
+**Root Cause:** After streaming, the mock returns `userQueryId = explanationId + 1000` (e.g., 91000). When the page loads this userQueryId, `getUserQueryByIdAction(91000)` was called without a mock handler, causing PGRST116 errors.
+
+**Fix Applied:**
+- Added mock handler in `_getUserQueryByIdAction` for IDs >= 91000
+- Returns mock data with proper structure matching the real query
+
+**Files Modified:**
+- `src/actions/actions.ts:575-592` (getUserQueryByIdAction mock handler)
+
+### 11. waitForStreamingComplete Not Waiting for Page Load ✅ (2025-12-27)
+
+**Root Cause:** After streaming redirect, `waitForStreamingComplete` only waited for URL change, not for page data to load. The save button was still disabled because `loadExplanation` hadn't completed yet.
+
+**Fix Applied:**
+- Updated `waitForStreamingComplete` to wait for `data-user-saved-loaded="true"` attribute
+- This ensures the page has fully loaded after redirect before tests continue
+- Added fallback to wait for title/content visibility if attribute check times out
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/pages/ResultsPage.ts:59-87` (waitForStreamingComplete)
+
 ---
 
 ## Remaining Known Issues
@@ -319,11 +380,13 @@ Even with 1 worker, ECONNRESET errors still occur intermittently. This appears t
 - Add health checks before each test
 - Increase server memory allocation
 
-### Playwright Mock vs Server-Side Test Mode Conflict
+### Playwright Mock vs Server-Side Test Mode Conflict ✅ RESOLVED
 
-When `E2E_TEST_MODE=true`, the server-side `test-mode.ts` returns mock responses, which can conflict with Playwright route intercepts. Tests that rely on Playwright mocks may receive server-side mock data instead.
+~~When `E2E_TEST_MODE=true`, the server-side `test-mode.ts` returns mock responses, which can conflict with Playwright route intercepts. Tests that rely on Playwright mocks may receive server-side mock data instead.~~
 
-**Example:** "should show title during streaming" expects "Understanding Quantum Entanglement" from Playwright mock but receives "Test Explanation Title" from server-side mock.
+~~**Example:** "should show title during streaming" expects "Understanding Quantum Entanglement" from Playwright mock but receives "Test Explanation Title" from server-side mock.~~
+
+**Resolution:** Fixed by making mock handlers return ID-specific data that matches Playwright mock expectations. The server-side mock now properly sends title during streaming, and the `getExplanationByIdAction` mock returns matching titles for specific IDs.
 
 ---
 
@@ -361,3 +424,120 @@ E2E_TEST_MODE=true npx playwright test -g "should show already saved" --project=
 ```bash
 E2E_TEST_MODE=true npx playwright test src/__tests__/e2e/specs/04-content-viewing/action-buttons.spec.ts --project=chromium --workers=1
 ```
+
+---
+
+## Systematic Debugging Session (2025-12-27)
+
+This section documents the systematic debugging approach used to resolve the remaining E2E test issues.
+
+### Problem Statement
+
+Tests were failing with the error: "should show title during streaming" expects "Understanding Quantum Entanglement" but receives "Test Explanation Title". Additionally, save button tests were failing because the button remained disabled after streaming.
+
+### Root Cause Analysis
+
+**Phase 1: Evidence Gathering**
+
+Traced the data flow from Playwright mock → server-side mock → client → database mock handlers:
+
+1. Playwright mock (`api-mocks.ts`) sends title "Understanding Quantum Entanglement" with ID 90001
+2. Server-side mock (`test-mode.ts`) sends title "Test Explanation Title" with IDs starting at 90000
+3. After streaming redirect, `loadExplanation` calls `getExplanationByIdAction(90001)`
+4. Mock handler returned hardcoded "Test Explanation Title" for ALL IDs >= 90000
+
+**Phase 2: Pattern Analysis**
+
+Compared the two mock implementations:
+
+| Aspect | Playwright Mock | Server-Side Mock |
+|--------|-----------------|------------------|
+| Title | "Understanding Quantum Entanglement" | "Test Explanation Title" |
+| ID | 90001 (fixed) | 90000+ (incrementing) |
+| Progress event | `stage: 'title_generated'` | `step: 'searching'` (wrong) |
+| userQueryId | 91001 | 91000+ |
+
+**Phase 3: Hypothesis Testing**
+
+Hypothesis: Multiple mock handlers were returning generic data instead of ID-specific data, causing title overwrites and PGRST116 database errors.
+
+### Issues Identified and Fixed
+
+#### Issue #8: Mock Handler Title Mismatch
+
+**Problem:** `getExplanationByIdAction` returned "Test Explanation Title" for all mock IDs.
+
+**Solution:** Added ID-specific title and content mapping:
+```typescript
+const mockTitles: Record<number, string> = {
+    90001: 'Understanding Quantum Entanglement',
+    90002: 'Brief Explanation',
+};
+```
+
+**File:** `src/actions/actions.ts:373-408`
+
+#### Issue #9: Server-Side Mock Progress Event Format
+
+**Problem:** Used `step` property but client expected `stage`. No `title_generated` event.
+
+**Solution:** Changed all progress events to use `stage` and added `title_generated` events:
+```typescript
+{
+    type: 'progress',
+    stage: 'title_generated',  // Was 'step: searching'
+    title: 'Test Explanation Title',
+}
+```
+
+**File:** `src/app/api/returnExplanation/test-mode.ts:38-124`
+
+#### Issue #10: Missing getUserQueryByIdAction Mock
+
+**Problem:** After streaming returns `userQueryId: 91000`, page calls `getUserQueryById(91000)` which had no mock handler, causing PGRST116 errors.
+
+**Solution:** Added mock handler for IDs >= 91000:
+```typescript
+if (process.env.E2E_TEST_MODE === 'true' && params.id >= 91000) {
+    return {
+        id: params.id,
+        user_query: 'test query',
+        explanation_id: params.id - 1000,
+        // ... other fields
+    };
+}
+```
+
+**File:** `src/actions/actions.ts:575-592`
+
+#### Issue #11: waitForStreamingComplete Not Waiting for Page Load
+
+**Problem:** Only waited for URL change, not for data to load. Save button remained disabled.
+
+**Solution:** Added wait for `data-user-saved-loaded="true"` attribute:
+```typescript
+await this.page.waitForSelector(
+    '[data-testid="save-to-library"][data-user-saved-loaded="true"]',
+    { timeout: 30000 }
+);
+```
+
+**File:** `src/__tests__/e2e/helpers/pages/ResultsPage.ts:59-87`
+
+### Verification
+
+After fixes:
+- `search-generate.spec.ts`: **13 passed**, 2 skipped
+- `action-buttons.spec.ts`: **11 passed**
+- No more PGRST116 errors for mock IDs
+- Title displays correctly during and after streaming
+
+### Lessons Learned
+
+1. **Mock data must be consistent across layers**: When multiple mocks exist (Playwright, server-side, database action handlers), they must return consistent data for the same IDs.
+
+2. **Property names matter**: `stage` vs `step` caused silent failures where the client ignored progress events.
+
+3. **Wait for observable state, not just URL**: After redirect, the page needs time to load data. Waiting for specific DOM attributes (like `data-user-saved-loaded`) is more reliable than fixed timeouts.
+
+4. **Trace data flow end-to-end**: The bug wasn't in one place—it was a chain of mismatched data across 4 different files.
