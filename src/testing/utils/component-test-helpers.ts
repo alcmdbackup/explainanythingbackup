@@ -4,7 +4,7 @@
  */
 
 import { faker } from '@faker-js/faker';
-import type { FeedbackModeState } from '@/reducers/tagModeReducer';
+import type { TagModeState } from '@/reducers/tagModeReducer';
 import type { SimpleTagUIType, PresetTagUIType, TagUIType } from '@/lib/schemas/schemas';
 
 // ============================================================================
@@ -58,27 +58,27 @@ export const createMockPresetTag = (overrides: Partial<PresetTagUIType> = {}): P
 };
 
 // ============================================================================
-// FeedbackModeState Mock Factory
+// TagModeState Mock Factory
 // ============================================================================
 
 /**
- * Creates a mock FeedbackModeState for testing TagBar
+ * Creates a mock TagModeState for testing TagBar
  */
-export const createMockTagState = (overrides: any = {}): FeedbackModeState => {
+export const createMockTagState = (overrides: any = {}): TagModeState => {
   const mode = overrides.mode || 'normal';
 
-  if (mode === 'rewriteWithFeedback') {
+  if (mode === 'rewriteWithTags') {
     return {
-      mode: 'rewriteWithFeedback',
+      mode: 'rewriteWithTags',
       tempTags: overrides.tags || overrides.tempTags || [],
       originalTags: overrides.originalTags || [],
       showRegenerateDropdown: false,
     };
   }
 
-  if (mode === 'editWithFeedback') {
+  if (mode === 'editWithTags') {
     return {
-      mode: 'editWithFeedback',
+      mode: 'editWithTags',
       tags: overrides.tags || [],
       originalTags: overrides.originalTags || [],
       showRegenerateDropdown: false,
@@ -159,8 +159,8 @@ export const createMockAISuggestionsPanelProps = (overrides: Record<string, unkn
         focus: jest.fn(),
       },
     },
-    dispatch: jest.fn(),
-    isStreaming: false,
+    onContentChange: jest.fn(),
+    onEnterEditMode: jest.fn(),
     sessionData: undefined,
     ...restOverrides,
   };

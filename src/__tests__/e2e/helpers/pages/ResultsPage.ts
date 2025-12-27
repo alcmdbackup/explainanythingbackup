@@ -16,8 +16,8 @@ export class ResultsPage extends BasePage {
   private errorMessage = '[data-testid="error-message"]';
   private rewriteButton = '[data-testid="rewrite-button"]';
   private rewriteDropdownToggle = '[data-testid="rewrite-dropdown-toggle"]';
-  private rewriteWithFeedback = '[data-testid="rewrite-with-feedback"]';
-  private editWithFeedback = '[data-testid="edit-with-feedback"]';
+  private rewriteWithTags = '[data-testid="rewrite-with-tags"]';
+  private editWithTags = '[data-testid="edit-with-tags"]';
   private formatToggleButton = '[data-testid="format-toggle-button"]';
   private editButton = '[data-testid="edit-button"]';
   private publishButton = '[data-testid="publish-button"]';
@@ -325,17 +325,17 @@ export class ResultsPage extends BasePage {
   }
 
   async isRewriteDropdownVisible(): Promise<boolean> {
-    return await this.page.isVisible(this.rewriteWithFeedback);
+    return await this.page.isVisible(this.rewriteWithTags);
   }
 
-  async clickRewriteWithFeedback() {
-    const button = this.page.locator(this.rewriteWithFeedback);
+  async clickRewriteWithTags() {
+    const button = this.page.locator(this.rewriteWithTags);
     await button.waitFor({ state: 'visible' });
     await button.click();
   }
 
-  async clickEditWithFeedback() {
-    const button = this.page.locator(this.editWithFeedback);
+  async clickEditWithTags() {
+    const button = this.page.locator(this.editWithTags);
     await button.waitFor({ state: 'visible' });
     await button.click();
   }

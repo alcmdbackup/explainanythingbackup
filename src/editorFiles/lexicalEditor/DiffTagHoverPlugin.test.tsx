@@ -27,7 +27,13 @@ jest.mock('./DiffTagNode', () => ({
   DiffTagNodeBlock: class DiffTagNodeBlock {},
 }));
 
+jest.mock('./diffTagMutations', () => ({
+  acceptDiffTag: jest.fn(),
+  rejectDiffTag: jest.fn(),
+}));
+
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
+import { acceptDiffTag, rejectDiffTag } from './diffTagMutations';
 
 // ============= Test Helpers =============
 
@@ -193,9 +199,8 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
     mockNodesOfType.mockReturnValue([]);
   });
 
-  it('should call onQueueMutation with accept when accept button is clicked', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+  it('should call acceptDiffTag when accept button is clicked', () => {
+    render(<DiffTagHoverPlugin />);
 
     // Create a button with data attributes
     const acceptBtn = document.createElement('button');
@@ -207,13 +212,12 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true });
     acceptBtn.dispatchEvent(clickEvent);
 
-    expect(onQueueMutation).toHaveBeenCalledWith('node-123', 'accept');
+    expect(acceptDiffTag).toHaveBeenCalledWith(mockEditor, 'node-123');
     mockEditor._rootElement.removeChild(acceptBtn);
   });
 
-  it('should call onQueueMutation with reject when reject button is clicked', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+  it('should call rejectDiffTag when reject button is clicked', () => {
+    render(<DiffTagHoverPlugin />);
 
     // Create a button with data attributes
     const rejectBtn = document.createElement('button');
@@ -225,13 +229,12 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true });
     rejectBtn.dispatchEvent(clickEvent);
 
-    expect(onQueueMutation).toHaveBeenCalledWith('node-456', 'reject');
+    expect(rejectDiffTag).toHaveBeenCalledWith(mockEditor, 'node-456');
     mockEditor._rootElement.removeChild(rejectBtn);
   });
 
-  it('should not call onQueueMutation for clicks without data attributes', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+  it('should not call accept/reject for clicks without data attributes', () => {
+    render(<DiffTagHoverPlugin />);
 
     // Create a regular element without data attributes
     const otherElement = document.createElement('span');
@@ -241,13 +244,13 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true });
     otherElement.dispatchEvent(clickEvent);
 
-    expect(onQueueMutation).not.toHaveBeenCalled();
+    expect(acceptDiffTag).not.toHaveBeenCalled();
+    expect(rejectDiffTag).not.toHaveBeenCalled();
     mockEditor._rootElement.removeChild(otherElement);
   });
 
-  it('should not call onQueueMutation for elements with only action attribute', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+  it('should not call accept/reject for elements with only action attribute', () => {
+    render(<DiffTagHoverPlugin />);
 
     // Create element with only action, no node-key
     const element = document.createElement('button');
@@ -258,13 +261,12 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true });
     element.dispatchEvent(clickEvent);
 
-    expect(onQueueMutation).not.toHaveBeenCalled();
+    expect(acceptDiffTag).not.toHaveBeenCalled();
     mockEditor._rootElement.removeChild(element);
   });
 
-  it('should not call onQueueMutation for elements with only node-key attribute', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+  it('should not call accept/reject for elements with only node-key attribute', () => {
+    render(<DiffTagHoverPlugin />);
 
     // Create element with only node-key, no action
     const element = document.createElement('button');
@@ -275,13 +277,13 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true });
     element.dispatchEvent(clickEvent);
 
-    expect(onQueueMutation).not.toHaveBeenCalled();
+    expect(acceptDiffTag).not.toHaveBeenCalled();
+    expect(rejectDiffTag).not.toHaveBeenCalled();
     mockEditor._rootElement.removeChild(element);
   });
 
   it('should prevent default and stop propagation on button click', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+    render(<DiffTagHoverPlugin />);
 
     const acceptBtn = document.createElement('button');
     acceptBtn.setAttribute('data-action', 'accept');
@@ -296,21 +298,6 @@ describe('DiffTagHoverPlugin - Event Delegation', () => {
 
     expect(preventDefaultSpy).toHaveBeenCalled();
     expect(stopPropagationSpy).toHaveBeenCalled();
-    mockEditor._rootElement.removeChild(acceptBtn);
-  });
-
-  it('should work without onQueueMutation callback', () => {
-    render(<DiffTagHoverPlugin />);
-
-    const acceptBtn = document.createElement('button');
-    acceptBtn.setAttribute('data-action', 'accept');
-    acceptBtn.setAttribute('data-node-key', 'node-123');
-    mockEditor._rootElement.appendChild(acceptBtn);
-
-    // Should not throw
-    const clickEvent = new MouseEvent('click', { bubbles: true });
-    expect(() => acceptBtn.dispatchEvent(clickEvent)).not.toThrow();
-
     mockEditor._rootElement.removeChild(acceptBtn);
   });
 });
@@ -335,8 +322,7 @@ describe('DiffTagHoverPlugin - Edge Cases', () => {
   });
 
   it('should handle unknown action gracefully', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} />);
+    render(<DiffTagHoverPlugin />);
 
     const unknownBtn = document.createElement('button');
     unknownBtn.setAttribute('data-action', 'unknown-action');
@@ -347,7 +333,8 @@ describe('DiffTagHoverPlugin - Edge Cases', () => {
     const clickEvent = new MouseEvent('click', { bubbles: true });
     expect(() => unknownBtn.dispatchEvent(clickEvent)).not.toThrow();
 
-    expect(onQueueMutation).not.toHaveBeenCalled();
+    expect(acceptDiffTag).not.toHaveBeenCalled();
+    expect(rejectDiffTag).not.toHaveBeenCalled();
     mockEditor._rootElement.removeChild(unknownBtn);
   });
 
@@ -356,121 +343,5 @@ describe('DiffTagHoverPlugin - Edge Cases', () => {
 
     // Should not throw when callback is not provided
     expect(() => render(<DiffTagHoverPlugin />)).not.toThrow();
-  });
-});
-
-// ============= isProcessing Tests =============
-
-describe('DiffTagHoverPlugin - isProcessing', () => {
-  let mockEditor: ReturnType<typeof createMockEditor>;
-
-  beforeEach(() => {
-    jest.clearAllMocks();
-    mockEditor = createMockEditor();
-    (useLexicalComposerContext as jest.Mock).mockReturnValue([mockEditor]);
-    mockNodesOfType.mockReturnValue([]);
-  });
-
-  it('should not call onQueueMutation when isProcessing is true', () => {
-    const onQueueMutation = jest.fn();
-    render(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} isProcessing={true} />);
-
-    const acceptBtn = document.createElement('button');
-    acceptBtn.setAttribute('data-action', 'accept');
-    acceptBtn.setAttribute('data-node-key', 'node-123');
-    mockEditor._rootElement.appendChild(acceptBtn);
-
-    const clickEvent = new MouseEvent('click', { bubbles: true });
-    acceptBtn.dispatchEvent(clickEvent);
-
-    expect(onQueueMutation).not.toHaveBeenCalled();
-    mockEditor._rootElement.removeChild(acceptBtn);
-  });
-
-  it('should disable buttons when isProcessing is true', () => {
-    const acceptBtn = document.createElement('button');
-    acceptBtn.setAttribute('data-action', 'accept');
-    acceptBtn.setAttribute('data-node-key', 'node-123');
-    mockEditor._rootElement.appendChild(acceptBtn);
-
-    const rejectBtn = document.createElement('button');
-    rejectBtn.setAttribute('data-action', 'reject');
-    rejectBtn.setAttribute('data-node-key', 'node-456');
-    mockEditor._rootElement.appendChild(rejectBtn);
-
-    render(<DiffTagHoverPlugin isProcessing={true} />);
-
-    expect(acceptBtn.disabled).toBe(true);
-    expect(acceptBtn.style.opacity).toBe('0.5');
-    expect(acceptBtn.style.cursor).toBe('not-allowed');
-
-    expect(rejectBtn.disabled).toBe(true);
-    expect(rejectBtn.style.opacity).toBe('0.5');
-    expect(rejectBtn.style.cursor).toBe('not-allowed');
-
-    mockEditor._rootElement.removeChild(acceptBtn);
-    mockEditor._rootElement.removeChild(rejectBtn);
-  });
-
-  it('should enable buttons when isProcessing is false', () => {
-    const acceptBtn = document.createElement('button');
-    acceptBtn.setAttribute('data-action', 'accept');
-    acceptBtn.setAttribute('data-node-key', 'node-123');
-    mockEditor._rootElement.appendChild(acceptBtn);
-
-    render(<DiffTagHoverPlugin isProcessing={false} />);
-
-    expect(acceptBtn.disabled).toBe(false);
-    expect(acceptBtn.style.opacity).toBe('1');
-    expect(acceptBtn.style.cursor).toBe('pointer');
-
-    mockEditor._rootElement.removeChild(acceptBtn);
-  });
-
-  it('should re-enable buttons when isProcessing changes from true to false', () => {
-    const acceptBtn = document.createElement('button');
-    acceptBtn.setAttribute('data-action', 'accept');
-    acceptBtn.setAttribute('data-node-key', 'node-123');
-    mockEditor._rootElement.appendChild(acceptBtn);
-
-    const { rerender } = render(<DiffTagHoverPlugin isProcessing={true} />);
-
-    expect(acceptBtn.disabled).toBe(true);
-
-    rerender(<DiffTagHoverPlugin isProcessing={false} />);
-
-    expect(acceptBtn.disabled).toBe(false);
-    expect(acceptBtn.style.opacity).toBe('1');
-    expect(acceptBtn.style.cursor).toBe('pointer');
-
-    mockEditor._rootElement.removeChild(acceptBtn);
-  });
-
-  it('should call onQueueMutation when isProcessing changes to false', () => {
-    const onQueueMutation = jest.fn();
-
-    const acceptBtn = document.createElement('button');
-    acceptBtn.setAttribute('data-action', 'accept');
-    acceptBtn.setAttribute('data-node-key', 'node-123');
-    mockEditor._rootElement.appendChild(acceptBtn);
-
-    const { rerender } = render(
-      <DiffTagHoverPlugin onQueueMutation={onQueueMutation} isProcessing={true} />
-    );
-
-    // Click while processing - should not fire
-    const clickEvent1 = new MouseEvent('click', { bubbles: true });
-    acceptBtn.dispatchEvent(clickEvent1);
-    expect(onQueueMutation).not.toHaveBeenCalled();
-
-    // Re-enable processing
-    rerender(<DiffTagHoverPlugin onQueueMutation={onQueueMutation} isProcessing={false} />);
-
-    // Click after enabling - should fire
-    const clickEvent2 = new MouseEvent('click', { bubbles: true });
-    acceptBtn.dispatchEvent(clickEvent2);
-    expect(onQueueMutation).toHaveBeenCalledWith('node-123', 'accept');
-
-    mockEditor._rootElement.removeChild(acceptBtn);
   });
 });

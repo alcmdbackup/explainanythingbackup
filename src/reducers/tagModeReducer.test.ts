@@ -1,15 +1,15 @@
 import {
-  feedbackModeReducer,
-  createInitialFeedbackModeState,
+  tagModeReducer,
+  createInitialTagModeState,
   isTagsModified,
   getCurrentTags,
-  getFeedbackMode,
-  type FeedbackModeState,
-  type FeedbackModeAction,
+  getTagBarMode,
+  type TagModeState,
+  type TagModeAction,
 } from './tagModeReducer';
-import { TagUIType, FeedbackMode, SimpleTagUIType, PresetTagUIType } from '@/lib/schemas/schemas';
+import { TagUIType, TagBarMode, SimpleTagUIType, PresetTagUIType } from '@/lib/schemas/schemas';
 
-describe('feedbackModeReducer', () => {
+describe('tagModeReducer', () => {
   // ========================================================================
   // Test Data Factories
   // ========================================================================
@@ -53,9 +53,9 @@ describe('feedbackModeReducer', () => {
   // Initial State Tests
   // ========================================================================
 
-  describe('createInitialFeedbackModeState', () => {
+  describe('createInitialTagModeState', () => {
     it('should create initial state in normal mode with empty tags', () => {
-      const state = createInitialFeedbackModeState();
+      const state = createInitialTagModeState();
 
       expect(state.mode).toBe('normal');
       expect(getCurrentTags(state)).toEqual([]);
@@ -72,14 +72,14 @@ describe('feedbackModeReducer', () => {
 
   describe('LOAD_TAGS action', () => {
     it('should load tags and set them as original tags', () => {
-      const initialState = createInitialFeedbackModeState();
+      const initialState = createInitialTagModeState();
       const tags: TagUIType[] = [
         createSimpleTag(1, 'beginner'),
         createSimpleTag(2, 'intermediate'),
       ];
 
-      const action: FeedbackModeAction = { type: 'LOAD_TAGS', tags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'LOAD_TAGS', tags };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(tags);
@@ -91,7 +91,7 @@ describe('feedbackModeReducer', () => {
 
     it('should replace existing tags when loading new tags', () => {
       const existingTags = [createSimpleTag(1, 'old')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: existingTags,
         originalTags: existingTags,
@@ -99,8 +99,8 @@ describe('feedbackModeReducer', () => {
       };
 
       const newTags = [createSimpleTag(2, 'new')];
-      const action: FeedbackModeAction = { type: 'LOAD_TAGS', tags: newTags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'LOAD_TAGS', tags: newTags };
+      const newState = tagModeReducer(initialState, action);
 
       expect(getCurrentTags(newState)).toEqual(newTags);
       if (newState.mode === 'normal') {
@@ -111,13 +111,13 @@ describe('feedbackModeReducer', () => {
   });
 
   // ========================================================================
-  // ENTER_REWRITE_FEEDBACK_MODE Action Tests
+  // ENTER_REWRITE_MODE Action Tests
   // ========================================================================
 
-  describe('ENTER_REWRITE_FEEDBACK_MODE action', () => {
-    it('should enter rewrite feedback mode with temp tags', () => {
+  describe('ENTER_REWRITE_MODE action', () => {
+    it('should enter rewrite mode with temp tags', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: originalTags,
         originalTags,
@@ -125,12 +125,12 @@ describe('feedbackModeReducer', () => {
       };
 
       const tempTags = [createSimpleTag(2, 'normal'), createSimpleTag(5, 'medium')];
-      const action: FeedbackModeAction = { type: 'ENTER_REWRITE_FEEDBACK_MODE', tempTags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'ENTER_REWRITE_MODE', tempTags };
+      const newState = tagModeReducer(initialState, action);
 
-      expect(newState.mode).toBe('rewriteWithFeedback');
+      expect(newState.mode).toBe('rewriteWithTags');
       expect(getCurrentTags(newState)).toEqual(tempTags);
-      if (newState.mode === 'rewriteWithFeedback') {
+      if (newState.mode === 'rewriteWithTags') {
         expect(newState.originalTags).toEqual(originalTags);
         expect(newState.showRegenerateDropdown).toBe(false);
       }
@@ -138,7 +138,7 @@ describe('feedbackModeReducer', () => {
 
     it('should preserve originalTags when entering from normal mode', () => {
       const originalTags = [createSimpleTag(1, 'preserved')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: [createSimpleTag(1, 'preserved', false)], // Modified version
         originalTags,
@@ -146,36 +146,36 @@ describe('feedbackModeReducer', () => {
       };
 
       const tempTags = [createSimpleTag(2, 'temp')];
-      const action: FeedbackModeAction = { type: 'ENTER_REWRITE_FEEDBACK_MODE', tempTags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'ENTER_REWRITE_MODE', tempTags };
+      const newState = tagModeReducer(initialState, action);
 
-      if (newState.mode === 'rewriteWithFeedback') {
+      if (newState.mode === 'rewriteWithTags') {
         expect(newState.originalTags).toEqual(originalTags);
       }
     });
   });
 
   // ========================================================================
-  // ENTER_EDIT_FEEDBACK_MODE Action Tests
+  // ENTER_EDIT_MODE Action Tests
   // ========================================================================
 
-  describe('ENTER_EDIT_FEEDBACK_MODE action', () => {
-    it('should enter edit feedback mode and restore original tags', () => {
+  describe('ENTER_EDIT_MODE action', () => {
+    it('should enter edit mode and restore original tags', () => {
       const originalTags = [createSimpleTag(1, 'original')];
       const modifiedTags = [createSimpleTag(1, 'original', false, true)]; // Modified
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: modifiedTags,
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'ENTER_EDIT_FEEDBACK_MODE' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'ENTER_EDIT_MODE' };
+      const newState = tagModeReducer(initialState, action);
 
-      expect(newState.mode).toBe('editWithFeedback');
+      expect(newState.mode).toBe('editWithTags');
       expect(getCurrentTags(newState)).toEqual(originalTags);
-      if (newState.mode === 'editWithFeedback') {
+      if (newState.mode === 'editWithTags') {
         expect(newState.originalTags).toEqual(originalTags);
         expect(newState.showRegenerateDropdown).toBe(false);
       }
@@ -183,15 +183,15 @@ describe('feedbackModeReducer', () => {
 
     it('should not change state if not in normal mode', () => {
       const tempTags = [createSimpleTag(2, 'temp')];
-      const initialState: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags,
         originalTags: [],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'ENTER_EDIT_FEEDBACK_MODE' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'ENTER_EDIT_MODE' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState).toEqual(initialState);
     });
@@ -202,17 +202,17 @@ describe('feedbackModeReducer', () => {
   // ========================================================================
 
   describe('EXIT_TO_NORMAL action', () => {
-    it('should exit from rewrite feedback mode to normal mode', () => {
+    it('should exit from rewrite mode to normal mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags: [createSimpleTag(2, 'temp')],
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'EXIT_TO_NORMAL' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'EXIT_TO_NORMAL' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(originalTags);
@@ -220,17 +220,17 @@ describe('feedbackModeReducer', () => {
       expect(newState.showRegenerateDropdown).toBe(false);
     });
 
-    it('should exit from edit feedback mode to normal mode', () => {
+    it('should exit from edit mode to normal mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
-        mode: 'editWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'editWithTags',
         tags: [createSimpleTag(1, 'original', false)],
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'EXIT_TO_NORMAL' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'EXIT_TO_NORMAL' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(originalTags);
@@ -239,15 +239,15 @@ describe('feedbackModeReducer', () => {
 
     it('should close dropdown when already in normal mode', () => {
       const tags = [createSimpleTag(1, 'tag')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags,
         originalTags: tags,
         showRegenerateDropdown: true,
       };
 
-      const action: FeedbackModeAction = { type: 'EXIT_TO_NORMAL' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'EXIT_TO_NORMAL' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(newState.showRegenerateDropdown).toBe(false);
@@ -261,58 +261,58 @@ describe('feedbackModeReducer', () => {
   describe('TOGGLE_DROPDOWN action', () => {
     it('should toggle dropdown from false to true in normal mode', () => {
       const tags = [createSimpleTag(1, 'tag')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags,
         originalTags: tags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'TOGGLE_DROPDOWN' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'TOGGLE_DROPDOWN' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.showRegenerateDropdown).toBe(true);
     });
 
     it('should toggle dropdown from true to false in normal mode', () => {
       const tags = [createSimpleTag(1, 'tag')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags,
         originalTags: tags,
         showRegenerateDropdown: true,
       };
 
-      const action: FeedbackModeAction = { type: 'TOGGLE_DROPDOWN' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'TOGGLE_DROPDOWN' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.showRegenerateDropdown).toBe(false);
     });
 
-    it('should not toggle dropdown in rewrite feedback mode', () => {
-      const initialState: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+    it('should not toggle dropdown in rewrite mode', () => {
+      const initialState: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags: [],
         originalTags: [],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'TOGGLE_DROPDOWN' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'TOGGLE_DROPDOWN' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState).toEqual(initialState);
     });
 
-    it('should not toggle dropdown in edit feedback mode', () => {
-      const initialState: FeedbackModeState = {
-        mode: 'editWithFeedback',
+    it('should not toggle dropdown in edit mode', () => {
+      const initialState: TagModeState = {
+        mode: 'editWithTags',
         tags: [],
         originalTags: [],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'TOGGLE_DROPDOWN' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'TOGGLE_DROPDOWN' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState).toEqual(initialState);
     });
@@ -325,7 +325,7 @@ describe('feedbackModeReducer', () => {
   describe('UPDATE_TAGS action', () => {
     it('should update tags in normal mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: originalTags,
         originalTags,
@@ -333,43 +333,43 @@ describe('feedbackModeReducer', () => {
       };
 
       const updatedTags = [createSimpleTag(1, 'original', false, true)];
-      const action: FeedbackModeAction = { type: 'UPDATE_TAGS', tags: updatedTags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'UPDATE_TAGS', tags: updatedTags };
+      const newState = tagModeReducer(initialState, action);
 
       expect(getCurrentTags(newState)).toEqual(updatedTags);
       expect(newState.originalTags).toEqual(originalTags); // Should not change
     });
 
-    it('should update tempTags in rewrite feedback mode', () => {
+    it('should update tempTags in rewrite mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
       const tempTags = [createSimpleTag(2, 'temp')];
-      const initialState: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags,
         originalTags,
         showRegenerateDropdown: false,
       };
 
       const updatedTags = [createSimpleTag(2, 'temp', false)];
-      const action: FeedbackModeAction = { type: 'UPDATE_TAGS', tags: updatedTags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'UPDATE_TAGS', tags: updatedTags };
+      const newState = tagModeReducer(initialState, action);
 
       expect(getCurrentTags(newState)).toEqual(updatedTags);
       expect(newState.originalTags).toEqual(originalTags); // Should not change
     });
 
-    it('should update tags in edit feedback mode', () => {
+    it('should update tags in edit mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
-        mode: 'editWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'editWithTags',
         tags: originalTags,
         originalTags,
         showRegenerateDropdown: false,
       };
 
       const updatedTags = [createSimpleTag(1, 'original', false)];
-      const action: FeedbackModeAction = { type: 'UPDATE_TAGS', tags: updatedTags };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'UPDATE_TAGS', tags: updatedTags };
+      const newState = tagModeReducer(initialState, action);
 
       expect(getCurrentTags(newState)).toEqual(updatedTags);
       expect(newState.originalTags).toEqual(originalTags); // Should not change
@@ -384,15 +384,15 @@ describe('feedbackModeReducer', () => {
     it('should reset simple tags in normal mode', () => {
       const originalTag = createSimpleTag(1, 'tag', true, true);
       const modifiedTag = createSimpleTag(1, 'tag', false, true);
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: [modifiedTag],
         originalTags: [originalTag],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'RESET_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'RESET_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       const tags = getCurrentTags(newState);
@@ -402,49 +402,49 @@ describe('feedbackModeReducer', () => {
     it('should reset preset tags in normal mode', () => {
       const originalTag = createPresetTag([1, 2, 3], 1, 1);
       const modifiedTag = createPresetTag([1, 2, 3], 2, 1); // Modified to tag 2
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: [modifiedTag],
         originalTags: [originalTag],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'RESET_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'RESET_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       const tags = getCurrentTags(newState);
       const resetTag = tags[0] as PresetTagUIType;
       expect(resetTag.currentActiveTagId).toBe(1); // Reset to original
     });
 
-    it('should return to normal mode from rewrite feedback mode on reset', () => {
+    it('should return to normal mode from rewrite mode on reset', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags: [createSimpleTag(2, 'temp')],
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'RESET_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'RESET_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(originalTags);
     });
 
-    it('should reset tags in edit feedback mode and return to normal', () => {
+    it('should reset tags in edit mode and return to normal', () => {
       const originalTags = [createSimpleTag(1, 'original')];
       const modifiedTags = [createSimpleTag(1, 'original', false)];
-      const initialState: FeedbackModeState = {
-        mode: 'editWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'editWithTags',
         tags: modifiedTags,
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'RESET_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'RESET_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       // Implementation exits to normal mode on reset
       expect(newState.mode).toBe('normal');
@@ -459,15 +459,15 @@ describe('feedbackModeReducer', () => {
   describe('APPLY_TAGS action', () => {
     it('should update originalTags to match current tags in normal mode', () => {
       const modifiedTag = createSimpleTag(1, 'tag', false, true);
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: [modifiedTag],
         originalTags: [createSimpleTag(1, 'tag', true, true)],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'APPLY_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'APPLY_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       const tags = getCurrentTags(newState);
@@ -479,49 +479,49 @@ describe('feedbackModeReducer', () => {
 
     it('should update preset tags originalTagId in normal mode', () => {
       const modifiedTag = createPresetTag([1, 2, 3], 2, 1);
-      const initialState: FeedbackModeState = {
+      const initialState: TagModeState = {
         mode: 'normal',
         tags: [modifiedTag],
         originalTags: [createPresetTag([1, 2, 3], 1, 1)],
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'APPLY_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'APPLY_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       const tags = getCurrentTags(newState);
       const appliedTag = tags[0] as PresetTagUIType;
       expect(appliedTag.originalTagId).toBe(2);
     });
 
-    it('should return to normal mode from rewrite feedback mode', () => {
+    it('should return to normal mode from rewrite mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags: [createSimpleTag(2, 'temp')],
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'APPLY_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'APPLY_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(originalTags);
       expect(newState.showRegenerateDropdown).toBe(false);
     });
 
-    it('should return to normal mode from edit feedback mode', () => {
+    it('should return to normal mode from edit mode', () => {
       const originalTags = [createSimpleTag(1, 'original')];
-      const initialState: FeedbackModeState = {
-        mode: 'editWithFeedback',
+      const initialState: TagModeState = {
+        mode: 'editWithTags',
         tags: [createSimpleTag(1, 'original', false)],
         originalTags,
         showRegenerateDropdown: false,
       };
 
-      const action: FeedbackModeAction = { type: 'APPLY_TAGS' };
-      const newState = feedbackModeReducer(initialState, action);
+      const action: TagModeAction = { type: 'APPLY_TAGS' };
+      const newState = tagModeReducer(initialState, action);
 
       expect(newState.mode).toBe('normal');
       expect(getCurrentTags(newState)).toEqual(originalTags);
@@ -535,7 +535,7 @@ describe('feedbackModeReducer', () => {
   describe('isTagsModified', () => {
     it('should return false for unmodified simple tags in normal mode', () => {
       const tags = [createSimpleTag(1, 'tag', true, true)];
-      const state: FeedbackModeState = {
+      const state: TagModeState = {
         mode: 'normal',
         tags,
         originalTags: tags,
@@ -546,7 +546,7 @@ describe('feedbackModeReducer', () => {
     });
 
     it('should return true for modified simple tags in normal mode', () => {
-      const state: FeedbackModeState = {
+      const state: TagModeState = {
         mode: 'normal',
         tags: [createSimpleTag(1, 'tag', false, true)],
         originalTags: [createSimpleTag(1, 'tag', true, true)],
@@ -557,7 +557,7 @@ describe('feedbackModeReducer', () => {
     });
 
     it('should return true for modified preset tags in normal mode', () => {
-      const state: FeedbackModeState = {
+      const state: TagModeState = {
         mode: 'normal',
         tags: [createPresetTag([1, 2, 3], 2, 1)], // Current != Original
         originalTags: [createPresetTag([1, 2, 3], 1, 1)],
@@ -567,9 +567,9 @@ describe('feedbackModeReducer', () => {
       expect(isTagsModified(state)).toBe(true);
     });
 
-    it('should return true in rewrite feedback mode', () => {
-      const state: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+    it('should return true in rewrite mode', () => {
+      const state: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags: [createSimpleTag(2, 'temp')],
         originalTags: [createSimpleTag(1, 'original')],
         showRegenerateDropdown: false,
@@ -578,10 +578,10 @@ describe('feedbackModeReducer', () => {
       expect(isTagsModified(state)).toBe(true);
     });
 
-    it('should return true in edit feedback mode', () => {
+    it('should return true in edit mode', () => {
       const tags = [createSimpleTag(1, 'tag')];
-      const state: FeedbackModeState = {
-        mode: 'editWithFeedback',
+      const state: TagModeState = {
+        mode: 'editWithTags',
         tags,
         originalTags: tags,
         showRegenerateDropdown: false,
@@ -594,7 +594,7 @@ describe('feedbackModeReducer', () => {
   describe('getCurrentTags', () => {
     it('should return tags in normal mode', () => {
       const tags = [createSimpleTag(1, 'tag')];
-      const state: FeedbackModeState = {
+      const state: TagModeState = {
         mode: 'normal',
         tags,
         originalTags: tags,
@@ -604,10 +604,10 @@ describe('feedbackModeReducer', () => {
       expect(getCurrentTags(state)).toEqual(tags);
     });
 
-    it('should return tempTags in rewrite feedback mode', () => {
+    it('should return tempTags in rewrite mode', () => {
       const tempTags = [createSimpleTag(2, 'temp')];
-      const state: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+      const state: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags,
         originalTags: [createSimpleTag(1, 'original')],
         showRegenerateDropdown: false,
@@ -616,10 +616,10 @@ describe('feedbackModeReducer', () => {
       expect(getCurrentTags(state)).toEqual(tempTags);
     });
 
-    it('should return tags in edit feedback mode', () => {
+    it('should return tags in edit mode', () => {
       const tags = [createSimpleTag(1, 'tag')];
-      const state: FeedbackModeState = {
-        mode: 'editWithFeedback',
+      const state: TagModeState = {
+        mode: 'editWithTags',
         tags,
         originalTags: tags,
         showRegenerateDropdown: false,
@@ -629,38 +629,38 @@ describe('feedbackModeReducer', () => {
     });
   });
 
-  describe('getFeedbackMode', () => {
-    it('should return FeedbackMode.Normal for normal mode', () => {
-      const state: FeedbackModeState = {
+  describe('getTagBarMode', () => {
+    it('should return TagBarMode.Normal for normal mode', () => {
+      const state: TagModeState = {
         mode: 'normal',
         tags: [],
         originalTags: [],
         showRegenerateDropdown: false,
       };
 
-      expect(getFeedbackMode(state)).toBe(FeedbackMode.Normal);
+      expect(getTagBarMode(state)).toBe(TagBarMode.Normal);
     });
 
-    it('should return FeedbackMode.RewriteWithFeedback for rewrite feedback mode', () => {
-      const state: FeedbackModeState = {
-        mode: 'rewriteWithFeedback',
+    it('should return TagBarMode.RewriteWithTags for rewrite mode', () => {
+      const state: TagModeState = {
+        mode: 'rewriteWithTags',
         tempTags: [],
         originalTags: [],
         showRegenerateDropdown: false,
       };
 
-      expect(getFeedbackMode(state)).toBe(FeedbackMode.RewriteWithFeedback);
+      expect(getTagBarMode(state)).toBe(TagBarMode.RewriteWithTags);
     });
 
-    it('should return FeedbackMode.EditWithFeedback for edit feedback mode', () => {
-      const state: FeedbackModeState = {
-        mode: 'editWithFeedback',
+    it('should return TagBarMode.EditWithTags for edit mode', () => {
+      const state: TagModeState = {
+        mode: 'editWithTags',
         tags: [],
         originalTags: [],
         showRegenerateDropdown: false,
       };
 
-      expect(getFeedbackMode(state)).toBe(FeedbackMode.EditWithFeedback);
+      expect(getTagBarMode(state)).toBe(TagBarMode.EditWithTags);
     });
   });
 });

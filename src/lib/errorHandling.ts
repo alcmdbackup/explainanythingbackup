@@ -32,31 +32,9 @@ export type ErrorResponse = {
   details?: any;
 };
 
-// Type guard for Supabase/Postgres error objects
-// These are plain objects with {code, message, details?, hint?}, NOT Error instances
-function isSupabaseError(error: unknown): error is { code: string; message: string; details?: string; hint?: string } {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    'message' in error &&
-    typeof (error as any).code === 'string' &&
-    typeof (error as any).message === 'string'
-  );
-}
-
 // Error categorization logic
 function categorizeError(error: unknown): ErrorResponse {
-  // Handle non-Error objects first (like Supabase errors)
   if (!(error instanceof Error)) {
-    // Detect Supabase/Postgres error objects
-    if (isSupabaseError(error)) {
-      return {
-        code: ERROR_CODES.DATABASE_ERROR,
-        message: error.message || 'Database operation failed',
-        details: { supabaseCode: error.code, hint: error.hint, rawDetails: error.details }
-      };
-    }
     return {
       code: ERROR_CODES.UNKNOWN_ERROR,
       message: 'An unexpected error occurred'

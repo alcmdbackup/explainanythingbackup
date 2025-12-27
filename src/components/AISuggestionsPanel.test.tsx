@@ -179,28 +179,6 @@ describe('AISuggestionsPanel', () => {
       expect(submitButton).toBeDisabled();
     });
 
-    it('should be disabled when isStreaming is true', async () => {
-      const props = createMockAISuggestionsPanelProps({ isVisible: true, isStreaming: true });
-      render(<AISuggestionsPanel {...props} />);
-
-      const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
-      await userEvent.type(textarea, 'Make it better');
-
-      const submitButton = screen.getByRole('button', { name: /get suggestions/i });
-      expect(submitButton).toBeDisabled();
-    });
-
-    it('should be enabled when isStreaming is false', async () => {
-      const props = createMockAISuggestionsPanelProps({ isVisible: true, isStreaming: false });
-      render(<AISuggestionsPanel {...props} />);
-
-      const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
-      await userEvent.type(textarea, 'Make it better');
-
-      const submitButton = screen.getByRole('button', { name: /get suggestions/i });
-      expect(submitButton).not.toBeDisabled();
-    });
-
     it('should be enabled when both prompt and content exist', async () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
       render(<AISuggestionsPanel {...props} />);
@@ -261,11 +239,11 @@ describe('AISuggestionsPanel', () => {
       });
     });
 
-    it('should dispatch APPLY_AI_SUGGESTION on successful response', async () => {
-      const mockDispatch = jest.fn();
+    it('should call onContentChange on successful response', async () => {
+      const mockOnContentChange = jest.fn();
       const props = createMockAISuggestionsPanelProps({
         isVisible: true,
-        dispatch: mockDispatch,
+        onContentChange: mockOnContentChange,
       });
       mockRunAISuggestionsPipelineAction.mockResolvedValue({
         success: true,
@@ -281,10 +259,31 @@ describe('AISuggestionsPanel', () => {
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(mockDispatch).toHaveBeenCalledWith({
-          type: 'APPLY_AI_SUGGESTION',
-          content: 'New content from AI',
-        });
+        expect(mockOnContentChange).toHaveBeenCalledWith('New content from AI');
+      });
+    });
+
+    it('should call onEnterEditMode on successful response', async () => {
+      const mockOnEnterEditMode = jest.fn();
+      const props = createMockAISuggestionsPanelProps({
+        isVisible: true,
+        onEnterEditMode: mockOnEnterEditMode,
+      });
+      mockRunAISuggestionsPipelineAction.mockResolvedValue({
+        success: true,
+        content: 'New content',
+      });
+
+      render(<AISuggestionsPanel {...props} />);
+
+      const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
+      await userEvent.type(textarea, 'Test prompt');
+
+      const submitButton = screen.getByRole('button', { name: /get suggestions/i });
+      fireEvent.click(submitButton);
+
+      await waitFor(() => {
+        expect(mockOnEnterEditMode).toHaveBeenCalled();
       });
     });
 

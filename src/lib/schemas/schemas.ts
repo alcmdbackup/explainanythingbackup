@@ -49,18 +49,18 @@ export interface VectorSearchResult {
 }
 
 /**
- * Enum for Feedback display modes
+ * Enum for TagBar display modes
  * • Normal: Standard tag display without modification interface
- * • RewriteWithFeedback: Shows modification interface for rewriting explanations with feedback (tags + sources)
- * • EditWithFeedback: Shows modification interface for editing existing explanations with feedback (tags + sources)
- *
- * Used by: FeedbackPanel, TagBar components to determine display behavior
+ * • RewriteWithTags: Shows modification interface for rewriting explanations with tags
+ * • EditWithTags: Shows modification interface for editing existing explanations with tags
+ * 
+ * Used by: TagBar component to determine display behavior
  * Calls: None (enum definition)
  */
-export enum FeedbackMode {
+export enum TagBarMode {
   Normal = "normal",
-  RewriteWithFeedback = "rewrite with feedback",
-  EditWithFeedback = "edit with feedback"
+  RewriteWithTags = "rewrite with tags",
+  EditWithTags = "edit with tags"
 }
 
 /**

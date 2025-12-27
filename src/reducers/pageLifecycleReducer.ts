@@ -19,17 +19,6 @@
 import { ExplanationStatus } from '@/lib/schemas/schemas';
 
 // ============================================================================
-// MUTATION QUEUE TYPES
-// ============================================================================
-
-export type MutationOp = {
-  id: string;
-  type: 'accept' | 'reject';
-  nodeKey: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-};
-
-// ============================================================================
 // STATE TYPES (Discriminated Union)
 // ============================================================================
 
@@ -54,11 +43,6 @@ export type PageLifecycleState =
       originalTitle: string;
       originalStatus: ExplanationStatus;
       hasUnsavedChanges?: boolean; // True if content modified but not saved
-      // Mutation queue state
-      pendingMutations: MutationOp[];
-      processingMutation: MutationOp | null;
-      pendingModeToggle: boolean;
-      lastMutationError?: string;
     }
   | {
       phase: 'editing';
@@ -69,11 +53,6 @@ export type PageLifecycleState =
       originalTitle: string;
       originalStatus: ExplanationStatus;
       hasUnsavedChanges: boolean; // Computed: content !== original || title !== original
-      // Mutation queue state
-      pendingMutations: MutationOp[];
-      processingMutation: MutationOp | null;
-      pendingModeToggle: boolean;
-      lastMutationError?: string;
     }
   | {
       phase: 'saving';
@@ -99,30 +78,19 @@ export type PageLifecycleState =
 // ============================================================================
 
 export type PageLifecycleAction =
-  // Existing actions
   | { type: 'START_GENERATION' }
   | { type: 'START_STREAMING' }
   | { type: 'STREAM_CONTENT'; content: string }
   | { type: 'STREAM_TITLE'; title: string }
   | { type: 'LOAD_EXPLANATION'; content: string; title: string; status: ExplanationStatus }
   | { type: 'ENTER_EDIT_MODE' }
-  | { type: 'EXIT_EDIT_MODE' }
+  | { type: 'EXIT_EDIT_MODE' } // Reverts to original values
   | { type: 'UPDATE_CONTENT'; content: string }
   | { type: 'UPDATE_TITLE'; title: string }
   | { type: 'START_SAVE' }
   | { type: 'SAVE_SUCCESS'; newId?: number; isNewExplanation: boolean }
   | { type: 'ERROR'; error: string }
-  | { type: 'RESET' }
-  // Mutation queue actions
-  | { type: 'QUEUE_MUTATION'; nodeKey: string; mutationType: 'accept' | 'reject' }
-  | { type: 'START_MUTATION'; id: string }
-  | { type: 'COMPLETE_MUTATION'; id: string; newContent: string }
-  | { type: 'FAIL_MUTATION'; id: string; error: string }
-  // Mode toggle actions
-  | { type: 'REQUEST_MODE_TOGGLE' }
-  | { type: 'EXECUTE_MODE_TOGGLE' }
-  // AI suggestion action
-  | { type: 'APPLY_AI_SUGGESTION'; content: string };
+  | { type: 'RESET' };
 
 // ============================================================================
 // INITIAL STATE
@@ -205,10 +173,6 @@ export function pageLifecycleReducer(
         originalContent: action.content,  // Set original for future edits
         originalTitle: action.title,
         originalStatus: action.status,
-        // Initialize mutation queue state
-        pendingMutations: [],
-        processingMutation: null,
-        pendingModeToggle: false,
       };
 
     // ------------------------------------------------------------------------
@@ -230,11 +194,6 @@ export function pageLifecycleReducer(
         originalTitle: state.originalTitle,
         originalStatus: state.originalStatus,
         hasUnsavedChanges: state.hasUnsavedChanges || false, // Preserve flag if set
-        // Preserve mutation queue state
-        pendingMutations: state.pendingMutations,
-        processingMutation: state.processingMutation,
-        pendingModeToggle: state.pendingModeToggle,
-        lastMutationError: state.lastMutationError,
       };
 
     // ------------------------------------------------------------------------
@@ -256,11 +215,6 @@ export function pageLifecycleReducer(
         originalTitle: state.originalTitle,
         originalStatus: state.originalStatus,
         hasUnsavedChanges: state.hasUnsavedChanges, // Preserve unsaved changes flag
-        // Preserve mutation queue state
-        pendingMutations: state.pendingMutations,
-        processingMutation: state.processingMutation,
-        pendingModeToggle: state.pendingModeToggle,
-        lastMutationError: state.lastMutationError,
       };
 
     // ------------------------------------------------------------------------
@@ -389,249 +343,6 @@ export function pageLifecycleReducer(
     // ------------------------------------------------------------------------
     case 'RESET':
       return { phase: 'idle' };
-
-    // ------------------------------------------------------------------------
-    // Mutation Queue: Queue a new accept/reject mutation
-    // ------------------------------------------------------------------------
-    case 'QUEUE_MUTATION': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        console.warn(
-          `QUEUE_MUTATION called in phase "${state.phase}", expected "viewing" or "editing"`
-        );
-        return state;
-      }
-
-      const newMutation: MutationOp = {
-        id: `${action.nodeKey}-${Date.now()}`,
-        type: action.mutationType,
-        nodeKey: action.nodeKey,
-        status: 'pending',
-      };
-
-      return {
-        ...state,
-        pendingMutations: [...state.pendingMutations, newMutation],
-      };
-    }
-
-    // ------------------------------------------------------------------------
-    // Mutation Queue: Start processing a mutation
-    // ------------------------------------------------------------------------
-    case 'START_MUTATION': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        return state;
-      }
-
-      const mutationToStart = state.pendingMutations.find(m => m.id === action.id);
-      if (!mutationToStart) {
-        console.warn(`START_MUTATION: mutation ${action.id} not found in queue`);
-        return state;
-      }
-
-      return {
-        ...state,
-        pendingMutations: state.pendingMutations.map(m =>
-          m.id === action.id ? { ...m, status: 'processing' as const } : m
-        ),
-        processingMutation: { ...mutationToStart, status: 'processing' },
-      };
-    }
-
-    // ------------------------------------------------------------------------
-    // Mutation Queue: Complete a mutation successfully
-    // ------------------------------------------------------------------------
-    case 'COMPLETE_MUTATION': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        return state;
-      }
-
-      const updatedMutations = state.pendingMutations.filter(m => m.id !== action.id);
-
-      // Check if there was a pending mode toggle that can now execute
-      const shouldExecuteToggle = state.pendingModeToggle && updatedMutations.length === 0;
-
-      if (shouldExecuteToggle) {
-        // Execute the pending mode toggle
-        const newPhase = state.phase === 'viewing' ? 'editing' : 'viewing';
-        if (newPhase === 'editing') {
-          return {
-            phase: 'editing',
-            content: action.newContent,
-            title: state.title,
-            status: state.status,
-            originalContent: state.originalContent,
-            originalTitle: state.originalTitle,
-            originalStatus: state.originalStatus,
-            hasUnsavedChanges: action.newContent !== state.originalContent || state.title !== state.originalTitle,
-            pendingMutations: [],
-            processingMutation: null,
-            pendingModeToggle: false,
-          };
-        } else {
-          return {
-            phase: 'viewing',
-            content: action.newContent,
-            title: state.title,
-            status: state.status,
-            originalContent: state.originalContent,
-            originalTitle: state.originalTitle,
-            originalStatus: state.originalStatus,
-            hasUnsavedChanges: action.newContent !== state.originalContent || state.title !== state.originalTitle,
-            pendingMutations: [],
-            processingMutation: null,
-            pendingModeToggle: false,
-          };
-        }
-      }
-
-      return {
-        ...state,
-        content: action.newContent,
-        pendingMutations: updatedMutations,
-        processingMutation: null,
-        hasUnsavedChanges: action.newContent !== state.originalContent || state.title !== state.originalTitle,
-      };
-    }
-
-    // ------------------------------------------------------------------------
-    // Mutation Queue: Mutation failed
-    // ------------------------------------------------------------------------
-    case 'FAIL_MUTATION': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        return state;
-      }
-
-      const updatedMutations = state.pendingMutations.filter(m => m.id !== action.id);
-
-      return {
-        ...state,
-        pendingMutations: updatedMutations,
-        processingMutation: null,
-        lastMutationError: action.error,
-      };
-    }
-
-    // ------------------------------------------------------------------------
-    // Mode Toggle: Request a mode toggle (may be queued if mutations pending)
-    // ------------------------------------------------------------------------
-    case 'REQUEST_MODE_TOGGLE': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        console.warn(
-          `REQUEST_MODE_TOGGLE called in phase "${state.phase}", expected "viewing" or "editing"`
-        );
-        return state;
-      }
-
-      // If mutations are pending, queue the toggle
-      if (state.pendingMutations.length > 0 || state.processingMutation !== null) {
-        return {
-          ...state,
-          pendingModeToggle: true,
-        };
-      }
-
-      // No mutations pending, execute immediately
-      if (state.phase === 'viewing') {
-        return {
-          phase: 'editing',
-          content: state.content,
-          title: state.title,
-          status: state.status,
-          originalContent: state.originalContent,
-          originalTitle: state.originalTitle,
-          originalStatus: state.originalStatus,
-          hasUnsavedChanges: state.hasUnsavedChanges || false,
-          pendingMutations: [],
-          processingMutation: null,
-          pendingModeToggle: false,
-        };
-      } else {
-        return {
-          phase: 'viewing',
-          content: state.content,
-          title: state.title,
-          status: state.status,
-          originalContent: state.originalContent,
-          originalTitle: state.originalTitle,
-          originalStatus: state.originalStatus,
-          hasUnsavedChanges: state.hasUnsavedChanges,
-          pendingMutations: [],
-          processingMutation: null,
-          pendingModeToggle: false,
-        };
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // Mode Toggle: Execute a queued mode toggle
-    // ------------------------------------------------------------------------
-    case 'EXECUTE_MODE_TOGGLE': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        return state;
-      }
-
-      if (!state.pendingModeToggle) {
-        console.warn('EXECUTE_MODE_TOGGLE called but no mode toggle is pending');
-        return state;
-      }
-
-      if (state.phase === 'viewing') {
-        return {
-          phase: 'editing',
-          content: state.content,
-          title: state.title,
-          status: state.status,
-          originalContent: state.originalContent,
-          originalTitle: state.originalTitle,
-          originalStatus: state.originalStatus,
-          hasUnsavedChanges: state.hasUnsavedChanges || false,
-          pendingMutations: state.pendingMutations,
-          processingMutation: state.processingMutation,
-          pendingModeToggle: false,
-        };
-      } else {
-        return {
-          phase: 'viewing',
-          content: state.content,
-          title: state.title,
-          status: state.status,
-          originalContent: state.originalContent,
-          originalTitle: state.originalTitle,
-          originalStatus: state.originalStatus,
-          hasUnsavedChanges: state.hasUnsavedChanges,
-          pendingMutations: state.pendingMutations,
-          processingMutation: state.processingMutation,
-          pendingModeToggle: false,
-        };
-      }
-    }
-
-    // ------------------------------------------------------------------------
-    // AI Suggestion: Apply AI suggestion content (blocked during streaming)
-    // ------------------------------------------------------------------------
-    case 'APPLY_AI_SUGGESTION': {
-      if (state.phase !== 'viewing' && state.phase !== 'editing') {
-        console.warn(
-          `APPLY_AI_SUGGESTION called in phase "${state.phase}", expected "viewing" or "editing"`
-        );
-        return state;
-      }
-
-      return {
-        phase: 'editing',
-        content: action.content,
-        title: state.title,
-        status: state.status,
-        originalContent: state.originalContent,
-        originalTitle: state.originalTitle,
-        originalStatus: state.originalStatus,
-        hasUnsavedChanges: true,
-        // Clear stale mutations - AI suggestions replace content
-        pendingMutations: [],
-        processingMutation: null,
-        pendingModeToggle: false,
-      };
-    }
 
     default:
       return state;
@@ -766,66 +477,4 @@ export function hasUnsavedChanges(state: PageLifecycleState): boolean {
     return state.hasUnsavedChanges || false;
   }
   return false;
-}
-
-// ============================================================================
-// MUTATION QUEUE SELECTORS
-// ============================================================================
-
-/**
- * Block AI suggestions during streaming
- */
-export function canRequestAISuggestion(state: PageLifecycleState): boolean {
-  return state.phase !== 'streaming';
-}
-
-/**
- * Block mode toggle during streaming or pending mutations
- */
-export function canToggleMode(state: PageLifecycleState): boolean {
-  if (state.phase === 'streaming') return false;
-  if (state.phase === 'viewing' || state.phase === 'editing') {
-    return (state.pendingMutations?.length ?? 0) === 0 && state.processingMutation === null;
-  }
-  return false;
-}
-
-/**
- * Check if mode toggle is queued
- */
-export function hasPendingModeToggle(state: PageLifecycleState): boolean {
-  if (state.phase === 'viewing' || state.phase === 'editing') {
-    return state.pendingModeToggle === true;
-  }
-  return false;
-}
-
-/**
- * Get queue length for UI feedback
- */
-export function getMutationQueueLength(state: PageLifecycleState): number {
-  if (state.phase === 'viewing' || state.phase === 'editing') {
-    return state.pendingMutations?.length ?? 0;
-  }
-  return 0;
-}
-
-/**
- * Check if any mutation is currently processing
- */
-export function isMutationProcessing(state: PageLifecycleState): boolean {
-  if (state.phase === 'viewing' || state.phase === 'editing') {
-    return state.processingMutation !== null;
-  }
-  return false;
-}
-
-/**
- * Get the last mutation error for UI display
- */
-export function getLastMutationError(state: PageLifecycleState): string | undefined {
-  if (state.phase === 'viewing' || state.phase === 'editing') {
-    return state.lastMutationError;
-  }
-  return undefined;
 }

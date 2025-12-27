@@ -301,8 +301,8 @@ Output format:
 
 Rules:
 - Always format using Markdown. Content should not include anything larger than section headers (##)
-- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**.
-- For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars
+- Highlight a few key terms in every paragraph using bold formatting **keyterm**. As an example, consider this sentence: Tom Brady was the **quarterback** who won **Super Bowl LV**. 
+- For inline math using single dollars: $\frac{2}{5}$, for block math use double dollars 
 $$(expession)$$
 - Use lists and bullets sparingly${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
 - Make only necessary changes to improve clarity, accuracy, or adherence to the rules
@@ -315,56 +315,4 @@ Existing Content:
 ${existingContent}`;
 
     return basePrompt;
-}
-
-/**
- * Creates a prompt for editing explanations with source citations
- *
- * • Takes existing content and modifies it (vs rewriting from scratch)
- * • Incorporates source material with [n] citation notation
- * • Preserves structure while adding/updating information from sources
- */
-export function editExplanationWithSourcesPrompt(
-  title: string,
-  sources: Array<{
-    index: number;
-    title: string;
-    domain: string;
-    content: string;
-    isVerbatim: boolean;
-  }>,
-  additionalRules: string[],
-  existingContent: string
-): string {
-  const sourcesSection = sources.map(source => {
-    const sourceType = source.isVerbatim ? 'VERBATIM' : 'SUMMARIZED';
-    return `[Source ${source.index}] ${source.title} (${source.domain}) [${sourceType}]
----
-${source.content}
----`;
-  }).join('\n\n');
-
-  return `You are editing an existing explanation. Modify the content below to incorporate information from the provided sources.
-
-Topic: ${title}
-
-## Sources
-${sourcesSection}
-
-## Existing Content
-${existingContent}
-
-## Rules
-- Make targeted modifications to incorporate source information
-- Add inline citations using [n] notation where n is the source number
-- Preserve the overall structure and flow of the existing content
-- Always format using Markdown. Content should not include anything larger than section headers (##)
-- Highlight key terms using bold formatting **keyterm**
-- For inline math use single dollars: $\\frac{2}{5}$, for block math use double dollars
-- Use lists and bullets sparingly
-- Prefer direct information from VERBATIM sources; use SUMMARIZED sources for context
-- If sources conflict with existing content, update with source information and cite
-- Only modify sections that benefit from source material${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
-
-`;
 }

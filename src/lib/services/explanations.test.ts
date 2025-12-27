@@ -7,13 +7,12 @@ import {
   getExplanationsByIds,
   getExplanationsByTopicId
 } from './explanations';
-import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { ExplanationInsertType, ExplanationFullDbType, ExplanationStatus } from '@/lib/schemas/schemas';
 
 // Mock Supabase server client
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServerClient: jest.fn(),
-  createSupabaseServiceClient: jest.fn()
+  createSupabaseServerClient: jest.fn()
 }));
 
 type MockSupabaseClient = {
@@ -56,7 +55,6 @@ describe('Explanations Service', () => {
 
     // Setup the mock to return our mockSupabase
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
-    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
   });
 
   describe('createExplanation', () => {

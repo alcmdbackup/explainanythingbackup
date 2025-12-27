@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useReducer, Suspense, useMemo } from 'react';
+import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
 import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
@@ -125,6 +125,13 @@ function ResultsPageContent() {
     const regenerateDropdownRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<LexicalEditorRef>(null); // For AI suggestions panel
 
+    // Editor synchronization state (moved from ResultsLexicalEditor)
+    const [editorCurrentContent, setEditorCurrentContent] = useState('');
+    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const lastStreamingUpdateRef = useRef<string>('');
+    const isInitialLoadRef = useRef<boolean>(true);
+    const hasInitializedContent = useRef<boolean>(false);
+
     // Prevent duplicate API calls from useEffect re-firing (HMR, searchParams reference change)
     const processedParamsRef = useRef<string | null>(null);
 
@@ -145,27 +152,27 @@ function ResultsPageContent() {
     }, [tagState.mode, tagState.showRegenerateDropdown]);
 
     /**
-     * Initializes temporary tags for "rewrite with feedback" functionality
+     * Initializes temporary tags for "rewrite with tags" functionality
      *
      * • Fetches two preset tags from database: "medium" (ID 2) and "moderate" (ID 5)
      * • Converts database tags to TagUIType format with both active states set to true
      * • Uses getTempTagsForRewriteWithTagsAction to retrieve actual tag data
-     * • Dispatches ENTER_REWRITE_FEEDBACK_MODE action with fetched tags
+     * • Dispatches ENTER_REWRITE_MODE action with fetched tags
      *
-     * Used by: "Rewrite with feedback" button click handler
+     * Used by: "Rewrite with tags" button click handler
      * Calls: getTempTagsForRewriteWithTagsAction, dispatchTagAction
      */
-    const initializeTempTagsForRewriteWithFeedback = async () => {
+    const initializeTempTagsForRewriteWithTags = async () => {
         try {
             const result = await getTempTagsForRewriteWithTagsAction();
             if (result.success && result.data) {
-                // Dispatch action to enter rewrite feedback mode with temp tags
-                dispatchTagAction({ type: 'ENTER_REWRITE_FEEDBACK_MODE', tempTags: result.data });
+                // Dispatch action to enter rewrite mode with temp tags
+                dispatchTagAction({ type: 'ENTER_REWRITE_MODE', tempTags: result.data });
             } else {
-                logger.error('Failed to fetch temp tags for rewrite with feedback', { error: result.error });
+                logger.error('Failed to fetch temp tags for rewrite with tags', { error: result.error });
             }
         } catch (error) {
-            logger.error('Error initializing temp tags for rewrite with feedback', { error: error instanceof Error ? error.message : String(error) });
+            logger.error('Error initializing temp tags for rewrite with tags', { error: error instanceof Error ? error.message : String(error) });
         }
     };
 
@@ -473,11 +480,11 @@ function ResultsPageContent() {
 
     /**
      * Handles apply button clicks from TagBar in rewrite or edit mode
-     *
+     * 
      * • Routes to appropriate UserInputType based on current modeOverride
      * • Calls handleUserAction with tag descriptions as additional rules
-     * • Supports both rewrite with feedback and edit with feedback modes
-     *
+     * • Supports both rewrite with tags and edit with tags modes
+     * 
      * Used by: TagBar component tagBarApplyClickHandler prop
      * Calls: handleUserAction
      */
@@ -485,13 +492,13 @@ function ResultsPageContent() {
         logger.debug('handleTagBarApplyClick called', { tagDescriptions, tagStateMode: tagState.mode, prompt, explanationTitle, userid }, FILE_DEBUG);
 
         // Handle apply button click in rewrite or edit mode
-        if (tagState.mode === 'rewriteWithFeedback') {
-            // For rewrite with feedback, use the current explanation title as input
+        if (tagState.mode === 'rewriteWithTags') {
+            // For rewrite with tags, use the current explanation title as input
             const inputForRewrite = explanationTitle || prompt;
             logger.debug('Calling handleUserAction with RewriteWithTags', { mode, inputForRewrite }, FILE_DEBUG);
             await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null, null);
-        } else if (tagState.mode === 'editWithFeedback') {
-            // For edit with feedback, use the current explanation title as input
+        } else if (tagState.mode === 'editWithTags') {
+            // For edit with tags, use the current explanation title as input
             const inputForEdit = explanationTitle || prompt;
             logger.debug('Calling handleUserAction with EditWithTags', { mode, inputForEdit }, FILE_DEBUG);
             await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null, null);
@@ -503,51 +510,31 @@ function ResultsPageContent() {
     /**
      * Handles apply from FeedbackPanel (tags + sources combined)
      *
-     * Branches on mode to use either RewriteWithTags or EditWithTags
+     * Uses RewriteWithTags user input type with sources attached
      */
-    const handleFeedbackPanelApply = async (
-        tagDescriptions: string[],
-        panelSources: SourceChipType[],
-        feedbackMode: 'rewrite' | 'edit'
-    ) => {
-        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length, feedbackMode });
+    const handleFeedbackPanelApply = async (tagDescriptions: string[], panelSources: SourceChipType[]) => {
+        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length });
+
+        const inputForRewrite = explanationTitle || prompt;
+        if (!inputForRewrite) {
+            dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
+            return;
+        }
 
         // Close the feedback panel
         setShowFeedbackPanel(false);
 
-        if (feedbackMode === 'edit') {
-            const inputForEdit = explanationTitle || prompt;
-            if (!inputForEdit) {
-                dispatchLifecycle({ type: 'ERROR', error: 'No input available for editing.' });
-                return;
-            }
-            await handleUserAction(
-                inputForEdit,
-                UserInputType.EditWithTags,
-                mode,
-                userid,
-                tagDescriptions,
-                null,
-                null,
-                panelSources  // NOW PASSES SOURCES FOR EDIT
-            );
-        } else {
-            const inputForRewrite = explanationTitle || prompt;
-            if (!inputForRewrite) {
-                dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting.' });
-                return;
-            }
-            await handleUserAction(
-                inputForRewrite,
-                UserInputType.RewriteWithTags,
-                mode,
-                userid,
-                tagDescriptions,
-                null,
-                null,
-                panelSources
-            );
-        }
+        // Call handleUserAction with sources
+        await handleUserAction(
+            inputForRewrite,
+            UserInputType.RewriteWithTags,
+            mode,
+            userid,
+            tagDescriptions,
+            null,
+            null,
+            panelSources
+        );
     };
 
     /**
@@ -561,21 +548,12 @@ function ResultsPageContent() {
     /**
      * Opens the FeedbackPanel for rewrite with feedback
      */
-    const handleRewriteWithFeedback = async () => {
+    const handleOpenFeedbackPanel = async () => {
         // Initialize temp tags like rewrite with tags does
-        await initializeTempTagsForRewriteWithFeedback();
+        await initializeTempTagsForRewriteWithTags();
         setShowFeedbackPanel(true);
-        // Dropdown closes automatically when mode changes from 'normal'
-    };
-
-    /**
-     * Opens the FeedbackPanel for edit with feedback
-     */
-    const handleEditWithFeedback = () => {
-        // Use original tags (not temp tags like rewrite mode)
-        dispatchTagAction({ type: 'ENTER_EDIT_FEEDBACK_MODE' });
-        setShowFeedbackPanel(true);
-        // Dropdown closes automatically when mode changes from 'normal'
+        // Close the dropdown
+        dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
     };
 
     /**
@@ -691,17 +669,27 @@ function ResultsPageContent() {
      * feedback loop that resets cursor. Content is synced when exiting edit mode.
      */
     const handleEditorContentChange = (newContent: string) => {
-        // Content comparison guard to prevent redundant processing
-        const currentContent = getPageContent(lifecycleState);
-        if (newContent === currentContent) return;
+        logger.debug('handleEditorContentChange called', {
+            contentLength: newContent?.length,
+            isEditMode,
+            isInitialLoad: isInitialLoadRef.current
+        }, FILE_DEBUG);
 
-        // Only track changes when in edit mode
-        if (isEditMode) {
-            logger.debug('User edit detected', {
-                contentLength: newContent?.length,
-            }, FILE_DEBUG);
+        // Clear initial load flag on first user edit (when in edit mode)
+        if (isEditMode && isInitialLoadRef.current) {
+            logger.debug('Clearing isInitialLoadRef.current on user edit', null, FILE_DEBUG);
+            isInitialLoadRef.current = false;
+        }
+
+        const shouldCallParent = isEditMode && !isInitialLoadRef.current;
+
+        // Only propagate changes if user is in edit mode and this is not initial load
+        if (shouldCallParent) {
+            logger.debug('Content change from user edit (tracked by editor)', null, FILE_DEBUG);
             // Don't update lifecycle state during editing - prevents cursor jumping
             // Content will be synced to lifecycle state when user exits edit mode or saves
+        } else {
+            logger.debug('NOT propagating content change', { isEditMode, isInitialLoad: isInitialLoadRef.current }, FILE_DEBUG);
         }
     };
 
@@ -875,6 +863,103 @@ function ResultsPageContent() {
             editorRef.current.setEditMode(isEditMode);
         }
     }, [isStreaming, isEditMode]);
+
+    // Debounced update function for streaming content
+    const debouncedUpdateContent = useCallback((newContent: string) => {
+        // Clear any existing debounce timeout
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+        }
+
+        // Set a new debounce timeout
+        debounceTimeoutRef.current = setTimeout(() => {
+            if (editorRef.current && newContent !== lastStreamingUpdateRef.current) {
+                try {
+                    editorRef.current.setContentFromMarkdown(newContent);
+                    lastStreamingUpdateRef.current = newContent;
+                    setEditorCurrentContent(newContent);
+
+                    // After first content update, mark as no longer initial load
+                    if (isInitialLoadRef.current) {
+                        setTimeout(() => {
+                            isInitialLoadRef.current = false;
+                        }, 0);
+                    }
+                } catch (error) {
+                    logger.error('Error updating editor content during streaming', { error: error instanceof Error ? error.message : String(error) });
+                }
+            }
+        }, isStreaming ? 100 : 0);
+    }, [isStreaming]);
+
+    // Update editor content when content prop changes (streaming updates)
+    useEffect(() => {
+        // Early return if editor ref is not yet initialized
+        if (!editorRef.current) {
+            logger.debug('Editor ref not yet initialized, skipping content sync', null, FILE_DEBUG);
+            return;
+        }
+
+        // Prioritize content from hook (has resolved links) over lifecycle state
+        const currentPageContent = content || getPageContent(lifecycleState);
+
+        // On first run, just sync the state without updating the editor
+        // LexicalEditor handles initialContent on its own
+        if (!hasInitializedContent.current) {
+            logger.debug('First content sync - initializing state only', null, FILE_DEBUG);
+            setEditorCurrentContent(currentPageContent);
+            hasInitializedContent.current = true;
+            return;
+        }
+
+        logger.debug('Content comparison useEffect', {
+            contentLength: currentPageContent?.length,
+            editorContentLength: editorCurrentContent?.length,
+            contentChanged: currentPageContent !== editorCurrentContent,
+            isEditMode
+        }, FILE_DEBUG);
+
+        if (currentPageContent !== editorCurrentContent) {
+            // IMPORTANT: Don't overwrite editor content during edit mode
+            // This prevents AI suggestions from being destroyed
+            if (isEditMode && !isStreaming) {
+                logger.debug('Skipping content update - editor is in edit mode', null, FILE_DEBUG);
+                return;
+            }
+
+            if (isStreaming) {
+                // Use debounced updates during streaming for better performance
+                debouncedUpdateContent(currentPageContent);
+            } else {
+                // Immediate update when not streaming
+                if (editorRef.current) {
+                    editorRef.current.setContentFromMarkdown(currentPageContent);
+                    setEditorCurrentContent(currentPageContent);
+                }
+            }
+
+            // After first content update, mark as no longer initial load
+            if (isInitialLoadRef.current) {
+                logger.debug('About to clear isInitialLoadRef', { isStreaming }, FILE_DEBUG);
+                if (!isStreaming) {
+                    isInitialLoadRef.current = false;
+                } else {
+                    setTimeout(() => {
+                        isInitialLoadRef.current = false;
+                    }, 0);
+                }
+            }
+        }
+    }, [content, editorCurrentContent, isStreaming, isEditMode, debouncedUpdateContent, lifecycleState]);
+
+    // Cleanup debounce timeout on unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimeoutRef.current) {
+                clearTimeout(debounceTimeoutRef.current);
+            }
+        };
+    }, []);
 
     return (
         <div className="h-screen bg-[var(--surface-primary)] flex flex-col" data-lifecycle-phase={lifecycleState.phase}>
@@ -1075,23 +1160,36 @@ function ResultsPageContent() {
                                                     </button>
                                                 </div>
                                                 {tagState.mode === 'normal' && tagState.showRegenerateDropdown && (
-                                                    <div className="absolute top-full left-0 mt-1 w-52 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
+                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
                                                         <div className="py-1">
+                                                            <button
+                                                                data-testid="rewrite-with-tags"
+                                                                disabled={isPageLoading || isStreaming}
+                                                                onClick={async () => {
+                                                                    await initializeTempTagsForRewriteWithTags();
+                                                                }}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                Rewrite with tags
+                                                            </button>
+                                                            <button
+                                                                data-testid="edit-with-tags"
+                                                                disabled={isPageLoading || isStreaming}
+                                                                onClick={() => {
+                                                                    dispatchTagAction({ type: 'ENTER_EDIT_MODE' });
+                                                                }}
+                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                            >
+                                                                Edit with tags
+                                                            </button>
+                                                            <div className="border-t border-[var(--border-default)] my-1"></div>
                                                             <button
                                                                 data-testid="rewrite-with-feedback"
                                                                 disabled={isPageLoading || isStreaming}
-                                                                onClick={handleRewriteWithFeedback}
+                                                                onClick={handleOpenFeedbackPanel}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
                                                                 Rewrite with feedback
-                                                            </button>
-                                                            <button
-                                                                data-testid="edit-with-feedback"
-                                                                disabled={isPageLoading || isStreaming}
-                                                                onClick={handleEditWithFeedback}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                                            >
-                                                                Edit with feedback
                                                             </button>
                                                         </div>
                                                     </div>
@@ -1255,17 +1353,6 @@ function ResultsPageContent() {
                                                     textRevealEffect={textRevealEffect}
                                                     sources={bibliographySources}
                                                     onPendingSuggestionsChange={setHasPendingSuggestions}
-                                                    // Mutation queue props
-                                                    pendingMutations={(lifecycleState.phase === 'viewing' || lifecycleState.phase === 'editing')
-                                                        ? lifecycleState.pendingMutations : []}
-                                                    processingMutation={(lifecycleState.phase === 'viewing' || lifecycleState.phase === 'editing')
-                                                        ? lifecycleState.processingMutation : null}
-                                                    onStartMutation={(id) => dispatchLifecycle({ type: 'START_MUTATION', id })}
-                                                    onCompleteMutation={(id, newContent) => dispatchLifecycle({ type: 'COMPLETE_MUTATION', id, newContent })}
-                                                    onFailMutation={(id, error) => dispatchLifecycle({ type: 'FAIL_MUTATION', id, error })}
-                                                    onQueueMutation={(nodeKey, mutationType) => dispatchLifecycle({ type: 'QUEUE_MUTATION', nodeKey, mutationType })}
-                                                    // Streaming sync prop
-                                                    syncContent={getPageContent(lifecycleState)}
                                                 />
                                                 <Bibliography sources={bibliographySources} />
                                             </>
@@ -1284,15 +1371,36 @@ function ResultsPageContent() {
                     {/* AI Suggestions Panel (Collapsible Sidebar) */}
                     <div className="relative h-full flex-shrink-0">
                         <AISuggestionsPanel
-                            isOpen={isAIPanelOpen}
-                            onOpenChange={setIsAIPanelOpen}
-                            currentContent={content}
-                            dispatch={dispatchLifecycle}
-                            isStreaming={isStreaming}
-                            sessionData={explanationId && explanationTitle ? {
-                                explanation_id: explanationId,
-                                explanation_title: explanationTitle
-                            } : undefined}
+                        isOpen={isAIPanelOpen}
+                        onOpenChange={setIsAIPanelOpen}
+                        currentContent={content}
+                        editorRef={editorRef}
+                        onContentChange={(newContent) => {
+                            logger.debug('AISuggestionsPanel onContentChange called', {
+                                contentLength: newContent?.length || 0,
+                                hasEditorRef: !!editorRef.current
+                            }, FILE_DEBUG);
+
+                            setContent(newContent);
+
+                            // CRITICAL: Directly update the editor with the new content
+                            if (editorRef.current) {
+                                logger.debug('Updating editor with new content from AI suggestions', null, FILE_DEBUG);
+                                // Update both internal state and editor content
+                                setEditorCurrentContent(newContent);
+                                editorRef.current.setContentFromMarkdown(newContent);
+                            } else {
+                                logger.error('editorRef.current is null - cannot update editor');
+                            }
+                        }}
+                        onEnterEditMode={() => {
+                            logger.debug('Entering edit mode via AI suggestions', null, FILE_DEBUG);
+                            dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
+                        }}
+                        sessionData={explanationId && explanationTitle ? {
+                            explanation_id: explanationId,
+                            explanation_title: explanationTitle
+                        } : undefined}
                         />
                     </div>
 

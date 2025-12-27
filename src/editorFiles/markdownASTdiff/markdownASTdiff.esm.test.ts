@@ -42,7 +42,6 @@ function parseMarkdown(markdown: string): Root {
 function runStep3(original: string, edited: string): string {
   const beforeAST = parseMarkdown(original);
   const afterAST = parseMarkdown(edited);
-   
   return RenderCriticMarkupFromMDAstDiff(beforeAST as any, afterAST as any);
 }
 

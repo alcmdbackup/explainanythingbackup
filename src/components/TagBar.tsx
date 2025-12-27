@@ -2,30 +2,28 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { TagFullDbType, TagUIType, FeedbackMode } from '@/lib/schemas/schemas';
+import { TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
 import { getAllTagsAction } from '@/actions/actions';
 import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
-import { FeedbackModeState, FeedbackModeAction, getCurrentTags, getFeedbackMode, isTagsModified as getIsTagsModified } from '@/reducers/tagModeReducer';
+import { TagModeState, TagModeAction, getCurrentTags, getTagBarMode, isTagsModified as getIsTagsModified } from '@/reducers/tagModeReducer';
 
 interface TagBarProps {
-    tagState: FeedbackModeState;
-    dispatch: React.Dispatch<FeedbackModeAction>;
+    tagState: TagModeState;
+    dispatch: React.Dispatch<TagModeAction>;
     className?: string;
     onTagClick?: (tag: TagFullDbType) => void;
     explanationId?: number | null;
     tagBarApplyClickHandler?: (tagDescriptions: string[]) => void;
     isStreaming?: boolean;
-    /** When true, skip panel styling and buttons (for embedding in FeedbackPanel) */
-    embedded?: boolean;
 }
 
 /**
  * Displays tags in a horizontal bar with bookmark-style styling
  * Midnight Scholar theme - Tags as elegant bookmarks with gold accents
  */
-export default function TagBar({ tagState, dispatch, className = '', onTagClick, explanationId, tagBarApplyClickHandler, isStreaming = false, embedded = false }: TagBarProps) {
+export default function TagBar({ tagState, dispatch, className = '', onTagClick, explanationId, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
     const tags = getCurrentTags(tagState);
-    const feedbackMode = getFeedbackMode(tagState);
+    const modeOverride = getTagBarMode(tagState);
     const effectiveIsTagsModified = getIsTagsModified(tagState);
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
@@ -71,15 +69,15 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
     };
 
     const handleApplyRouter = async () => {
-        if (feedbackMode === FeedbackMode.Normal && !explanationId) {
+        if (modeOverride === TagBarMode.Normal && !explanationId) {
             console.error('No explanation ID provided for applying tags');
             return;
         }
 
-        if (feedbackMode === FeedbackMode.RewriteWithFeedback) {
-            await handleApplyRewriteWithFeedback();
-        } else if (feedbackMode === FeedbackMode.EditWithFeedback) {
-            await handleApplyEditWithFeedback();
+        if (modeOverride === TagBarMode.RewriteWithTags) {
+            await handleApplyRewriteWithTags();
+        } else if (modeOverride === TagBarMode.EditWithTags) {
+            await handleApplyEditWithTags();
         } else {
             await handleApplyNormal();
         }
@@ -104,14 +102,14 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
         return tagDescriptions;
     };
 
-    const handleApplyRewriteWithFeedback = async () => {
+    const handleApplyRewriteWithTags = async () => {
         if (tagBarApplyClickHandler) {
             const tagDescriptions = extractActiveTagDescriptions();
             tagBarApplyClickHandler(tagDescriptions);
         }
     };
 
-    const handleApplyEditWithFeedback = async () => {
+    const handleApplyEditWithTags = async () => {
         if (tagBarApplyClickHandler) {
             const tagDescriptions = extractActiveTagDescriptions();
             tagBarApplyClickHandler(tagDescriptions);
@@ -490,8 +488,8 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
 
     return (
         <div className={`relative ${className}`}>
-            {isTagsModified && !embedded ? (
-                /* Modified tags container - scholarly panel (skip when embedded) */
+            {isTagsModified ? (
+                /* Modified tags container - scholarly panel */
                 <div className="bg-[var(--surface-elevated)] border border-[var(--border-strong)] rounded-book p-4 shadow-page">
                     {/* Title with gold accent */}
                     <div className="mb-3 pb-2 border-b border-[var(--border-default)]">
@@ -499,9 +497,9 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             <svg className="w-4 h-4 text-[var(--accent-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                             </svg>
-                            {feedbackMode === FeedbackMode.Normal ? "Apply Tags" :
-                             feedbackMode === FeedbackMode.RewriteWithFeedback ? "Rewrite with Feedback" :
-                             feedbackMode === FeedbackMode.EditWithFeedback ? "Edit with Feedback" : "Apply Tags"}
+                            {modeOverride === TagBarMode.Normal ? "Apply Tags" :
+                             modeOverride === TagBarMode.RewriteWithTags ? "Rewrite with Tags" :
+                             modeOverride === TagBarMode.EditWithTags ? "Edit with Tags" : "Apply Tags"}
                         </h3>
                     </div>
 
@@ -605,20 +603,19 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                     </div>
                 </div>
             ) : (
-                /* Normal/embedded tags display */
-                <div className={`flex flex-wrap items-center gap-2 ${embedded ? '' : 'py-3'}`}>
+                /* Normal tags display */
+                <div className="flex flex-wrap items-center gap-2 py-3">
                     <span className="text-sm font-ui font-medium text-[var(--text-muted)]">
                         Tags:
                     </span>
                     {tags.filter(tag => {
                         if ('tag_name' in tag) {
-                            // When embedded, show all tags (including removed ones); otherwise only active
-                            return embedded ? !(tag.tag_active_initial === false && tag.tag_active_current === false) : tag.tag_active_current === true;
+                            return tag.tag_active_current === true;
                         }
                         return true;
                     }).map((tag, index) => {
                         if ('tag_name' in tag) {
-                            return <TagChip key={tag.id} tag={tag} index={index} isActive={tag.tag_active_current} />;
+                            return <TagChip key={tag.id} tag={tag} index={index} isActive={true} />;
                         } else {
                             const isModified = tag.currentActiveTagId !== tag.originalTagId;
                             return <TagChip key={tag.originalTagId} tag={tag} index={index} isActive={tag.tag_active_current} isPreset isModified={isModified} />;

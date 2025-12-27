@@ -2,7 +2,7 @@ import {
   MatchMode,
   UserInputType,
   AnchorSet,
-  FeedbackMode,
+  TagBarMode,
   ExplanationStatus,
   LinkOverrideType,
   allowedLLMModelSchema,
@@ -50,11 +50,11 @@ describe('schemas', () => {
       });
     });
 
-    describe('FeedbackMode', () => {
+    describe('TagBarMode', () => {
       it('should have correct enum values', () => {
-        expect(FeedbackMode.Normal).toBe('normal');
-        expect(FeedbackMode.RewriteWithFeedback).toBe('rewrite with feedback');
-        expect(FeedbackMode.EditWithFeedback).toBe('edit with feedback');
+        expect(TagBarMode.Normal).toBe('normal');
+        expect(TagBarMode.RewriteWithTags).toBe('rewrite with tags');
+        expect(TagBarMode.EditWithTags).toBe('edit with tags');
       });
     });
 

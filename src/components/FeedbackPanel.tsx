@@ -1,17 +1,17 @@
 'use client';
 
 import { useState, useCallback } from 'react';
-import { type FeedbackModeState, type FeedbackModeAction, getCurrentTags, getFeedbackMode, isTagsModified } from '@/reducers/tagModeReducer';
-import { type SourceChipType, FeedbackMode } from '@/lib/schemas/schemas';
+import { type TagModeState, type TagModeAction, getCurrentTags, getTagBarMode, isTagsModified } from '@/reducers/tagModeReducer';
+import { type SourceChipType, TagBarMode } from '@/lib/schemas/schemas';
 import { SourceList } from '@/components/sources';
 import TagBar from '@/components/TagBar';
 
 interface FeedbackPanelProps {
-    tagState: FeedbackModeState;
-    dispatchTagAction: React.Dispatch<FeedbackModeAction>;
+    tagState: TagModeState;
+    dispatchTagAction: React.Dispatch<TagModeAction>;
     sources: SourceChipType[];
     onSourcesChange: (sources: SourceChipType[]) => void;
-    onApply: (tagDescriptions: string[], sources: SourceChipType[], mode: 'rewrite' | 'edit') => void;
+    onApply: (tagDescriptions: string[], sources: SourceChipType[]) => void;
     onReset: () => void;
     explanationId?: number | null;
     isStreaming?: boolean;
@@ -38,9 +38,8 @@ export default function FeedbackPanel({
     className = ''
 }: FeedbackPanelProps) {
     const tags = getCurrentTags(tagState);
-    const feedbackMode = getFeedbackMode(tagState);
+    const modeOverride = getTagBarMode(tagState);
     const tagsModified = isTagsModified(tagState);
-    const isEditMode = feedbackMode === FeedbackMode.EditWithFeedback;
 
     // Track if sources have been modified
     const [initialSources] = useState<SourceChipType[]>(() => [...sources]);
@@ -73,8 +72,8 @@ export default function FeedbackPanel({
     const handleApply = useCallback(() => {
         const tagDescriptions = extractActiveTagDescriptions();
         const validSources = sources.filter(s => s.status === 'success');
-        onApply(tagDescriptions, validSources, isEditMode ? 'edit' : 'rewrite');
-    }, [extractActiveTagDescriptions, sources, onApply, isEditMode]);
+        onApply(tagDescriptions, validSources);
+    }, [extractActiveTagDescriptions, sources, onApply]);
 
     // Handle reset
     const handleReset = useCallback(() => {
@@ -105,10 +104,10 @@ export default function FeedbackPanel({
 
     // Determine panel title based on mode
     const getPanelTitle = () => {
-        switch (feedbackMode) {
-            case FeedbackMode.RewriteWithFeedback:
+        switch (modeOverride) {
+            case TagBarMode.RewriteWithTags:
                 return 'Rewrite with Feedback';
-            case FeedbackMode.EditWithFeedback:
+            case TagBarMode.EditWithTags:
                 return 'Edit with Feedback';
             default:
                 return 'Apply Feedback';
@@ -130,14 +129,14 @@ export default function FeedbackPanel({
     }
 
     // Don't show if tags are not modified and no mode override
-    if (!tagsModified && feedbackMode === FeedbackMode.Normal && sources.length === 0) {
+    if (!tagsModified && modeOverride === TagBarMode.Normal && sources.length === 0) {
         return null;
     }
 
     return (
-        <div className={`bg-[var(--surface-elevated)] border border-[var(--border-strong)] rounded-book shadow-page overflow-hidden ${className}`}>
-            {/* Panel Header - Clean, single title */}
-            <div className="px-5 py-3 bg-gradient-to-r from-[var(--surface-elevated)] to-[var(--surface-secondary)] border-b border-[var(--border-default)]">
+        <div className={`bg-[var(--surface-elevated)] border border-[var(--border-strong)] rounded-book shadow-page ${className}`}>
+            {/* Panel Header */}
+            <div className="px-4 py-3 border-b border-[var(--border-default)]">
                 <h3 className="text-sm font-display font-semibold text-[var(--text-primary)] flex items-center gap-2">
                     <svg className="w-4 h-4 text-[var(--accent-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
@@ -146,51 +145,56 @@ export default function FeedbackPanel({
                 </h3>
             </div>
 
-            <div className="p-5 space-y-5">
-                {/* Tags Section - Streamlined */}
-                <TagBar
-                    tagState={tagState}
-                    dispatch={dispatchTagAction}
-                    explanationId={explanationId}
-                    isStreaming={isStreaming}
-                    embedded={true}
-                />
-
-                {/* Subtle divider */}
-                <div className="border-t border-[var(--border-default)] border-dashed" />
-
-                {/* Sources Section - Cleaner inline design */}
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <span className="text-sm font-ui font-medium text-[var(--text-muted)]">Sources:</span>
-                        <span className="text-xs text-[var(--text-muted)] opacity-70">Add URLs for citations</span>
-                    </div>
-                    <SourceList
-                        sources={sources}
-                        onSourceAdded={handleSourceAdded}
-                        onSourceRemoved={handleSourceRemoved}
-                        disabled={isStreaming}
+            <div className="p-4 space-y-4">
+                {/* Tags Section */}
+                <div>
+                    <h4 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                        Tags
+                    </h4>
+                    <TagBar
+                        tagState={tagState}
+                        dispatch={dispatchTagAction}
+                        explanationId={explanationId}
+                        isStreaming={isStreaming}
                     />
                 </div>
 
-                {/* Action Buttons - Cleaner footer */}
-                <div className="flex justify-end gap-3 pt-3 border-t border-[var(--border-default)]">
+                {/* Sources Section */}
+                <div>
+                    <h4 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+                        Sources
+                    </h4>
+                    <div className="bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page p-3">
+                        <p className="text-xs text-[var(--text-muted)] mb-3">
+                            Add URLs to ground the explanation with citations
+                        </p>
+                        <SourceList
+                            sources={sources}
+                            onSourceAdded={handleSourceAdded}
+                            onSourceRemoved={handleSourceRemoved}
+                            disabled={isStreaming}
+                        />
+                    </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex justify-end gap-2 pt-2 border-t border-[var(--border-default)]">
                     <button
                         onClick={handleReset}
-                        className="px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] hover:text-[var(--accent-copper)] transition-colors duration-200"
+                        className="px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-page transition-all duration-200 hover:border-[var(--accent-copper)] hover:text-[var(--accent-copper)]"
                     >
                         Reset
                     </button>
                     <button
                         onClick={handleApply}
                         disabled={!hasAnyChanges}
-                        className={`px-5 py-2 text-sm font-ui font-medium rounded-page transition-all duration-200 ${
+                        className={`px-4 py-2 text-sm font-ui font-medium rounded-page transition-all duration-200 ${
                             hasAnyChanges
                                 ? 'text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] hover:shadow-warm-md hover:-translate-y-0.5'
                                 : 'text-[var(--text-muted)] bg-[var(--surface-secondary)] cursor-not-allowed opacity-50'
                         }`}
                     >
-                        {isEditMode ? 'Apply Edit' : 'Apply Rewrite'}
+                        Apply
                     </button>
                 </div>
             </div>

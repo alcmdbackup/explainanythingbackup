@@ -4,7 +4,6 @@ import { useState, useCallback, useEffect } from 'react';
 import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } from '../editorFiles/actions/actions';
 import { Spinner } from '@/components/ui/spinner';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
-import type { PageLifecycleAction } from '@/reducers/pageLifecycleReducer';
 
 // ============================================================================
 // Types
@@ -14,8 +13,9 @@ interface AISuggestionsPanelProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   currentContent: string;
-  dispatch?: React.Dispatch<PageLifecycleAction>;
-  isStreaming?: boolean;
+  editorRef?: React.RefObject<unknown>; // LexicalEditorRef
+  onContentChange?: (content: string) => void;
+  onEnterEditMode?: () => void;
   sessionData?: {
     explanation_id: number;
     explanation_title: string;
@@ -201,8 +201,8 @@ export default function AISuggestionsPanel({
   isOpen,
   onOpenChange,
   currentContent,
-  dispatch,
-  isStreaming,
+  onContentChange,
+  onEnterEditMode,
   sessionData,
   loadedSessionId
 }: AISuggestionsPanelProps) {
@@ -341,9 +341,11 @@ export default function AISuggestionsPanel({
       }
 
       if (result.success && result.content) {
-        console.log('🎭 AISuggestionsPanel: Applying AI suggestion via dispatch...');
-        dispatch?.({ type: 'APPLY_AI_SUGGESTION', content: result.content });
-        console.log('🎭 AISuggestionsPanel: APPLY_AI_SUGGESTION dispatched successfully');
+        console.log('🎭 AISuggestionsPanel: Entering edit mode...');
+        onEnterEditMode?.();
+        console.log('🎭 AISuggestionsPanel: Edit mode entered, calling onContentChange...');
+        onContentChange?.(result.content);
+        console.log('🎭 AISuggestionsPanel: onContentChange called successfully');
         // Clear prompt on success
         setUserPrompt('');
       } else {
@@ -361,7 +363,7 @@ export default function AISuggestionsPanel({
       setIsLoading(false);
       setProgressState(null);
     }
-  }, [userPrompt, currentContent, dispatch, handleProgressUpdate, sessionData]);
+  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData]);
 
   const handleQuickAction = useCallback((action: QuickAction) => {
     setUserPrompt(action.prompt);
@@ -475,7 +477,7 @@ export default function AISuggestionsPanel({
           {/* Submit Button */}
           <button
             onClick={() => handleSubmit()}
-            disabled={isLoading || !userPrompt.trim() || !currentContent.trim() || isStreaming}
+            disabled={isLoading || !userPrompt.trim() || !currentContent.trim()}
             className="w-full py-2.5 px-4 font-ui font-medium text-sm rounded-md transition-all duration-200
               focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)] focus:ring-offset-2
               disabled:opacity-50 disabled:cursor-not-allowed

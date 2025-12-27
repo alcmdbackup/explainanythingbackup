@@ -1,4 +1,4 @@
-import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schemas';
 
 /**
@@ -29,9 +29,8 @@ import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schema
  * - Calls supabase topics table for both select and insert
  */
 export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbType> {
-  // Use service client to bypass RLS - user auth is verified at API layer
-  const supabase = await createSupabaseServiceClient()
-
+  const supabase = await createSupabaseServerClient()
+  
   // Check if topic with the same title exists
   const { data: existing, error: selectError } = await supabase
     .from('topics')

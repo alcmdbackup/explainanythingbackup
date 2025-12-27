@@ -48,10 +48,7 @@ import { StandaloneTitleLinkNode, $createStandaloneTitleLinkNode, $isStandaloneT
 import { preprocessCriticMarkup, replaceDiffTagNodesAndExportMarkdown, removeTrailingBreaksFromTextNodes, replaceBrTagsWithNewlines, MARKDOWN_TRANSFORMERS, exportMarkdownReadOnly } from './importExportUtils';
 import ToolbarPlugin from './ToolbarPlugin';
 import DiffTagHoverPlugin from './DiffTagHoverPlugin';
-import MutationQueuePlugin from './MutationQueuePlugin';
-import { StreamingSyncPlugin } from './StreamingSyncPlugin';
 import { TextRevealPlugin } from './TextRevealPlugin';
-import { MutationOp } from '@/reducers/pageLifecycleReducer';
 import { TextRevealEffect } from '@/lib/textRevealAnimations';
 import { CitationPlugin } from './CitationPlugin';
 import { getLinkDataForLexicalOverlayAction, type LexicalLinkOverlayData } from '@/actions/actions';
@@ -239,20 +236,6 @@ interface LexicalEditorProps {
   sources?: CitationSource[];
   /** Callback when pending AI suggestions change (true = suggestions exist) */
   onPendingSuggestionsChange?: (hasPendingSuggestions: boolean) => void;
-  /** Mutation queue - pending mutations to process */
-  pendingMutations?: MutationOp[];
-  /** Mutation queue - currently processing mutation */
-  processingMutation?: MutationOp | null;
-  /** Mutation queue - callback when mutation starts */
-  onStartMutation?: (id: string) => void;
-  /** Mutation queue - callback when mutation completes */
-  onCompleteMutation?: (id: string, newContent: string) => void;
-  /** Mutation queue - callback when mutation fails */
-  onFailMutation?: (id: string, error: string) => void;
-  /** DiffTag - callback to queue accept/reject mutation */
-  onQueueMutation?: (nodeKey: string, type: 'accept' | 'reject') => void;
-  /** StreamingSync - content to sync to editor */
-  syncContent?: string;
 }
 
 /**
@@ -291,14 +274,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
   isStreaming = false,
   textRevealEffect = 'none',
   sources = [],
-  onPendingSuggestionsChange,
-  pendingMutations = [],
-  processingMutation = null,
-  onStartMutation,
-  onCompleteMutation,
-  onFailMutation,
-  onQueueMutation,
-  syncContent,
+  onPendingSuggestionsChange
 }, ref) => {
   const [editorStateJson, setEditorStateJson] = useState<string>('');
   const [editor, setEditor] = useState<any>(null);
@@ -778,26 +754,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
         <ListPlugin />
         <TablePlugin />
         <CheckListPlugin />
-        <DiffTagHoverPlugin
-          onPendingSuggestionsChange={onPendingSuggestionsChange}
-          onQueueMutation={onQueueMutation}
-          isProcessing={processingMutation !== null}
-        />
-        {(pendingMutations.length > 0 || processingMutation !== null) && onStartMutation && onCompleteMutation && onFailMutation && (
-          <MutationQueuePlugin
-            pendingMutations={pendingMutations}
-            processingMutation={processingMutation}
-            onStartMutation={onStartMutation}
-            onCompleteMutation={onCompleteMutation}
-            onFailMutation={onFailMutation}
-          />
-        )}
-        {syncContent !== undefined && (
-          <StreamingSyncPlugin
-            content={syncContent}
-            isStreaming={isStreaming}
-          />
-        )}
+        <DiffTagHoverPlugin onPendingSuggestionsChange={onPendingSuggestionsChange} />
         <TextRevealPlugin isStreaming={isStreaming} animationEffect={textRevealEffect} />
         <CitationPlugin sources={sources} enabled={sources.length > 0} />
         {showTreeView && <TreeViewPlugin />}

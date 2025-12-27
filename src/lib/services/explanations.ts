@@ -1,6 +1,6 @@
 'use server'
 
-import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
@@ -31,8 +31,7 @@ import { type ExplanationFullDbType, type ExplanationInsertType, type Explanatio
  * @returns Created explanation record
  */
 export async function createExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
-  // Use service client to bypass RLS - user auth is verified at API layer
-  const supabase = await createSupabaseServiceClient()
+  const supabase = await createSupabaseServerClient()
   
 
   
@@ -206,8 +205,7 @@ export async function updateExplanation(
   id: number,
   updates: Partial<ExplanationInsertType>
 ): Promise<ExplanationFullDbType> {
-  // Use service client to bypass RLS - user auth is verified at API layer
-  const supabase = await createSupabaseServiceClient()
+  const supabase = await createSupabaseServerClient()
 
   const { data, error } = await supabase
     .from('explanations')
