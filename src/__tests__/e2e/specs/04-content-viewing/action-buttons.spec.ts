@@ -98,6 +98,8 @@ test.describe('Action Buttons', () => {
       await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
       await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(60000);
+      // Wait for lifecycle phase to reach 'viewing' so userSaved state is set
+      await resultsPage.waitForViewingPhase();
 
       // Save button should show "Saved" for already saved explanations
       const saveText = await resultsPage.getSaveButtonText();
@@ -124,6 +126,8 @@ test.describe('Action Buttons', () => {
       await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
       await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(60000);
+      // Wait for lifecycle phase to reach 'viewing' (required for ENTER_EDIT_MODE action)
+      await resultsPage.waitForViewingPhase();
 
       // Verify edit button is visible
       const editVisible = await resultsPage.isEditButtonVisible();
@@ -163,6 +167,8 @@ test.describe('Action Buttons', () => {
       await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
       await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
       await resultsPage.waitForAnyContent(60000);
+      // Wait for lifecycle phase to reach 'viewing' (required for ENTER_EDIT_MODE action)
+      await resultsPage.waitForViewingPhase();
 
       // Enter edit mode
       await resultsPage.clickEditButton();

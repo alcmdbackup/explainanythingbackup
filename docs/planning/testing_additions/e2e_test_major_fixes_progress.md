@@ -674,3 +674,100 @@ Failed:
 1. Debug why `handleEditModeToggle` doesn't dispatch `ENTER_EDIT_MODE`
 2. Check if lifecycle phase is correct when Edit is clicked
 3. Verify `isEditMode` derived state is working correctly
+
+---
+
+### Run 7: 2025-12-27 (LATEST - Lifecycle Phase Fix)
+
+**Session Focus:** Fix Edit Mode and streaming tests using systematic debugging
+
+**Root Cause Analysis (Phase 1 Investigation):**
+
+The test failures were caused by a **race condition between DOM visibility and React state machine transition**.
+
+Tests called `waitForAnyContent()` which waits for title/content DOM elements to be visible. However, the lifecycle phase only transitions to `'viewing'` when `LOAD_EXPLANATION` action is dispatched (from `onSetOriginalValues` callback in `useExplanationLoader`).
+
+When tests click the Edit button while phase is still `'idle'`:
+```typescript
+// pageLifecycleReducer.ts:182-186
+case 'ENTER_EDIT_MODE':
+  if (state.phase !== 'viewing') {
+    console.warn(`ENTER_EDIT_MODE called in phase "${state.phase}", expected "viewing"`);
+    return state;  // Silently ignores the action!
+  }
+```
+
+**Fixes Applied:**
+
+1. **Added `data-lifecycle-phase` attribute to results page** (`src/app/results/page.tsx:957`):
+   ```tsx
+   <div className="..." data-lifecycle-phase={lifecycleState.phase}>
+   ```
+
+2. **Added `waitForViewingPhase()` helper** (`src/__tests__/e2e/helpers/pages/ResultsPage.ts:255-258`):
+   ```typescript
+   async waitForViewingPhase(timeout = 30000) {
+     await this.page.waitForSelector('[data-lifecycle-phase="viewing"]', { timeout });
+   }
+   ```
+
+3. **Updated tests to wait for viewing phase** (`src/__tests__/e2e/specs/04-content-viewing/action-buttons.spec.ts`):
+   - Line 101-102: Added `waitForViewingPhase()` after `waitForAnyContent()` in "already saved" test
+   - Line 129-130: Added `waitForViewingPhase()` in "enter edit mode" test
+   - Line 170-171: Added `waitForViewingPhase()` in "exit edit mode" test
+
+4. **Added E2E debug logging** (`src/app/api/returnExplanation/route.ts`, `src/app/results/page.tsx`):
+   - Server logs when test mode API is called
+   - Client logs when `complete` event received and when `router.push` is called
+
+**Test Results:**
+
+```
+Running 11 tests using 1 worker
+
+  1 failed
+  10 passed (1.4m)
+
+Failed:
+  - should show already saved state for existing saved explanations
+    Error: expect(received).toContain(expected)
+    Expected: "Saved"
+    Received: "Save"
+```
+
+**Progress:**
+- **10/11 tests now pass** (was 7/11 before this session)
+- Edit Mode tests now pass (both "enter" and "exit")
+- Streaming tests now pass (save button, disable after save)
+- Mode Dropdown tests pass
+- Format Toggle tests pass
+- Rewrite Flow tests pass
+
+**Remaining Issue (1 test):**
+
+**"should show already saved state for existing saved explanations"**
+
+The test loads an explanation from the user's library (already saved), but the save button shows "Save" instead of "Saved ✓".
+
+**Current Investigation:**
+- The explanation is loaded from the library (ID: 8492, seeded in global-setup)
+- `isExplanationSavedByUserAction` is called to check if user saved it
+- The action correctly queries the database for real IDs (< 90000)
+- But `userSaved` state is `false` when it should be `true`
+
+**Hypothesis:**
+The `checkUserSaved()` callback in `useExplanationLoader` may complete AFTER the test checks the button text. Need to add a wait condition that ensures `userSaved` state is settled before asserting.
+
+**Files Modified This Session:**
+
+| File | Change |
+|------|--------|
+| `src/app/results/page.tsx` | Added `data-lifecycle-phase` attribute, E2E debug logging |
+| `src/__tests__/e2e/helpers/pages/ResultsPage.ts` | Added `waitForViewingPhase()` method |
+| `src/__tests__/e2e/specs/04-content-viewing/action-buttons.spec.ts` | Added `waitForViewingPhase()` calls |
+| `src/app/api/returnExplanation/route.ts` | Added E2E debug logging |
+
+**Next Steps:**
+1. Add wait condition for `userSaved` state to settle (e.g., wait for button text to contain "Saved" OR button to be disabled)
+2. Or add a `data-user-saved` attribute to the button for reliable waiting
+3. Verify the `isExplanationSavedByUserAction` is returning `true` for seeded explanations

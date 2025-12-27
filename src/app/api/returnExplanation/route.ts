@@ -16,6 +16,7 @@ if (process.env.E2E_TEST_MODE === 'true' && process.env.NODE_ENV === 'production
 export async function POST(request: NextRequest) {
   // E2E test mode bypass - use mock streaming for reliable testing
   if (process.env.E2E_TEST_MODE === 'true') {
+    logger.info('[E2E DEBUG] returnExplanation API called in test mode');
     const { streamMockResponse } = await import('./test-mode');
     return streamMockResponse(request);
   }

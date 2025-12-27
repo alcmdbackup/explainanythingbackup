@@ -252,6 +252,11 @@ export class ResultsPage extends BasePage {
     });
   }
 
+  // Wait for lifecycle phase to be 'viewing' (state machine ready for edit mode)
+  async waitForViewingPhase(timeout = 30000) {
+    await this.page.waitForSelector('[data-lifecycle-phase="viewing"]', { timeout });
+  }
+
   // Error handling methods
   async getErrorMessage(): Promise<string | null> {
     const errorElement = this.page.locator(this.errorMessage);

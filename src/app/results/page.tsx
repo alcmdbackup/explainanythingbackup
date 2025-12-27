@@ -398,6 +398,9 @@ function ResultsPageContent() {
 
                         if (data.type === 'complete' && data.result) {
                             logger.debug('Client received complete', { hasResult: !!data.result }, FILE_DEBUG);
+                            if (process.env.NODE_ENV !== 'production') {
+                                console.log('[E2E DEBUG] Complete event received:', JSON.stringify(data.result).substring(0, 200));
+                            }
                             finalResult = data.result;
                             setStreamCompleted(true); // Mark stream as completed for E2E testing
                             //setIsStreaming(false);
@@ -458,7 +461,11 @@ function ResultsPageContent() {
                 params.set('userQueryId', userQueryId.toString());
             }
 
-            router.push(`/results?${params.toString()}`);
+            const newUrl = `/results?${params.toString()}`;
+            if (process.env.NODE_ENV !== 'production') {
+                console.log('[E2E DEBUG] Redirecting to:', newUrl, 'explanationId:', explanationId, 'userQueryId:', userQueryId);
+            }
+            router.push(newUrl);
             // Note: setIsLoading(false) will be handled by the page reload
         }
     };
@@ -869,7 +876,7 @@ function ResultsPageContent() {
     }, [isStreaming, isEditMode]);
 
     return (
-        <div className="h-screen bg-[var(--surface-primary)] flex flex-col">
+        <div className="h-screen bg-[var(--surface-primary)] flex flex-col" data-lifecycle-phase={lifecycleState.phase}>
             {/* Top Navigation Bar */}
             <Navigation
                 showSearchBar={true}
