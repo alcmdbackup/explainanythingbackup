@@ -7,13 +7,14 @@ import {
   getRecentUserQueries,
   getUserQueryById
 } from './userQueries';
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { UserQueryInsertType } from '@/lib/schemas/schemas';
 import { UserInputType } from '@/lib/schemas/schemas';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServerClient: jest.fn()
+  createSupabaseServerClient: jest.fn(),
+  createSupabaseServiceClient: jest.fn()
 }));
 
 type MockSupabaseClient = {
@@ -44,6 +45,7 @@ describe('UserQueries Service', () => {
     };
 
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
   });
 
   describe('createUserQuery userId validation', () => {

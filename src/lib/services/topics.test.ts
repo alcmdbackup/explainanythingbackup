@@ -6,12 +6,13 @@ import {
   deleteTopic,
   searchTopicsByTitle
 } from './topics';
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { TopicInsertType, TopicFullDbType } from '@/lib/schemas/schemas';
 
 // Mock Supabase server client
 jest.mock('@/lib/utils/supabase/server', () => ({
-  createSupabaseServerClient: jest.fn()
+  createSupabaseServerClient: jest.fn(),
+  createSupabaseServiceClient: jest.fn()
 }));
 
 describe('Topics Service', () => {
@@ -38,6 +39,7 @@ describe('Topics Service', () => {
 
     // Setup the mock to return our mockSupabase
     (createSupabaseServerClient as jest.Mock).mockResolvedValue(mockSupabase);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
   });
 
   describe('createTopic', () => {
