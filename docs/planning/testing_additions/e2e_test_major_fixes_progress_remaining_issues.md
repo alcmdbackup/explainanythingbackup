@@ -13,6 +13,9 @@ After implementing the major E2E test fixes (auth, data seeding, streaming mock,
 - ~50+ flaky (pass on retry)
 - ~50+ passed
 
+**Status Update (2025-12-26):**
+All 5 issue categories have been fixed in commit `2332e88`. See "Fixed Issues" section below for details.
+
 ---
 
 ## Issue Categories
@@ -173,7 +176,86 @@ expect(title ?? '').not.toContain('Accept or reject AI suggestions');
 
 ## Fixed Issues (This Session)
 
-### userSavedLoaded Race Condition ✅
+### All Remaining Issues Fixed ✅ (2025-12-26)
+
+**Commit:** `2332e88` - fix(e2e): resolve remaining E2E test issues
+
+All 5 issue categories have been addressed:
+
+---
+
+### 1. Server Instability (ECONNRESET) ✅
+
+**Fix Applied:**
+- Reduced Playwright workers in `playwright.config.ts:14`
+- Changed from `CI ? 2 : undefined` to `CI ? 1 : 2`
+
+**Files Modified:**
+- `playwright.config.ts`
+
+---
+
+### 2. Streaming Mock Race Condition ✅
+
+**Root Cause Confirmed:** `setStreamCompleted(true)` on line 413 of `results/page.tsx` is async, but `router.push()` on line 476 executes immediately without waiting for React to render the `stream-complete` indicator.
+
+**Fix Applied:**
+- Changed `waitForStreamingComplete()` to wait for URL redirect first (the reliable signal)
+- URL contains `explanation_id` after streaming completes and redirect happens
+- Optionally checks stream-complete indicator as secondary confirmation
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/pages/ResultsPage.ts:59-73`
+
+---
+
+### 3. AI Suggestions - Editor Not Ready ✅
+
+**Root Cause Confirmed:** `waitForEditMode()` only waited for "Done" button to exist, but didn't actually click "Edit" button to enter edit mode. Tests load saved explanations which are read-only by default.
+
+**Fix Applied:**
+- Added `enterEditMode()` helper function that:
+  1. Checks if already in edit mode (Done button visible)
+  2. If not, clicks Edit button and waits for Done button
+- Added `enterEditMode(page)` call before every `submitAISuggestionPrompt()` in all 7 spec files
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:258-276` (new helper)
+- `src/__tests__/e2e/specs/06-ai-suggestions/suggestions.spec.ts` (4 occurrences)
+- `src/__tests__/e2e/specs/06-ai-suggestions/editor-integration.spec.ts` (6 occurrences)
+- `src/__tests__/e2e/specs/06-ai-suggestions/user-interactions.spec.ts` (4 occurrences)
+- `src/__tests__/e2e/specs/06-ai-suggestions/state-management.spec.ts` (6 occurrences)
+- `src/__tests__/e2e/specs/06-ai-suggestions/content-boundaries.spec.ts` (5 occurrences)
+- `src/__tests__/e2e/specs/06-ai-suggestions/save-blocking.spec.ts` (4 occurrences)
+- `src/__tests__/e2e/specs/06-ai-suggestions/error-recovery.spec.ts` (6 occurrences)
+
+---
+
+### 4. Add Tag Flow - Missing UI Element ✅
+
+**Root Cause Confirmed:** Element exists in `TagBar.tsx:475-486` but is conditionally rendered. Test clicked before element was visible.
+
+**Fix Applied:**
+- Added explicit visibility wait before clicking in `clickAddTagTrigger()` helper
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/pages/ResultsPage.ts:573-577`
+
+---
+
+### 5. Save Blocking - Null Title Attribute ✅
+
+**Root Cause Confirmed:** JSX `title={undefined}` renders as null in DOM. `getAttribute('title')` returns null, causing assertion to fail.
+
+**Fix Applied:**
+- Changed `expect(title).not.toContain(...)` to `expect(title ?? '').not.toContain(...)`
+
+**Files Modified:**
+- `src/__tests__/e2e/specs/06-ai-suggestions/save-blocking.spec.ts:154,201`
+
+---
+
+### userSavedLoaded Race Condition ✅ (Previous Session)
 
 **Original Issue:** "should show already saved state for existing saved explanations" failing with `Expected: "Saved", Received: "Save"`
 
@@ -190,17 +272,19 @@ expect(title ?? '').not.toContain('Accept or reject AI suggestions');
 
 ## Recommended Actions
 
-### Immediate (P1)
-1. **Reduce workers to 2:** Stabilize server
-2. **Debug streaming mock:** Fix stream-complete indicator
+### All P1-P3 Items Completed ✅
 
-### Short-term (P2)
-3. **Add Edit Mode to AI tests:** Enter edit mode before suggestions
-4. **Fix null title assertion:** Handle null case in save-blocking tests
+~~### Immediate (P1)~~
+1. ~~**Reduce workers to 2:** Stabilize server~~ ✅ Done (reduced to 1 for CI, 2 for local)
+2. ~~**Debug streaming mock:** Fix stream-complete indicator~~ ✅ Done (wait for URL redirect instead)
 
-### Later (P3)
-5. **Investigate add-tag-trigger:** Verify UI element exists
-6. **Consider production build:** For CI, use `npm start` not dev server
+~~### Short-term (P2)~~
+3. ~~**Add Edit Mode to AI tests:** Enter edit mode before suggestions~~ ✅ Done
+4. ~~**Fix null title assertion:** Handle null case in save-blocking tests~~ ✅ Done
+
+~~### Later (P3)~~
+5. ~~**Investigate add-tag-trigger:** Verify UI element exists~~ ✅ Done (added visibility wait)
+6. **Consider production build:** For CI, use `npm start` not dev server (Optional optimization)
 
 ---
 
