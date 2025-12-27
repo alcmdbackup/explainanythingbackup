@@ -8,9 +8,10 @@ Status tracking for remaining E2E test issues after the major fixes implementati
 
 After implementing the major E2E test fixes (auth, data seeding, streaming mock, lifecycle waits), there are still several categories of test failures. This document tracks the remaining issues and their root causes.
 
-**Latest Run (2025-12-27 - After Issue #15 Analysis):**
-- AI Suggestions Suite: 8 passed, 3 failed, 1 flaky
-- 3 remaining failures are timing-related (contentBefore captured as empty)
+**Latest Run (2025-12-27 - After Issue #16 Fix):**
+- AI Suggestions Suite: 56 passed ✅
+- Error Recovery + Editor Integration: 12 passed ✅
+- All flakiness issues resolved
 
 **Previous Run (2025-12-27 - After Issue #14 Fix):**
 - 120 passed ✅
@@ -873,5 +874,57 @@ This indicates `contentBefore` is being captured as empty while `contentAfter` h
 3. Restructure tests to capture content AFTER entering edit mode
 
 **Priority:** P2 - Tests exercise edge cases, core functionality works
+
+---
+
+## Status Update (2025-12-27 - Flakiness Fix)
+
+### Issue #16: getEditorTextContent Returns Empty Silently ✅ FIXED
+
+**Commit:** `6ec206d` - fix(e2e): prevent flaky tests by failing fast when editor content not found
+
+**Problem:** Tests were flaky because `getEditorTextContent` returned empty string when content wasn't found within timeout. This caused `contentBefore` to be empty while `contentAfter` had content, leading to assertion failures like:
+```
+Expected: ""
+Received: "<h2>Quantum Physics</h2>..."
+```
+
+**Root Cause:**
+- Default timeout was 10s which was sometimes not enough for slow page loads
+- Function returned empty string on timeout instead of failing, masking the real issue
+- Tests appeared to fail on content comparison but real issue was timing
+
+**Fix Applied:**
+1. Increased default timeout from 10s to 30s
+2. Changed behavior to throw error instead of returning empty string
+3. Added clear error message explaining the issue and suggesting fix
+
+```typescript
+// Before: silently returned empty string
+return await editor.textContent() ?? '';
+
+// After: fails fast with helpful error message
+throw new Error(
+  `getEditorTextContent: No content found in .lexical-editor after ${timeout}ms. ` +
+  `This usually means the page hasn't fully loaded yet. ` +
+  `Ensure waitForAnyContent() or similar is called before getEditorTextContent().`
+);
+```
+
+**Files Modified:**
+- `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:215-237`
+
+**Test Results After Fix:**
+- AI Suggestions Suite: **56 passed** ✅
+- Error Recovery + Editor Integration: **12 passed** ✅
+- No more flaky failures on content comparison
+
+### Lessons Learned
+
+1. **Fail fast, fail loud**: Silent failures (returning empty string) mask real issues and cause confusing test failures. Throwing errors with clear messages helps debug faster.
+
+2. **Generous timeouts for page loads**: E2E tests should account for slow server responses. 10s was too aggressive; 30s provides buffer without slowing down tests that find content quickly.
+
+3. **The pattern**: When a helper function can fail, it should throw rather than return a sentinel value. This makes the actual failure point obvious in stack traces.
 
 ---
