@@ -219,18 +219,20 @@ export async function getEditorTextContent(page: Page): Promise<string> {
 
 /**
  * Clicks the accept button (✓) on the first visible diff node.
+ * Uses data-action="accept" attribute to avoid matching "Saved ✓" button.
  */
 export async function clickAcceptOnFirstDiff(page: Page): Promise<void> {
-  const button = page.locator('button:has-text("✓")').first();
+  const button = page.locator('button[data-action="accept"]').first();
   await button.waitFor({ state: 'visible', timeout: 5000 });
   await button.click();
 }
 
 /**
  * Clicks the reject button (✕) on the first visible diff node.
+ * Uses data-action="reject" attribute for reliable targeting.
  */
 export async function clickRejectOnFirstDiff(page: Page): Promise<void> {
-  const button = page.locator('button:has-text("✕")').first();
+  const button = page.locator('button[data-action="reject"]').first();
   await button.waitFor({ state: 'visible', timeout: 5000 });
   await button.click();
 }

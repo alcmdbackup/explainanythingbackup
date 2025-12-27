@@ -2,6 +2,64 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 
+/**
+ * Ensures a tag is associated with the explanation.
+ * Creates the tag if it doesn't exist, and associates it if not already associated.
+ */
+async function ensureTagAssociated(supabase: SupabaseClient, explanationId: number) {
+  // Create or get the test tag
+  const { data: tag } = await supabase
+    .from('tags')
+    .upsert({ tag_name: 'e2e-test-tag', tag_description: 'Test tag for E2E tests' }, { onConflict: 'tag_name' })
+    .select()
+    .single();
+
+  if (!tag) {
+    console.log('   ⚠️  Could not create/get test tag');
+    return;
+  }
+
+  // Check if already associated (including soft-deleted ones)
+  const { data: existingAssoc } = await supabase
+    .from('explanation_tags')
+    .select('id, isDeleted')
+    .eq('explanation_id', explanationId)
+    .eq('tag_id', tag.id)
+    .single();
+
+  if (existingAssoc) {
+    if (existingAssoc.isDeleted === false) {
+      console.log('   ✓ Tag already associated (active)');
+      return;
+    }
+    // Reactivate soft-deleted association
+    console.log('   ↻ Reactivating soft-deleted tag association');
+    const { error: reactivateError } = await supabase
+      .from('explanation_tags')
+      .update({ isDeleted: false })
+      .eq('id', existingAssoc.id);
+    if (reactivateError) {
+      console.warn('   ⚠️  Failed to reactivate tag:', reactivateError.message);
+    } else {
+      console.log('   ✓ Tag reactivated');
+    }
+    return;
+  }
+
+  // Associate tag with explanation (explicitly set isDeleted to false)
+  const { error: tagError } = await supabase.from('explanation_tags').insert({
+    explanation_id: explanationId,
+    tag_id: tag.id,
+    isDeleted: false,
+  });
+
+  if (tagError) {
+    console.warn('   ⚠️  Failed to associate tag:', tagError.message);
+  } else {
+    console.log('   ✓ Tag associated with explanation');
+  }
+}
+
 async function globalSetup() {
   console.log('🚀 E2E Global Setup: Starting...');
 
@@ -100,6 +158,9 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
 
   if (existing && existing.length > 0) {
     console.log('   ✓ Test explanation already exists');
+    // Ensure tag is associated even for existing explanations
+    const existingExplanationId = existing[0].explanationid;
+    await ensureTagAssociated(supabase, existingExplanationId);
     return;
   }
 
@@ -164,27 +225,9 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
     .eq('explanationid', explanation.id);
   console.log('   [DEBUG] Verification query:', verifyData);
 
-  // Create a test tag and associate it
-  const { data: tag } = await supabase
-    .from('tags')
-    .upsert({ tag_name: 'e2e-test-tag' }, { onConflict: 'tag_name' })
-    .select()
-    .single();
-
-  if (tag) {
-    const { error: tagError } = await supabase.from('explanation_tags').insert({
-      explanation_id: explanation.id,
-      tag_id: tag.id,
-    });
-
-    if (tagError) {
-      console.warn('⚠️  Failed to associate tag:', tagError.message);
-    } else {
-      console.log('   ✓ Seeded test explanation with tag');
-    }
-  } else {
-    console.log('   ✓ Seeded test explanation (no tag)');
-  }
+  // Associate tag with the new explanation
+  await ensureTagAssociated(supabase, explanation.id);
+  console.log('   ✓ Seeded test explanation');
 }
 
 export default globalSetup;

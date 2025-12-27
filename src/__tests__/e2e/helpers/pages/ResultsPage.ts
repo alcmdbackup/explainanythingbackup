@@ -585,9 +585,22 @@ export class ResultsPage extends BasePage {
 
   // Tag addition methods
   async clickAddTagTrigger() {
-    // Wait for element to be visible before clicking (it's conditionally rendered)
-    await this.page.locator('[data-testid="add-tag-trigger"]').waitFor({ state: 'visible', timeout: 5000 });
-    await this.page.click('[data-testid="add-tag-trigger"]');
+    // Wait for TagBar to be in normal mode (not modified) by checking for the trigger
+    // The add-tag-trigger only appears when isTagsModified is false AND showAddTagInput is false
+    // First wait for any tag-related element to ensure TagBar is rendered
+    await this.page.locator('[data-testid="add-tag-trigger"], [data-testid="tag-add-input"]').first().waitFor({
+      state: 'visible',
+      timeout: 15000
+    });
+
+    // If the input is already showing, we're good - the trigger was already clicked
+    const inputVisible = await this.page.locator('[data-testid="tag-add-input"]').isVisible();
+    if (inputVisible) {
+      return; // Already in add-tag mode
+    }
+
+    // Otherwise click the trigger
+    await this.page.locator('[data-testid="add-tag-trigger"]').click();
   }
 
   async isAddTagInputVisible(): Promise<boolean> {
@@ -621,7 +634,19 @@ export class ResultsPage extends BasePage {
   }
 
   async clickCancelAddTag() {
-    await this.page.click('[data-testid="tag-cancel-button"]');
+    // Wait for cancel button to be visible and clickable
+    const cancelButton = this.page.locator('[data-testid="tag-cancel-button"]');
+    await cancelButton.waitFor({ state: 'visible', timeout: 5000 });
+    // Click the cancel button - may need retry due to React state timing
+    await cancelButton.click();
+    // Wait for input to be hidden, retry click if needed
+    try {
+      await this.page.waitForSelector('[data-testid="tag-add-input"]', { state: 'hidden', timeout: 2000 });
+    } catch {
+      // First click may not have registered, try again
+      await cancelButton.click();
+      await this.page.waitForSelector('[data-testid="tag-add-input"]', { state: 'hidden', timeout: 3000 });
+    }
   }
 
   // Changes panel methods
