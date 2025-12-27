@@ -16,6 +16,12 @@ After implementing the major E2E test fixes (auth, data seeding, streaming mock,
 **Status Update (2025-12-26):**
 All 5 issue categories have been fixed in commit `2332e88`. See "Fixed Issues" section below for details.
 
+**Status Update (2025-12-27):**
+Additional fixes applied in commit `e217339`:
+- Fixed streaming mock property name mismatch (`explanation_id` → `explanationId`)
+- Improved `enterEditMode()` reliability with force click and retry logic
+- Streaming tests now pass when run in isolation with 1 worker
+
 ---
 
 ## Issue Categories
