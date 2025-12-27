@@ -541,3 +541,119 @@ After fixes:
 3. **Wait for observable state, not just URL**: After redirect, the page needs time to load data. Waiting for specific DOM attributes (like `data-user-saved-loaded`) is more reliable than fixed timeouts.
 
 4. **Trace data flow end-to-end**: The bug wasn't in one place—it was a chain of mismatched data across 4 different files.
+
+---
+
+## Test Run (2025-12-27 - feat/restore-ai-panel-design branch)
+
+### Run Summary
+
+**Total Tests:** 260 tests using 2 workers
+**Run Status:** Partial (stopped at ~192/260)
+**Branch:** `feat/restore-ai-panel-design`
+
+### Results So Far
+
+| Category | Status |
+|----------|--------|
+| Passed | ~175+ tests |
+| Failed | 12 tests (after retries) |
+| Remaining | ~68 tests (not run) |
+
+### Passing Test Suites
+
+- ✅ `01-auth/auth.spec.ts` - All passing
+- ✅ `02-search-generate/search-generate.spec.ts` - All passing
+- ✅ `02-search-generate/regenerate.spec.ts` - All passing
+- ✅ `03-library/library.spec.ts` - All passing
+- ✅ `04-content-viewing/viewing.spec.ts` - All passing
+- ✅ `04-content-viewing/action-buttons.spec.ts` - All passing
+- ✅ `05-edge-cases/errors.spec.ts` - All passing
+- ✅ `06-import/import-articles.spec.ts` - All passing
+- ✅ `smoke.spec.ts` - All passing
+- ✅ `auth.unauth.spec.ts` - All passing (chromium-unauth project)
+- ✅ Firefox cross-browser tests - Passing
+
+### New Issue: clickAcceptOnFirstDiff Selector Bug
+
+**Issue #12: Accept Button Selector Matches Wrong Element**
+
+**Symptom:**
+```
+locator.click: Test timeout exceeded.
+waiting for locator('button:has-text("✓")').first()
+- locator resolved to <button disabled data-testid="save-to-library" ... >Saved ✓</button>
+- element is not enabled
+```
+
+**Affected Tests (12 failures):**
+1. `tags.spec.ts` - "should open tag input when add button clicked"
+2. `tags.spec.ts` - "should handle cancel button click"
+3. `editor-integration.spec.ts` - "accept removes sentence from editor"
+4. `editor-integration.spec.ts` - "should show error in panel and keep editor unchanged"
+5. `error-recovery.spec.ts` - "should show error for API 500 and allow retry"
+6. `error-recovery.spec.ts` - "should preserve original content on pipeline error"
+7. `error-recovery.spec.ts` - "should handle malformed API response gracefully"
+8. `save-blocking.spec.ts` - "save button should be enabled after accepting all suggestions"
+9. `state-management.spec.ts` - "undo after accept should restore diff UI"
+10. `state-management.spec.ts` - "redo after undo should re-apply accepted change"
+11. `state-management.spec.ts` - "should handle multiple rounds of suggestions cleanly"
+12. `user-interactions.spec.ts` - "should handle submit after accepting some diffs"
+
+**Root Cause:**
+The `clickAcceptOnFirstDiff()` helper in `suggestions-test-helpers.ts:224-226` uses:
+```typescript
+const button = page.locator('button:has-text("✓")').first();
+```
+
+This selector is too broad. It matches **any button containing "✓"**, including the "Saved ✓" button in the action bar, which is disabled. The intended target is the accept button within diff UI elements.
+
+**Fix Required:**
+Update the selector to be more specific:
+```typescript
+// Option 1: Target buttons within diff elements
+const button = page.locator('[data-testid="diff-accept-button"]').first();
+
+// Option 2: Exclude the save button
+const button = page.locator('button:has-text("✓"):not([data-testid="save-to-library"])').first();
+
+// Option 3: Target by parent container
+const button = page.locator('.diff-inline-controls button:has-text("✓")').first();
+```
+
+**Priority:** P1 - Blocks 12 AI suggestions tests
+
+**Files to Modify:**
+- `src/__tests__/e2e/helpers/suggestions-test-helpers.ts:224-226`
+
+### Tags Tests - Separate Issue
+
+**Issue #13: Add Tag Trigger Still Timing Out**
+
+Despite fix in commit `2332e88`, the add-tag-trigger visibility wait is still timing out:
+```
+TimeoutError: locator.waitFor: Timeout 5000ms exceeded.
+waiting for locator('[data-testid="add-tag-trigger"]') to be visible
+```
+
+**Affected Tests:**
+- `tags.spec.ts` - "should open tag input when add button clicked"
+- `tags.spec.ts` - "should handle cancel button click"
+
+**Possible Causes:**
+1. Element conditionally rendered based on state not present in test setup
+2. Element hidden by CSS or parent container
+3. Race condition with page load
+
+**Priority:** P2 - Only 2 tests affected
+
+---
+
+## Recommended Next Steps
+
+### Immediate (P1)
+1. **Fix clickAcceptOnFirstDiff selector** - Update to use specific data-testid or exclude save button
+2. **Add data-testid to diff accept/reject buttons** - If not already present
+
+### Short-term (P2)
+3. **Debug add-tag-trigger** - Investigate why element isn't visible after previous fix
