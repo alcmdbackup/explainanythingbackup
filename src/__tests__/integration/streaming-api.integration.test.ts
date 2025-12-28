@@ -25,6 +25,11 @@ jest.mock('@/lib/services/llms', () => ({
   default_model: 'gpt-4',
 }));
 
+// Mock validateApiAuth - will be configured per test with actual testUserId
+jest.mock('@/lib/utils/supabase/validateApiAuth');
+import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
+const mockValidateApiAuth = validateApiAuth as jest.MockedFunction<typeof validateApiAuth>;
+
 describe('Streaming API Integration Tests', () => {
   let supabase: SupabaseClient;
   let testUserId: string;
@@ -47,6 +52,12 @@ describe('Streaming API Integration Tests', () => {
     const context = await createTestContext();
     testUserId = context.userId;
     cleanup = context.cleanup;
+
+    // Configure auth mock to return the test user
+    mockValidateApiAuth.mockResolvedValue({
+      data: { userId: testUserId, sessionId: 'test-session' },
+      error: null
+    });
   });
 
   afterEach(async () => {
@@ -229,13 +240,20 @@ describe('Streaming API Integration Tests', () => {
 
       const response1 = await POST(request1);
 
-      // Assert
+      // Assert - now only prompt is validated (userid comes from auth)
       expect(response1.status).toBe(400);
       const text1 = await response1.text();
-      expect(text1).toBe('Missing prompt or userid');
+      expect(text1).toBe('Missing prompt');
+    });
 
-      // Act - missing userid
-      const request2 = new Request('http://localhost:3000/api/stream-chat', {
+    it('should handle unauthenticated requests', async () => {
+      // Mock auth to fail
+      mockValidateApiAuth.mockResolvedValueOnce({
+        data: null,
+        error: 'User not authenticated'
+      });
+
+      const request = new Request('http://localhost:3000/api/stream-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -243,12 +261,13 @@ describe('Streaming API Integration Tests', () => {
         }),
       }) as any;
 
-      const response2 = await POST(request2);
+      const response = await POST(request);
 
       // Assert
-      expect(response2.status).toBe(400);
-      const text2 = await response2.text();
-      expect(text2).toBe('Missing prompt or userid');
+      expect(response.status).toBe(401);
+      const json = await response.json();
+      expect(json.error).toBe('Authentication required');
+      expect(json.redirectTo).toBe('/login');
     });
   });
 
