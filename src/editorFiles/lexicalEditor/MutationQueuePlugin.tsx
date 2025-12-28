@@ -4,7 +4,14 @@ import { useEffect, useRef } from 'react';
 import { useLexicalComposerContext } from '@lexical/react/LexicalComposerContext';
 import { acceptDiffTag, rejectDiffTag } from './diffTagMutations';
 import { exportMarkdownReadOnly } from './importExportUtils';
-import { MutationOp } from '@/reducers/pageLifecycleReducer';
+// MutationOp type - defined locally as the reducer no longer exports it
+// TODO: This plugin is not currently used in production. Consider removing if not needed.
+export type MutationOp = {
+  id: string;
+  type: 'accept' | 'reject';
+  nodeKey: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+};
 
 interface MutationQueuePluginProps {
   pendingMutations: MutationOp[];

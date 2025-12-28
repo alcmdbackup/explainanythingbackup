@@ -11,7 +11,7 @@
 import React from 'react';
 import { render, waitFor, act } from '@testing-library/react';
 import MutationQueuePlugin from './MutationQueuePlugin';
-import { MutationOp } from '@/reducers/pageLifecycleReducer';
+import { MutationOp } from './MutationQueuePlugin';
 
 // Mock the Lexical context
 jest.mock('@lexical/react/LexicalComposerContext', () => ({
