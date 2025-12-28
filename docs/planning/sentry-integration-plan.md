@@ -835,41 +835,239 @@ After integration, all errors will be correlated:
 
 ---
 
-## Phase 5: OpenTelemetry Bridge
+## Phase 5: Tracing Integration
 
-### 5.1 Connect Existing OTEL to Sentry
+### Current State: OpenTelemetry → Grafana Cloud
 
-Modify `instrumentation.ts`:
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      EXISTING TRACING (instrumentation.ts)               │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Custom Tracers:                                                         │
+│    • llmTracer      → LLM/OpenAI calls                                  │
+│    • dbTracer       → Supabase queries                                  │
+│    • vectorTracer   → Pinecone operations                               │
+│    • appTracer      → Application logic                                 │
+│                                                                          │
+│  Auto-instrumented:                                                      │
+│    • fetch() calls to pinecone.io → vectorTracer spans                  │
+│    • fetch() calls to supabase.co → dbTracer spans                      │
+│                                                                          │
+│  Destination: OTEL_EXPORTER_OTLP_ENDPOINT → Grafana Cloud               │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Tracing Options
+
+| Option | Description | Pros | Cons |
+|--------|-------------|------|------|
+| **A: Sentry Native (Recommended)** | Use Sentry's built-in tracing | Zero config, auto-instruments Next.js | Separate from Grafana traces |
+| **B: OTEL Bridge** | Send existing OTEL traces to Sentry | Single source of truth | Complex setup, dual destinations |
+| **C: Sentry Only** | Replace Grafana with Sentry | Unified platform | Migration effort, lose Grafana |
+
+### Recommended: Option A (Sentry Native + Keep Grafana)
+
+Use **Sentry for error-correlated traces** and **Grafana for detailed performance monitoring**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         AFTER INTEGRATION                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  SENTRY (Error Tracking + Basic Traces):                                │
+│    • Auto-traces Next.js routes, API handlers                           │
+│    • Auto-traces fetch() calls                                          │
+│    • Errors include trace context (what happened before error)          │
+│    • Session Replay shows user actions                                  │
+│                                                                          │
+│  GRAFANA (Detailed Performance):                                         │
+│    • Your custom OTEL spans (LLM, DB, Vector)                           │
+│    • Detailed timing breakdowns                                          │
+│    • Long-term performance trends                                        │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.1 Enable Sentry Native Tracing
+
+Sentry's `@sentry/nextjs` automatically instruments:
+- Next.js App Router (routes, layouts, API handlers)
+- `fetch()` calls (client and server)
+- Database queries (with integrations)
 
 ```typescript
+// sentry.server.config.ts
 import * as Sentry from "@sentry/nextjs";
-import { trace, context } from '@opentelemetry/api';
 
-export async function register() {
-  // Existing OTEL setup...
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
 
-  // Add Sentry-OTEL integration
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    instrumenter: "otel",
-    // ... other config
-  });
+  // Enable tracing - this is the key setting
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
 
-  // Link OTEL traces to Sentry
-  const originalCreateSpan = llmTracer.startSpan.bind(llmTracer);
-  llmTracer.startSpan = (name: string, options?: any) => {
-    const otelSpan = originalCreateSpan(name, options);
+  // Sentry will auto-instrument:
+  // - All API routes (/api/*)
+  // - All page routes
+  // - All fetch() calls
+  // - Database queries
+});
+```
 
-    // Get Sentry span and link
-    const sentrySpan = Sentry.getActiveSpan();
-    if (sentrySpan) {
-      sentrySpan.setAttribute('otel.trace_id', otelSpan.spanContext().traceId);
+```typescript
+// sentry.client.config.ts
+import * as Sentry from "@sentry/nextjs";
+
+Sentry.init({
+  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+
+  // Enable browser tracing
+  tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.2 : 1.0,
+
+  integrations: [
+    Sentry.browserTracingIntegration(),
+  ],
+});
+```
+
+### 5.2 Add Custom Spans for Key Operations
+
+While Sentry auto-instruments fetch, add custom spans for business-critical operations:
+
+```typescript
+// src/lib/services/llms.ts
+import * as Sentry from "@sentry/nextjs";
+
+export async function generateExplanation(query: string): Promise<string> {
+  return Sentry.startSpan(
+    {
+      name: 'generateExplanation',
+      op: 'llm.generate',
+      attributes: {
+        'llm.model': 'gpt-4',
+        'llm.prompt_length': query.length,
+      },
+    },
+    async (span) => {
+      const result = await openai.chat.completions.create({...});
+
+      // Add result attributes
+      span.setAttribute('llm.tokens_used', result.usage?.total_tokens || 0);
+      span.setAttribute('llm.response_length', result.choices[0]?.message?.content?.length || 0);
+
+      return result.choices[0]?.message?.content || '';
     }
-
-    return otelSpan;
-  };
+  );
 }
 ```
+
+```typescript
+// src/lib/services/vectorsim.ts
+import * as Sentry from "@sentry/nextjs";
+
+export async function searchVectors(embedding: number[], topK: number) {
+  return Sentry.startSpan(
+    {
+      name: 'vectorSearch',
+      op: 'vector.search',
+      attributes: {
+        'vector.top_k': topK,
+        'vector.dimension': embedding.length,
+      },
+    },
+    async (span) => {
+      const results = await pinecone.query({...});
+
+      span.setAttribute('vector.results_count', results.matches?.length || 0);
+      span.setAttribute('vector.top_score', results.matches?.[0]?.score || 0);
+
+      return results;
+    }
+  );
+}
+```
+
+### 5.3 Trace Visualization in Sentry
+
+After integration, a request trace in Sentry will look like:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  TRACE: POST /api/returnExplanation                                      │
+│  Duration: 3.2s                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                          │
+│  ├─ POST /api/returnExplanation ─────────────────────────── 3.2s        │
+│  │   │                                                                   │
+│  │   ├─ vectorSearch ────────────────────── 145ms                       │
+│  │   │   └─ fetch pinecone.io/query ─────── 142ms                       │
+│  │   │                                                                   │
+│  │   ├─ generateExplanation ─────────────── 2.8s                        │
+│  │   │   └─ fetch api.openai.com ────────── 2.7s                        │
+│  │   │                                                                   │
+│  │   └─ db.insert ───────────────────────── 85ms                        │
+│  │       └─ fetch supabase.co ───────────── 82ms                        │
+│                                                                          │
+│  Breadcrumbs:                                                            │
+│    • [INFO] Function returnExplanation called                            │
+│    • [INFO] Vector search completed (145ms)                              │
+│    • [INFO] Calling OpenAI GPT-4                                         │
+│    • [INFO] Explanation generated (2.8s)                                 │
+│    • [INFO] Saved to database                                            │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 5.4 Link Traces to Errors
+
+When an error occurs, Sentry automatically attaches the trace:
+
+```typescript
+// This happens automatically - no code needed
+// When an error is thrown inside a traced operation,
+// Sentry links the error to the trace
+
+Sentry.startSpan({ name: 'myOperation', op: 'custom' }, async () => {
+  // If this throws, the error will include:
+  // - The trace ID
+  // - The span where it occurred
+  // - All parent spans
+  // - All breadcrumbs
+  throw new Error('Something went wrong');
+});
+```
+
+### 5.5 (Optional) OTEL Bridge for Unified Traces
+
+If you want your existing OTEL traces to appear in Sentry (instead of just Grafana):
+
+```typescript
+// sentry.server.config.ts
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+
+  // Tell Sentry to read from OTEL instead of its own instrumentation
+  instrumenter: "otel",
+
+  tracesSampleRate: 0.2,
+});
+```
+
+Then in `instrumentation.ts`, add Sentry as a span processor:
+
+```typescript
+// instrumentation.ts
+import { SentrySpanProcessor } from "@sentry/opentelemetry";
+
+export async function register() {
+  // Import Sentry config (initializes Sentry with OTEL mode)
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    await import('./sentry.server.config');
+  }
+
+  // Your existing OTEL setup continues...
+  // Traces now go to BOTH Grafana AND Sentry
+}
+```
+
+**Note**: This requires `@sentry/opentelemetry` package and more complex setup. Only use if you need unified traces across both platforms.
 
 ---
 
