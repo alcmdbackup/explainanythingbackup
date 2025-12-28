@@ -9,7 +9,8 @@ import { randomUUID } from 'crypto';
 const FILE_DEBUG = true;
 
 // Production guard: E2E_TEST_MODE cannot be enabled in production
-if (process.env.E2E_TEST_MODE === 'true' && process.env.NODE_ENV === 'production') {
+// Exception: Allow in CI environments (GitHub Actions sets CI=true)
+if (process.env.E2E_TEST_MODE === 'true' && process.env.NODE_ENV === 'production' && !process.env.CI) {
   throw new Error('E2E_TEST_MODE cannot be enabled in production');
 }
 
