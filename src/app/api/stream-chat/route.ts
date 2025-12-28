@@ -1,23 +1,50 @@
 'use server';
 
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
+import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
+import { logger } from '@/lib/server_utilities';
 
 export async function POST(request: NextRequest) {
   try {
     const { prompt, userid, __requestId } = await request.json();
 
-    if (!prompt || !userid) {
-      return new Response('Missing prompt or userid', { status: 400 });
+    // Server-side auth validation
+    const authResult = await validateApiAuth(__requestId);
+    if (!authResult.data) {
+      return NextResponse.json(
+        { error: 'Authentication required', redirectTo: '/login' },
+        { status: 401 }
+      );
     }
 
-    // Extract request ID data or create fallback
+    // Use server-verified values
+    const { userId: verifiedUserId, sessionId } = authResult.data;
+
+    // Verify client-provided userId matches authenticated user (if provided)
+    if (userid && userid !== verifiedUserId) {
+      logger.error('UserId mismatch in stream-chat', {
+        clientUserId: userid,
+        authUserId: verifiedUserId,
+        requestId: __requestId?.requestId
+      });
+      return NextResponse.json(
+        { error: 'Session mismatch' },
+        { status: 403 }
+      );
+    }
+
+    if (!prompt) {
+      return new Response('Missing prompt', { status: 400 });
+    }
+
+    // Set up RequestIdContext with verified values
     const requestIdData = {
       requestId: __requestId?.requestId || `api-${randomUUID()}`,
-      userId: __requestId?.userId || userid || 'anonymous',
-      sessionId: __requestId?.sessionId || 'unknown'
+      userId: verifiedUserId,
+      sessionId
     };
 
     // Wrap the entire logic in RequestIdContext
@@ -26,7 +53,7 @@ export async function POST(request: NextRequest) {
     // Create a readable stream
     const encoder = new TextEncoder();
     let streamedText = '';
-    
+
     const stream = new ReadableStream({
       async start(controller) {
         try {
@@ -34,7 +61,7 @@ export async function POST(request: NextRequest) {
           await callOpenAIModel(
             prompt,
             "stream-chat-api",
-            userid,
+            verifiedUserId,
             default_model,
             true,
             (text: string) => {

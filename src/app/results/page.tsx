@@ -39,7 +39,7 @@ function ResultsPageContent() {
     const router = useRouter();
 
     // Initialize user authentication hook first (needed for request context)
-    const { userid, fetchUserid } = useUserAuth();
+    const { userid, isLoading: isAuthLoading, fetchUserid } = useUserAuth();
 
     const { withRequestId } = useClientPassRequestId(userid || 'anonymous');
     const [prompt, setPrompt] = useState('');
@@ -268,6 +268,12 @@ function ResultsPageContent() {
         logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules, sourcesCount: sourcesForRewrite?.length }, FILE_DEBUG);
         if (!userInput.trim()) return;
         
+        // Check if auth is still loading
+        if (isAuthLoading) {
+            dispatchLifecycle({ type: 'ERROR', error: 'Loading authentication... Please wait.' });
+            return;
+        }
+
         const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
 
         if (!effectiveUserid) {
@@ -332,6 +338,20 @@ function ResultsPageContent() {
         });
 
         if (!response.ok) {
+            // Handle 401 - redirect to login
+            if (response.status === 401) {
+                try {
+                    const data = await response.json();
+                    if (data.redirectTo) {
+                        window.location.href = data.redirectTo;
+                        return;
+                    }
+                } catch {
+                    // If JSON parse fails, still redirect to login
+                    window.location.href = '/login';
+                    return;
+                }
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 

@@ -22,6 +22,22 @@ jest.mock('crypto', () => ({
   randomUUID: jest.fn(() => 'test-uuid-123'),
 }));
 
+jest.mock('@/lib/utils/supabase/validateApiAuth', () => ({
+  validateApiAuth: jest.fn(() => Promise.resolve({
+    data: { userId: 'user123', sessionId: 'test-session' },
+    error: null
+  })),
+}));
+
+jest.mock('@/lib/server_utilities', () => ({
+  logger: {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}));
+
 import { callOpenAIModel } from '@/lib/services/llms';
 import { RequestIdContext } from '@/lib/requestIdContext';
 
@@ -36,21 +52,27 @@ describe('POST /api/stream-chat', () => {
   });
 
   it('should reject requests with missing prompt', async () => {
-    const request = createMockNextRequest({ userid: '123' }) as unknown as NextRequest;
+    // Use userid matching the mocked auth userId to avoid mismatch error
+    const request = createMockNextRequest({ userid: 'user123' }) as unknown as NextRequest;
     const response = await POST(request);
 
     expect(response.status).toBe(400);
     const text = await response.text();
-    expect(text).toBe('Missing prompt or userid');
+    expect(text).toBe('Missing prompt');
   });
 
-  it('should reject requests with missing userid', async () => {
+  it('should reject requests when not authenticated', async () => {
+    // Mock auth to fail
+    const { validateApiAuth } = require('@/lib/utils/supabase/validateApiAuth');
+    validateApiAuth.mockResolvedValueOnce({ data: null, error: 'User not authenticated' });
+
     const request = createMockNextRequest({ prompt: 'Test prompt' }) as unknown as NextRequest;
     const response = await POST(request);
 
-    expect(response.status).toBe(400);
-    const text = await response.text();
-    expect(text).toBe('Missing prompt or userid');
+    expect(response.status).toBe(401);
+    const json = await response.json();
+    expect(json.error).toBe('Authentication required');
+    expect(json.redirectTo).toBe('/login');
   });
 
   it('should handle requests with both prompt and userid', async () => {
@@ -165,19 +187,20 @@ describe('POST /api/stream-chat', () => {
     });
   });
 
-  it('should use RequestIdContext with provided request ID', async () => {
+  it('should use RequestIdContext with provided request ID and verified userId from auth', async () => {
     mockCallOpenAIModel.mockResolvedValue('Response');
 
     const request = createMockNextRequest({
       prompt: 'Test',
       userid: 'user123',
-      __requestId: { requestId: 'custom-id', userId: 'user123' },
+      __requestId: { requestId: 'custom-id', userId: 'user123', sessionId: 'client-session' },
     }) as unknown as NextRequest;
 
     await POST(request);
 
+    // Now uses verifiedUserId from auth (user123) and sessionId from auth result (test-session)
     expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-      { requestId: 'custom-id', userId: 'user123', sessionId: expect.any(String) },
+      { requestId: 'custom-id', userId: 'user123', sessionId: 'test-session' },
       expect.any(Function)
     );
   });
@@ -192,8 +215,9 @@ describe('POST /api/stream-chat', () => {
 
     await POST(request);
 
+    // Now uses verifiedUserId from auth (user123) and sessionId from auth result (test-session)
     expect(mockRequestIdContextRun).toHaveBeenCalledWith(
-      { requestId: 'api-test-uuid-123', userId: 'user123', sessionId: expect.any(String) },
+      { requestId: 'api-test-uuid-123', userId: 'user123', sessionId: 'test-session' },
       expect.any(Function)
     );
   });

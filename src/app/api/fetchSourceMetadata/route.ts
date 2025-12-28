@@ -1,15 +1,21 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { logger } from '@/lib/server_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
 import { fetchAndExtractSource, extractDomain, getFaviconUrl } from '@/lib/services/sourceFetcher';
 import { type SourceChipType } from '@/lib/schemas/schemas';
+import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
 
 // Request body schema
 const requestBodySchema = z.object({
   url: z.string().url(),
-  userid: z.string().optional()
+  userid: z.string().optional(),
+  __requestId: z.object({
+    requestId: z.string().optional(),
+    userId: z.string().optional(),
+    sessionId: z.string().optional()
+  }).optional()
 });
 
 /**
@@ -18,7 +24,7 @@ const requestBodySchema = z.object({
  * Fetches metadata and content from a URL for source preview.
  * Returns SourceChipType data for UI display.
  *
- * Body: { url: string, userid?: string }
+ * Body: { url: string, userid?: string, __requestId?: object }
  * Returns: { success: boolean, data?: SourceChipType, error?: string }
  */
 export async function POST(request: NextRequest) {
@@ -34,13 +40,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { url, userid } = validationResult.data;
+    const { url, userid, __requestId } = validationResult.data;
 
-    // Set up request context
+    // Server-side auth validation
+    const authResult = await validateApiAuth(__requestId);
+    if (!authResult.data) {
+      return NextResponse.json(
+        { success: false, error: 'Authentication required', redirectTo: '/login' },
+        { status: 401 }
+      );
+    }
+
+    // Use server-verified values
+    const { userId: verifiedUserId, sessionId } = authResult.data;
+
+    // Verify client-provided userId matches authenticated user (if provided)
+    if (userid && userid !== verifiedUserId) {
+      logger.error('UserId mismatch in fetchSourceMetadata', {
+        clientUserId: userid,
+        authUserId: verifiedUserId,
+        requestId: __requestId?.requestId
+      });
+      return NextResponse.json(
+        { success: false, error: 'Session mismatch' },
+        { status: 403 }
+      );
+    }
+
+    // Set up request context with verified values
     const requestIdData = {
-      requestId: `fetch-source-${randomUUID()}`,
-      userId: userid || 'anonymous',
-      sessionId: 'unknown'  // API routes without client context
+      requestId: __requestId?.requestId || `fetch-source-${randomUUID()}`,
+      userId: verifiedUserId,
+      sessionId
     };
 
     return await RequestIdContext.run(requestIdData, async () => {

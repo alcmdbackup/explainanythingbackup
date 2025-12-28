@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
+import { logger } from '@/lib/server_utilities';
 
 /**
  * Test-only API route for AI Suggestions Pipeline
@@ -12,7 +14,19 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function POST(request: NextRequest) {
   try {
-    const { currentContent, userPrompt, sessionData } = await request.json();
+    const { currentContent, userPrompt, sessionData, __requestId } = await request.json();
+
+    // Server-side auth validation (E2E tests authenticate before running)
+    const authResult = await validateApiAuth(__requestId);
+    if (authResult.error) {
+      logger.warn('runAISuggestionsPipeline: Auth validation failed', {
+        error: authResult.error
+      });
+      return NextResponse.json(
+        { success: false, error: 'Authentication required', redirectTo: '/login' },
+        { status: 401 }
+      );
+    }
 
     if (!currentContent || !userPrompt) {
       return NextResponse.json(

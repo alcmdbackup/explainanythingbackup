@@ -1,10 +1,11 @@
-import { NextRequest } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { MatchMode, UserInputType, type SourceCacheFullType } from '@/lib/schemas/schemas';
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 import { getOrCreateCachedSource } from '@/lib/services/sourceCache';
 import { logger } from '@/lib/server_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
+import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
 
 const FILE_DEBUG = true;
 
@@ -24,16 +25,41 @@ export async function POST(request: NextRequest) {
     try {
         const { userInput, savedId, matchMode, userid, userInputType, additionalRules, existingContent, previousExplanationViewedId, previousExplanationViewedVector, sources, sourceUrls, __requestId } = await request.json();
 
-        // Extract request ID data or create fallback
+        // Server-side auth validation - verify user is authenticated
+        const authResult = await validateApiAuth(__requestId);
+        if (!authResult.data) {
+            return NextResponse.json(
+                { error: 'Authentication required', redirectTo: '/login' },
+                { status: 401 }
+            );
+        }
+
+        // Use server-verified values
+        const { userId: verifiedUserId, sessionId } = authResult.data;
+
+        // Verify client-provided userId matches authenticated user (if provided)
+        if (userid && userid !== verifiedUserId) {
+            logger.error('UserId mismatch in returnExplanation', {
+                clientUserId: userid,
+                authUserId: verifiedUserId,
+                requestId: __requestId?.requestId
+            });
+            return NextResponse.json(
+                { error: 'Session mismatch' },
+                { status: 403 }
+            );
+        }
+
+        // Set up RequestIdContext with verified values
         const requestIdData = {
             requestId: __requestId?.requestId || `api-${randomUUID()}`,
-            userId: __requestId?.userId || userid || 'anonymous',
-            sessionId: __requestId?.sessionId || 'unknown'
+            userId: verifiedUserId,
+            sessionId
         };
 
         // Wrap the entire logic in RequestIdContext
         return await RequestIdContext.run(requestIdData, async () => {
-        
+
         // Add debug logging for all requests
         logger.debug('API route received request', {
             userInput,
@@ -46,11 +72,11 @@ export async function POST(request: NextRequest) {
                 valuesLength: previousExplanationViewedVector.values?.length
             } : null
         }, FILE_DEBUG);
-        
-        // Validate required parameters
-        if (!userInput || !userid) {
+
+        // Validate required parameters (userid check removed - now using verifiedUserId)
+        if (!userInput) {
             return Response.json(
-                { error: 'Missing required parameters: userInput and userid are required' },
+                { error: 'Missing required parameter: userInput is required' },
                 { status: 400 }
             );
         }
@@ -74,7 +100,7 @@ export async function POST(request: NextRequest) {
 
             for (const url of sourceUrls) {
                 try {
-                    const cachedSource = await getOrCreateCachedSource(url, userid);
+                    const cachedSource = await getOrCreateCachedSource(url, verifiedUserId);
                     if (cachedSource.source && cachedSource.source.fetch_status === 'success') {
                         resolvedSources.push(cachedSource.source);
                     } else {
@@ -147,7 +173,7 @@ export async function POST(request: NextRequest) {
                         userInput,
                         finalSavedId,
                         finalMatchMode,
-                        userid,
+                        verifiedUserId,
                         finalUserInputType,
                         finalAdditionalRules,
                         streamingCallback,
