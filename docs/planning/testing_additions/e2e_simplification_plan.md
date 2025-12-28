@@ -281,59 +281,65 @@ jobs:
 
 ---
 
-## Phase 4: Future - Integration Test Migration (Optional, 2-3 days)
+## Phase 4: Future - Integration Test Migration ⏸️ DEFERRED
 
 **Objective:** Convert non-critical E2E tests to faster integration tests.
 
-### 4.1 Candidates for Conversion
+**Status:** Reviewed on 2025-12-28 - **DEFERRED** (Not currently needed)
 
-| E2E Spec | Tests | Integration Approach |
-|----------|-------|---------------------|
-| AI Suggestions (6 files) | 48 | Mock Lexical editor, test diff logic |
-| Tags edge cases | 5 | Mock API, test state management |
-| Action buttons details | 7 | Mock hooks, test component states |
-| Form validation | 5 | Unit test with React Testing Library |
+### 4.0 Assessment Finding
 
-### 4.2 New Integration Test Files
+After reviewing the codebase, we found **extensive integration test coverage already exists**:
 
-```
-src/__tests__/integration/
-├── ai-suggestions-diff.integration.test.ts    # Diff application logic
-├── ai-suggestions-state.integration.test.ts   # State management
-├── ai-suggestions-api.integration.test.ts     # API response handling
-├── tag-state.integration.test.ts              # Tag modification logic
-├── save-button-state.integration.test.ts      # Button state logic
-└── form-validation.integration.test.ts        # Auth form validation
-```
+| Existing File | Coverage |
+|---------------|----------|
+| `promptSpecific.integration.test.tsx` | Accept/reject behavior for AI suggestions |
+| `aiSuggestion.pipeline.test.ts` | Full AI pipeline (Steps 1→4) |
+| `DiffTagNode.test.ts` | Diff node creation/manipulation |
+| `markdownASTdiff.test.ts` | Markdown AST diff parsing |
+| `importExportUtils.test.ts` | CriticMarkup preprocessing |
+| `pipelineValidation.test.ts` | Pipeline validation logic |
 
-### 4.3 When to Implement
+The 56 AI suggestion E2E tests (only 2 @critical) primarily test **browser-level interactions** that cannot be replicated in integration tests:
+- Real DOM rendering
+- Keyboard shortcuts (Cmd+Z for undo)
+- Full React component lifecycle
+- Browser event handling
 
-Trigger this phase when:
-- CI times become a bottleneck (>5 min)
-- AI suggestion tests become flaky again
-- Team wants faster local test feedback
-- Significant changes to AI suggestions feature
+**Conclusion:** Converting these E2E tests would:
+- Duplicate existing integration coverage
+- Lose valuable browser-level validation
+- Require 2-3 days with marginal benefit
 
-### 4.4 Estimated Impact
+**Phases 1-3 achieved the primary goal:** ~36 critical tests for fast PR CI with full coverage on main.
 
-| Metric | Current | After Phase 4 |
-|--------|---------|---------------|
-| E2E Tests | 133 | ~50 |
-| Integration Tests | 12 | ~60 |
-| Full Test Time | ~5 min E2E + 30s int | ~2 min E2E + 1 min int |
+### 4.1 Original Candidates (For Reference)
+
+| E2E Spec | Tests | Status |
+|----------|-------|--------|
+| AI Suggestions (7 files) | 56 | Already covered by integration tests |
+| Tags edge cases | 5 | Covered by `tag-management.integration.test.ts` |
+| Action buttons details | 7 | Tests browser-specific behavior |
+| Form validation | 5 | Tests browser-specific behavior |
+
+### 4.2 When to Revisit
+
+Trigger Phase 4 only if:
+- CI times exceed 5 minutes consistently
+- AI suggestion E2E tests become flaky again
+- Major refactor of AI suggestions feature
+- Team specifically requests faster local test feedback
 
 ---
 
 ## Implementation Timeline
 
 ```
-Week 1:
-├── Day 1-2: Phase 1 - Critical test tagging
-├── Day 3: Phase 2 - Production build
-└── Day 4: Phase 3 - CI workflow updates
-
-Week 2 (if needed):
-└── Days 1-3: Phase 4 - Integration test migration
+Completed 2025-12-27/28:
+├── ✅ Phase 1 - Critical test tagging (36 tests tagged)
+├── ✅ Phase 2 - Production build in CI
+├── ✅ Phase 3 - CI workflow split (critical for PRs, full for main)
+└── ⏸️ Phase 4 - DEFERRED (existing integration tests sufficient)
 ```
 
 ---
@@ -359,14 +365,14 @@ If critical-only tests miss regressions:
 
 ---
 
-## Files to Modify
+## Files Modified
 
-| Phase | Files |
-|-------|-------|
-| 1 | All 19 spec files, playwright.config.ts, package.json |
-| 2 | playwright.config.ts |
-| 3 | .github/workflows/ci.yml |
-| 4 | New integration test files, possibly remove E2E specs |
+| Phase | Files | Status |
+|-------|-------|--------|
+| 1 | 16 spec files, playwright.config.ts, package.json, E2E_TESTING_PLAN.md | ✅ Done |
+| 2 | playwright.config.ts, global-setup.ts | ✅ Done |
+| 3 | .github/workflows/ci.yml | ✅ Done |
+| 4 | N/A - Deferred | ⏸️ Deferred |
 
 ---
 
