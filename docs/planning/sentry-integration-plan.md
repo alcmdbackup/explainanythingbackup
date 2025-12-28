@@ -548,63 +548,12 @@ const addRequestId = (data) => {
 | "How many sessions affected?" | ❌ Can't count | ✅ Session metrics |
 | "Contact affected users" | ❌ Impossible | ✅ Know who to contact |
 
-**The Fix**: The `RequestIdContext` already supports full context on client, but `setClient()` is never called with real values. Add initialization when user authenticates:
+**The Fix**: Your codebase already handles this correctly in `useAuthenticatedRequestId()` (in `clientPassRequestId.ts`):
+- It fetches user from Supabase auth
+- It creates/gets sessionId from localStorage
+- It passes all three values via `__requestId` to server
 
-```typescript
-// src/components/ClientContextProvider.tsx (NEW FILE)
-'use client';
-
-import { useEffect } from 'react';
-import { RequestIdContext } from '@/lib/requestIdContext';
-import { useUserAuth } from '@/hooks/useUserAuth';
-
-function getOrCreateSessionId(): string {
-  if (typeof window === 'undefined') return 'unknown';
-
-  let sessionId = sessionStorage.getItem('ea_sessionId');
-  if (!sessionId) {
-    sessionId = crypto.randomUUID();
-    sessionStorage.setItem('ea_sessionId', sessionId);
-  }
-  return sessionId;
-}
-
-export function ClientContextProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useUserAuth();
-
-  useEffect(() => {
-    // Set full context when user state changes
-    RequestIdContext.setClient({
-      requestId: crypto.randomUUID(),
-      userId: user?.id || 'anonymous',
-      sessionId: getOrCreateSessionId(),
-    });
-  }, [user?.id]);
-
-  return <>{children}</>;
-}
-```
-
-Then wrap your app in `layout.tsx`:
-
-```typescript
-// src/app/layout.tsx
-import { ClientContextProvider } from '@/components/ClientContextProvider';
-
-export default function RootLayout({ children }) {
-  return (
-    <html>
-      <body>
-        <ClientContextProvider>
-          {children}
-        </ClientContextProvider>
-      </body>
-    </html>
-  );
-}
-```
-
-Also update the client logger to use full context:
+The issue is that `client_utilities.ts` only reads `requestId`, ignoring the other values. Update the client logger to use full context:
 
 ```typescript
 // src/lib/client_utilities.ts - update addRequestId
@@ -703,60 +652,185 @@ logger.error(`Function ${functionName} failed`, {
 
 ## Phase 4: Request Context Integration
 
-### 4.1 Enhance RequestIdContext
+Your codebase already has a sophisticated request context system. We need to **bridge it to Sentry**.
 
-**`src/lib/requestIdContext.ts`** modifications:
+### Current Flow (Without Sentry)
 
-```typescript
-import * as Sentry from "@sentry/nextjs";
-
-export const RequestIdContext = {
-  run<T>(data: ContextData, callback: () => T): T {
-    // Set Sentry context when request context is established
-    Sentry.setTag('requestId', data.requestId);
-    Sentry.setUser({ id: data.userId });
-    Sentry.setContext('session', { sessionId: data.sessionId });
-
-    // Start Sentry transaction
-    return Sentry.startSpan(
-      { name: `request-${data.requestId}`, op: 'request' },
-      () => {
-        // Run the existing AsyncLocalStorage logic
-        return asyncLocalStorage.run(data, callback);
-      }
-    );
-  },
-  // ... rest of implementation
-};
+```
+CLIENT                                    SERVER
+───────                                   ──────
+useAuthenticatedRequestId()
+  └─→ withRequestId(data)
+        └─→ RequestIdContext.setClient()  ──→  serverReadRequestId(fn)
+        └─→ {...data, __requestId}               └─→ RequestIdContext.run()
+                                                       └─→ logger has context ✅
+                                                       └─→ Sentry has NO context ❌
 ```
 
-### 4.2 API Route Integration
+### Target Flow (With Sentry)
 
-Enhance API routes with Sentry:
+```
+CLIENT                                    SERVER
+───────                                   ──────
+useAuthenticatedRequestId()
+  └─→ withRequestId(data)
+        └─→ RequestIdContext.setClient()  ──→  serverReadRequestId(fn)
+        └─→ Sentry.setUser/setTag ✅            └─→ RequestIdContext.run()
+        └─→ {...data, __requestId}                   └─→ Sentry.withScope() ✅
+                                                       └─→ logger has context ✅
+                                                       └─→ Sentry has context ✅
+```
+
+### 4.1 Server: Modify `serverReadRequestId.ts`
+
+This is the single integration point for ALL server actions:
+
+```typescript
+// src/lib/serverReadRequestId.ts
+import * as Sentry from "@sentry/nextjs";
+import { RequestIdContext } from './requestIdContext';
+import { randomUUID } from 'crypto';
+
+export function serverReadRequestId<T extends (...args: any[]) => any>(fn: T): T {
+  return (async (...args) => {
+    const clientData = args[0]?.__requestId;
+    const requestIdData = {
+      requestId: clientData?.requestId || randomUUID(),
+      userId: clientData?.userId || 'anonymous',
+      sessionId: clientData?.sessionId || 'unknown'
+    };
+
+    if (args[0]?.__requestId) {
+      delete args[0].__requestId;
+    }
+
+    // NEW: Set Sentry context for this request
+    return Sentry.withScope(async (scope) => {
+      // Set user (enables "Users Affected" metric in Sentry)
+      scope.setUser({ id: requestIdData.userId });
+
+      // Set tags (searchable/filterable in Sentry UI)
+      scope.setTag('requestId', requestIdData.requestId);
+      scope.setTag('sessionId', requestIdData.sessionId);
+
+      // Set context (visible in error details)
+      scope.setContext('request', {
+        requestId: requestIdData.requestId,
+        userId: requestIdData.userId,
+        sessionId: requestIdData.sessionId,
+        source: 'server-action',
+      });
+
+      // Run with both RequestIdContext AND Sentry context
+      return RequestIdContext.run(requestIdData, async () => await fn(...args));
+    });
+  }) as T;
+}
+```
+
+**Result**: All 50+ server actions automatically get Sentry context!
+
+### 4.2 Client: Modify `clientPassRequestId.ts`
+
+Set Sentry context when client generates request:
+
+```typescript
+// src/hooks/clientPassRequestId.ts
+import * as Sentry from "@sentry/nextjs";
+import { RequestIdContext } from '@/lib/requestIdContext';
+// ... existing imports
+
+export function useClientPassRequestId(userId = 'anonymous', sessionId?: string) {
+  // ... existing code
+
+  const withRequestId = useCallback(<T extends Record<string, any> = {}>(data?: T) => {
+    const requestId = generateRequestId();
+    const effectiveSessionId = sessionId ?? getOrCreateAnonymousSessionId();
+
+    // Set client requestId context persistently
+    RequestIdContext.setClient({ requestId, userId, sessionId: effectiveSessionId });
+
+    // NEW: Also set Sentry context
+    Sentry.setUser({ id: userId });
+    Sentry.setTag('requestId', requestId);
+    Sentry.setTag('sessionId', effectiveSessionId);
+    Sentry.setContext('request', {
+      requestId,
+      userId,
+      sessionId: effectiveSessionId,
+      source: 'client',
+    });
+
+    return {
+      ...(data || {} as T),
+      __requestId: { requestId, userId, sessionId: effectiveSessionId }
+    } as T & { __requestId: { requestId: string; userId: string; sessionId: string } };
+  }, [userId, sessionId, generateRequestId]);
+
+  return { withRequestId };
+}
+```
+
+### 4.3 API Routes: Add Sentry Scope
+
+For API routes (not using `serverReadRequestId`), add Sentry context manually:
 
 ```typescript
 // src/app/api/returnExplanation/route.ts
 import * as Sentry from "@sentry/nextjs";
 
 export async function POST(request: NextRequest) {
-  return Sentry.withIsolationScope(async (scope) => {
-    const body = await request.json();
+  const body = await request.json();
+  const { __requestId, ...rest } = body;
 
-    scope.setTag('requestId', body.__requestId);
+  const requestIdData = {
+    requestId: __requestId?.requestId || randomUUID(),
+    userId: __requestId?.userId || 'anonymous',
+    sessionId: __requestId?.sessionId || 'unknown',
+  };
+
+  // Wrap entire request in Sentry scope
+  return Sentry.withScope(async (scope) => {
+    scope.setUser({ id: requestIdData.userId });
+    scope.setTag('requestId', requestIdData.requestId);
+    scope.setTag('sessionId', requestIdData.sessionId);
     scope.setTag('endpoint', 'returnExplanation');
-    scope.setContext('request', {
-      userInput: body.userInput?.substring(0, 100),
-      userId: body.userid,
-    });
+    scope.setContext('request', requestIdData);
 
-    try {
-      // Existing logic...
-    } catch (error) {
-      Sentry.captureException(error);
-      throw error;
-    }
+    return RequestIdContext.run(requestIdData, async () => {
+      // ... existing logic
+    });
   });
 }
+```
+
+### 4.4 Correlation Diagram
+
+After integration, all errors will be correlated:
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SENTRY ERROR VIEW                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│  Error: LLM_API_ERROR - OpenAI rate limit exceeded                      │
+│                                                                          │
+│  Tags:                                                                   │
+│    requestId: client-1703847234-x8k2m1                                  │
+│    sessionId: auth-a3f2b9c1e4d8                                          │
+│    errorCode: LLM_API_ERROR                                              │
+│    endpoint: returnExplanation                                           │
+│                                                                          │
+│  User: user-456                                                          │
+│                                                                          │
+│  Breadcrumbs (from logger integration):                                  │
+│    12:34:01 [INFO] Function returnExplanation called                     │
+│    12:34:02 [INFO] Vector search completed (45ms)                        │
+│    12:34:03 [INFO] Calling OpenAI GPT-4                                  │
+│    12:34:05 [ERROR] OpenAI API error: rate limit exceeded                │
+│                                                                          │
+│  Attachments:                                                            │
+│    📎 server-logs.txt (filtered by requestId)                            │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
