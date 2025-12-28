@@ -102,11 +102,8 @@ async function globalSetup() {
   // This is needed because Playwright tests run in Node.js, not through Next.js
   dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
-  // Skip setup if E2E_TEST_MODE is not enabled
-  if (process.env.E2E_TEST_MODE !== 'true') {
-    console.log('⏭️  E2E_TEST_MODE not enabled, skipping setup');
-    return;
-  }
+  // Note: E2E_TEST_MODE check removed - this setup only runs during Playwright tests,
+  // so we always want it to execute. The env var is now set at runtime only.
 
   // Wait for server to be ready (especially important for production builds in CI)
   const baseUrl = process.env.BASE_URL || 'http://localhost:3008';

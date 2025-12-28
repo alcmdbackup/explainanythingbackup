@@ -1,8 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
-// Set E2E_TEST_MODE before config is evaluated so globalSetup/globalTeardown can access it
-// (webServer.env only applies to the dev server, not to setup scripts)
-process.env.E2E_TEST_MODE = 'true';
+// Note: Do NOT set E2E_TEST_MODE here - it would pollute the environment during
+// `npm run build` and cause the app to reject the production build.
+// E2E_TEST_MODE is set inline in the webServer command for runtime only.
 
 export default defineConfig({
   globalSetup: './src/__tests__/e2e/setup/global-setup.ts',
