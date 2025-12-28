@@ -517,20 +517,103 @@ const logger = {
 export { logger };
 ```
 
-### 3.3 Update Client RequestIdContext
+### 3.3 Fix Client Context (userId/sessionId Missing)
 
-Ensure client has full context (userId, sessionId), not just requestId:
+**The Problem**: Server and client loggers capture different context:
 
 ```typescript
-// In your client-side context initialization (e.g., in a provider or hook)
-import { RequestIdContext } from '@/lib/requestIdContext';
+// SERVER (server_utilities.ts:33-38) - COMPLETE ✅
+const addRequestId = (data) => {
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();      // ✅ Captured
+    const sessionId = RequestIdContext.getSessionId(); // ✅ Captured
+    return { requestId, userId, sessionId, ...data };
+};
 
-// When user authenticates or session starts:
-RequestIdContext.setClient({
-  requestId: generatedRequestId,
-  userId: user?.id || 'anonymous',
-  sessionId: getOrCreateSessionId(),  // Use sessionStorage or similar
-});
+// CLIENT (client_utilities.ts:15-18) - INCOMPLETE ❌
+const addRequestId = (data) => {
+    const requestId = RequestIdContext.getRequestId();
+    // ❌ userId NOT captured
+    // ❌ sessionId NOT captured
+    return { requestId, ...data };
+};
+```
+
+**Why This Matters for Sentry**:
+
+| Capability | Without userId/sessionId | With full context |
+|------------|--------------------------|-------------------|
+| "Who had this error?" | ❌ Unknown | ✅ User ID visible |
+| "Is this user having repeated issues?" | ❌ Can't track | ✅ Filter by user |
+| "How many sessions affected?" | ❌ Can't count | ✅ Session metrics |
+| "Contact affected users" | ❌ Impossible | ✅ Know who to contact |
+
+**The Fix**: The `RequestIdContext` already supports full context on client, but `setClient()` is never called with real values. Add initialization when user authenticates:
+
+```typescript
+// src/components/ClientContextProvider.tsx (NEW FILE)
+'use client';
+
+import { useEffect } from 'react';
+import { RequestIdContext } from '@/lib/requestIdContext';
+import { useUserAuth } from '@/hooks/useUserAuth';
+
+function getOrCreateSessionId(): string {
+  if (typeof window === 'undefined') return 'unknown';
+
+  let sessionId = sessionStorage.getItem('ea_sessionId');
+  if (!sessionId) {
+    sessionId = crypto.randomUUID();
+    sessionStorage.setItem('ea_sessionId', sessionId);
+  }
+  return sessionId;
+}
+
+export function ClientContextProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useUserAuth();
+
+  useEffect(() => {
+    // Set full context when user state changes
+    RequestIdContext.setClient({
+      requestId: crypto.randomUUID(),
+      userId: user?.id || 'anonymous',
+      sessionId: getOrCreateSessionId(),
+    });
+  }, [user?.id]);
+
+  return <>{children}</>;
+}
+```
+
+Then wrap your app in `layout.tsx`:
+
+```typescript
+// src/app/layout.tsx
+import { ClientContextProvider } from '@/components/ClientContextProvider';
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        <ClientContextProvider>
+          {children}
+        </ClientContextProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+Also update the client logger to use full context:
+
+```typescript
+// src/lib/client_utilities.ts - update addRequestId
+const addRequestId = (data: LoggerData | null) => {
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();      // ADD THIS
+    const sessionId = RequestIdContext.getSessionId(); // ADD THIS
+    return data ? { requestId, userId, sessionId, ...data } : { requestId, userId, sessionId };
+};
 ```
 
 ### 3.4 Server Log File Attachment on Errors
