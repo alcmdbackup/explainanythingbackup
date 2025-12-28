@@ -40,9 +40,11 @@ jest.mock('@/lib/server_utilities', () => ({
 
 import { callOpenAIModel } from '@/lib/services/llms';
 import { RequestIdContext } from '@/lib/requestIdContext';
+import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
 
 const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
 const mockRequestIdContextRun = RequestIdContext.run as jest.MockedFunction<typeof RequestIdContext.run>;
+const mockValidateApiAuth = validateApiAuth as jest.MockedFunction<typeof validateApiAuth>;
 
 describe('POST /api/stream-chat', () => {
   beforeEach(() => {
@@ -63,8 +65,7 @@ describe('POST /api/stream-chat', () => {
 
   it('should reject requests when not authenticated', async () => {
     // Mock auth to fail
-    const { validateApiAuth } = require('@/lib/utils/supabase/validateApiAuth');
-    validateApiAuth.mockResolvedValueOnce({ data: null, error: 'User not authenticated' });
+    mockValidateApiAuth.mockResolvedValueOnce({ data: null, error: 'User not authenticated' });
 
     const request = createMockNextRequest({ prompt: 'Test prompt' }) as unknown as NextRequest;
     const response = await POST(request);
