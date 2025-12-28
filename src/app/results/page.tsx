@@ -267,14 +267,16 @@ function ResultsPageContent() {
     const handleUserAction = async (userInput: string, userInputType: UserInputType, matchMode: MatchMode, overrideUserid: string|null, additionalRules: string[], previousExplanationViewedId: number|null, previousExplanationViewedVector: { values: number[] } | null, sourcesForRewrite?: SourceChipType[]) => {
         logger.debug('handleUserAction called', { userInput, userInputType, matchMode, prompt, systemSavedId, additionalRules, sourcesCount: sourcesForRewrite?.length }, FILE_DEBUG);
         if (!userInput.trim()) return;
-        
-        // Check if auth is still loading
-        if (isAuthLoading) {
+
+        // Determine effective userid - override takes precedence (used when caller already resolved auth)
+        const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
+
+        // Check if auth is still loading (only when no override provided)
+        // If overrideUserid is explicitly passed, caller has already resolved auth
+        if (!overrideUserid && isAuthLoading) {
             dispatchLifecycle({ type: 'ERROR', error: 'Loading authentication... Please wait.' });
             return;
         }
-
-        const effectiveUserid = overrideUserid !== undefined ? overrideUserid : userid;
 
         if (!effectiveUserid) {
             dispatchLifecycle({ type: 'ERROR', error: 'User not authenticated. Please log in to generate explanations.' });
