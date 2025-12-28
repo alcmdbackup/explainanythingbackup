@@ -27,6 +27,35 @@ This plan outlines a comprehensive Sentry integration that will:
 | Client JS error capture | High | Sentry browser SDK |
 | Session Replay | Medium | Sentry Replay integration |
 | Issue auto-creation | High | GitHub integration + Sentry API |
+| **Client logs lost in production** | High | `/api/client-logs` is dev-only; need Sentry breadcrumbs |
+| **394 existing logger calls** | High | Hook into logger functions directly |
+| **Client context incomplete** | Medium | Client only has `requestId`, missing `userId`/`sessionId` |
+
+### Current Logging Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         SERVER SIDE                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  logger.info/error/warn/debug  →  Console + server.log file         │
+│  (includes requestId, userId, sessionId from RequestIdContext)      │
+│                                                                      │
+│  withLogging() wrapper  →  Calls logger.info/error automatically    │
+│  handleError()          →  Calls logger.error (NO Sentry currently) │
+└─────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                         CLIENT SIDE                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  logger.info/error/warn/debug  →  Console ONLY                      │
+│  (only includes requestId, NOT userId/sessionId)                     │
+│                                                                      │
+│  /api/client-logs endpoint  →  Returns 403 in production!           │
+│  withClientLogging() wrapper  →  Calls logger.info/error            │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Insight**: Rather than adding parallel Sentry breadcrumb calls throughout the codebase, we should **modify the logger functions themselves** to also send to Sentry. This automatically captures all 394 existing logger calls.
 
 ---
 
@@ -287,123 +316,304 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 
 ---
 
-## Phase 3: Logging Integration
+## Phase 3: Logging Integration (CRITICAL)
 
-### 3.1 Create Sentry Breadcrumb Logger
+This phase ensures ALL existing logging flows to Sentry. The key is to **modify the logger functions themselves** rather than adding parallel calls.
 
-**`src/lib/logging/sentryBreadcrumbs.ts`**
+### 3.1 Modify Server Logger (`server_utilities.ts`)
+
+Hook Sentry breadcrumbs directly into the existing logger:
+
 ```typescript
+// src/lib/server_utilities.ts
 import * as Sentry from "@sentry/nextjs";
+import { appendFileSync } from 'fs';
+import { join } from 'path';
+import { RequestIdContext } from './requestIdContext';
 
-export function addBreadcrumb(
-  category: string,
-  message: string,
-  data?: Record<string, any>,
-  level: Sentry.SeverityLevel = 'info'
-) {
-  Sentry.addBreadcrumb({
-    category,
-    message,
-    data,
-    level,
-    timestamp: Date.now() / 1000,
-  });
+interface LoggerData {
+    [key: string]: any;
 }
 
-// Specific breadcrumb helpers
-export const breadcrumbs = {
-  navigation: (from: string, to: string) =>
-    addBreadcrumb('navigation', `${from} → ${to}`, { from, to }),
+const logFile = join(process.cwd(), 'server.log');
 
-  userAction: (action: string, data?: Record<string, any>) =>
-    addBreadcrumb('user', action, data),
-
-  apiCall: (endpoint: string, method: string, status?: number) =>
-    addBreadcrumb('http', `${method} ${endpoint}`, { status }),
-
-  stateChange: (description: string, data?: Record<string, any>) =>
-    addBreadcrumb('state', description, data),
-
-  llmCall: (model: string, prompt: string, tokens?: number) =>
-    addBreadcrumb('ai', `LLM: ${model}`, {
-      promptLength: prompt.length,
-      tokens
-    }),
+// Map our log levels to Sentry severity
+const sentryLevelMap: Record<string, Sentry.SeverityLevel> = {
+  'DEBUG': 'debug',
+  'INFO': 'info',
+  'WARN': 'warning',
+  'ERROR': 'error'
 };
-```
 
-### 3.2 Enhance `withLogging` Wrapper
+// Helper function to add request context
+const addRequestId = (data: LoggerData | null) => {
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();
+    const sessionId = RequestIdContext.getSessionId();
+    return data ? { requestId, userId, sessionId, ...data } : { requestId, userId, sessionId };
+};
 
-Modify `automaticServerLoggingBase.ts` to add Sentry breadcrumbs:
-
-```typescript
-// In the withLogging function, add:
-import { breadcrumbs } from './sentryBreadcrumbs';
-
-export function withLogging<T extends (...args: any[]) => any>(
-  fn: T,
-  functionName: string,
-  config: Partial<LogConfig> = {}
-): T {
-  return (async (...args: Parameters<T>) => {
-    const startTime = performance.now();
-
-    // Add breadcrumb for function call
-    breadcrumbs.apiCall(functionName, 'CALL');
+// File logging with FLAT structure
+function writeToFile(level: string, message: string, data: LoggerData | null) {
+    const timestamp = new Date().toISOString();
+    const logEntry = JSON.stringify({
+        timestamp,
+        level,
+        message,
+        requestId: RequestIdContext.getRequestId(),
+        userId: RequestIdContext.getUserId(),
+        sessionId: RequestIdContext.getSessionId(),
+        data: data || {}
+    }) + '\n';
 
     try {
-      const result = await fn(...args);
-      const duration = performance.now() - startTime;
-
-      // Add success breadcrumb
-      breadcrumbs.stateChange(`${functionName} completed`, {
-        duration: `${duration.toFixed(2)}ms`
-      });
-
-      return result;
+        appendFileSync(logFile, logEntry);
     } catch (error) {
-      const duration = performance.now() - startTime;
-
-      // Add error breadcrumb before Sentry captures
-      breadcrumbs.stateChange(`${functionName} failed`, {
-        duration: `${duration.toFixed(2)}ms`,
-        error: error instanceof Error ? error.message : 'Unknown error'
-      });
-
-      throw error;
+        // Silently fail if file write fails
     }
-  }) as T;
 }
+
+// NEW: Send to Sentry as breadcrumb
+function sendToSentry(level: string, message: string, data: LoggerData | null) {
+    try {
+        Sentry.addBreadcrumb({
+            category: 'log',
+            message: message,
+            level: sentryLevelMap[level] || 'info',
+            data: {
+                ...data,
+                requestId: RequestIdContext.getRequestId(),
+                userId: RequestIdContext.getUserId(),
+                sessionId: RequestIdContext.getSessionId(),
+            },
+            timestamp: Date.now() / 1000,
+        });
+
+        // For ERROR level, also capture as Sentry event (not just breadcrumb)
+        if (level === 'ERROR') {
+            Sentry.captureMessage(message, {
+                level: 'error',
+                extra: data || {},
+                tags: {
+                    requestId: RequestIdContext.getRequestId(),
+                    userId: RequestIdContext.getUserId(),
+                }
+            });
+        }
+    } catch (e) {
+        // Don't let Sentry errors break logging
+    }
+}
+
+const logger = {
+    debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
+        if (!debug) return;
+        console.log(`[DEBUG] ${message}`, addRequestId(data));
+        writeToFile('DEBUG', message, data);
+        sendToSentry('DEBUG', message, data);  // NEW
+    },
+
+    error: (message: string, data: LoggerData | null = null) => {
+        console.error(`[ERROR] ${message}`, addRequestId(data));
+        writeToFile('ERROR', message, data);
+        sendToSentry('ERROR', message, data);  // NEW
+    },
+
+    info: (message: string, data: LoggerData | null = null) => {
+        console.log(`[INFO] ${message}`, addRequestId(data));
+        writeToFile('INFO', message, data);
+        sendToSentry('INFO', message, data);  // NEW
+    },
+
+    warn: (message: string, data: LoggerData | null = null) => {
+        console.warn(`[WARN] ${message}`, addRequestId(data));
+        writeToFile('WARN', message, data);
+        sendToSentry('WARN', message, data);  // NEW
+    }
+};
+
+export { logger };
 ```
 
-### 3.3 Server Log Attachment
+**Result**: All 394 existing `logger.info()`, `logger.error()`, etc. calls automatically flow to Sentry!
 
-For capturing the `server.log` file on errors:
+### 3.2 Modify Client Logger (`client_utilities.ts`)
+
+The client logger currently only logs to console. In production, these logs are lost. Fix this:
 
 ```typescript
-// src/lib/logging/sentryLogAttachment.ts
+// src/lib/client_utilities.ts
 import * as Sentry from "@sentry/nextjs";
-import * as fs from 'fs';
+import { RequestIdContext } from './requestIdContext';
 
-export async function attachRecentLogs(eventId: string) {
-  try {
-    const logPath = process.cwd() + '/server.log';
-    const logContent = await fs.promises.readFile(logPath, 'utf8');
-
-    // Get last 100 lines
-    const lines = logContent.split('\n');
-    const recentLogs = lines.slice(-100).join('\n');
-
-    Sentry.withScope((scope) => {
-      scope.addAttachment({
-        filename: 'server-logs.txt',
-        data: recentLogs,
-      });
-    });
-  } catch (error) {
-    console.warn('Could not attach server logs:', error);
-  }
+interface LoggerData {
+    [key: string]: any;
 }
+
+const sentryLevelMap: Record<string, Sentry.SeverityLevel> = {
+  'DEBUG': 'debug',
+  'INFO': 'info',
+  'WARN': 'warning',
+  'ERROR': 'error'
+};
+
+const addRequestId = (data: LoggerData | null) => {
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();      // NEW: now available
+    const sessionId = RequestIdContext.getSessionId(); // NEW: now available
+    return data ? { requestId, userId, sessionId, ...data } : { requestId, userId, sessionId };
+};
+
+// NEW: Send to Sentry (works in production!)
+function sendToSentry(level: string, message: string, data: LoggerData | null) {
+    try {
+        Sentry.addBreadcrumb({
+            category: 'client-log',
+            message: message,
+            level: sentryLevelMap[level] || 'info',
+            data: addRequestId(data),
+            timestamp: Date.now() / 1000,
+        });
+
+        // For ERROR level, capture as Sentry event
+        if (level === 'ERROR') {
+            Sentry.captureMessage(message, {
+                level: 'error',
+                extra: data || {},
+                tags: {
+                    source: 'client',
+                    requestId: RequestIdContext.getRequestId(),
+                }
+            });
+        }
+    } catch (e) {
+        // Sentry not initialized or error - fail silently
+    }
+}
+
+const logger = {
+    debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
+        if (!debug) return;
+        console.log(`[DEBUG] ${message}`, addRequestId(data));
+        sendToSentry('DEBUG', message, data);  // NEW
+    },
+
+    error: (message: string, data: LoggerData | null = null) => {
+        console.error(`[ERROR] ${message}`, addRequestId(data));
+        sendToSentry('ERROR', message, data);  // NEW
+    },
+
+    info: (message: string, data: LoggerData | null = null) => {
+        console.log(`[INFO] ${message}`, addRequestId(data));
+        sendToSentry('INFO', message, data);  // NEW
+    },
+
+    warn: (message: string, data: LoggerData | null = null) => {
+        console.warn(`[WARN] ${message}`, addRequestId(data));
+        sendToSentry('WARN', message, data);  // NEW
+    }
+};
+
+export { logger };
+```
+
+### 3.3 Update Client RequestIdContext
+
+Ensure client has full context (userId, sessionId), not just requestId:
+
+```typescript
+// In your client-side context initialization (e.g., in a provider or hook)
+import { RequestIdContext } from '@/lib/requestIdContext';
+
+// When user authenticates or session starts:
+RequestIdContext.setClient({
+  requestId: generatedRequestId,
+  userId: user?.id || 'anonymous',
+  sessionId: getOrCreateSessionId(),  // Use sessionStorage or similar
+});
+```
+
+### 3.4 Server Log File Attachment on Errors
+
+Attach recent server logs when an error is captured:
+
+```typescript
+// sentry.server.config.ts - add to beforeSend
+import * as fs from 'fs';
+import { join } from 'path';
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  // ... other config
+
+  beforeSend(event, hint) {
+    // Only attach logs for actual errors, not breadcrumbs
+    if (event.level === 'error' || event.exception) {
+      try {
+        const logPath = join(process.cwd(), 'server.log');
+        const logContent = fs.readFileSync(logPath, 'utf8');
+        const lines = logContent.split('\n');
+
+        // Get last 50 log lines related to this request
+        const requestId = event.tags?.requestId;
+        let relevantLogs: string[];
+
+        if (requestId) {
+          // Filter logs for this specific request
+          relevantLogs = lines
+            .filter(line => line.includes(requestId))
+            .slice(-50);
+        } else {
+          // Just get the last 50 lines
+          relevantLogs = lines.slice(-50);
+        }
+
+        // Add as attachment
+        event.attachments = event.attachments || [];
+        event.attachments.push({
+          filename: 'server-logs.txt',
+          data: relevantLogs.join('\n'),
+          contentType: 'text/plain',
+        });
+      } catch (e) {
+        // Log file not available, continue without attachment
+      }
+    }
+
+    return event;
+  },
+});
+```
+
+### 3.5 withLogging Wrapper Enhancement (Optional)
+
+The `withLogging` wrapper already calls `logger.info()` and `logger.error()`, so with our changes above, it automatically sends to Sentry. However, we can add richer context:
+
+```typescript
+// In automaticServerLoggingBase.ts, enhance the logging to include span info:
+
+// Add at the start of the wrapped function:
+logger.info(`Function ${functionName} called`, {
+  inputs: sanitizedArgs,
+  timestamp: new Date().toISOString(),
+  spanType: 'function-start',  // NEW: helps identify function boundaries in breadcrumbs
+});
+
+// On success:
+logger.info(`Function ${functionName} completed successfully`, {
+  outputs: sanitizedResult,
+  duration: `${duration}ms`,
+  timestamp: new Date().toISOString(),
+  spanType: 'function-end',  // NEW
+});
+
+// On error:
+logger.error(`Function ${functionName} failed`, {
+  error: error instanceof Error ? error.message : String(error),
+  duration: `${duration}ms`,
+  timestamp: new Date().toISOString(),
+  spanType: 'function-error',  // NEW
+});
 ```
 
 ---
@@ -749,42 +959,46 @@ export const metrics = {
 - [ ] Run `npx @sentry/wizard@latest -i nextjs`
 - [ ] Configure `sentry.client.config.ts`
 - [ ] Configure `sentry.server.config.ts`
-- [ ] Add environment variables
-- [ ] Verify source map uploads work
+- [ ] Add environment variables to `.env.local` and production
+- [ ] Verify source map uploads work in CI/CD
 
 ### Phase 2: Error Handling
-- [ ] Enhance `handleError()` with Sentry reporting
+- [ ] Enhance `handleError()` in `src/lib/errorHandling.ts` with Sentry reporting
 - [ ] Create `SentryErrorBoundary` component
-- [ ] Wrap root layout with error boundary
+- [ ] Wrap root layout (`src/app/layout.tsx`) with error boundary
 - [ ] Test error capture in development
 
-### Phase 3: Logging Integration
-- [ ] Create breadcrumb helpers
-- [ ] Enhance `withLogging` wrapper
-- [ ] Add server log attachment on errors
-- [ ] Verify breadcrumb trail in Sentry
+### Phase 3: Logging Integration (CRITICAL - captures all 394 existing log calls)
+- [ ] Modify `src/lib/server_utilities.ts` to add `sendToSentry()` function
+- [ ] Modify `src/lib/client_utilities.ts` to add `sendToSentry()` function
+- [ ] Update client-side code to set full context (userId, sessionId) on `RequestIdContext`
+- [ ] Add server log file attachment in `sentry.server.config.ts` `beforeSend`
+- [ ] Verify breadcrumb trail appears in Sentry for a test error
+- [ ] Test that `logger.error()` calls create Sentry events
 
 ### Phase 4: Request Context
-- [ ] Integrate RequestIdContext with Sentry
-- [ ] Add Sentry context to API routes
-- [ ] Verify request correlation in Sentry
+- [ ] Integrate `RequestIdContext.run()` with Sentry tags/user context
+- [ ] Add Sentry scope to API routes (especially `/api/returnExplanation`)
+- [ ] Verify request correlation in Sentry (all events from same request grouped)
 
-### Phase 5: OpenTelemetry Bridge
-- [ ] Configure OTEL-Sentry integration
+### Phase 5: OpenTelemetry Bridge (Optional - depends on needs)
+- [ ] Evaluate if dual Grafana + Sentry is needed or if Sentry replaces Grafana
+- [ ] If keeping both: Configure OTEL-Sentry integration via `instrumenter: "otel"`
 - [ ] Link trace IDs between systems
 - [ ] Verify traces appear in both Grafana and Sentry
 
-### Phase 6: Issue Creation
-- [ ] Configure GitHub integration in Sentry
-- [ ] Set up alert rules for issue creation
-- [ ] Create issue template
-- [ ] Test end-to-end: error → GitHub issue
+### Phase 6: Automatic Issue Creation
+- [ ] Create Sentry project and configure GitHub integration
+- [ ] Create issue template `.github/ISSUE_TEMPLATE/sentry-bug.md`
+- [ ] Set up Sentry Alert Rules for new errors
+- [ ] Set up Sentry Alert Rules for regressions
+- [ ] Test end-to-end: trigger error → verify GitHub issue created with `claude-code` label
 
-### Phase 7: Advanced Features
-- [ ] Add performance monitoring wrappers
-- [ ] Implement feedback widget
-- [ ] Set up custom metrics
-- [ ] Create monitoring dashboard
+### Phase 7: Advanced Features (Nice-to-have)
+- [ ] Add performance monitoring for LLM calls, vector searches
+- [ ] Implement user feedback widget
+- [ ] Set up custom metrics dashboard
+- [ ] Configure Session Replay for production debugging
 
 ---
 
