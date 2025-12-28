@@ -63,8 +63,10 @@ export default defineConfig({
   ],
   webServer: {
     // Use production build in CI for stability; dev server locally for HMR
+    // Note: E2E_TEST_MODE must be set at runtime (npm start), not build time,
+    // because the app blocks E2E_TEST_MODE in production builds.
     command: process.env.CI
-      ? 'npm run build && npm start -- -p 3008'
+      ? 'npm run build && E2E_TEST_MODE=true npm start -- -p 3008'
       : 'npm run dev -- -p 3008',
     url: 'http://localhost:3008',
     reuseExistingServer: !process.env.CI,
@@ -72,8 +74,8 @@ export default defineConfig({
     env: {
       // Enable API route for AI suggestions (mockable in E2E tests)
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true',
-      // Enable E2E test mode for SSE streaming bypass
-      E2E_TEST_MODE: 'true',
+      // Enable E2E test mode for SSE streaming bypass (dev server only, CI uses inline env)
+      ...(process.env.CI ? {} : { E2E_TEST_MODE: 'true' }),
     },
   },
   timeout: process.env.CI ? 60000 : 30000,
