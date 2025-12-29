@@ -48,3 +48,4 @@ server.log
 next-env.d.ts
 .playwright-mcp/
 test-results-debug/
+client.log
