@@ -4,6 +4,7 @@ import { RequestIdContext } from '@/lib/requestIdContext';
 import { clearSession, getOrCreateAnonymousSessionId, handleAuthTransition } from '@/lib/sessionId';
 import { supabase_browser } from '@/lib/supabase';
 import { useCallback, useEffect, useState } from 'react';
+import * as Sentry from '@sentry/nextjs';
 
 /**
  * Base hook for passing request ID context to server actions.
@@ -23,6 +24,11 @@ export function useClientPassRequestId(userId = 'anonymous', sessionId?: string)
 
     // Set client requestId context persistently
     RequestIdContext.setClient({ requestId, userId, sessionId: effectiveSessionId });
+
+    // Set Sentry context for client-side error correlation
+    Sentry.setUser({ id: userId });
+    Sentry.setTag('requestId', requestId);
+    Sentry.setTag('sessionId', effectiveSessionId);
 
     return {
       ...(data || {} as T),

@@ -15,8 +15,9 @@ export const config = {
      * - error (error page)
      * - api/client-logs (client logging endpoint)
      * - api/traces (OTLP traces proxy endpoint)
+     * - api/monitoring (Sentry tunnel endpoint)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

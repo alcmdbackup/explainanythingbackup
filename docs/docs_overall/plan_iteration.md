@@ -11,3 +11,5 @@ Guidelines
 - Plan conveys high-level structure
 - Plan is organized sequenced into phases that can be implemented and tested incrementally
 - Plan contains key snippets of code
+- Plan lists all code modified
+- Plan lists all tests added or modified, across unit/integration/E2E.

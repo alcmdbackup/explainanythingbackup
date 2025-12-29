@@ -1,4 +1,5 @@
 import { trace } from '@opentelemetry/api';
+import * as Sentry from '@sentry/nextjs';
 
 // Create custom tracers for different parts of your application
 const llmTracer = trace.getTracer('explainanything-llm');
@@ -8,6 +9,16 @@ const appTracer = trace.getTracer('explainanything-application');
 
 export async function register() {
   console.log('🔧 Next.js instrumentation hook registered')
+
+  // Initialize Sentry based on runtime (MUST be first)
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    await import('./sentry.server.config');
+    console.log('🛡️ Sentry server config loaded');
+  }
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    await import('./sentry.edge.config');
+    console.log('🛡️ Sentry edge config loaded');
+  }
 
   if (process.env.NODE_ENV === 'development') {
     console.log('🔍 OpenTelemetry custom instrumentation enabled')
@@ -118,4 +129,8 @@ export function createVectorSpan(name: string, attributes: Record<string, string
 
 export function createAppSpan(name: string, attributes: Record<string, string | number>) {
   return appTracer.startSpan(name, { attributes });
-} 
+}
+
+// Capture React Server Component errors for Sentry
+// This is required for proper error reporting in RSC
+export const onRequestError = Sentry.captureRequestError; 

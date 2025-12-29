@@ -2,6 +2,7 @@
 import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { RequestIdContext } from './requestIdContext';
+import * as Sentry from '@sentry/nextjs';
 
 /**
  * Logger utility for consistent logging across the application
@@ -58,26 +59,62 @@ function writeToFile(level: string, message: string, data: LoggerData | null) {
     }
 }
 
+// Map log levels to Sentry severity levels
+const sentryLevelMap: Record<string, Sentry.SeverityLevel> = {
+    'DEBUG': 'debug',
+    'INFO': 'info',
+    'WARN': 'warning',
+    'ERROR': 'error',
+};
+
+/**
+ * Send log entry as Sentry breadcrumb for error correlation.
+ * Breadcrumbs appear in the timeline when an error is captured.
+ * Note: This does NOT send a Sentry event - only adds to breadcrumb trail.
+ */
+function sendToSentry(level: string, message: string, data: LoggerData | null) {
+    try {
+        Sentry.addBreadcrumb({
+            category: 'log',
+            message,
+            level: sentryLevelMap[level] || 'info',
+            data: {
+                ...data,
+                requestId: RequestIdContext.getRequestId(),
+                userId: RequestIdContext.getUserId(),
+                sessionId: RequestIdContext.getSessionId(),
+            },
+        });
+        // NO captureMessage - breadcrumbs only to avoid duplicates!
+    } catch {
+        // Silently fail if Sentry fails to avoid recursive issues
+    }
+}
+
 const logger = {
     debug: (message: string, data: LoggerData | null = null, debug: boolean = false) => {
         if (!debug) return;
         console.log(`[DEBUG] ${message}`, addRequestId(data));
         writeToFile('DEBUG', message, data);
+        sendToSentry('DEBUG', message, data);
     },
 
     error: (message: string, data: LoggerData | null = null) => {
         console.error(`[ERROR] ${message}`, addRequestId(data));
         writeToFile('ERROR', message, data);
+        sendToSentry('ERROR', message, data);
     },
 
     info: (message: string, data: LoggerData | null = null) => {
         console.log(`[INFO] ${message}`, addRequestId(data));
         writeToFile('INFO', message, data);
+        sendToSentry('INFO', message, data);
     },
 
     warn: (message: string, data: LoggerData | null = null) => {
         console.warn(`[WARN] ${message}`, addRequestId(data));
         writeToFile('WARN', message, data);
+        sendToSentry('WARN', message, data);
     }
 };
 

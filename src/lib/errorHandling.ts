@@ -1,5 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { logger } from '@/lib/server_utilities';
+import * as Sentry from '@sentry/nextjs';
+import { RequestIdContext } from './requestIdContext';
 
 // Error codes as constants for consistency
 export const ERROR_CODES = {
@@ -89,20 +91,71 @@ function categorizeError(error: unknown): ErrorResponse {
   };
 }
 
+/**
+ * Map error codes to Sentry severity levels.
+ * Critical errors get 'error' level, recoverable ones get 'warning'.
+ */
+function getSentryLevel(code: ErrorCode): Sentry.SeverityLevel {
+  const critical: readonly ErrorCode[] = [
+    ERROR_CODES.DATABASE_ERROR,
+    ERROR_CODES.LLM_API_ERROR,
+    ERROR_CODES.EMBEDDING_ERROR,
+    ERROR_CODES.UNKNOWN_ERROR,
+  ];
+  const warning: readonly ErrorCode[] = [
+    ERROR_CODES.TIMEOUT_ERROR,
+    ERROR_CODES.VALIDATION_ERROR,
+    ERROR_CODES.INVALID_INPUT,
+    ERROR_CODES.SOURCE_FETCH_TIMEOUT,
+  ];
+
+  if (critical.includes(code)) return 'error';
+  if (warning.includes(code)) return 'warning';
+  return 'info';
+}
+
 // Main error handler function
 export function handleError(
-  error: unknown, 
-  context: string, 
+  error: unknown,
+  context: string,
   additionalData?: Record<string, any>
 ): ErrorResponse {
   const errorResponse = categorizeError(error);
-  
-  // Log error with context
+
+  // Report to Sentry with full context
+  Sentry.withScope((scope) => {
+    // Get request context if available
+    const requestContext = RequestIdContext.get();
+    if (requestContext) {
+      scope.setTag('requestId', requestContext.requestId);
+      scope.setTag('sessionId', requestContext.sessionId);
+      scope.setUser({ id: requestContext.userId });
+    }
+
+    // Set error code as a filterable tag
+    scope.setTag('errorCode', errorResponse.code);
+
+    // Set severity based on error type
+    scope.setLevel(getSentryLevel(errorResponse.code));
+
+    // Add structured context for debugging
+    scope.setContext('errorContext', {
+      context,
+      errorCode: errorResponse.code,
+      errorMessage: errorResponse.message,
+      ...additionalData,
+    });
+
+    // Capture the exception
+    Sentry.captureException(error);
+  });
+
+  // Log error with context (will also create breadcrumb via sendToSentry)
   logger.error(`Error in ${context}`, {
     error: errorResponse,
     ...additionalData
   });
-  
+
   return errorResponse;
 }
 
