@@ -560,7 +560,7 @@ export interface LogConfig {
  * • Controls which aspects of function execution are logged
  * • Provides data sanitization for sensitive fields
  * • Sets limits on input/output data length for performance
- * Used by: withLogging, withLoggingAndTracing functions
+ * Used by: withServerLogging, withServerLoggingAndTracing functions
  * Calls: sanitizeData for data cleaning
  */
 export const defaultLogConfig: LogConfig = {
@@ -578,7 +578,7 @@ export const defaultLogConfig: LogConfig = {
  * • Controls span creation and attribute inclusion
  * • Manages performance vs observability tradeoffs
  * • Defines tracer categorization for different operations
- * Used by: withTracing, withLoggingAndTracing functions
+ * Used by: withServerTracing, withServerLoggingAndTracing functions
  * Calls: createAppSpan for telemetry span creation
  */
 export const defaultTracingConfig = {

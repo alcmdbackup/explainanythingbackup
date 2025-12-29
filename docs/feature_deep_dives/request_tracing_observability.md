@@ -38,13 +38,21 @@ RequestIdContext.getUserId(): string       // default: 'anonymous'
 RequestIdContext.setClient(data): void
 ```
 
-### Logging Wrappers
+### Logging Wrappers (Server-Side)
 
 | Wrapper | Purpose |
 |---------|---------|
-| `withLogging()` | Auto-log inputs, outputs, duration, errors |
-| `withTracing()` | Create OpenTelemetry span |
-| `withLoggingAndTracing()` | Both logging and tracing |
+| `withServerLogging()` | Auto-log inputs, outputs, duration, errors |
+| `withServerTracing()` | Create OpenTelemetry span |
+| `withServerLoggingAndTracing()` | Both logging and tracing |
+
+### Tracing (Browser-Side)
+
+| Wrapper | Purpose |
+|---------|---------|
+| `fetchWithTracing()` | Wrap fetch calls with trace context injection |
+
+> **Note**: Browser-side uses `fetchWithTracing` from `@/lib/tracing/fetchWithTracing` which injects W3C `traceparent` headers to link browser traces to server traces.
 
 ### Log Configuration
 
@@ -76,10 +84,10 @@ RequestIdContext.setClient(data): void
 ### Wrapping Server Actions
 
 ```typescript
-import { withLogging, serverReadRequestId } from '@/lib/logging/server/automaticServerLoggingBase';
+import { withServerLogging, serverReadRequestId } from '@/lib/logging/server/automaticServerLoggingBase';
 
 // Internal function with logging
-const _myAction = withLogging(
+const _myAction = withServerLogging(
   async function myAction(param: string) {
     // Implementation
   },
@@ -122,10 +130,10 @@ const result = await clientPassRequestId(
 );
 ```
 
-### OpenTelemetry Spans
+### OpenTelemetry Spans (Server)
 
 ```typescript
-const tracedFn = withTracing(fn, 'operationName', {
+const tracedFn = withServerTracing(fn, 'operationName', {
   enabled: true,
   customAttributes: { 'custom.key': 'value' },
   includeInputs: true
@@ -151,15 +159,21 @@ The logging system automatically:
 ### Request Flow
 
 ```
-Client Request
+Client Request (fetchWithTracing injects traceparent)
     ↓
 API Route / Server Action
     ↓
 RequestIdContext.run() wraps entire operation
     ↓
-withLoggingAndTracing() decorates functions
+withServerLoggingAndTracing() decorates functions
     ↓
 logger.info/error() auto-attaches requestId
     ↓
 AsyncLocalStorage preserves context across await
 ```
+
+---
+
+## Related Documentation
+
+- **[Improve Client Logging Visibility](../planning/automated_bug_detection_and_fixing/improve_client_logging_visibility_plan.md)** - Browser-side logging and tracing (`fetchWithTracing`, `browserTracing.ts`, localStorage buffer)

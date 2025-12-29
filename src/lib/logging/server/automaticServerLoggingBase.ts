@@ -117,9 +117,10 @@ function sanitizeData(data: any, config: LogConfig): any {
 }
 
 /**
- * Creates a function wrapper that automatically logs inputs and outputs
+ * Creates a function wrapper that automatically logs inputs and outputs.
+ * Server-side only - uses Node.js logger.
  */
-export function withLogging<T extends (...args: any[]) => any>(
+export function withServerLogging<T extends (...args: any[]) => any>(
   fn: T,
   functionName: string,
   config: Partial<LogConfig> = {}
@@ -203,9 +204,11 @@ export function withLogging<T extends (...args: any[]) => any>(
 }
 
 /**
- * Creates a function wrapper that automatically adds OpenTelemetry tracing
+ * Creates a function wrapper that automatically adds OpenTelemetry tracing.
+ * Server-side only - uses Node.js OpenTelemetry SDK.
+ * For browser-side tracing, use fetchWithTracing from @/lib/tracing/fetchWithTracing.
  */
-export function withTracing<T extends (...args: any[]) => any>(
+export function withServerTracing<T extends (...args: any[]) => any>(
   fn: T,
   operationName: string,
   config: Partial<TracingConfig> = {}
@@ -297,16 +300,17 @@ export function withTracing<T extends (...args: any[]) => any>(
 }
 
 /**
- * Creates a function wrapper that combines both logging and tracing
+ * Creates a function wrapper that combines both logging and tracing.
+ * Server-side only - uses Node.js logger and OpenTelemetry SDK.
  */
-export function withLoggingAndTracing<T extends (...args: any[]) => any>(
+export function withServerLoggingAndTracing<T extends (...args: any[]) => any>(
   fn: T,
   functionName: string,
   logConfig: Partial<LogConfig> = {},
   tracingConfig: Partial<TracingConfig> = {}
 ): T {
-  const tracedFn = withTracing(fn, functionName, tracingConfig);
-  return withLogging(tracedFn, functionName, logConfig);
+  const tracedFn = withServerTracing(fn, functionName, tracingConfig);
+  return withServerLogging(tracedFn, functionName, logConfig);
 }
 
 /**
@@ -316,8 +320,8 @@ export function logMethod(config: Partial<LogConfig> = {}) {
   return function (target: any, propertyName: string, descriptor: PropertyDescriptor) {
     const method = descriptor.value;
     const functionName = `${target.constructor.name}.${propertyName}`;
-    
-    descriptor.value = withLogging(method, functionName, config);
+
+    descriptor.value = withServerLogging(method, functionName, config);
   };
 }
 
@@ -329,7 +333,7 @@ export function createLoggedFunction<T extends (...args: any[]) => any>(
   name: string,
   config: Partial<LogConfig> = {}
 ): T {
-  return withLogging(fn, name, config);
+  return withServerLogging(fn, name, config);
 }
 
 /**
@@ -340,11 +344,11 @@ export function withBatchLogging<T extends Record<string, (...args: any[]) => an
   config: Partial<LogConfig> = {}
 ): T {
   const loggedFunctions: any = {};
-  
+
   for (const [name, fn] of Object.entries(functions)) {
-    loggedFunctions[name] = withLogging(fn, name, config);
+    loggedFunctions[name] = withServerLogging(fn, name, config);
   }
-  
+
   return loggedFunctions as T;
 }
 
@@ -354,5 +358,25 @@ export function withBatchLogging<T extends Record<string, (...args: any[]) => an
  */
 export function initializeAutoLogging() {
   // No-op: auto-interception modules removed
-  // withLogging wrapper still works for manually wrapped functions
+  // withServerLogging wrapper still works for manually wrapped functions
 }
+
+// =============================================================================
+// Deprecated aliases for backward compatibility
+// These will be removed in a future version. Use the "withServer*" versions.
+// =============================================================================
+
+/**
+ * @deprecated Use withServerLogging instead
+ */
+export const withLogging = withServerLogging;
+
+/**
+ * @deprecated Use withServerTracing instead
+ */
+export const withTracing = withServerTracing;
+
+/**
+ * @deprecated Use withServerLoggingAndTracing instead
+ */
+export const withLoggingAndTracing = withServerLoggingAndTracing;

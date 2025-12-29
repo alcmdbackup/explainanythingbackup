@@ -102,7 +102,7 @@ The token must be base64-encoded in format `instanceId:apiKey`. Get it from:
 │  browserTracing.ts       OpenTelemetry → /api/traces proxy      │
 │  fetchWithTracing.ts     Adds traceparent header to fetch       │
 └────────────────────────────┬────────────────────────────────────┘
-                             │
+                             │ (traceparent header links traces)
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                           SERVER                                 │
@@ -110,6 +110,8 @@ The token must be base64-encoded in format `instanceId:apiKey`. Get it from:
 │  /api/client-logs        Receives batched logs, writes to file  │
 │  /api/traces             Forwards OTLP to Grafana (with auth)   │
 │  instrumentation.ts      Auto-traces Supabase/Pinecone calls    │
+│  withServerLogging()     Wraps functions with logging           │
+│  withServerTracing()     Wraps functions with OTel spans        │
 └────────────────────────────┬────────────────────────────────────┘
                              │
                              ▼
@@ -120,6 +122,19 @@ The token must be base64-encoded in format `instanceId:apiKey`. Get it from:
 │  Explore                 Query traces by service name            │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+### Server vs Browser Tracing
+
+| Environment | Wrapper | Purpose |
+|-------------|---------|---------|
+| **Browser** | `fetchWithTracing()` | Wraps fetch calls, injects `traceparent` header |
+| **Server** | `withServerLogging()` | Wraps functions with logging (inputs/outputs/errors) |
+| **Server** | `withServerTracing()` | Wraps functions with OpenTelemetry spans |
+| **Server** | `withServerLoggingAndTracing()` | Combines both logging and tracing |
+
+The W3C `traceparent` header is what links browser traces to server traces in Grafana, enabling end-to-end distributed tracing.
+
+> **Note**: The server wrappers were renamed from `withLogging`/`withTracing` to `withServerLogging`/`withServerTracing` to clearly distinguish them from browser-side tracing. The old names are still exported as deprecated aliases.
 
 ---
 
@@ -293,3 +308,9 @@ This is a Grafana UI issue, not trace ingestion. Try:
 2. Check server logs for `📡 Traces going to: ...`
 3. Wait 1-2 minutes for Grafana to index traces
 4. Search for `service.name = "explainanything"` or `service.name = "browser-client"`
+
+---
+
+## Related Documentation
+
+- **[Request Tracing & Observability](../../feature_deep_dives/request_tracing_observability.md)** - Server-side tracing wrappers (`withServerLogging`, `withServerTracing`) and request ID context propagation

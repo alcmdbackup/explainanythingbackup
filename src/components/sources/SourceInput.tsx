@@ -5,6 +5,7 @@ import { PlusIcon } from '@heroicons/react/24/outline';
 import { type SourceChipType } from '@/lib/schemas/schemas';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { fetchWithTracing } from '@/lib/tracing/fetchWithTracing';
 
 interface SourceInputProps {
   onSourceAdded: (source: SourceChipType) => void;
@@ -68,7 +69,7 @@ export default function SourceInput({
     setUrl('');
 
     try {
-      const response = await fetch('/api/fetchSourceMetadata', {
+      const response = await fetchWithTracing('/api/fetchSourceMetadata', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: trimmedUrl })
