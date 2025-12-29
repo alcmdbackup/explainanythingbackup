@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Playfair_Display, Source_Serif_4, DM_Sans, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { ClientInitializer } from "@/components/ClientInitializer";
+import { EARLY_LOGGER_SCRIPT } from "@/lib/logging/client/earlyLogger";
 
 // Typography
 const playfairDisplay = Playfair_Display({
@@ -44,6 +47,13 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script
+          id="early-logger"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{ __html: EARLY_LOGGER_SCRIPT }}
+        />
+      </head>
       <body
         className={`
           ${playfairDisplay.variable}
@@ -56,6 +66,7 @@ export default function RootLayout({
         `}
       >
         <ThemeProvider>
+          <ClientInitializer />
           {children}
         </ThemeProvider>
       </body>
