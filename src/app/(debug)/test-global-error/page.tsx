@@ -7,7 +7,7 @@
  * This page is in the (debug) folder and should only be used in development/testing.
  */
 
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 
 function ErrorThrower() {
@@ -42,5 +42,9 @@ function ErrorThrower() {
 }
 
 export default function TestGlobalErrorPage() {
-  return <ErrorThrower />;
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <ErrorThrower />
+    </Suspense>
+  );
 }
