@@ -13,21 +13,21 @@
 
 declare global {
   interface Window {
-    __PRE_HYDRATION_LOGS__: Array<{
+    __PRE_HYDRATION_LOGS__?: Array<{
       timestamp: string;
       level: string;
       args: unknown[];
     }>;
-    __LOGGING_INITIALIZED__: boolean;
-    __ORIGINAL_CONSOLE__: {
+    __LOGGING_INITIALIZED__?: boolean;
+    __ORIGINAL_CONSOLE__?: {
       log: typeof console.log;
       info: typeof console.info;
       warn: typeof console.warn;
       error: typeof console.error;
       debug: typeof console.debug;
     };
-    exportLogs: () => string;
-    clearLogs: () => void;
+    exportLogs?: () => string;
+    clearLogs?: () => void;
   }
 }
 

@@ -235,7 +235,7 @@ describe('consoleInterceptor', () => {
       initConsoleInterceptor();
       console.log('test');
 
-      const exported = window.exportLogs();
+      const exported = window.exportLogs!();
       const parsed = JSON.parse(exported);
       expect(parsed.length).toBe(1);
     });
@@ -245,7 +245,7 @@ describe('consoleInterceptor', () => {
       initConsoleInterceptor();
       console.log('test');
 
-      window.clearLogs();
+      window.clearLogs!();
 
       expect(mockLocalStorage['client_logs']).toBeUndefined();
       expect(mockLocalStorage['client_errors']).toBeUndefined();
