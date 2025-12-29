@@ -32,6 +32,17 @@ Client logs (`logger.info()`, etc.) only appear in browser console. They:
 
 Direct browser→Grafana OTLP requests are blocked by CORS. The solution was to create a server-side proxy at `/api/traces` that forwards traces to Grafana with authentication.
 
+### Important: Logs vs Traces Destination
+
+| Data Type | Destination | Notes |
+|-----------|-------------|-------|
+| **Client Logs** (`console.log`, etc.) | Local `client.log` file | Dev mode only, NOT sent to Grafana |
+| **Client Traces** (`fetchWithTracing`) | Grafana via `/api/traces` | Links to server traces via `traceparent` |
+| **Server Logs** (`logger.info`, etc.) | Local `server.log` file | NOT sent to Grafana |
+| **Server Traces** (`withServerTracing`) | Grafana directly | Auto-instrumented via OTEL |
+
+**Client logs are NOT sent to Grafana** - they are stored locally in `client.log` for debugging during development. Only OpenTelemetry **traces** (spans created by `fetchWithTracing` or `browserTracing`) are forwarded to Grafana Cloud.
+
 ---
 
 ## Files Created
@@ -50,6 +61,7 @@ Direct browser→Grafana OTLP requests are blocked by CORS. The solution was to 
 | `src/lib/tracing/fetchWithTracing.ts` | Traced fetch wrapper |
 | `src/lib/tracing/__tests__/browserTracing.test.ts` | Unit tests |
 | `src/lib/tracing/__tests__/fetchWithTracing.test.ts` | Unit tests |
+| `src/app/api/traces/route.test.ts` | Unit tests for OTLP proxy |
 | `src/components/ClientInitializer.tsx` | Client-side initialization component |
 
 ## Files Modified
@@ -101,27 +113,30 @@ The token must be base64-encoded in format `instanceId:apiKey`. Get it from:
 │  remoteFlusher.ts        localStorage → /api/client-logs        │
 │  browserTracing.ts       OpenTelemetry → /api/traces proxy      │
 │  fetchWithTracing.ts     Adds traceparent header to fetch       │
-└────────────────────────────┬────────────────────────────────────┘
-                             │ (traceparent header links traces)
-                             ▼
+└────────────────┬─────────────────────────────┬──────────────────┘
+                 │ (logs)                       │ (traces + traceparent)
+                 ▼                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                           SERVER                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│  /api/client-logs        Receives batched logs, writes to file  │
-│  /api/traces             Forwards OTLP to Grafana (with auth)   │
+│  /api/client-logs        Receives logs → writes to client.log   │
+│  /api/traces             Forwards OTLP traces → Grafana         │
 │  instrumentation.ts      Auto-traces Supabase/Pinecone calls    │
-│  withServerLogging()     Wraps functions with logging           │
-│  withServerTracing()     Wraps functions with OTel spans        │
-└────────────────────────────┬────────────────────────────────────┘
-                             │
-                             ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        GRAFANA CLOUD                             │
-├─────────────────────────────────────────────────────────────────┤
-│  Tempo                   Stores traces (service: explainanything)│
-│  Explore                 Query traces by service name            │
-└─────────────────────────────────────────────────────────────────┘
+│  withServerLogging()     Wraps functions → writes to server.log │
+│  withServerTracing()     Wraps functions → sends to Grafana     │
+└────────────────┬─────────────────────────────┬──────────────────┘
+                 │                              │
+                 ▼                              ▼
+┌────────────────────────────┐  ┌────────────────────────────────┐
+│      LOCAL FILES           │  │        GRAFANA CLOUD           │
+├────────────────────────────┤  ├────────────────────────────────┤
+│  client.log (dev only)     │  │  Tempo (traces only)           │
+│  server.log                │  │  service: explainanything      │
+│                            │  │  service: browser-client       │
+└────────────────────────────┘  └────────────────────────────────┘
 ```
+
+> **Note**: Logs (`console.log`, `logger.info`) stay local. Only OpenTelemetry traces go to Grafana.
 
 ### Server vs Browser Tracing
 
@@ -265,9 +280,26 @@ const provider = new WebTracerProvider({
 
 ---
 
-## Test Results
+## Test Coverage
 
-All tests pass:
+### Unit Tests (70 tests total for this feature)
+
+| Test File | Tests | Line Coverage |
+|-----------|-------|---------------|
+| `src/lib/logging/client/__tests__/consoleInterceptor.test.ts` | 17 | 88% |
+| `src/lib/logging/client/__tests__/remoteFlusher.test.ts` | 12 | 98% |
+| `src/lib/tracing/__tests__/browserTracing.test.ts` | 8 | 92% |
+| `src/lib/tracing/__tests__/fetchWithTracing.test.ts` | 11 | 91% |
+| `src/app/api/client-logs/route.test.ts` | 11 | N/A |
+| `src/app/api/traces/route.test.ts` | 11 | N/A |
+
+### Integration Tests
+
+- `src/__tests__/integration/logging-infrastructure.integration.test.ts` - Server-side `withServerLogging` wrapper
+- `src/__tests__/integration/request-id-propagation.integration.test.ts` - Request ID context propagation
+
+### All Tests Pass
+
 - **Unit tests**: 2200+ passed
 - **Integration tests**: 103 passed
 - **E2E tests**: 12 passed
