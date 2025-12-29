@@ -11,8 +11,8 @@ import { useEffect, useRef } from 'react';
  * Initialization order:
  * 1. Console interceptor (synchronous, immediate)
  * 2. Error handlers (synchronous, immediate)
- * 3. Remote flusher (dev only, delayed)
- * 4. Browser tracing (production, deferred via requestIdleCallback)
+ * 3. Remote flusher (all environments, flushes to /api/client-logs -> Grafana)
+ * 4. Browser tracing (deferred via requestIdleCallback)
  */
 export function ClientInitializer() {
   const initialized = useRef(false);
@@ -30,12 +30,12 @@ export function ClientInitializer() {
       }
     );
 
-    // Remote flusher (dev only) - flushes logs to /api/client-logs
-    if (process.env.NODE_ENV === 'development') {
-      import('@/lib/logging/client/remoteFlusher').then(({ initRemoteFlusher }) => {
-        cleanupFns.current.push(initRemoteFlusher());
-      });
-    }
+    // Remote flusher - flushes logs to /api/client-logs (which forwards to Grafana)
+    // In production: only error/warn levels are sent (controlled by logConfig.ts)
+    // In development: all levels are sent
+    import('@/lib/logging/client/remoteFlusher').then(({ initRemoteFlusher }) => {
+      cleanupFns.current.push(initRemoteFlusher());
+    });
 
     // Browser tracing (production or when explicitly enabled)
     // Lazy-load OTel after idle to mitigate bundle size (~60KB)

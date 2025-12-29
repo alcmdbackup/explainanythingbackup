@@ -3,6 +3,7 @@ import { appendFileSync } from 'fs';
 import { join } from 'path';
 import { RequestIdContext } from './requestIdContext';
 import * as Sentry from '@sentry/nextjs';
+import { emitLog } from './logging/server/otelLogger';
 
 /**
  * Logger utility for consistent logging across the application
@@ -41,14 +42,17 @@ const addRequestId = (data: LoggerData | null) => {
 // File logging with FLAT structure (breaking change from nested)
 function writeToFile(level: string, message: string, data: LoggerData | null) {
     const timestamp = new Date().toISOString();
+    const requestId = RequestIdContext.getRequestId();
+    const userId = RequestIdContext.getUserId();
+    const sessionId = RequestIdContext.getSessionId();
 
     const logEntry = JSON.stringify({
         timestamp,
         level,
         message,
-        requestId: RequestIdContext.getRequestId(),
-        userId: RequestIdContext.getUserId(),
-        sessionId: RequestIdContext.getSessionId(),
+        requestId,
+        userId,
+        sessionId,
         data: data || {}
     }) + '\n';
 
@@ -56,6 +60,18 @@ function writeToFile(level: string, message: string, data: LoggerData | null) {
         appendFileSync(logFile, logEntry);
     } catch (error) {
         // Silently fail if file write fails to avoid recursive logging
+    }
+
+    // Send to Grafana via OTLP (respects log level policy per environment)
+    try {
+        emitLog(level, message, {
+            requestId,
+            userId,
+            sessionId,
+            ...(data || {})
+        }, 'server');
+    } catch {
+        // Silently fail OTLP to avoid recursive logging
     }
 }
 
