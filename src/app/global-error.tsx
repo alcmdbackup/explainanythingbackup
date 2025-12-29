@@ -31,16 +31,19 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body>
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          padding: '2rem',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-          backgroundColor: '#f8f9fa',
-        }}>
+        <div
+          data-testid="global-error-container"
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            padding: '2rem',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            backgroundColor: '#f8f9fa',
+          }}
+        >
           <div style={{
             maxWidth: '500px',
             textAlign: 'center',
@@ -49,21 +52,28 @@ export default function GlobalError({
             borderRadius: '8px',
             boxShadow: '0 2px 10px rgba(0, 0, 0, 0.1)',
           }}>
-            <h1 style={{
-              fontSize: '1.5rem',
-              marginBottom: '1rem',
-              color: '#1a1a2e',
-            }}>
+            <h1
+              data-testid="global-error-title"
+              style={{
+                fontSize: '1.5rem',
+                marginBottom: '1rem',
+                color: '#1a1a2e',
+              }}
+            >
               Something went wrong
             </h1>
-            <p style={{
-              color: '#666',
-              marginBottom: '1.5rem',
-              lineHeight: '1.6',
-            }}>
+            <p
+              data-testid="global-error-message"
+              style={{
+                color: '#666',
+                marginBottom: '1.5rem',
+                lineHeight: '1.6',
+              }}
+            >
               We encountered an unexpected error. Our team has been notified and is working to fix the issue.
             </p>
             <button
+              data-testid="global-error-reset-button"
               onClick={() => reset()}
               style={{
                 padding: '0.75rem 1.5rem',
