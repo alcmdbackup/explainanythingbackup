@@ -367,5 +367,71 @@ test.describe('Action Buttons', () => {
       const dropdownVisible = await resultsPage.isRewriteDropdownVisible();
       expect(dropdownVisible).toBe(true);
     });
+
+    test('should enter rewrite with tags mode and show TagBar', { tag: '@smoke' }, async ({ authenticatedPage }) => {
+      // This test validates that:
+      // 1. The tags seed data exists in the database (IDs 2 and 5)
+      // 2. The getTempTagsForRewriteWithTagsAction server action works
+      // 3. The TagBar appears in RewriteWithTags mode
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      if (libraryState !== 'loaded') {
+        test.skip();
+        return;
+      }
+
+      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
+      if (!hasExplanations) {
+        test.skip();
+        return;
+      }
+
+      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
+      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      await resultsPage.waitForAnyContent(60000);
+
+      // Open rewrite dropdown and click "Rewrite with tags"
+      await resultsPage.openRewriteDropdown();
+      await resultsPage.clickRewriteWithTags();
+
+      // Wait for TagBar to appear with "Rewrite with Tags" button
+      // This confirms the server action succeeded and tags were fetched
+      const applyButton = authenticatedPage.locator('[data-testid="tag-apply-button"]');
+      await expect(applyButton).toBeVisible({ timeout: 10000 });
+
+      // Verify the button text indicates we're in RewriteWithTags mode
+      await expect(applyButton).toContainText('Rewrite with Tags');
+    });
+
+    test('should enter edit with tags mode and show TagBar', async ({ authenticatedPage }) => {
+      // This test validates the Edit with Tags flow works correctly
+      await libraryPage.navigate();
+      const libraryState = await libraryPage.waitForLibraryReady();
+      if (libraryState !== 'loaded') {
+        test.skip();
+        return;
+      }
+
+      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
+      if (!hasExplanations) {
+        test.skip();
+        return;
+      }
+
+      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
+      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      await resultsPage.waitForAnyContent(60000);
+
+      // Open rewrite dropdown and click "Edit with tags"
+      await resultsPage.openRewriteDropdown();
+      await resultsPage.clickEditWithTags();
+
+      // Wait for TagBar to appear with "Edit with Tags" button
+      const applyButton = authenticatedPage.locator('[data-testid="tag-apply-button"]');
+      await expect(applyButton).toBeVisible({ timeout: 10000 });
+
+      // Verify the button text indicates we're in EditWithTags mode
+      await expect(applyButton).toContainText('Edit with Tags');
+    });
   });
 });

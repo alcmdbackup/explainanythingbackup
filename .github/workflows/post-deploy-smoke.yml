@@ -1,0 +1,110 @@
+name: Post-Deploy Smoke Tests
+
+# Triggers when Vercel completes a deployment
+on:
+  deployment_status:
+
+jobs:
+  smoke-test:
+    # Only run on successful deployments to production
+    if: |
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Production'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: production
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - name: Wait for deployment to stabilize
+        run: sleep 10
+
+      - name: Health Check
+        id: health
+        run: |
+          DEPLOY_URL="${{ github.event.deployment_status.target_url }}"
+          echo "Checking health at: $DEPLOY_URL/api/health"
+
+          response=$(curl -s "$DEPLOY_URL/api/health")
+          status=$(echo "$response" | jq -r '.status')
+
+          echo "Health check response:"
+          echo "$response" | jq .
+
+          if [ "$status" != "healthy" ]; then
+            echo "::error::Health check failed - status: $status"
+
+            # Extract specific failures for better error messages
+            db_status=$(echo "$response" | jq -r '.checks.database.status')
+            tags_status=$(echo "$response" | jq -r '.checks.requiredTags.status')
+            env_status=$(echo "$response" | jq -r '.checks.environment.status')
+
+            if [ "$db_status" == "fail" ]; then
+              echo "::error::Database check failed: $(echo "$response" | jq -r '.checks.database.message')"
+            fi
+            if [ "$tags_status" == "fail" ]; then
+              echo "::error::Required tags check failed: $(echo "$response" | jq -r '.checks.requiredTags.message')"
+            fi
+            if [ "$env_status" == "fail" ]; then
+              echo "::error::Environment check failed: $(echo "$response" | jq -r '.checks.environment.message')"
+            fi
+
+            exit 1
+          fi
+
+          echo "::notice::Health check passed!"
+
+      - name: Get Playwright version
+        id: playwright-version
+        run: echo "version=$(npm ls @playwright/test --json | jq -r '.dependencies["@playwright/test"].version')" >> $GITHUB_OUTPUT
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright deps (if cached)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+
+      - name: Run Smoke Tests against Production
+        env:
+          # Override base URL to point to production deployment
+          BASE_URL: ${{ github.event.deployment_status.target_url }}
+          # Production test credentials
+          TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
+          TEST_USER_ID: ${{ secrets.PROD_TEST_USER_ID }}
+        run: |
+          echo "Running smoke tests against: $BASE_URL"
+          npx playwright test --project=chromium --grep="@smoke" --reporter=list
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-test-results
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Post-deployment smoke tests failed! Check the deployment at ${{ github.event.deployment_status.target_url }}"
+          # Add Slack/Discord notification here if desired
