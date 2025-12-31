@@ -38,6 +38,8 @@ export async function saveExplanationToLibrary(
   }
 
   // Update aggregate metrics (run in background, don't wait)
+  // Intentional: Fire-and-forget - metrics failures should not block user flow
+  // Errors are logged to Sentry via logger.error
   incrementExplanationSaves(explanationid).catch(metricsError => {
     logger.error('Failed to update explanation metrics after save', {
       explanationid,

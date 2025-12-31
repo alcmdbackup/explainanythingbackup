@@ -68,6 +68,8 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
   }
 
   // Update aggregate metrics if this is a view event (run in background, don't wait)
+  // Intentional: Fire-and-forget - metrics failures should not block user flow
+  // Errors are logged to Sentry via logger.error
   if (validationResult.data.event_name === 'explanation_viewed') {
     incrementExplanationViews(validationResult.data.explanationid).catch(metricsError => {
       logger.error('Failed to update explanation metrics after view event', {

@@ -228,6 +228,8 @@ export default function AISuggestionsPanel({
         }
       }).catch((err) => {
         console.error('Failed to load validation results for session:', loadedSessionId, err);
+        // Show error state so user knows validation results couldn't be loaded
+        setError('Could not load previous validation results');
       });
     } else {
       setLoadedValidationResults(null);

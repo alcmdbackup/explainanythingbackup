@@ -132,9 +132,10 @@ export async function handleAuthTransition(userId: string): Promise<{
 
   if (anonSessionId && anonSessionId !== authSessionId) {
     // Send linking event to server for proper log correlation
-    // Fire-and-forget: don't block auth flow on this
-    sendSessionLinkingEvent(anonSessionId, authSessionId, userId).catch(() => {
-      // Silently fail - session linking is best-effort
+    // Intentional: Fire-and-forget - don't block auth flow on this
+    sendSessionLinkingEvent(anonSessionId, authSessionId, userId).catch((err) => {
+      // Intentional: Session linking is best-effort, but log for debugging
+      console.debug('[SessionId] Session linking failed (best-effort):', err instanceof Error ? err.message : err);
     });
 
     if (typeof window !== 'undefined') {

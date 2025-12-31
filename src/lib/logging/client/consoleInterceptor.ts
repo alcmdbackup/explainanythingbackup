@@ -143,7 +143,8 @@ function flushPreHydrationLogs(config: ClientLogConfig): void {
     );
     localStorage.setItem(LOG_KEY, JSON.stringify(combined));
   } catch {
-    /* ignore */
+    // Intentional: Pre-hydration log flushing may fail if window.__PRE_HYDRATION_LOGS__
+    // doesn't exist or localStorage is unavailable - this is expected in some edge cases
   }
 
   // Clear the pre-hydration buffer
