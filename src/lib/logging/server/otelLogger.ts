@@ -13,7 +13,7 @@
 import { SeverityNumber, Logger } from '@opentelemetry/api-logs';
 import { LoggerProvider, BatchLogRecordProcessor, type LoggerProviderConfig } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
-import { Resource } from '@opentelemetry/resources';
+import { resourceFromAttributes } from '@opentelemetry/resources';
 import { trace } from '@opentelemetry/api';
 
 // Singleton logger instance
@@ -68,14 +68,15 @@ function initializeOTLPLogger(): Logger | null {
       headers: parseOTELHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
     });
 
-    // v2.x API: pass processors in constructor config (like WebTracerProvider)
-    // Type assertion needed due to version mismatch between @opentelemetry/resources v1.x and v2.x
+    // v2.x API: use resourceFromAttributes instead of new Resource()
+    const resource = resourceFromAttributes({
+      'service.name': 'explainanything',
+      'service.namespace': 'my-application-group',
+      'deployment.environment': process.env.NODE_ENV || 'development',
+    });
+
     const config: LoggerProviderConfig = {
-      resource: new Resource({
-        'service.name': 'explainanything',
-        'service.namespace': 'my-application-group',
-        'deployment.environment': process.env.NODE_ENV || 'development',
-      }) as unknown as LoggerProviderConfig['resource'],
+      resource,
       processors: [new BatchLogRecordProcessor(exporter)],
     };
     const provider = new LoggerProvider(config);
