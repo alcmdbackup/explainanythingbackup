@@ -431,7 +431,10 @@ export class ResultsPage extends BasePage {
         (prev) => document.querySelectorAll('[data-diff-key]').length < prev,
         previousCount,
         { timeout: 5000 }
-      ).catch(() => {});
+      ).catch((err) => {
+        // Intentional: waitForFunction may timeout if diff count doesn't change fast enough
+        console.warn('[acceptAllDiffs] waitForFunction timeout:', err instanceof Error ? err.message : err);
+      });
       count = await this.getDiffCount();
     }
   }
@@ -446,7 +449,10 @@ export class ResultsPage extends BasePage {
         (prev) => document.querySelectorAll('[data-diff-key]').length < prev,
         previousCount,
         { timeout: 5000 }
-      ).catch(() => {});
+      ).catch((err) => {
+        // Intentional: waitForFunction may timeout if diff count doesn't change fast enough
+        console.warn('[rejectAllDiffs] waitForFunction timeout:', err instanceof Error ? err.message : err);
+      });
       count = await this.getDiffCount();
     }
   }

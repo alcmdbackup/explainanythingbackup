@@ -40,16 +40,30 @@ Three agents reviewed the plan from architecture, testing, and implementation pe
 ---
 
 ## Phase 2: E2E Test Helper & Refactor
-**Status:** Not Started
+**Status:** Completed
 
 ### Work Done
-- N/A
+1. Created `src/__tests__/e2e/helpers/error-utils.ts` with:
+   - `safeWaitFor()` - Wait with timeout logging
+   - `safeIsVisible()` - Visibility check with error logging
+   - `safeTextContent()` - Text extraction with error logging
+   - `safeScreenshot()` - Screenshot with failure logging
+   - `safeRace()` - Promise.race with logging
+
+2. Refactored E2E files to use new helpers:
+   - `wait-utils.ts` - Uses safeIsVisible and safeWaitFor
+   - `ResultsPage.ts` - Added logging to acceptAllDiffs/rejectAllDiffs
+   - `auth.spec.ts` - Added logging to Promise.race catch
+   - `errors.spec.ts` - Uses safeScreenshot
+   - `auth.unauth.spec.ts` - Uses safeScreenshot
+   - `import-articles.spec.ts` - Uses safeWaitFor
+
+### Verification
+- ESLint: ✅ Passed
+- TypeScript: ✅ Passed
 
 ### Issues Encountered
-- N/A
-
-### User Clarifications
-- N/A
+- None
 
 ---
 

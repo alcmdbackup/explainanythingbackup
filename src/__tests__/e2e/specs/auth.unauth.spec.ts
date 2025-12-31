@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { LoginPage } from '../helpers/pages/LoginPage';
 import { waitForState, waitForPageStable } from '../helpers/wait-utils';
+import { safeScreenshot } from '../helpers/error-utils';
 
 test.describe('Unauthenticated User Tests', () => {
   test('login page loads', { tag: '@critical' }, async ({ page }) => {
@@ -86,7 +87,7 @@ test.describe('Unauthenticated User Tests', () => {
     } catch (error) {
       console.log('[E2E-DEBUG] Redirect failed, final URL:', page.url());
       // Take screenshot on failure
-      await page.screenshot({ path: 'test-results/debug-login-redirect-failed.png' }).catch(() => {});
+      await safeScreenshot(page, 'test-results/debug-login-redirect-failed.png', 'auth.unauth.spec');
       throw error;
     } finally {
       clearInterval(urlCheckInterval);

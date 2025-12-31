@@ -13,6 +13,7 @@ import {
   defaultMockExplanation,
 } from '../../helpers/api-mocks';
 import { waitForState, waitForRouteReady } from '../../helpers/wait-utils';
+import { safeScreenshot } from '../../helpers/error-utils';
 
 test.describe('Error Handling', () => {
   test.describe('API Errors', () => {
@@ -73,7 +74,7 @@ test.describe('Error Handling', () => {
       console.log('[E2E-DEBUG] Navigated to results page, URL:', page.url());
 
       // Take screenshot before waiting for error (for CI debugging)
-      await page.screenshot({ path: 'test-results/debug-stream-error-before-wait.png' }).catch(() => {});
+      await safeScreenshot(page, 'test-results/debug-stream-error-before-wait.png', 'errors.spec');
 
       // Wait for error to appear (increased timeout for CI)
       console.log('[E2E-DEBUG] Waiting for error element to appear...');

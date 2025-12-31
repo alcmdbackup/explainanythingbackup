@@ -1,4 +1,5 @@
 import { Page } from '@playwright/test';
+import { safeIsVisible, safeWaitFor } from './error-utils';
 
 interface WaitOptions {
   timeout?: number;
@@ -57,8 +58,8 @@ export async function waitForPageStable(page: Page, options: WaitOptions = {}): 
 
   for (const indicator of loadingIndicators) {
     const locator = page.locator(indicator);
-    if (await locator.isVisible({ timeout: 100 }).catch(() => false)) {
-      await locator.waitFor({ state: 'hidden', timeout }).catch(() => {});
+    if (await safeIsVisible(locator, 'waitForPageStable', 100)) {
+      await safeWaitFor(locator, 'hidden', 'waitForPageStable', timeout);
     }
   }
 }

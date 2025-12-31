@@ -1,5 +1,6 @@
 import { test, expect } from '../../fixtures/auth';
 import { ImportPage } from '../../helpers/pages/ImportPage';
+import { safeWaitFor } from '../../helpers/error-utils';
 
 // Add retries for flaky LLM API conditions
 test.describe.configure({ retries: 1 });
@@ -205,7 +206,11 @@ test.describe('Import Articles Feature', () => {
             await importPage.clickCancel();
 
             // Wait for modal to close
-            await authenticatedPage.locator('[data-testid="import-modal"]').waitFor({ state: 'hidden' }).catch(() => {});
+            await safeWaitFor(
+              authenticatedPage.locator('[data-testid="import-modal"]'),
+              'hidden',
+              'import-articles.spec'
+            );
 
             // Reopen modal
             await importPage.openModal();

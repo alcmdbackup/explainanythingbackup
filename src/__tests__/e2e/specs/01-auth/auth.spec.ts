@@ -67,7 +67,10 @@ test.describe('Authentication Flow', () => {
       await Promise.race([
         authenticatedPage.waitForURL(/^(?!.*\/login)/, { timeout: 10000 }), // Not login page
         authenticatedPage.locator('[data-testid="login-email"]').waitFor({ state: 'visible', timeout: 10000 }),
-      ]).catch(() => {});
+      ]).catch((err) => {
+        // Intentional: Race may timeout if neither condition is met quickly
+        console.warn('[auth.spec] waitForURL/login race timeout:', err instanceof Error ? err.message : err);
+      });
 
       // Either redirects to home or stays on login but is authenticated
       const loginPage = new LoginPage(authenticatedPage);
