@@ -68,13 +68,23 @@ Three agents reviewed the plan from architecture, testing, and implementation pe
 ---
 
 ## Phase 3: ESLint Rule & Documentation
-**Status:** Not Started
+**Status:** Completed
 
 ### Work Done
-- N/A
+1. Installed `eslint-plugin-promise`
+2. Added ESLint rules to `eslint.config.mjs`:
+   - `no-empty: ['error', { allowEmptyCatch: false }]` - Catches empty `catch {}` blocks
+   - `promise/catch-or-return: 'warn'` - Warns when promises don't have error handling
+3. Updated `/docs/docs_overall/testing_rules.md` with Rule 7 for E2E error handling
+
+### Verification
+- ESLint config: ✅ Valid
+- ESLint on fixed files: ✅ Passed
 
 ### Issues Encountered
-- N/A
+- None
 
-### User Clarifications
-- N/A
+### Notes
+- Set `promise/catch-or-return` to 'warn' for gradual adoption
+- The `no-empty` rule catches `catch {}` but not `.catch(() => {})` - this is by design
+- Future work: Consider adding a custom ESLint rule to catch `.catch(() => {})` patterns

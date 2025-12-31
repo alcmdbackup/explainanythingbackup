@@ -6,3 +6,8 @@
 4. **Make async explicit.** After actions, assert the next expected state (auto-waiting assertions) and/or wait for the relevant request: "click → wait for /api/foo 200 → expect success UI."
 5. **Isolate external dependencies.** Mock/stub third-party services (payments, email, maps, feature flags) and make backend responses deterministic; avoid real timeouts to external systems.
 6. **Keep timeouts short** - 60 seconds max per test
+7. **Never silently swallow errors.** Use helpers from `src/__tests__/e2e/helpers/error-utils.ts` instead of bare `.catch(() => {})`:
+   - `safeWaitFor()` - Wait with timeout logging
+   - `safeIsVisible()` - Visibility check with error logging
+   - `safeTextContent()` - Text extraction with error logging
+   - `safeScreenshot()` - Screenshot with failure logging
