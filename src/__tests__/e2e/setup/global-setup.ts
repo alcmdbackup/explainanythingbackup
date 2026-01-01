@@ -15,40 +15,18 @@ async function waitForServerReady(
 
   console.log(`   Waiting for server at ${url}...`);
 
-  // Add Vercel bypass via query parameter (more reliable than headers for Node.js fetch)
-  let fetchUrl = url;
-  if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
-    const separator = url.includes('?') ? '&' : '?';
-    fetchUrl = `${url}${separator}x-vercel-protection-bypass=${process.env.VERCEL_AUTOMATION_BYPASS_SECRET}`;
-    console.log(`   Using bypass token (length: ${process.env.VERCEL_AUTOMATION_BYPASS_SECRET.length})`);
-  } else {
-    console.log('   No bypass token available');
-  }
-
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(fetchUrl, {
-        method: 'GET',
-        signal: controller.signal,
+      const response = await fetch(url, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000),
       });
-      clearTimeout(timeoutId);
       if (response.ok || response.status === 304) {
         console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
         return;
       }
-      // Log non-ok responses for debugging
-      if (i === 0 || i === maxRetries - 1) {
-        console.log(`   Attempt ${i + 1}: status ${response.status}`);
-      }
-    } catch (error) {
-      // Log first and last errors for debugging
-      if (i === 0 || i === maxRetries - 1) {
-        const errMsg = error instanceof Error ? error.message : 'Unknown error';
-        const errCause = error instanceof Error && error.cause ? ` (cause: ${error.cause})` : '';
-        console.log(`   Attempt ${i + 1}: ${errMsg}${errCause}`);
-      }
+    } catch {
+      // Server not ready yet, continue polling
     }
 
     if (i < maxRetries - 1) {
@@ -128,11 +106,9 @@ async function globalSetup() {
   // so we always want it to execute. The env var is now set at runtime only.
 
   // Wait for server to be ready (especially important for production builds in CI)
-  // Use /api/health endpoint which is excluded from auth middleware
   const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
-  const healthUrl = `${baseUrl}/api/health`;
   try {
-    await waitForServerReady(healthUrl, {
+    await waitForServerReady(baseUrl, {
       maxRetries: process.env.CI ? 60 : 30,  // 60s for CI (build takes time), 30s locally
       retryInterval: 1000,
     });

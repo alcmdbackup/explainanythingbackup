@@ -11,7 +11,6 @@ jobs:
       github.event.deployment_status.state == 'success' &&
       github.event.deployment.environment == 'Production'
     runs-on: ubuntu-latest
-    environment: Production
 
     steps:
       - uses: actions/checkout@v4
@@ -30,33 +29,15 @@ jobs:
 
       - name: Health Check
         id: health
-        env:
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           DEPLOY_URL="${{ github.event.deployment_status.target_url }}"
           echo "Checking health at: $DEPLOY_URL/api/health"
 
-          # Use bypass token if Deployment Protection is enabled
-          # Must use headers + follow redirects + cookie jar for persistence
-          if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
-            echo "Using bypass token (length: ${#VERCEL_AUTOMATION_BYPASS_SECRET})"
-            response=$(curl -sL \
-              -c /tmp/cookies.txt -b /tmp/cookies.txt \
-              -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
-              -H "x-vercel-set-bypass-cookie: true" \
-              "$DEPLOY_URL/api/health")
-          else
-            response=$(curl -s "$DEPLOY_URL/api/health")
-          fi
-
-          echo "Raw response (first 500 chars):"
-          echo "$response" | head -c 500
-          echo ""
-
-          status=$(echo "$response" | jq -r '.status' 2>/dev/null || echo "parse_error")
+          response=$(curl -s "$DEPLOY_URL/api/health")
+          status=$(echo "$response" | jq -r '.status')
 
           echo "Health check response:"
-          echo "$response" | jq . 2>/dev/null || echo "Failed to parse as JSON"
+          echo "$response" | jq .
 
           if [ "$status" != "healthy" ]; then
             echo "::error::Health check failed - status: $status"
@@ -102,17 +83,12 @@ jobs:
 
       - name: Run Smoke Tests against Production
         env:
-          # Use production domain (not preview URL) to avoid Deployment Protection
-          BASE_URL: https://explainanything.vercel.app
-          # Supabase connection (required for auth fixture)
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # Override base URL to point to production deployment
+          BASE_URL: ${{ github.event.deployment_status.target_url }}
           # Production test credentials
           TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
           TEST_USER_ID: ${{ secrets.PROD_TEST_USER_ID }}
-          # Vercel Deployment Protection bypass
-          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           echo "Running smoke tests against: $BASE_URL"
           npx playwright test --project=chromium --grep="@smoke" --reporter=list
