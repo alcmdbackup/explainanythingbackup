@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
+import { Plus } from 'lucide-react';
 import { signOut } from '@/app/login/actions';
 import { clearRememberMe } from '@/lib/utils/supabase/rememberMe';
 import SearchBar from '@/components/SearchBar';
@@ -87,7 +88,7 @@ export default function Navigation({
                     )}
 
                     {/* Navigation Links with gold underline hover */}
-                    <div className="flex items-center space-x-8">
+                    <div className="flex items-center space-x-6">
                         <Link
                             href="/"
                             className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
@@ -112,13 +113,7 @@ export default function Navigation({
                         >
                             Settings
                         </Link>
-                        <button
-                            data-testid="import-button"
-                            onClick={() => setImportModalOpen(true)}
-                            className="scholar-nav-link text-[var(--text-secondary)] hover:text-[var(--accent-gold)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
-                        >
-                            Import
-                        </button>
+
                         <button
                             onClick={() => {
                                 clearRememberMe();
@@ -128,6 +123,19 @@ export default function Navigation({
                             className="text-[var(--text-muted)] hover:text-[var(--destructive)] text-sm font-ui font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--destructive)] focus-visible:ring-offset-2 rounded px-1"
                         >
                             Logout
+                        </button>
+
+                        {/* Separator */}
+                        <div className="h-6 w-px bg-[var(--border-default)]" />
+
+                        {/* Import CTA Button - YouTube-style pill (rightmost) */}
+                        <button
+                            data-testid="import-button"
+                            onClick={() => setImportModalOpen(true)}
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[var(--surface-elevated)] border border-[var(--border-default)] hover:bg-[var(--surface-secondary)] hover:border-[var(--border-strong)] text-[var(--text-primary)] text-sm font-ui font-medium transition-all duration-200 shadow-warm-sm hover:shadow-warm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2"
+                        >
+                            <Plus className="h-4 w-4" />
+                            Import
                         </button>
                     </div>
                 </div>

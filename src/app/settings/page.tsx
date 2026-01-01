@@ -1,5 +1,10 @@
 'use client';
 
+/**
+ * Settings page with theme customization controls.
+ * Uses dynamic import to prevent hydration mismatch with theme state.
+ */
+
 import dynamic from 'next/dynamic';
 import Navigation from '@/components/Navigation';
 
@@ -7,14 +12,23 @@ import Navigation from '@/components/Navigation';
 const SettingsContent = dynamic(() => import('./SettingsContent'), {
   ssr: false,
   loading: () => (
-    <div className="scholar-card p-6 space-y-6 animate-pulse">
-      <div className="space-y-3">
-        <div className="h-4 w-24 bg-[var(--surface-elevated)] rounded" />
-        <div className="h-10 bg-[var(--surface-elevated)] rounded" />
+    <div className="space-y-8 animate-pulse">
+      {/* Palette grid skeleton */}
+      <div className="space-y-4">
+        <div className="h-5 w-32 bg-[var(--surface-elevated)] rounded" />
+        <div className="grid grid-cols-2 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="h-24 bg-[var(--surface-elevated)] rounded-book" />
+          ))}
+        </div>
       </div>
-      <div className="space-y-3">
-        <div className="h-4 w-20 bg-[var(--surface-elevated)] rounded" />
-        <div className="h-9 w-24 bg-[var(--surface-elevated)] rounded" />
+      {/* Mode toggle skeleton */}
+      <div className="space-y-4">
+        <div className="h-5 w-24 bg-[var(--surface-elevated)] rounded" />
+        <div className="flex gap-3">
+          <div className="h-10 w-24 bg-[var(--surface-elevated)] rounded-book" />
+          <div className="h-10 w-24 bg-[var(--surface-elevated)] rounded-book" />
+        </div>
       </div>
     </div>
   ),
@@ -22,10 +36,20 @@ const SettingsContent = dynamic(() => import('./SettingsContent'), {
 
 export default function SettingsPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[var(--background)]">
       <Navigation />
       <main className="container mx-auto max-w-2xl px-4 py-12">
-        <h1 className="atlas-display text-3xl mb-8">Settings</h1>
+        {/* Page header with decorative flourish */}
+        <header className="mb-10">
+          <h1 className="font-display text-3xl font-bold text-[var(--text-primary)] mb-2">
+            Settings
+          </h1>
+          <p className="text-[var(--text-muted)] font-body">
+            Customize your reading experience
+          </p>
+          <div className="title-flourish mt-4" />
+        </header>
+
         <SettingsContent />
       </main>
     </div>

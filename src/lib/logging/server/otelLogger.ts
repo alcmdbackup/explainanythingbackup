@@ -11,7 +11,7 @@
  */
 
 import { SeverityNumber, Logger } from '@opentelemetry/api-logs';
-import { LoggerProvider, BatchLogRecordProcessor, type LoggerProviderConfig } from '@opentelemetry/sdk-logs';
+import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { trace } from '@opentelemetry/api';
@@ -68,18 +68,17 @@ function initializeOTLPLogger(): Logger | null {
       headers: parseOTELHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
     });
 
-    // v2.x API: use resourceFromAttributes instead of new Resource()
+    // Create resource with service attributes using v2.x API
     const resource = resourceFromAttributes({
       'service.name': 'explainanything',
       'service.namespace': 'my-application-group',
       'deployment.environment': process.env.NODE_ENV || 'development',
     });
 
-    const config: LoggerProviderConfig = {
+    const provider = new LoggerProvider({
       resource,
       processors: [new BatchLogRecordProcessor(exporter)],
-    };
-    const provider = new LoggerProvider(config);
+    });
 
     otelLogger = provider.getLogger('explainanything');
     console.log('[otelLogger] OTLP logging initialized, sending to:', `${endpoint}/v1/logs`);
