@@ -13,6 +13,7 @@ import TagBar from '@/components/TagBar';
 import FeedbackPanel from '@/components/FeedbackPanel';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AIEditorPanel from '@/components/AIEditorPanel';
+import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
 import Bibliography from '@/components/sources/Bibliography';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import {
@@ -63,6 +64,11 @@ function ResultsPageContent() {
 
     // Output mode for AI editor (inline-diff vs rewrite)
     const [outputMode, setOutputMode] = useState<'inline-diff' | 'rewrite'>('inline-diff');
+
+    // Advanced AI editor modal state
+    const [showAdvancedModal, setShowAdvancedModal] = useState(false);
+    const [modalInitialPrompt, setModalInitialPrompt] = useState('');
+    const [isModalLoading, setIsModalLoading] = useState(false);
 
     // Convert sources to bibliography format (with index for citations)
     const bibliographySources = useMemo(() =>
@@ -1456,11 +1462,84 @@ function ResultsPageContent() {
                                 rewriteSources
                             );
                         }}
+                        onExpandToModal={(prompt) => {
+                            setModalInitialPrompt(prompt);
+                            setShowAdvancedModal(true);
+                        }}
                         />
                     </div>
 
                 </div>
             </main>
+
+            {/* Advanced AI Editor Modal */}
+            <AdvancedAIEditorModal
+                isOpen={showAdvancedModal}
+                onClose={() => setShowAdvancedModal(false)}
+                initialPrompt={modalInitialPrompt}
+                initialSources={sources}
+                initialOutputMode={outputMode}
+                tagState={tagState}
+                dispatchTagAction={dispatchTagAction}
+                explanationId={explanationId || undefined}
+                isLoading={isModalLoading}
+                onApply={async (data: AIEditData) => {
+                    setIsModalLoading(true);
+                    try {
+                        // Update output mode if changed
+                        if (data.outputMode !== outputMode) {
+                            setOutputMode(data.outputMode);
+                        }
+
+                        // Update sources if changed
+                        setSources(data.sources);
+
+                        if (data.outputMode === 'rewrite') {
+                            // Rewrite mode: call handleUserAction
+                            const rewriteInput = explanationTitle
+                                ? `${explanationTitle}: ${data.prompt}`
+                                : data.prompt;
+
+                            await handleUserAction(
+                                rewriteInput,
+                                data.tagDescriptions.length > 0
+                                    ? UserInputType.RewriteWithTags
+                                    : UserInputType.Rewrite,
+                                mode,
+                                userid,
+                                data.tagDescriptions,
+                                explanationId || null,
+                                explanationVector,
+                                data.sources
+                            );
+                        } else {
+                            // Inline diff mode: call server action
+                            const { runAISuggestionsPipelineAction } = await import('@/editorFiles/actions/actions');
+                            const result = await runAISuggestionsPipelineAction(
+                                content,
+                                data.prompt,
+                                {
+                                    explanation_id: explanationId!,
+                                    explanation_title: explanationTitle || '',
+                                    rawSources: data.sources,
+                                    userId: userid || undefined
+                                }
+                            );
+
+                            if (result.success && result.content) {
+                                dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
+                                setContent(result.content);
+                                if (editorRef.current) {
+                                    setEditorCurrentContent(result.content);
+                                    editorRef.current.setContentFromMarkdown(result.content);
+                                }
+                            }
+                        }
+                    } finally {
+                        setIsModalLoading(false);
+                    }
+                }}
+            />
         </div>
     );
 }
