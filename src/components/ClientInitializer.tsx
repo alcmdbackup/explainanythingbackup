@@ -28,13 +28,17 @@ export function ClientInitializer() {
         cleanupFns.current.push(initConsoleInterceptor());
         cleanupFns.current.push(initErrorHandlers());
       }
-    );
+    ).catch((err) => {
+      console.error('Failed to load console interceptor:', err);
+    });
 
     // Remote flusher - flushes logs to /api/client-logs (which forwards to Grafana)
     // In production: only error/warn levels are sent (controlled by logConfig.ts)
     // In development: all levels are sent
     import('@/lib/logging/client/remoteFlusher').then(({ initRemoteFlusher }) => {
       cleanupFns.current.push(initRemoteFlusher());
+    }).catch((err) => {
+      console.error('Failed to load remote flusher:', err);
     });
 
     // Browser tracing (production or when explicitly enabled)

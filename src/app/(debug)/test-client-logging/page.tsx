@@ -24,6 +24,9 @@ export default function TestClientLogging() {
       })
       .then(upperData => {
         console.log('Promise chain completed:', upperData);
+      })
+      .catch(err => {
+        console.error('Promise chain failed:', err);
       });
 
     // Test fetch (should be intercepted)
@@ -40,6 +43,8 @@ export default function TestClientLogging() {
       })
     }).then(() => {
       console.log('Manual log sent successfully');
+    }).catch(err => {
+      console.error('Failed to send manual log:', err);
     });
   };
 

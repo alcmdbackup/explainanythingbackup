@@ -61,7 +61,11 @@ export function useUserAuth() {
 
     // Fetch user on mount
     useEffect(() => {
-        fetchUserid().finally(() => setIsLoading(false));
+        void fetchUserid()
+            .catch((err) => {
+                console.error('[useUserAuth] Unexpected error fetching user:', err);
+            })
+            .finally(() => setIsLoading(false));
     }, [fetchUserid]);
 
     return {

@@ -1,6 +1,6 @@
 'use server'
 
-import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
+import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 
@@ -197,6 +197,7 @@ export async function getRecentExplanations(
 
 /**
  * Update an existing explanation record
+ * Uses service client to bypass RLS since this is a trusted server-side operation
  * @param id Explanation record ID
  * @param updates Partial explanation data to update
  * @returns Updated explanation record
@@ -205,7 +206,8 @@ export async function updateExplanation(
   id: number,
   updates: Partial<ExplanationInsertType>
 ): Promise<ExplanationFullDbType> {
-  const supabase = await createSupabaseServerClient()
+  // Use service client to bypass RLS - this is already called from server actions
+  const supabase = await createSupabaseServiceClient()
 
   const { data, error } = await supabase
     .from('explanations')

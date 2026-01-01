@@ -196,6 +196,14 @@ const _updateExplanationAndTopic = withLogging(
                 id: explanationId
             };
         } catch (error) {
+            // Log Supabase error details before they get wrapped by handleError
+            const errorObj = error as { message?: string; code?: string; details?: string };
+            logger.error('updateExplanationAndTopic error', {
+                explanationId,
+                message: errorObj?.message ?? (error instanceof Error ? error.message : String(error)),
+                code: errorObj?.code,
+                details: errorObj?.details,
+            });
             return {
                 success: false,
                 error: handleError(error, 'updateExplanationAndTopic', { explanationId, updates }),

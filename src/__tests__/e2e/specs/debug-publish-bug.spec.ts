@@ -8,6 +8,8 @@ import { SearchPage } from '../helpers/pages/SearchPage';
 import { ResultsPage } from '../helpers/pages/ResultsPage';
 
 test.describe('Publish Bug After Streaming', () => {
+  // Extended timeout needed for streaming generation (90s) + navigation + publish
+  // eslint-disable-next-line flakiness/max-test-timeout
   test.setTimeout(120000);
 
   test('should publish draft article after streaming completes', async ({ authenticatedPage }) => {
