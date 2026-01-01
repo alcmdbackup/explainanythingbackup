@@ -29,11 +29,18 @@ jobs:
 
       - name: Health Check
         id: health
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           DEPLOY_URL="${{ github.event.deployment_status.target_url }}"
           echo "Checking health at: $DEPLOY_URL/api/health"
 
-          response=$(curl -s "$DEPLOY_URL/api/health")
+          # Use bypass token if Deployment Protection is enabled
+          if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
+            response=$(curl -s "$DEPLOY_URL/api/health?x-vercel-protection-bypass=$VERCEL_AUTOMATION_BYPASS_SECRET")
+          else
+            response=$(curl -s "$DEPLOY_URL/api/health")
+          fi
           status=$(echo "$response" | jq -r '.status')
 
           echo "Health check response:"
@@ -89,6 +96,8 @@ jobs:
           TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
           TEST_USER_ID: ${{ secrets.PROD_TEST_USER_ID }}
+          # Vercel Deployment Protection bypass
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           echo "Running smoke tests against: $BASE_URL"
           npx playwright test --project=chromium --grep="@smoke" --reporter=list
