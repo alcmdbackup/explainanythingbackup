@@ -12,7 +12,7 @@ import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
 import FeedbackPanel from '@/components/FeedbackPanel';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
-import AISuggestionsPanel from '@/components/AISuggestionsPanel';
+import AIEditorPanel from '@/components/AIEditorPanel';
 import Bibliography from '@/components/sources/Bibliography';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import {
@@ -1390,15 +1390,15 @@ function ResultsPageContent() {
                         </div>
                     </div>
 
-                    {/* AI Suggestions Panel (Collapsible Sidebar) */}
+                    {/* AI Editor Panel (Collapsible Sidebar) */}
                     <div className="relative h-full flex-shrink-0">
-                        <AISuggestionsPanel
+                        <AIEditorPanel
                         isOpen={isAIPanelOpen}
                         onOpenChange={setIsAIPanelOpen}
                         currentContent={content}
                         editorRef={editorRef}
-                        onContentChange={(newContent) => {
-                            logger.debug('AISuggestionsPanel onContentChange called', {
+                        onContentChange={(newContent: string) => {
+                            logger.debug('AIEditorPanel onContentChange called', {
                                 contentLength: newContent?.length || 0,
                                 hasEditorRef: !!editorRef.current
                             }, FILE_DEBUG);
@@ -1423,6 +1423,9 @@ function ResultsPageContent() {
                             explanation_id: explanationId,
                             explanation_title: explanationTitle
                         } : undefined}
+                        sources={sources}
+                        onSourcesChange={setSources}
+                        userId={userid || undefined}
                         />
                     </div>
 

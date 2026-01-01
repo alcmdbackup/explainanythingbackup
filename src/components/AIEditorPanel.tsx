@@ -1,15 +1,22 @@
 'use client';
 
+/**
+ * AIEditorPanel - Collapsible sidebar for AI-powered editing with sources support
+ * Enables users to provide URL sources for context and get AI-suggested edits
+ */
+
 import { useState, useCallback, useEffect } from 'react';
 import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } from '../editorFiles/actions/actions';
 import { Spinner } from '@/components/ui/spinner';
+import { SourceList } from '@/components/sources';
+import type { SourceChipType } from '@/lib/schemas/schemas';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
 
 // ============================================================================
 // Types
 // ============================================================================
 
-interface AISuggestionsPanelProps {
+interface AIEditorPanelProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   currentContent: string;
@@ -22,6 +29,12 @@ interface AISuggestionsPanelProps {
   };
   /** Optional session_id to load validation results for a previously run AI suggestion session */
   loadedSessionId?: string;
+  /** Source URLs to provide additional context to AI */
+  sources?: SourceChipType[];
+  /** Callback when sources change */
+  onSourcesChange?: (sources: SourceChipType[]) => void;
+  /** User ID for source fetching (required if sources are provided) */
+  userId?: string;
 }
 
 interface ProgressState {
@@ -194,18 +207,21 @@ function ValidationBadge({ step, label }: { step: { valid: boolean; severity?: s
 // ============================================================================
 
 /**
- * AI Suggestions Panel - Collapsible sidebar for AI-powered editing
+ * AIEditorPanel - Collapsible sidebar for AI-powered editing with sources support
  * Visible by default with option to collapse
  */
-export default function AISuggestionsPanel({
+export default function AIEditorPanel({
   isOpen,
   onOpenChange,
   currentContent,
   onContentChange,
   onEnterEditMode,
   sessionData,
-  loadedSessionId
-}: AISuggestionsPanelProps) {
+  loadedSessionId,
+  sources = [],
+  onSourcesChange,
+  userId
+}: AIEditorPanelProps) {
   const [userPrompt, setUserPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [progressState, setProgressState] = useState<ProgressState | null>(null);
@@ -254,17 +270,24 @@ export default function AISuggestionsPanel({
     setLastResult(null);
 
     try {
+      // Prepare session data with sources (sources will be formatted server-side)
+      handleProgressUpdate('Processing AI suggestions...', 20);
+
       const sessionRequestData = sessionData ? {
         explanation_id: sessionData.explanation_id,
         explanation_title: sessionData.explanation_title,
-        user_prompt: promptToUse.trim()
+        user_prompt: promptToUse.trim(),
+        // Pass raw sources to server action - formatting happens server-side
+        rawSources: sources.length > 0 ? sources : undefined,
+        userId: userId
       } : undefined;
 
-      console.log('🎭 AISuggestionsPanel: Calling runAISuggestionsPipelineAction', {
+      console.log('🎭 AIEditorPanel: Calling runAISuggestionsPipelineAction', {
         hasSessionData: !!sessionRequestData,
         sessionRequestData,
         userPrompt: promptToUse.trim(),
-        contentLength: currentContent.length
+        contentLength: currentContent.length,
+        sourceCount: sources?.length || 0
       });
 
       handleProgressUpdate('Processing AI suggestions...', 50);
@@ -290,7 +313,7 @@ export default function AISuggestionsPanel({
         );
       }
 
-      console.log('🎭 AISuggestionsPanel: runAISuggestionsPipelineAction result:', result);
+      console.log('🎭 AIEditorPanel: runAISuggestionsPipelineAction result:', result);
 
       // Handle undefined result (server action may fail silently)
       if (!result) {
@@ -318,7 +341,7 @@ export default function AISuggestionsPanel({
         sessionId: result.session_id
       }, ...prev].slice(0, 10)); // Keep last 10
 
-      console.log('🎭 AISuggestionsPanel: Processing result...', {
+      console.log('🎭 AIEditorPanel: Processing result...', {
         success: result.success,
         hasContent: !!result.content,
         contentLength: result.content?.length || 0,
@@ -343,15 +366,15 @@ export default function AISuggestionsPanel({
       }
 
       if (result.success && result.content) {
-        console.log('🎭 AISuggestionsPanel: Entering edit mode...');
+        console.log('🎭 AIEditorPanel: Entering edit mode...');
         onEnterEditMode?.();
-        console.log('🎭 AISuggestionsPanel: Edit mode entered, calling onContentChange...');
+        console.log('🎭 AIEditorPanel: Edit mode entered, calling onContentChange...');
         onContentChange?.(result.content);
-        console.log('🎭 AISuggestionsPanel: onContentChange called successfully');
+        console.log('🎭 AIEditorPanel: onContentChange called successfully');
         // Clear prompt on success
         setUserPrompt('');
       } else {
-        console.error('🎭 AISuggestionsPanel: Result not successful or no content', {
+        console.error('🎭 AIEditorPanel: Result not successful or no content', {
           success: result.success,
           hasContent: !!result.content,
           error: result.error
@@ -365,7 +388,7 @@ export default function AISuggestionsPanel({
       setIsLoading(false);
       setProgressState(null);
     }
-  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData]);
+  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData, sources, userId]);
 
   const handleQuickAction = useCallback((action: QuickAction) => {
     setUserPrompt(action.prompt);
@@ -475,6 +498,42 @@ export default function AISuggestionsPanel({
               disabled={isLoading}
             />
           </div>
+
+          {/* Sources Section */}
+          {onSourcesChange && (
+            <div
+              className="bg-[var(--surface-elevated)] rounded-lg p-3 border border-[var(--border-default)]"
+              data-testid="sidebar-source-list"
+            >
+              <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
+                Reference Sources (optional)
+              </label>
+              <SourceList
+                sources={sources}
+                onSourceAdded={(source) => {
+                  // Check if updating existing loading source
+                  const existingIndex = sources.findIndex(
+                    s => s.url === source.url && s.status === 'loading'
+                  );
+                  if (existingIndex >= 0 && source.status !== 'loading') {
+                    // Replace loading source with completed one
+                    const newSources = [...sources];
+                    newSources[existingIndex] = source;
+                    onSourcesChange(newSources);
+                  } else if (!sources.some(s => s.url === source.url)) {
+                    // Add new source
+                    onSourcesChange([...sources, source]);
+                  }
+                }}
+                onSourceRemoved={(index) => {
+                  const newSources = sources.filter((_, i) => i !== index);
+                  onSourcesChange(newSources);
+                }}
+                maxSources={5}
+                disabled={isLoading}
+              />
+            </div>
+          )}
 
           {/* Submit Button */}
           <button

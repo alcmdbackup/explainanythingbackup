@@ -341,6 +341,9 @@ export const runAISuggestionsPipelineAction = withLogging(
             explanation_id: number;
             explanation_title: string;
             sources?: SourceForPromptType[];
+            // Alternative: raw sources from client to be formatted server-side
+            rawSources?: import('@/lib/schemas/schemas').SourceChipType[];
+            userId?: string;
         }
     ): Promise<{
         success: boolean;
@@ -351,21 +354,27 @@ export const runAISuggestionsPipelineAction = withLogging(
     }> {
         try {
             // Import the function here to avoid client-side import issues
-            const { getAndApplyAISuggestions } = await import('../aiSuggestion');
+            const { getAndApplyAISuggestions, formatSourcesForPrompt } = await import('../aiSuggestion');
+
+            // Format raw sources if provided (server-side formatting)
+            let formattedSources = sessionData?.sources;
+            if (!formattedSources && sessionData?.rawSources && sessionData?.userId) {
+                formattedSources = await formatSourcesForPrompt(sessionData.rawSources, sessionData.userId);
+            }
 
             // Prepare session data with user prompt and sources
             const sessionRequestData = sessionData ? {
                 explanation_id: sessionData.explanation_id,
                 explanation_title: sessionData.explanation_title,
                 user_prompt: userPrompt.trim(),
-                sources: sessionData.sources
+                sources: formattedSources
             } : undefined;
 
             logger.debug('🎭 runAISuggestionsPipelineAction: Starting pipeline', {
                 hasSessionData: !!sessionRequestData,
                 contentLength: currentContent.length,
                 userPrompt: userPrompt.trim(),
-                sourcesCount: sessionData?.sources?.length ?? 0
+                sourcesCount: formattedSources?.length ?? 0
             }, FILE_DEBUG);
 
             // Run the pipeline (progress callback not supported in server actions)

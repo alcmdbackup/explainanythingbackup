@@ -1,6 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import AISuggestionsPanel from './AISuggestionsPanel';
+import AIEditorPanel from './AIEditorPanel';
 import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } from '../editorFiles/actions/actions';
 import {
   createMockAISuggestionsPanelProps,
@@ -13,7 +13,7 @@ jest.mock('../editorFiles/actions/actions', () => ({
   getSessionValidationResultsAction: jest.fn(),
 }));
 
-describe('AISuggestionsPanel', () => {
+describe('AIEditorPanel', () => {
   const mockRunAISuggestionsPipelineAction = runAISuggestionsPipelineAction as jest.MockedFunction<
     typeof runAISuggestionsPipelineAction
   >;
@@ -39,14 +39,14 @@ describe('AISuggestionsPanel', () => {
   describe('Visibility & Rendering', () => {
     it('should render panel content when isOpen is true', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       expect(screen.getByText('Edit article')).toBeInTheDocument();
     });
 
     it('should render collapsed panel when isOpen is false', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: false });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       // Panel should render but be collapsed (w-0)
       const panel = screen.getByRole('complementary');
@@ -55,14 +55,14 @@ describe('AISuggestionsPanel', () => {
 
     it('should render panel header with title', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       expect(screen.getByText('Edit article')).toBeInTheDocument();
     });
 
     it('should render collapse/expand toggle button', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const toggleButton = screen.getByRole('button', { name: /collapse ai panel/i });
       expect(toggleButton).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('AISuggestionsPanel', () => {
     it('should call onOpenChange when toggle button is clicked', () => {
       const mockOnOpenChange = jest.fn();
       const props = createMockAISuggestionsPanelProps({ isOpen: true, onOpenChange: mockOnOpenChange });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const toggleButton = screen.getByRole('button', { name: /collapse ai panel/i });
       fireEvent.click(toggleButton);
@@ -81,7 +81,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should render form elements correctly', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       expect(screen.getByLabelText(/what would you like to improve/i)).toBeInTheDocument();
       expect(screen.getByPlaceholderText(/describe your desired changes/i)).toBeInTheDocument();
@@ -90,7 +90,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should render quick action buttons', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       expect(screen.getByRole('button', { name: /simplify/i })).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /expand/i })).toBeInTheDocument();
@@ -106,7 +106,7 @@ describe('AISuggestionsPanel', () => {
   describe('Form Input', () => {
     it('should update prompt on textarea change', async () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Make it more concise');
@@ -116,7 +116,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should display placeholder text', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByPlaceholderText(/describe your desired changes/i);
       expect(textarea).toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('AISuggestionsPanel', () => {
         () => new Promise(() => {}) // Never resolves
       );
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -143,7 +143,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should start with empty textarea', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       expect(textarea).toHaveValue('');
@@ -151,7 +151,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should handle textarea resize-none class', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       expect(textarea).toHaveClass('resize-none');
@@ -165,7 +165,7 @@ describe('AISuggestionsPanel', () => {
   describe('Submit Button', () => {
     it('should be disabled when prompt is empty', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const submitButton = screen.getByRole('button', { name: /get suggestions/i });
       expect(submitButton).toBeDisabled();
@@ -173,7 +173,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should be disabled when content is empty', () => {
       const props = createMockAISuggestionsPanelProps({ isVisible: true, currentContent: '' });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const submitButton = screen.getByRole('button', { name: /get suggestions/i });
       expect(submitButton).toBeDisabled();
@@ -181,7 +181,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should be enabled when both prompt and content exist', async () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Make it better');
@@ -196,7 +196,7 @@ describe('AISuggestionsPanel', () => {
         () => new Promise(() => {}) // Never resolves
       );
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -222,7 +222,7 @@ describe('AISuggestionsPanel', () => {
         content: 'Modified content',
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Make it shorter');
@@ -250,7 +250,7 @@ describe('AISuggestionsPanel', () => {
         content: 'New content from AI',
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -274,7 +274,7 @@ describe('AISuggestionsPanel', () => {
         content: 'New content',
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -294,7 +294,7 @@ describe('AISuggestionsPanel', () => {
         content: 'New content',
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -320,7 +320,7 @@ describe('AISuggestionsPanel', () => {
         error: 'AI service unavailable',
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -338,7 +338,7 @@ describe('AISuggestionsPanel', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
       mockRunAISuggestionsPipelineAction.mockRejectedValue(new Error('Network error'));
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -354,7 +354,7 @@ describe('AISuggestionsPanel', () => {
 
     it('should show validation error when prompt is empty', async () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       // Try clicking submit with empty prompt (button should be disabled anyway)
       const submitButton = screen.getByRole('button', { name: /get suggestions/i });
@@ -375,7 +375,7 @@ describe('AISuggestionsPanel', () => {
         content: 'New content',
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -407,7 +407,7 @@ describe('AISuggestionsPanel', () => {
         () => new Promise(() => {}) // Never resolves
       );
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -426,7 +426,7 @@ describe('AISuggestionsPanel', () => {
         () => new Promise(() => {}) // Never resolves
       );
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -445,7 +445,7 @@ describe('AISuggestionsPanel', () => {
         () => new Promise(() => {}) // Never resolves
       );
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -470,7 +470,7 @@ describe('AISuggestionsPanel', () => {
         isOpen: true,
         onOpenChange: mockOnOpenChange,
       });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const collapseButton = screen.getByRole('button', { name: /collapse ai panel/i });
       fireEvent.click(collapseButton);
@@ -484,7 +484,7 @@ describe('AISuggestionsPanel', () => {
         isOpen: false,
         onOpenChange: mockOnOpenChange,
       });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const expandButton = screen.getByRole('button', { name: /expand ai panel/i });
       fireEvent.click(expandButton);
@@ -509,7 +509,7 @@ describe('AISuggestionsPanel', () => {
         },
       });
 
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
       await userEvent.type(textarea, 'Test prompt');
@@ -538,7 +538,7 @@ describe('AISuggestionsPanel', () => {
         isVisible: true,
         loadedSessionId: 'test-session-123',
       });
-      render(<AISuggestionsPanel {...props} />);
+      render(<AIEditorPanel {...props} />);
 
       await waitFor(() => {
         expect(mockGetSessionValidationResultsAction).toHaveBeenCalledWith('test-session-123');
