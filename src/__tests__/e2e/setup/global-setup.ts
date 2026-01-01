@@ -15,18 +15,33 @@ async function waitForServerReady(
 
   console.log(`   Waiting for server at ${url}...`);
 
+  // Add Vercel bypass headers if secret is available
+  const headers: Record<string, string> = {};
+  if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    headers['x-vercel-set-bypass-cookie'] = 'true';
+  }
+
   for (let i = 0; i < maxRetries; i++) {
     try {
       const response = await fetch(url, {
-        method: 'HEAD',
+        method: 'GET',
+        headers,
         signal: AbortSignal.timeout(5000),
       });
       if (response.ok || response.status === 304) {
         console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
         return;
       }
-    } catch {
-      // Server not ready yet, continue polling
+      // Log non-ok responses for debugging
+      if (i === 0 || i === maxRetries - 1) {
+        console.log(`   Attempt ${i + 1}: status ${response.status}`);
+      }
+    } catch (error) {
+      // Log first and last errors for debugging
+      if (i === 0 || i === maxRetries - 1) {
+        console.log(`   Attempt ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
 
     if (i < maxRetries - 1) {
@@ -106,9 +121,11 @@ async function globalSetup() {
   // so we always want it to execute. The env var is now set at runtime only.
 
   // Wait for server to be ready (especially important for production builds in CI)
+  // Use /api/health endpoint which is excluded from auth middleware
   const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
+  const healthUrl = `${baseUrl}/api/health`;
   try {
-    await waitForServerReady(baseUrl, {
+    await waitForServerReady(healthUrl, {
       maxRetries: process.env.CI ? 60 : 30,  // 60s for CI (build takes time), 30s locally
       retryInterval: 1000,
     });
