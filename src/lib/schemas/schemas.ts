@@ -259,7 +259,34 @@ export const explanationInsertSchema = explanationBaseSchema.extend({
 export const ExplanationFullDbSchema = explanationInsertSchema.extend({
     id: z.number(),
     timestamp: z.string(), // or z.date() if you prefer working with Date objects
+    // Summary fields for discoverability, SEO, and search (nullable for backwards compatibility)
+    summary_teaser: z.string().nullable().optional(),
+    meta_description: z.string().max(160).nullable().optional(),
+    keywords: z.array(z.string()).nullable().optional(),
 });
+
+/**
+ * Schema for LLM structured output when generating article summaries.
+ * Used by explanationSummarizer.ts for AI-generated summaries.
+ * @example
+ * {
+ *   summary_teaser: "This article explains how photosynthesis works...",
+ *   meta_description: "Learn about photosynthesis, the process plants use to convert sunlight into energy.",
+ *   keywords: ["photosynthesis", "plants", "sunlight", "chlorophyll", "energy"]
+ * }
+ */
+export const explanationSummarySchema = z.object({
+    summary_teaser: z.string()
+        .min(50).max(200)
+        .describe('1-2 sentence teaser summarizing the article, 30-50 words'),
+    meta_description: z.string()
+        .min(50).max(160)
+        .describe('SEO-optimized description for search engines and social cards'),
+    keywords: z.array(z.string().min(2).max(30))
+        .min(5).max(10)
+        .describe('Relevant search terms for this article'),
+});
+export type ExplanationSummary = z.infer<typeof explanationSummarySchema>;
 
 // Derive types from schemas
 export type explanationBaseType = z.infer<typeof explanationBaseSchema>;

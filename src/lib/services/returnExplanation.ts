@@ -13,6 +13,7 @@ import { evaluateTags } from '@/lib/services/tagEvaluation';
 import { generateHeadingStandaloneTitles, saveHeadingLinks } from '@/lib/services/linkWhitelist';
 import { saveCandidatesFromLLM } from '@/lib/services/linkCandidates';
 import { linkSourcesToExplanation } from '@/lib/services/sourceCache';
+import { generateAndSaveExplanationSummary } from '@/lib/services/explanationSummarizer';
 import {
   saveExplanationAndTopic,
   saveUserQuery,
@@ -645,6 +646,20 @@ export const returnExplanationLogic = withLoggingAndTracing(
                 if (linkCandidates && linkCandidates.length > 0) {
                     await saveCandidatesFromLLM(newExplanationId, newExplanationData!.content, linkCandidates, FILE_DEBUG);
                 }
+
+                // Fire-and-forget: Generate AI summary for explore page and SEO
+                // This runs async and doesn't block the publish flow
+                generateAndSaveExplanationSummary(
+                    newExplanationId,
+                    titleResult,
+                    newExplanationData!.content,
+                    userid
+                ).catch(err => {
+                    // Already logged in service, but add context
+                    logger.debug('Summary generation initiated (fire-and-forget)', {
+                        explanationId: newExplanationId,
+                    });
+                });
 
                 // Link sources to the explanation if provided
                 if (sources && sources.length > 0) {

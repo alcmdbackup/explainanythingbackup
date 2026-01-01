@@ -39,6 +39,7 @@ User Query → Vector Search (Pinecone) → Match Found? → Return Existing
    - AI tag evaluation (parallel)
    - Link enhancement (headings + key terms)
    - Database persistence
+   - AI summary generation (fire-and-forget for explore page teasers and SEO)
 3. Results page displays with `TagBar`, metrics, save functionality
 
 ### Request Flow
@@ -92,6 +93,13 @@ export const functionName = serverReadRequestId(_functionName);
 - **Workflow**: Terms added to whitelist → `linkResolver` scans content → Links applied at render time
 - **Services**: `linkWhitelist.ts`, `linkCandidates.ts`, `linkResolver.ts`, `links.ts`
 
+### Summary System
+- **Purpose**: AI-generated summaries for explore page teasers, SEO meta descriptions, and keyword search
+- **Workflow**: Article published → `explanationSummarizer` generates summary via gpt-4.1-nano → Stored in `explanations` table
+- **Pattern**: Fire-and-forget (doesn't block publish flow, errors logged but not propagated)
+- **Fields**: `summary_teaser` (30-50 word preview), `meta_description` (SEO, max 160 chars), `keywords` (array for search)
+- **Backfill**: `scripts/backfill-summaries.ts` for existing articles
+
 ### Editor System
 - **Lexical Editor** with custom plugins:
   - `DiffTagNode` - AI suggestion diffs
@@ -134,7 +142,7 @@ export const functionName = serverReadRequestId(_functionName);
 ### Core Tables
 | Table | Purpose |
 |-------|---------|
-| `explanations` | Content storage (title, content, status) |
+| `explanations` | Content storage (title, content, status, summary_teaser, meta_description, keywords) |
 | `topics` | Content categorization |
 | `tags` / `explanation_tags` | Tag definitions + junction table |
 | `userLibrary` | User saves |

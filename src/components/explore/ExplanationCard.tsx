@@ -27,7 +27,10 @@ export default function ExplanationCard({
   index = 0,
   showViews = false,
 }: ExplanationCardProps) {
-  const preview = stripTitleFromContent(explanation.content);
+  // Prefer AI-generated summary_teaser, fallback to stripped content
+  const preview = explanation.summary_teaser
+    ? explanation.summary_teaser
+    : stripTitleFromContent(explanation.content);
 
   return (
     <Link

@@ -70,6 +70,9 @@ export interface UseExplanationLoaderReturn {
     userSavedLoaded: boolean;
     isLoading: boolean;
     error: string | null;
+    // SEO metadata (from AI summaries)
+    metaDescription: string | null;
+    keywords: string[] | null;
 
     // Setters (write) - exposed for streaming and direct updates
     setExplanationId: (id: number | null) => void;
@@ -106,6 +109,10 @@ export function useExplanationLoader(
     const [systemSavedId, setSystemSavedId] = useState<number | null>(null);
     const [userSaved, setUserSaved] = useState(false);
     const [userSavedLoaded, setUserSavedLoaded] = useState(false);
+
+    // SEO metadata state (from AI summaries)
+    const [metaDescription, setMetaDescription] = useState<string | null>(null);
+    const [keywords, setKeywords] = useState<string[] | null>(null);
 
     // Loading and error states
     const [isLoading, setIsLoading] = useState(false);
@@ -195,6 +202,10 @@ export function useExplanationLoader(
             setSystemSavedId(explanation.id);
             setExplanationId(explanation.id);
             setExplanationStatus(explanation.status);
+
+            // Set SEO metadata from AI-generated summaries (if available)
+            setMetaDescription(explanation.meta_description || null);
+            setKeywords(explanation.keywords || null);
 
             // Notify parent component to set original values for change tracking
             if (onSetOriginalValues) {
@@ -332,6 +343,9 @@ export function useExplanationLoader(
         userSavedLoaded,
         isLoading,
         error,
+        // SEO metadata
+        metaDescription,
+        keywords,
 
         // Setters (write)
         setExplanationId,

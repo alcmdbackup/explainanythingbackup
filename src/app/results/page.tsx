@@ -10,6 +10,7 @@ import { RequestIdContext } from '@/lib/requestIdContext';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
+import { SEOHead } from '@/components/SEOHead';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
@@ -103,6 +104,8 @@ function ResultsPageContent() {
         systemSavedId,
         userSaved,
         userSavedLoaded,
+        metaDescription,
+        keywords,
         setExplanationTitle,
         setContent,
         setExplanationStatus,
@@ -889,6 +892,13 @@ function ResultsPageContent() {
 
     return (
         <div className="h-screen bg-[var(--surface-primary)] flex flex-col" data-lifecycle-phase={lifecycleState.phase}>
+            {/* SEO Meta Tags - updates document head with summary data */}
+            <SEOHead
+                title={explanationTitle || undefined}
+                description={metaDescription || undefined}
+                keywords={keywords || undefined}
+            />
+
             {/* Top Navigation Bar */}
             <Navigation
                 showSearchBar={true}
