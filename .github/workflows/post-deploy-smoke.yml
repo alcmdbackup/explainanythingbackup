@@ -36,9 +36,10 @@ jobs:
           echo "Checking health at: $DEPLOY_URL/api/health"
 
           # Use bypass token if Deployment Protection is enabled
-          # Must use headers + follow redirects + set bypass cookie for persistence
+          # Must use headers + follow redirects + cookie jar for persistence
           if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
             response=$(curl -sL \
+              -c /tmp/cookies.txt -b /tmp/cookies.txt \
               -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
               -H "x-vercel-set-bypass-cookie: true" \
               "$DEPLOY_URL/api/health")
