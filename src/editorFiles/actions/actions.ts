@@ -6,6 +6,7 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../../editorFiles/aiSuggestion';
+import type { SourceForPromptType } from '@/lib/schemas/schemas';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../../lib/services/testingPipeline';
 import { createSupabaseServerClient } from '../../lib/utils/supabase/server';
 
@@ -15,6 +16,7 @@ const FILE_DEBUG = true;
  * Generates AI suggestions for text improvement (server action)
  *
  * • Creates a prompt using the provided text and improvement type
+ * • Optionally includes source content for informed editing
  * • Calls OpenAI model to generate editing suggestions
  * • Returns the AI response for text improvement
  * • Calls: createAISuggestionPrompt, callOpenAIModel
@@ -24,19 +26,21 @@ export const generateAISuggestionsAction = withLogging(
     async function generateAISuggestionsAction(
         currentText: string,
         userid: string,
-        userPrompt: string
+        userPrompt: string,
+        sources?: SourceForPromptType[]
     ): Promise<{
         success: boolean;
         data: string | null;
         error: ErrorResponse | null;
     }> {
         try {
-            const prompt = createAISuggestionPrompt(currentText, userPrompt);
+            const prompt = createAISuggestionPrompt(currentText, userPrompt, sources);
 
             logger.debug('AI Suggestion Request', {
                 textLength: currentText.length,
                 promptLength: prompt.length,
-                userid
+                userid,
+                sourcesCount: sources?.length ?? 0
             }, FILE_DEBUG);
 
             // Call OpenAI with structured output validation using the schema
@@ -323,6 +327,7 @@ export const updateTestingPipelineRecordSetNameAction = withLogging(
  *
  * • Wraps getAndApplyAISuggestions to make it callable from client components
  * • Runs the complete 4-step AI suggestions pipeline
+ * • Optionally includes source content for informed editing
  * • Handles progress tracking and session data management
  * • Returns final processed content ready for editor
  * • Used by: AISuggestionsPanel and other client components
@@ -335,6 +340,7 @@ export const runAISuggestionsPipelineAction = withLogging(
         sessionData?: {
             explanation_id: number;
             explanation_title: string;
+            sources?: SourceForPromptType[];
         }
     ): Promise<{
         success: boolean;
@@ -347,17 +353,19 @@ export const runAISuggestionsPipelineAction = withLogging(
             // Import the function here to avoid client-side import issues
             const { getAndApplyAISuggestions } = await import('../aiSuggestion');
 
-            // Prepare session data with user prompt
+            // Prepare session data with user prompt and sources
             const sessionRequestData = sessionData ? {
                 explanation_id: sessionData.explanation_id,
                 explanation_title: sessionData.explanation_title,
-                user_prompt: userPrompt.trim()
+                user_prompt: userPrompt.trim(),
+                sources: sessionData.sources
             } : undefined;
 
             logger.debug('🎭 runAISuggestionsPipelineAction: Starting pipeline', {
                 hasSessionData: !!sessionRequestData,
                 contentLength: currentContent.length,
-                userPrompt: userPrompt.trim()
+                userPrompt: userPrompt.trim(),
+                sourcesCount: sessionData?.sources?.length ?? 0
             }, FILE_DEBUG);
 
             // Run the pipeline (progress callback not supported in server actions)

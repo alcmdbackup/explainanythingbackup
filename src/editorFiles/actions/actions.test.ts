@@ -73,7 +73,7 @@ describe('generateAISuggestionsAction', () => {
 
     const result = await generateAISuggestionsAction('Original text', 'user-123', userPrompt);
 
-    expect(createAISuggestionPrompt).toHaveBeenCalledWith('Original text', userPrompt);
+    expect(createAISuggestionPrompt).toHaveBeenCalledWith('Original text', userPrompt, undefined);
     expect(callOpenAIModel).toHaveBeenCalledWith(
       mockPrompt,
       'editor_ai_suggestions',

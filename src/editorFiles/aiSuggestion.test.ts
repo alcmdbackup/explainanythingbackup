@@ -9,8 +9,15 @@ import {
   createApplyEditsPrompt,
   mergeAISuggestionOutput,
   validateAISuggestionOutput,
+  formatSourcesForPrompt,
   type AISuggestionOutput,
 } from './aiSuggestion';
+import type { SourceChipType } from '@/lib/schemas/schemas';
+
+// Mock getOrCreateCachedSource
+jest.mock('@/lib/services/sourceCache', () => ({
+  getOrCreateCachedSource: jest.fn(),
+}));
 
 // ============= Schema Validation Tests =============
 
@@ -472,6 +479,293 @@ describe('aiSuggestion - Edge Cases', () => {
 
     // Should succeed if edits array is valid, ignore extra properties
     expect(result.success).toBe(true);
+  });
+});
+
+// ============= Source Integration Tests (Phase 0) =============
+
+describe('createAISuggestionPrompt - Source Integration', () => {
+  const defaultUserPrompt = 'Improve the content';
+  const sampleContent = 'Test article content';
+
+  it('should work without sources (backward compatible)', () => {
+    const prompt = createAISuggestionPrompt(sampleContent, defaultUserPrompt);
+
+    expect(prompt).toContain(sampleContent);
+    expect(prompt).toContain(defaultUserPrompt);
+    expect(prompt).not.toContain('Reference Sources');
+    expect(prompt).not.toContain('[Source');
+  });
+
+  it('should include sources when provided', () => {
+    const sources = [
+      {
+        index: 1,
+        title: 'Example Article',
+        domain: 'example.com',
+        content: 'This is source content.',
+        isVerbatim: true,
+      },
+    ];
+
+    const prompt = createAISuggestionPrompt(sampleContent, defaultUserPrompt, sources);
+
+    expect(prompt).toContain('## Reference Sources');
+    expect(prompt).toContain('[Source 1] Example Article (example.com) [VERBATIM]');
+    expect(prompt).toContain('This is source content.');
+    expect(prompt).toContain('cite with [n] notation');
+  });
+
+  it('should format multiple sources correctly', () => {
+    const sources = [
+      {
+        index: 1,
+        title: 'First Source',
+        domain: 'first.com',
+        content: 'First content.',
+        isVerbatim: true,
+      },
+      {
+        index: 2,
+        title: 'Second Source',
+        domain: 'second.com',
+        content: 'Second content.',
+        isVerbatim: false,
+      },
+    ];
+
+    const prompt = createAISuggestionPrompt(sampleContent, defaultUserPrompt, sources);
+
+    expect(prompt).toContain('[Source 1] First Source (first.com) [VERBATIM]');
+    expect(prompt).toContain('[Source 2] Second Source (second.com) [SUMMARIZED]');
+    expect(prompt).toContain('First content.');
+    expect(prompt).toContain('Second content.');
+  });
+
+  it('should handle empty sources array', () => {
+    const prompt = createAISuggestionPrompt(sampleContent, defaultUserPrompt, []);
+
+    expect(prompt).toContain(sampleContent);
+    expect(prompt).not.toContain('Reference Sources');
+  });
+
+  it('should add citation instruction to rules when sources provided', () => {
+    const sources = [
+      {
+        index: 1,
+        title: 'Source',
+        domain: 'example.com',
+        content: 'Content.',
+        isVerbatim: true,
+      },
+    ];
+
+    const prompt = createAISuggestionPrompt(sampleContent, defaultUserPrompt, sources);
+
+    expect(prompt).toContain('When using information from sources, cite with [n] notation');
+  });
+
+  it('should not add citation instruction when no sources', () => {
+    const prompt = createAISuggestionPrompt(sampleContent, defaultUserPrompt);
+
+    expect(prompt).not.toContain('When using information from sources');
+  });
+});
+
+describe('formatSourcesForPrompt - Source Conversion', () => {
+  // Get the mock
+  const mockGetOrCreateCachedSource = jest.requireMock('@/lib/services/sourceCache').getOrCreateCachedSource;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('should convert successful source chips to prompt format', async () => {
+    const sources: SourceChipType[] = [
+      {
+        url: 'https://example.com/article',
+        title: 'Example Article',
+        favicon_url: null,
+        domain: 'example.com',
+        status: 'success',
+        error_message: null,
+      },
+    ];
+
+    mockGetOrCreateCachedSource.mockResolvedValueOnce({
+      source: {
+        id: 1,
+        url: 'https://example.com/article',
+        url_hash: 'abc123',
+        title: 'Example Article',
+        extracted_text: 'This is the article content.',
+        is_summarized: false,
+        fetched_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
+      isFromCache: true,
+      error: null,
+    });
+
+    const result = await formatSourcesForPrompt(sources, 'test-user');
+
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual({
+      index: 1,
+      title: 'Example Article',
+      domain: 'example.com',
+      content: 'This is the article content.',
+      isVerbatim: true,
+    });
+  });
+
+  it('should skip sources with non-success status', async () => {
+    const sources: SourceChipType[] = [
+      {
+        url: 'https://loading.com',
+        title: null,
+        favicon_url: null,
+        domain: 'loading.com',
+        status: 'loading',
+        error_message: null,
+      },
+      {
+        url: 'https://failed.com',
+        title: null,
+        favicon_url: null,
+        domain: 'failed.com',
+        status: 'failed',
+        error_message: 'Failed to fetch',
+      },
+    ];
+
+    const result = await formatSourcesForPrompt(sources, 'test-user');
+
+    expect(result).toHaveLength(0);
+    expect(mockGetOrCreateCachedSource).not.toHaveBeenCalled();
+  });
+
+  it('should handle fetch errors gracefully', async () => {
+    const sources: SourceChipType[] = [
+      {
+        url: 'https://example.com/article',
+        title: 'Article',
+        favicon_url: null,
+        domain: 'example.com',
+        status: 'success',
+        error_message: null,
+      },
+    ];
+
+    mockGetOrCreateCachedSource.mockRejectedValueOnce(new Error('Network error'));
+
+    // Spy on console.warn
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = await formatSourcesForPrompt(sources, 'test-user');
+
+    expect(result).toHaveLength(0);
+    expect(warnSpy).toHaveBeenCalledWith('Failed to fetch source for prompt', expect.anything());
+
+    warnSpy.mockRestore();
+  });
+
+  it('should skip sources without extracted text', async () => {
+    const sources: SourceChipType[] = [
+      {
+        url: 'https://example.com/article',
+        title: 'Article',
+        favicon_url: null,
+        domain: 'example.com',
+        status: 'success',
+        error_message: null,
+      },
+    ];
+
+    mockGetOrCreateCachedSource.mockResolvedValueOnce({
+      source: {
+        id: 1,
+        url: 'https://example.com/article',
+        url_hash: 'abc123',
+        title: 'Article',
+        extracted_text: null, // No extracted text
+        is_summarized: false,
+        fetched_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
+      isFromCache: true,
+      error: null,
+    });
+
+    const result = await formatSourcesForPrompt(sources, 'test-user');
+
+    expect(result).toHaveLength(0);
+  });
+
+  it('should set isVerbatim based on is_summarized flag', async () => {
+    const sources: SourceChipType[] = [
+      {
+        url: 'https://example.com/article',
+        title: 'Article',
+        favicon_url: null,
+        domain: 'example.com',
+        status: 'success',
+        error_message: null,
+      },
+    ];
+
+    mockGetOrCreateCachedSource.mockResolvedValueOnce({
+      source: {
+        id: 1,
+        url: 'https://example.com/article',
+        url_hash: 'abc123',
+        title: 'Article',
+        extracted_text: 'Summarized content.',
+        is_summarized: true, // Summarized
+        fetched_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
+      isFromCache: true,
+      error: null,
+    });
+
+    const result = await formatSourcesForPrompt(sources, 'test-user');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].isVerbatim).toBe(false); // is_summarized=true means isVerbatim=false
+  });
+
+  it('should use domain as title fallback', async () => {
+    const sources: SourceChipType[] = [
+      {
+        url: 'https://example.com/article',
+        title: null,
+        favicon_url: null,
+        domain: 'example.com',
+        status: 'success',
+        error_message: null,
+      },
+    ];
+
+    mockGetOrCreateCachedSource.mockResolvedValueOnce({
+      source: {
+        id: 1,
+        url: 'https://example.com/article',
+        url_hash: 'abc123',
+        title: null, // No title in cache
+        extracted_text: 'Content.',
+        is_summarized: false,
+        fetched_at: new Date().toISOString(),
+        created_at: new Date().toISOString(),
+      },
+      isFromCache: true,
+      error: null,
+    });
+
+    const result = await formatSourcesForPrompt(sources, 'test-user');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].title).toBe('example.com');
   });
 });
 

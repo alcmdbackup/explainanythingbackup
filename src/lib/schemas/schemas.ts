@@ -1037,3 +1037,16 @@ export const sourceForPromptSchema = z.object({
 });
 
 export type SourceForPromptType = z.infer<typeof sourceForPromptSchema>;
+
+/**
+ * Schema for AI suggestion session data
+ * Used to pass context (explanation info and sources) to the AI suggestions pipeline
+ */
+export const aiSuggestionSessionDataSchema = z.object({
+  explanation_id: z.number().int().positive(),
+  explanation_title: z.string(),
+  user_prompt: z.string().optional(),
+  sources: z.array(sourceForPromptSchema).optional(),
+});
+
+export type AISuggestionSessionDataType = z.infer<typeof aiSuggestionSessionDataSchema>;

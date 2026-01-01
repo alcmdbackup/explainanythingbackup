@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { default_model } from '@/lib/services/llms';
 import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import { validateStep2Output, validateCriticMarkup, PipelineValidationResults, VALIDATION_DESCRIPTIONS } from './validation/pipelineValidation';
+import type { SourceForPromptType, SourceChipType } from '@/lib/schemas/schemas';
 
 /**
  * Schema for AI suggestion structured output
@@ -44,20 +45,54 @@ export const aiSuggestionSchema = z.object({
 export type AISuggestionOutput = z.infer<typeof aiSuggestionSchema>;
 
 /**
+ * Formats sources for inclusion in AI suggestion prompts
+ * Creates a formatted string section listing all sources with their content
+ *
+ * @param sources - Array of sources to format for the prompt
+ * @returns Formatted sources section string, or empty string if no sources
+ */
+function formatSourcesSection(sources?: SourceForPromptType[]): string {
+  if (!sources || sources.length === 0) {
+    return '';
+  }
+
+  const sourcesContent = sources.map(s =>
+    `[Source ${s.index}] ${s.title} (${s.domain}) [${s.isVerbatim ? 'VERBATIM' : 'SUMMARIZED'}]
+---
+${s.content}
+---`
+  ).join('\n\n');
+
+  return `
+## Reference Sources
+${sourcesContent}
+
+Use these sources to inform your edits. Cite with [n] notation where appropriate.
+`;
+}
+
+/**
  * Creates a structured prompt for AI suggestions
- * 
+ *
  * • Generates prompt that enforces structured output format
  * • Uses Zod schema to validate alternating edit/content pattern
  * • Ensures consistent formatting for AI model responses
+ * • Optionally includes source content for informed editing
  * • Used by: AI suggestion generation with structured output validation
  * • Calls: N/A (prompt generation only)
  */
-export function createAISuggestionPrompt(currentText: string, userPrompt: string): string {
+export function createAISuggestionPrompt(
+  currentText: string,
+  userPrompt: string,
+  sources?: SourceForPromptType[]
+): string {
+  const sourcesSection = formatSourcesSection(sources);
+
   return `Apply the following edit instruction to the article below:
 "${userPrompt}"
 
 Only make edits relevant to this instruction. Do not make other improvements.
-
+${sourcesSection}
 <output_format>
 You must respond with a JSON object containing an "edits" array.
 The edits array will explain how to make described edits sequentially starting from beginning of content, while skipping unchanged "existing text"
@@ -97,11 +132,54 @@ Or ending with marker:
   1. The last sentence BEFORE your edit (from original) - as anchor
   2. Your actual edited content
   3. The first sentence AFTER your edit (from original) - as anchor
-- Skip before-anchor if editing at start, skip after-anchor if editing at end
+- Skip before-anchor if editing at start, skip after-anchor if editing at end${sources && sources.length > 0 ? '\n- When using information from sources, cite with [n] notation' : ''}
 </rules>
 
 == Article to edit ==:
 ${currentText}`;
+}
+
+/**
+ * Converts UI-layer sources (SourceChipType) to prompt-layer format (SourceForPromptType)
+ * Fetches content via getOrCreateCachedSource which handles caching and summarization
+ *
+ * • Filters out sources with non-success status
+ * • Fetches source content from cache or source URL
+ * • Handles fetch errors gracefully, continuing with other sources
+ * • Used by: AI editor panel to prepare sources for pipeline
+ * • Calls: getOrCreateCachedSource from sourceCache
+ */
+export async function formatSourcesForPrompt(
+  sources: SourceChipType[],
+  userid: string
+): Promise<SourceForPromptType[]> {
+  const { getOrCreateCachedSource } = await import('@/lib/services/sourceCache');
+
+  const formatted: SourceForPromptType[] = [];
+
+  for (let i = 0; i < sources.length; i++) {
+    const source = sources[i];
+    // Skip sources that aren't successfully loaded
+    if (source.status !== 'success') continue;
+
+    try {
+      const result = await getOrCreateCachedSource(source.url, userid);
+      if (!result.source?.extracted_text) continue;
+
+      formatted.push({
+        index: i + 1,
+        title: result.source.title || source.domain,
+        domain: source.domain,
+        content: result.source.extracted_text,
+        isVerbatim: !result.source.is_summarized,
+      });
+    } catch (error) {
+      console.warn('Failed to fetch source for prompt', { url: source.url, error });
+      // Continue with other sources - don't fail the whole operation
+    }
+  }
+
+  return formatted;
 }
 
 /**
@@ -240,6 +318,7 @@ Apply the AI suggestions to the original content and return the complete final t
  *
  * • Runs the 4-step AI suggestion pipeline sequentially
  * • Each step must succeed for the next to proceed
+ * • Optionally includes source content for informed editing
  * • Optionally saves session data to database when session_id is provided
  * • Returns final preprocessed content ready for editor
  * • Used by: getAndApplyAISuggestions for complete workflow
@@ -254,6 +333,7 @@ export async function runAISuggestionsPipeline(
     explanation_id: number;
     explanation_title: string;
     user_prompt: string;
+    sources?: SourceForPromptType[];
   }
 ): Promise<{ content: string; session_id?: string; validationResults: PipelineValidationResults }> {
   // Initialize validation results collector
@@ -281,7 +361,15 @@ export async function runAISuggestionsPipeline(
     onProgress?.('Generating AI suggestions...', 25);
 
     // Import the server actions and utilities
-  const { generateAISuggestionsAction, applyAISuggestionsAction, saveTestingPipelineStepAction } = await import('../actions/actions');
+    // Note: Using type assertion because dynamic imports don't infer updated function signatures
+  const actionsModule = await import('../actions/actions');
+  const generateAISuggestionsAction = actionsModule.generateAISuggestionsAction as (
+    currentText: string,
+    userid: string,
+    userPrompt: string,
+    sources?: SourceForPromptType[]
+  ) => Promise<{ success: boolean; data: string | null; error: import('@/lib/errorHandling').ErrorResponse | null }>;
+  const { applyAISuggestionsAction, saveTestingPipelineStepAction } = actionsModule;
   const { RenderCriticMarkupFromMDAstDiff } = await import('./markdownASTdiff/markdownASTdiff');
   const { preprocessCriticMarkup } = await import('./lexicalEditor/importExportUtils');
   // K: unified and remarkParse are now imported inside safeParseMarkdown
@@ -289,7 +377,7 @@ export async function runAISuggestionsPipeline(
   console.log('📦 PIPELINE: Imports loaded successfully');
 
   console.log('🤖 PIPELINE STEP 1: Generating AI suggestions...');
-  const suggestionsResult = await generateAISuggestionsAction(currentContent, userId, sessionData?.user_prompt ?? '');
+  const suggestionsResult = await generateAISuggestionsAction(currentContent, userId, sessionData?.user_prompt ?? '', sessionData?.sources);
   console.log('🤖 PIPELINE STEP 1 RESULT:', {
     success: suggestionsResult.success,
     hasData: !!suggestionsResult.data,
@@ -496,6 +584,7 @@ export async function runAISuggestionsPipeline(
  *
  * • Runs complete AI suggestion pipeline and updates editor on success
  * • Original content remains untouched until entire pipeline succeeds
+ * • Optionally includes source content for informed editing
  * • Optionally saves session data to database when sessionData is provided
  * • Returns success status with final content or error details
  * • Used by: UI components to get AI suggestions with progress tracking
@@ -510,6 +599,7 @@ export async function getAndApplyAISuggestions(
     explanation_id: number;
     explanation_title: string;
     user_prompt: string;
+    sources?: SourceForPromptType[];
   }
 ): Promise<{ success: boolean; content?: string; error?: string; session_id?: string; validationResults?: PipelineValidationResults }> {
   console.log('🎯 getAndApplyAISuggestions CALLED:', {
@@ -519,7 +609,8 @@ export async function getAndApplyAISuggestions(
       session_id: sessionData.session_id,
       explanation_id: sessionData.explanation_id,
       explanation_title: sessionData.explanation_title,
-      user_prompt: sessionData.user_prompt
+      user_prompt: sessionData.user_prompt,
+      sourcesCount: sessionData.sources?.length ?? 0
     } : null
   });
 
