@@ -104,6 +104,9 @@ jobs:
         env:
           # Override base URL to point to production deployment
           BASE_URL: ${{ github.event.deployment_status.target_url }}
+          # Supabase connection (required for auth fixture)
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           # Production test credentials
           TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
