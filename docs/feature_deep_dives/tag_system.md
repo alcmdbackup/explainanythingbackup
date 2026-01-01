@@ -53,7 +53,9 @@ Mutually exclusive groups where only one tag can be active:
 ## Frontend Implementation
 
 ### TagBar Component
-The primary interface for tag management with:
+The primary interface for tag management (Normal mode only). Special modes (RewriteWithTags, EditWithTags) have been deprecated in favor of the AdvancedAIEditorModal which provides a unified AI editing experience.
+
+Features:
 - Visual tag display as colored chips
 - Interactive editing with real-time validation
 - Preset dropdowns for tag collections
@@ -61,13 +63,20 @@ The primary interface for tag management with:
 
 ### Usage
 ```tsx
-<TagBar 
-  tags={tags} 
-  setTags={setTags}
+<TagBar
+  tagState={tagState}
+  dispatch={dispatchTagAction}
   explanationId={explanationId}
   onTagClick={(tag) => console.log('Tag clicked:', tag)}
+  isStreaming={false}
 />
 ```
+
+### AdvancedAIEditorModal Integration
+For AI-powered tag-based editing, use the AdvancedAIEditorModal which:
+- Provides full tag selection via TagSelector component
+- Supports both inline-diff and rewrite output modes
+- Passes selected tags to the AI pipeline for context
 
 ## Backend Services
 

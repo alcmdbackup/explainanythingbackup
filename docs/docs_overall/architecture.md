@@ -97,7 +97,11 @@ export const functionName = serverReadRequestId(_functionName);
   - `DiffTagNode` - AI suggestion diffs
   - `TextRevealPlugin` - Animated text reveal
   - `importExportUtils.ts` - Markdown ↔ Lexical conversion
-- **AI Suggestions**: `aiSuggestion.ts` + `markdownASTdiff/` for AST-based diffing
+- **AI Editing**: Unified sidebar (`AIEditorPanel`) + modal (`AdvancedAIEditorModal`) with:
+  - Dual output modes: inline-diff (CriticMarkup) or full rewrite
+  - Source URL integration for context
+  - Tag-based editing in modal
+  - `aiSuggestion.ts` + `markdownASTdiff/` for AST-based diffing
 
 ### Authentication
 - Supabase Auth (email/OAuth)

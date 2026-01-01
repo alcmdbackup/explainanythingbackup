@@ -12,9 +12,10 @@ The AI suggestions system enables AI-powered editing of explanations with visual
 ┌────────────────────────────────────────────────────────────────────────────┐
 │                           CLIENT COMPONENTS                                 │
 ├────────────────────────────────────────────────────────────────────────────┤
-│  AISuggestionsPanel.tsx                                                    │
-│    ├─ Production: runAISuggestionsPipelineAction() [server action, RSC]    │
-│    └─ E2E Tests:  POST /api/runAISuggestionsPipeline [JSON, mockable]      │
+│  AIEditorPanel.tsx (sidebar) + AdvancedAIEditorModal.tsx (expanded)        │
+│    ├─ Inline Diff: runAISuggestionsPipelineAction() [server action]        │
+│    ├─ Rewrite: handleUserAction() with UserInputType.Rewrite               │
+│    └─ E2E Tests: POST /api/runAISuggestionsPipeline [JSON, mockable]       │
 └─────────────────────────────────┬──────────────────────────────────────────┘
                                   ↓
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -41,7 +42,9 @@ The AI suggestions system enables AI-powered editing of explanations with visual
 
 | File | Purpose |
 |------|---------|
-| `src/components/AISuggestionsPanel.tsx` | Production UI sidebar |
+| `src/components/AIEditorPanel.tsx` | Sidebar UI for AI editing (renamed from AISuggestionsPanel) |
+| `src/components/AdvancedAIEditorModal.tsx` | Expanded modal with tags and full editing controls |
+| `src/components/OutputModeToggle.tsx` | Toggle between inline-diff and rewrite modes |
 | `src/editorFiles/aiSuggestion.ts` | Pipeline orchestration and prompts |
 | `src/editorFiles/actions/actions.ts` | Server actions for LLM calls |
 | `src/editorFiles/markdownASTdiff/markdownASTdiff.ts` | AST-based diff algorithm |
@@ -202,23 +205,33 @@ When unset or `false`:
 
 ## Entry Points
 
-### Production: AISuggestionsPanel
+### Production: Unified AI Editor (Sidebar + Modal)
 
-`src/components/AISuggestionsPanel.tsx` provides the user-facing sidebar.
+The AI editing system uses a two-tier approach:
+
+1. **AIEditorPanel** (`src/components/AIEditorPanel.tsx`) - Sidebar with:
+   - Prompt textarea for edit instructions
+   - Source URL management (via SourceList component)
+   - Output mode toggle (inline-diff vs rewrite)
+   - "Expand" button to open advanced modal
+
+2. **AdvancedAIEditorModal** (`src/components/AdvancedAIEditorModal.tsx`) - Modal with:
+   - All sidebar features plus tag management
+   - Local state that can diverge from sidebar
+   - Dirty state detection with confirmation on cancel
+   - Apply button that syncs changes back to sidebar
 
 #### State Management
 
-The panel uses 5 state hooks for UI control:
+The panel uses several state hooks for UI control:
 
 ```typescript
 const [userPrompt, setUserPrompt] = useState('');
 const [isLoading, setIsLoading] = useState(false);
 const [progressState, setProgressState] = useState<ProgressState | null>(null);
 const [error, setError] = useState<string | null>(null);
-const [lastResult, setLastResult] = useState<{
-  success: boolean;
-  session_id?: string;
-} | null>(null);
+const [sources, setSources] = useState<SourceChipType[]>([]);
+const [outputMode, setOutputMode] = useState<'inline-diff' | 'rewrite'>('inline-diff');
 ```
 
 #### Progress Tracking
