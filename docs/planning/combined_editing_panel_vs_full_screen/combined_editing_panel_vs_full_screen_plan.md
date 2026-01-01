@@ -11,7 +11,7 @@
 
 1. **Consolidate UI** - Single entry point for AI editing (sidebar + modal)
 2. **Add sources everywhere** - SourceList available in both sidebar and modal
-3. **User controls output** - Toggle between inline diff and full replace
+3. **User controls output** - Toggle between inline diff and rewrite
 4. **Reduce codebase complexity** - Deprecate FeedbackPanel and simplify TagBar modes
 
 ## Non-Goals (Explicitly Out of Scope)
@@ -29,8 +29,8 @@ These decisions were made after exploring the existing codebase architecture:
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| **Full Replace behavior** | Creates NEW explanation (uses existing `handleUserAction` with `UserInputType.Rewrite`) | Reuses existing generation pipeline. Simpler than building in-place replacement. Note: explanation_id will change. |
-| **Preview pane content** | Shows current editor state | May include CriticMarkup if user has pending diffs - this is acceptable for context. |
+| **Rewrite behavior** | Creates NEW explanation (uses existing `handleUserAction` with `UserInputType.Rewrite`) | Reuses existing generation pipeline. Simpler than building in-place replacement. Note: explanation_id will change. |
+| **Modal design** | Advanced AI editor modal only (no preview pane) | Modal is for configuring AI request, not viewing content. User sees content on results page behind modal. Simpler implementation. |
 | **Source wiring approach** | Phase 0 foundation first | Wire sources to AI pipeline BEFORE adding UI. Clean backend-first approach. |
 
 ### Key Codebase Findings
@@ -64,7 +64,7 @@ These decisions were made after exploring the existing codebase architecture:
 ┌─────────────────────────────────────────────────────────────┐
 │  Results Page                                               │
 │  ┌─────────────────────────────┐  ┌──────────────────────┐ │
-│  │                             │  │ AI Sidebar (340px)   │ │
+│  │                             │  │ AI Editor Panel (340px)   │ │
 │  │  Content Area               │  │                      │ │
 │  │                             │  │ [Quick Actions]      │ │
 │  │                             │  │ [Prompt textarea]    │ │
@@ -77,30 +77,32 @@ These decisions were made after exploring the existing codebase architecture:
 └─────────────────────────────────────────────────────────────┘
                                             ↓ Click "Expand"
 ┌─────────────────────────────────────────────────────────────┐
-│  FULLSCREEN MODAL                                           │
+│  AI EDITOR SETTINGS MODAL (centered, ~500px wide)           │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  AI Editor                                      [✕]   │  │
 │  ├───────────────────────────────────────────────────────┤  │
-│  │  ┌──────────────────┐  ┌────────────────────────────┐ │  │
-│  │  │ CONTROLS (400px) │  │ PREVIEW (flex-1)           │ │  │
-│  │  │                  │  │                            │ │  │
-│  │  │ [Quick Actions]  │  │ ┌────────────────────────┐ │ │  │
-│  │  │                  │  │ │ Read-only preview of   │ │ │  │
-│  │  │ [Prompt]         │  │ │ current content        │ │ │  │
-│  │  │ ________________ │  │ │                        │ │ │  │
-│  │  │                  │  │ │ (Scrollable)           │ │ │  │
-│  │  │ [Tags]           │  │ │                        │ │ │  │
-│  │  │ [chip][chip][+]  │  │ └────────────────────────┘ │ │  │
-│  │  │                  │  │                            │ │  │
-│  │  │ [Sources]        │  │                            │ │  │
-│  │  │ [url][+ Add]     │  │                            │ │  │
-│  │  │                  │  │                            │ │  │
-│  │  │ [Output Mode]    │  │                            │ │  │
-│  │  │ ○ Inline diff    │  │                            │ │  │
-│  │  │ ● Full replace   │  │                            │ │  │
-│  │  │                  │  │                            │ │  │
-│  │  │ [Apply Changes]  │  │                            │ │  │
-│  │  └──────────────────┘  └────────────────────────────┘ │  │
+│  │                                                       │  │
+│  │  [Quick Actions]                                      │  │
+│  │  [Simplify] [Expand] [Fix Grammar] [Make Formal]      │  │
+│  │                                                       │  │
+│  │  [Prompt]                                             │  │
+│  │  ┌─────────────────────────────────────────────────┐  │  │
+│  │  │ Larger textarea for detailed prompts...         │  │  │
+│  │  │                                                 │  │  │
+│  │  └─────────────────────────────────────────────────┘  │  │
+│  │                                                       │  │
+│  │  [Tags]                                               │  │
+│  │  [chip][chip][chip][+ Add tag]                        │  │
+│  │                                                       │  │
+│  │  [Sources]                                            │  │
+│  │  [url][url][+ Add source]                             │  │
+│  │                                                       │  │
+│  │  [Output Mode]                                        │  │
+│  │  ○ Inline diff    ● Rewrite                           │  │
+│  │                                                       │  │
+│  │  ┌─────────────┐                    ┌─────────────┐   │  │
+│  │  │   Cancel    │                    │    Apply    │   │  │
+│  │  └─────────────┘                    └─────────────┘   │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -109,18 +111,60 @@ These decisions were made after exploring the existing codebase architecture:
 
 | Decision | Rationale |
 |----------|-----------|
-| **Read-only preview** (not editable) | Simpler than embedding full Lexical editor in modal. User edits via prompts, not direct manipulation. |
+| **No preview pane in modal** | Modal is for configuring the AI request, not viewing content. User sees content on results page behind modal. Avoids duplicating results page layout. |
 | **No intermediate 600px state** | Adds complexity without clear value. Binary: sidebar OR modal. |
 | **Sidebar owns state** | Single source of truth. Modal reads on open, writes back on Apply. |
 | **Tags in modal only** | Tags are a "power feature". Sidebar stays simple (prompt + sources). |
 
+### UI Component Relationships (After Implementation)
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  Results Page                                                           │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐   │
+│  │  TagBar (Normal Mode Only)                                       │   │
+│  │  ────────────────────────────────────────────────────────────── │   │
+│  │  Purpose: Quick tag updates WITHOUT AI                          │   │
+│  │  - Add/remove/switch tags on current explanation                │   │
+│  │  - "Apply" → updates DB directly (no regeneration)              │   │
+│  │  - Separate from AI editing workflow                            │   │
+│  └─────────────────────────────────────────────────────────────────┘   │
+│                                                                         │
+│  ┌───────────────────────────────┐  ┌──────────────────────────────┐   │
+│  │  Content Area                 │  │  AI Editor Panel        │   │
+│  │                               │  │  (Sidebar)                   │   │
+│  │  [Lexical Editor]             │  │                              │   │
+│  │                               │  │  [Prompt]                    │   │
+│  │                               │  │  [Sources] ← NEW             │   │
+│  │                               │  │  [Output Mode] ← NEW         │   │
+│  │                               │  │  [Get Suggestions]           │   │
+│  │                               │  │  [Expand ⤢] → Opens Modal    │   │
+│  └───────────────────────────────┘  └──────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────┘
+                                              │
+                                              ▼ Click "Expand"
+┌─────────────────────────────────────────────────────────────────────────┐
+│  AdvancedAIEditorModal (Settings Panel, ~500px centered)                        │
+│  ─────────────────────────────────────────────────────────────────────  │
+│  Purpose: Advanced AI settings WITH tags                                │
+│  - All sidebar features PLUS tag selection                              │
+│  - Tags passed to AI prompt (replaces RewriteWithTags/EditWithTags)    │
+│  - NO preview pane - user sees content on results page behind modal    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Separation:**
+- **TagBar** = Tag metadata management (no AI)
+- **AI Editor Panel/Modal** = AI-powered content editing (with optional tags in modal)
+
 ### State Flow
 
 ```
-AISuggestionsPanelState (persists in sidebar)
+AIEditorPanelState (persists in sidebar)
 ├── prompt: string
 ├── sources: SourceChipType[]
-├── outputMode: 'inline-diff' | 'full-replace'
+├── outputMode: 'inline-diff' | 'rewrite'
 ├── history: SuggestionHistoryItem[]
 ├── isLoading: boolean
 └── lastResult: PipelineResult | null
@@ -130,7 +174,7 @@ Modal (transient):
 ├── tags: TagUIType[] (loaded from explanation on open)
 ├── localPrompt: string (copied from sidebar, can diverge)
 ├── localSources: SourceChipType[] (copied from sidebar)
-├── localOutputMode: 'inline-diff' | 'full-replace'
+├── localOutputMode: 'inline-diff' | 'rewrite'
 └── isDirty: boolean (tracks if user made changes)
 
 On Modal Apply:
@@ -176,13 +220,13 @@ On Modal Cancel:
 **Goal**: Enable source URLs in existing AI suggestions pipeline.
 
 **Changes**:
-1. Add `sources` state to `AISuggestionsPanel`
+1. Add `sources` state to `AIEditorPanel`
 2. Embed compact `SourceList` component below prompt
 3. Pass sources to `runAISuggestionsPipelineAction`
 4. Update action to accept and use sources in AI prompt
 
 **Files**:
-- `src/components/AISuggestionsPanel.tsx` - Add sources UI and state
+- `src/components/AIEditorPanel.tsx` - Add sources UI and state
 - `src/editorFiles/actions/actions.ts` - Accept sources parameter
 - `src/editorFiles/aiSuggestion.ts` - Include sources in prompts
 
@@ -195,60 +239,57 @@ On Modal Cancel:
 
 ### Phase 2: Add Output Mode Toggle (Medium Risk)
 
-**Goal**: Let user choose between inline diff and full replace.
+**Goal**: Let user choose between inline diff and rewrite.
 
 **Changes**:
 1. Create `OutputModeToggle` component (radio group)
 2. Add to sidebar (below sources)
 3. Route to different backends based on selection:
    - `inline-diff` → existing `runAISuggestionsPipelineAction`
-   - `full-replace` → existing `handleUserAction` with `UserInputType.Rewrite`
+   - `rewrite` → existing `handleUserAction` with `UserInputType.Rewrite`
 
 **Files**:
 - `src/components/OutputModeToggle.tsx` - New component
-- `src/components/AISuggestionsPanel.tsx` - Add toggle, routing logic
+- `src/components/AIEditorPanel.tsx` - Add toggle, routing logic
 - Need to pass `handleUserAction` callback from results page to sidebar
 
 **Key Implementation Detail**:
-Full replace uses the EXISTING generation pipeline (`handleUserAction`), NOT a new action. This means:
+"Rewrite" uses the EXISTING generation pipeline (`handleUserAction`), NOT a new action. This means:
 - Creates a NEW explanation (explanation_id changes)
 - Uses streaming response pattern
-- User should be warned that this generates fresh content
-
-**UX Consideration**: Consider labeling as "Generate New" instead of "Full Replace" to set correct expectations.
+- Label clearly communicates that this generates fresh content
 
 **Verification**:
 - Toggle to "Inline diff" → see CriticMarkup diffs
-- Toggle to "Full replace" → new explanation generates with streaming
+- Toggle to "Rewrite" → new explanation generates with streaming
 
 ---
 
-### Phase 3: Create Fullscreen Modal (Medium Risk)
+### Phase 3: Create Advanced AI Editor Modal (Medium Risk)
 
-**Goal**: Rich editing experience with tags and preview.
+**Goal**: Expanded advanced AI editor modal with tags (power feature not in sidebar).
 
 **Changes**:
-1. Create `AIEditorModal.tsx` with two-column layout
+1. Create `AdvancedAIEditorModal.tsx` - single-column advanced AI editor modal (~500px centered)
 2. Extract tag selector from `TagBar.tsx` → `TagSelector.tsx`
 3. Add "Expand" button to sidebar that opens modal
 4. Modal inherits state from sidebar, has own local state
 5. Apply button writes back to sidebar and executes
 
 **Files**:
-- `src/components/AIEditorModal.tsx` - New modal component
+- `src/components/AdvancedAIEditorModal.tsx` - New modal component (advanced AI editor modal, no preview)
 - `src/components/TagSelector.tsx` - Extracted from TagBar
-- `src/components/AISuggestionsPanel.tsx` - Add expand button, modal state
+- `src/components/AIEditorPanel.tsx` - Add expand button, modal state
 
-**State Flow** (Clarified):
+**State Flow**:
 ```
 Modal opens:
   → Copy sidebar state (prompt, sources, outputMode)
-  → Pass currentContent from editor ref for preview pane
   → Inherit tagState from results page parent
 
 Modal Apply:
   → Write local state back to sidebar
-  → Execute appropriate pipeline (inline diff OR full replace)
+  → Execute appropriate pipeline (inline diff OR rewrite)
   → Close modal
 
 Modal Cancel:
@@ -257,14 +298,14 @@ Modal Cancel:
   → Close modal (sidebar state unchanged)
 ```
 
-**Preview Pane Content**:
-- Shows current editor state (passed via prop)
-- Read-only rendered markdown view
-- May show CriticMarkup if user has pending diffs (acceptable for context)
+**Why No Preview Pane**:
+- Modal is for configuring AI request settings, not viewing content
+- User can see content on results page behind the modal
+- Avoids duplicating the results page layout
+- Simpler implementation
 
 **Technical Risk**:
 - Tag loading depends on `explanationId` - pass via props from results page
-- Preview pane needs current content - pass via props from editor ref
 
 **Verification**:
 - Click "Expand" → modal opens with sidebar state
@@ -275,54 +316,102 @@ Modal Cancel:
 
 ### Phase 4: Wire Both Pipelines in Modal (Medium Risk)
 
-**Goal**: Modal can execute both inline diff and full replace.
+**Goal**: Modal can execute both inline diff and rewrite.
 
 **Changes**:
 1. Add output mode toggle to modal
 2. Route Apply to correct backend:
    - Inline diff: call `runAISuggestionsPipelineAction`, close modal, show diffs in editor
-   - Full replace: call `handleUserAction`, navigate to new explanation (or show loading in modal)
-3. Handle streaming response for full replace (loading state)
+   - Rewrite: call `handleUserAction`, navigate to new explanation (or show loading in modal)
+3. Handle streaming response for rewrite (loading state)
 
 **Files**:
-- `src/components/AIEditorModal.tsx` - Add toggle, dual routing
+- `src/components/AdvancedAIEditorModal.tsx` - Add toggle, dual routing
 - `src/app/results/page.tsx` - Lift `handleUserAction` or pass as callback to modal
 
-**UX Decision Needed**: When "Full Replace" runs from modal:
+**UX Decision Needed**: When "Rewrite" runs from modal:
 - Option A: Close modal immediately, show streaming on main page
 - Option B: Keep modal open with loading state, close when complete
 - **Recommendation**: Option A (simpler, consistent with sidebar behavior)
 
 **Verification**:
 - Modal with "Inline diff" → diffs appear in editor, stay on same page
-- Modal with "Full replace" → new explanation loads (new explanation_id)
+- Modal with "Rewrite" → new explanation loads (new explanation_id)
 
 ---
 
-### Phase 5: Deprecate FeedbackPanel (Low Risk, High Value)
+### Phase 5: Deprecate FeedbackPanel & Special Tag Modes (Low Risk, High Value)
 
-**Goal**: Remove parallel UI system, simplify codebase.
+**Goal**: Remove parallel UI system, simplify codebase, but PRESERVE TagBar's quick tag update functionality.
+
+#### What We're Keeping vs Removing
+
+| Component/Feature | Action | Rationale |
+|-------------------|--------|-----------|
+| **TagBar (Normal mode)** | ✅ KEEP | Quick tag updates without AI editing - distinct use case |
+| **TagBar (RewriteWithTags mode)** | ❌ REMOVE | Moves to modal with "Rewrite" + tags |
+| **TagBar (EditWithTags mode)** | ❌ REMOVE | Moves to modal with "Inline Diff" + tags |
+| **FeedbackPanel** | ❌ DELETE | Entirely replaced by modal |
+| **tagModeReducer special modes** | ❌ SIMPLIFY | Only Normal mode needed |
+
+#### TagBar Behavior After Changes
+
+**PRESERVED functionality** (Normal mode, lines 119-133 in TagBar.tsx):
+- User clicks tag chips to add/remove/switch tags
+- "Apply" button calls `handleApplyForModifyTags(explanationId, tags)` directly
+- Updates explanation's tags in database WITHOUT regenerating content
+- No AI involvement - just tag metadata updates
+
+**REMOVED functionality**:
+- `modeOverride === TagBarMode.RewriteWithTags` branch (lines 77-78)
+- `modeOverride === TagBarMode.EditWithTags` branch (lines 79-80)
+- `tagBarApplyClickHandler` prop usage for special modes
+- Special panel titles ("Rewrite with Tags", "Edit with Tags")
+
+#### Dropdown Menu Changes
+
+**Current dropdown items** (to be removed):
+- "Rewrite with feedback" → Opens FeedbackPanel
+- "Edit with feedback" → Opens FeedbackPanel in edit mode
+
+**New dropdown item** (replacement):
+- **"Advanced AI editor..."** → Opens `AdvancedAIEditorModal`
+
+This single item replaces both old items because:
+- The modal has an output mode toggle (Inline diff / Rewrite) - user chooses there
+- The modal has tags AND sources - covers both use cases
+- Cleaner UX: one entry point, all options in modal
 
 **Changes**:
 1. Remove `FeedbackPanel` from results page
-2. Remove "Edit with tags" / "Rewrite with tags" dropdown items
-3. Simplify `tagModeReducer` (remove RewriteWithTags, EditWithTags modes)
-4. Keep TagBar in normal mode only (for tag display)
+2. Replace "Edit with feedback" / "Rewrite with feedback" dropdown items with **"Advanced AI editor..."**
+3. Simplify `tagModeReducer`:
+   - Remove `RewriteWithTagsModeState` and `EditWithTagsModeState` types
+   - Remove `ENTER_REWRITE_MODE` and `ENTER_EDIT_MODE` actions
+   - Keep `NormalModeState`, `LOAD_TAGS`, `UPDATE_TAGS`, `RESET_TAGS`, `APPLY_TAGS`
+4. Simplify `TagBar.tsx`:
+   - Remove `tagBarApplyClickHandler` prop (no longer needed)
+   - Remove mode-specific title rendering (lines 500-502)
+   - Remove `handleApplyRewriteWithTags` and `handleApplyEditWithTags` functions
+   - Keep `handleApplyNormal` as the only apply handler
 
 **Files**:
-- `src/app/results/page.tsx` - Remove FeedbackPanel, dropdown items
-- `src/reducers/tagModeReducer.ts` - Simplify to normal mode only
+- `src/app/results/page.tsx` - Remove FeedbackPanel, dropdown items, mode initialization
+- `src/reducers/tagModeReducer.ts` - Remove RewriteWithTags/EditWithTags modes and actions
 - `src/components/FeedbackPanel.tsx` - Delete entirely
-- `src/components/TagBar.tsx` - Remove special mode handling
+- `src/components/TagBar.tsx` - Remove special mode handling, keep Normal mode
 
 **Migration**:
-- Users who used "Edit with tags" → now use modal with tags
-- Users who used "Rewrite with tags" → now use modal with tags + full replace
+- Users who used "Edit with tags" → now use modal with tags + inline diff
+- Users who used "Rewrite with tags" → now use modal with tags + rewrite
+- Users who just want to update tags → **unchanged experience** via TagBar
 
 **Verification**:
-- No regression in tag display
-- All editing flows work through sidebar/modal
-- Codebase is simpler (fewer modes, fewer components)
+- ✅ TagBar still shows tags in Normal mode
+- ✅ Users can add/remove/switch tags
+- ✅ "Apply" button updates tags on explanation (no AI)
+- ✅ All AI-powered editing flows work through sidebar/modal
+- ✅ Codebase is simpler (fewer modes, fewer components)
 
 ---
 
@@ -342,7 +431,7 @@ These are explicitly deferred:
 
 | Risk | Impact | Mitigation | Status |
 |------|--------|------------|--------|
-| Full replace streaming differs from inline diff | Medium | Use existing `handleUserAction` - no new streaming code needed | ✅ Resolved |
+| Rewrite streaming differs from inline diff | Medium | Use existing `handleUserAction` - no new streaming code needed | ✅ Resolved |
 | Tag loading requires explanation context | Low | Pass explanationId through props from results page | ✅ Resolved |
 | Modal state sync with sidebar | Medium | Clear ownership: sidebar owns, modal copies on open | ✅ Resolved |
 | SourceList behavior in compact mode | Low | Already used in FeedbackPanel, proven | ✅ Resolved |
@@ -351,11 +440,11 @@ These are explicitly deferred:
 
 ### Resolved Architecture Questions
 
-1. **Q: How does Full Replace work without new pipeline?**
+1. **Q: How does Rewrite work without new pipeline?**
    A: Reuses `handleUserAction` with `UserInputType.Rewrite`. Creates new explanation (acceptable).
 
-2. **Q: What does preview pane show?**
-   A: Current editor state via prop. May include CriticMarkup - acceptable for context.
+2. **Q: Why no preview pane in modal?**
+   A: Modal is for configuring AI request settings. User can see content on results page behind modal. Avoids duplicating the layout.
 
 3. **Q: When should sources be wired?**
    A: Phase 0 (foundation) before any UI work. Backend capability first.
@@ -367,16 +456,21 @@ These are explicitly deferred:
 ### New Files
 | File | Purpose | Phase |
 |------|---------|-------|
-| `src/components/AIEditorModal.tsx` | Fullscreen modal with controls + preview | 3 |
-| `src/components/OutputModeToggle.tsx` | Radio toggle for diff vs replace | 2 |
+| `src/components/AdvancedAIEditorModal.tsx` | Advanced AI editor modal with tags, sources, output mode | 3 |
+| `src/components/OutputModeToggle.tsx` | Radio toggle for inline diff vs rewrite | 2 |
 | `src/components/TagSelector.tsx` | Extracted tag selection UI | 3 |
+
+### Renamed Files
+| From | To | Phase |
+|------|-----|-------|
+| `src/components/AISuggestionsPanel.tsx` | `src/components/AIEditorPanel.tsx` | 1 |
 
 ### Modified Files
 | File | Changes | Phase |
 |------|---------|-------|
 | `src/editorFiles/actions/actions.ts:331-396` | Add sources to sessionData, extend signature | 0 |
 | `src/editorFiles/aiSuggestion.ts:55-104` | Include sources in prompt construction | 0 |
-| `src/components/AISuggestionsPanel.tsx:209-366` | Add sources state/UI, output mode, expand button | 1-2 |
+| `src/components/AIEditorPanel.tsx:209-366` | Add sources state/UI, output mode, expand button | 1-2 |
 | `src/app/results/page.tsx:267-501, 1393-1427` | Pass handleUserAction to sidebar, add modal, remove FeedbackPanel | 2-5 |
 | `src/reducers/tagModeReducer.ts` | Simplify to normal mode only | 5 |
 | `src/components/TagBar.tsx` | Remove special mode handling | 5 |
@@ -391,10 +485,10 @@ These are explicitly deferred:
 |-----------|------|-------|---------|
 | AI Pipeline Action | `actions.ts` | 331-396 | `runAISuggestionsPipelineAction` signature |
 | Prompt Construction | `aiSuggestion.ts` | 55-104 | `createAISuggestionPrompt` |
-| Generation Handler | `page.tsx` | 267-501 | `handleUserAction` for full replace |
-| Panel State | `AISuggestionsPanel.tsx` | 209-235 | Current state variables |
-| Panel Submit | `AISuggestionsPanel.tsx` | 241-366 | Submit handler logic |
-| Sidebar Rendering | `page.tsx` | 1393-1427 | AISuggestionsPanel props |
+| Generation Handler | `page.tsx` | 267-501 | `handleUserAction` for rewrite |
+| Panel State | `AIEditorPanel.tsx` | 209-235 | Current state variables |
+| Panel Submit | `AIEditorPanel.tsx` | 241-366 | Submit handler logic |
+| Sidebar Rendering | `page.tsx` | 1393-1427 | AIEditorPanel props |
 | Tag/Feedback Toggle | `page.tsx` | 1285-1314 | Conditional rendering |
 
 ---
@@ -404,7 +498,7 @@ These are explicitly deferred:
 ### Unit Tests
 - `OutputModeToggle` renders correctly, fires onChange
 - `TagSelector` loads and displays tags
-- `AIEditorModal` state management (dirty tracking, Apply/Cancel)
+- `AdvancedAIEditorModal` state management (dirty tracking, Apply/Cancel)
 
 ### Integration Tests
 - Sidebar with sources → AI pipeline receives sources
@@ -413,7 +507,7 @@ These are explicitly deferred:
 
 ### E2E Tests
 - Full flow: sidebar → expand → modal → Apply → diffs in editor
-- Full flow: modal with full replace → content replaced
+- Full flow: modal with rewrite → new explanation created
 - Cancel with dirty state → warning shown
 
 ---
@@ -436,7 +530,9 @@ These are explicitly deferred:
 - [ ] Verify existing calls still work (backward compatible)
 
 ### Phase 1: Sources in Sidebar
-- [ ] Add `sources` state to `AISuggestionsPanel`
+- [ ] Rename `AISuggestionsPanel.tsx` → `AIEditorPanel.tsx`
+- [ ] Update all imports referencing the old filename
+- [ ] Add `sources` state to `AIEditorPanel`
 - [ ] Embed `SourceList` component below prompt textarea
 - [ ] Pass sources through to pipeline action
 - [ ] Manual test: sources appear in AI prompt
@@ -448,8 +544,8 @@ These are explicitly deferred:
 - [ ] Route toggle selection to correct pipeline
 - [ ] Manual test: both modes work from sidebar
 
-### Phase 3: Fullscreen Modal
-- [ ] Create `AIEditorModal.tsx` with two-column layout
+### Phase 3: Advanced AI Editor Modal
+- [ ] Create `AdvancedAIEditorModal.tsx` as single-column advanced AI editor modal (~500px centered)
 - [ ] Extract `TagSelector.tsx` from TagBar
 - [ ] Add "Expand" button to sidebar
 - [ ] Implement dirty state tracking
@@ -461,10 +557,14 @@ These are explicitly deferred:
 - [ ] Handle loading states for both pipelines
 - [ ] Manual test: both pipelines work from modal
 
-### Phase 5: Deprecate FeedbackPanel
+### Phase 5: Deprecate FeedbackPanel & Special Tag Modes
 - [ ] Remove FeedbackPanel from results page
-- [ ] Remove dropdown menu items for tag modes
-- [ ] Simplify tagModeReducer
-- [ ] Clean up TagBar special mode handling
+- [ ] Replace "Edit with feedback" / "Rewrite with feedback" dropdown items with **"Advanced AI editor..."**
+- [ ] Wire new dropdown item to open `AdvancedAIEditorModal`
+- [ ] Simplify tagModeReducer (remove RewriteWithTags/EditWithTags modes)
+- [ ] Remove TagBar's `tagBarApplyClickHandler` prop and special mode handlers
+- [ ] Keep TagBar's Normal mode fully functional (quick tag updates)
 - [ ] Delete FeedbackPanel.tsx
-- [ ] Manual test: no regressions in tag display
+- [ ] Manual test: TagBar Normal mode still works (add/remove tags, Apply updates DB)
+- [ ] Manual test: "Advanced AI editor..." dropdown opens modal correctly
+- [ ] Manual test: AI editing flows work through sidebar/modal only
