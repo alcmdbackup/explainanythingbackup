@@ -27,16 +27,17 @@ test.describe('Client Logging Infrastructure', () => {
     });
   });
 
-  test('should capture console.log messages in localStorage', async ({ authenticatedPage: page }) => {
+  test('should capture console.warn messages in localStorage', async ({ authenticatedPage: page }) => {
+    // Note: Uses WARN level because production config only persists WARN+ levels
     await page.goto('/');
 
     // Wait for client initializer to set up console interceptor
     await waitForLoggingInit(page);
 
-    // Log a unique message via console
-    const testMessage = `E2E-TEST-LOG-${Date.now()}`;
+    // Log a unique message via console.warn (persisted in both dev and prod)
+    const testMessage = `E2E-TEST-WARN-${Date.now()}`;
     await page.evaluate((msg) => {
-      console.log(msg);
+      console.warn(msg);
     }, testMessage);
 
     // Verify the log was captured in localStorage
@@ -49,7 +50,7 @@ test.describe('Client Logging Infrastructure', () => {
       (log: { message: string }) => log.message.includes(testMessage)
     );
     expect(foundLog).toBeTruthy();
-    expect(foundLog.level).toBe('LOG');
+    expect(foundLog.level).toBe('WARN');
   });
 
   test('should expose window.exportLogs() function', async ({ authenticatedPage: page }) => {
@@ -58,9 +59,9 @@ test.describe('Client Logging Infrastructure', () => {
     // Wait for initialization
     await waitForLoggingInit(page);
 
-    // Log something
+    // Log something using WARN (persisted in both dev and prod configs)
     const testMessage = `EXPORT-TEST-${Date.now()}`;
-    await page.evaluate((msg) => console.info(msg), testMessage);
+    await page.evaluate((msg) => console.warn(msg), testMessage);
 
     // Use exportLogs() to retrieve logs
     const exportedLogs = await page.evaluate(() => {
@@ -93,7 +94,7 @@ test.describe('Client Logging Infrastructure', () => {
     expect(foundError).toBeTruthy();
   });
 
-  test('should capture console.warn messages', async ({ authenticatedPage: page }) => {
+  test('should capture console.warn messages with correct level', async ({ authenticatedPage: page }) => {
     await page.goto('/');
 
     await waitForLoggingInit(page);
@@ -120,8 +121,8 @@ test.describe('Client Logging Infrastructure', () => {
 
     await waitForLoggingInit(page);
 
-    // Log something first
-    await page.evaluate(() => console.log('test-before-clear'));
+    // Log something first using WARN (persisted in both dev and prod)
+    await page.evaluate(() => console.warn('test-before-clear'));
 
     // Verify log exists
     let logs = await page.evaluate(() => localStorage.getItem('client_logs'));
@@ -143,7 +144,8 @@ test.describe('Client Logging Infrastructure', () => {
     await waitForLoggingInit(page);
 
     const beforeTime = new Date().toISOString();
-    await page.evaluate(() => console.log('timestamp-test'));
+    // Use WARN level (persisted in both dev and prod)
+    await page.evaluate(() => console.warn('timestamp-test'));
     const afterTime = new Date().toISOString();
 
     const logs = await page.evaluate(() => {
