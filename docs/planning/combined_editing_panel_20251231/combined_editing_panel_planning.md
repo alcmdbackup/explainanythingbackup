@@ -7,6 +7,25 @@
 
 ---
 
+## Background
+
+The AI editing experience is currently fragmented across multiple UI components with overlapping functionality. Users have three separate ways to interact with AI-powered editing: the AI Suggestions Panel (inline diffs), the FeedbackPanel (sources + tags for rewrite), and TagBar special modes (RewriteWithTags, EditWithTags). This creates confusion about which tool to use and increases codebase complexity with duplicated state management.
+
+## Problem
+
+Users cannot add source URLs to AI suggestions (inline diff mode) - sources are only available in FeedbackPanel which forces a full rewrite. The TagBar has three modes (Normal, RewriteWithTags, EditWithTags) that duplicate functionality now moving to a unified modal. FeedbackPanel is a 204-line component that will be entirely replaced. The lack of output mode control means users cannot choose between quick inline edits and full rewrites from the same interface.
+
+## Options Considered
+
+| Option | Description | Pros | Cons | Decision |
+|--------|-------------|------|------|----------|
+| **A: Unified Sidebar + Modal (Hybrid)** | Keep sidebar for quick edits, add modal for advanced settings with tags | Familiar UX, progressive disclosure, reuses existing components | Two components to maintain | ✅ **Selected** |
+| **B: Full-Screen Editor Only** | Replace sidebar with full-screen editor | Maximum space for editing | Disrupts workflow, loses context | ❌ Rejected |
+| **C: Expandable Sidebar** | Sidebar that resizes from 340px to 600px | Single component | Complex drag logic, limited space even at 600px | ❌ Rejected |
+| **D: Keep Current System** | Maintain FeedbackPanel and special tag modes | No work needed | Fragmented UX, duplicated code, sources not in suggestions | ❌ Rejected |
+
+---
+
 ## Goals
 
 1. **Consolidate UI** - Single entry point for AI editing (sidebar + modal)
@@ -1100,3 +1119,19 @@ These are explicitly deferred:
 - [ ] Run `npm run test:integration` - all integration tests pass
 - [ ] Run `npm run test:e2e` - all E2E tests pass
 - [ ] Update documentation if needed
+
+---
+
+## Documentation Updates
+
+The following documentation files should be reviewed and updated after implementation:
+
+| File | Updates Needed |
+|------|----------------|
+| `docs/docs_overall/architecture.md` | Update component diagram to show AIEditorPanel instead of AISuggestionsPanel; remove FeedbackPanel reference |
+| `docs/docs_overall/product_overview.md` | Update AI editing workflow description; mention unified sidebar + modal approach |
+| `docs/feature_deep_dives/ai_suggestions.md` | Major update - document sources support, output mode toggle, modal for advanced settings |
+| `docs/feature_deep_dives/tags.md` | Update to reflect TagBar simplified to Normal mode only; document tags in modal |
+
+### New Documentation (if needed)
+- Consider adding `docs/feature_deep_dives/ai_editor_panel.md` if the feature becomes complex enough to warrant dedicated documentation
