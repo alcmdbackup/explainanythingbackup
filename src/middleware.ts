@@ -16,8 +16,9 @@ export const config = {
      * - api/client-logs (client logging endpoint)
      * - api/traces (OTLP traces proxy endpoint)
      * - api/monitoring (Sentry tunnel endpoint)
+     * - api/health (health check endpoint for smoke tests)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }
