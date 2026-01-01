@@ -110,9 +110,12 @@ export default function AdvancedAIEditorModal({
         outputMode,
         tagDescriptions: extractTagDescriptions()
       });
-      onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to apply changes');
+      // Log error but still close - parent should handle display
+      console.error('Modal apply error:', err);
+    } finally {
+      // ALWAYS close after apply attempt
+      onClose();
     }
   };
 

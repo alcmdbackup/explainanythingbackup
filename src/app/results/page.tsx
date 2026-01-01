@@ -1375,9 +1375,19 @@ function ResultsPageContent() {
                             );
                         } else {
                             // Inline diff mode: call server action
+                            // Get fresh content from editor (not stale closure)
+                            const currentEditorContent = editorRef.current?.getContentAsMarkdown() || content;
+
+                            console.log('🎭 Modal onApply: Starting inline-diff', {
+                                contentLength: currentEditorContent?.length,
+                                promptLength: data.prompt?.length,
+                                explanationId,
+                                sourceCount: data.sources?.length
+                            });
+
                             const { runAISuggestionsPipelineAction } = await import('@/editorFiles/actions/actions');
                             const result = await runAISuggestionsPipelineAction(
-                                content,
+                                currentEditorContent,
                                 data.prompt,
                                 {
                                     explanation_id: explanationId!,
@@ -1387,13 +1397,23 @@ function ResultsPageContent() {
                                 }
                             );
 
-                            if (result.success && result.content) {
+                            console.log('🎭 Modal onApply: Pipeline result', {
+                                success: result?.success,
+                                hasContent: !!result?.content,
+                                error: result?.error,
+                                contentPreview: result?.content?.substring(0, 100)
+                            });
+
+                            if (result?.success && result?.content) {
                                 dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
                                 setContent(result.content);
                                 if (editorRef.current) {
                                     setEditorCurrentContent(result.content);
                                     editorRef.current.setContentFromMarkdown(result.content);
                                 }
+                            } else {
+                                // Throw error so modal logs it and user gets feedback
+                                throw new Error(result?.error || 'Failed to generate AI suggestions');
                             }
                         }
                     } finally {
