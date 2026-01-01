@@ -20,6 +20,9 @@ async function waitForServerReady(
   if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
     headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
     headers['x-vercel-set-bypass-cookie'] = 'true';
+    console.log(`   Using bypass token (length: ${process.env.VERCEL_AUTOMATION_BYPASS_SECRET.length})`);
+  } else {
+    console.log('   No bypass token available');
   }
 
   for (let i = 0; i < maxRetries; i++) {
