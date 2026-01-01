@@ -101,8 +101,10 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const baseUrlHost = new URL(baseUrl).hostname;
     const isLocalhost = baseUrlHost === 'localhost' || baseUrlHost === '127.0.0.1';
 
-    // Inject Supabase auth cookies into browser context
-    await context.addCookies([
+    // Build cookies array
+    type Cookie = Parameters<typeof context.addCookies>[0][number];
+    const cookies: Cookie[] = [
+      // Supabase auth cookie
       {
         name: `sb-${projectRef}-auth-token`,
         value: cookieValue,
@@ -112,7 +114,25 @@ export const test = base.extend<{ authenticatedPage: Page }>({
         secure: !isLocalhost,
         sameSite: 'Lax',
       },
-    ]);
+    ];
+
+    // Add Vercel bypass cookie for production deployments
+    // This is required because extraHTTPHeaders only works for API requests,
+    // not browser navigation. The cookie bypasses Vercel Deployment Protection.
+    if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET && !isLocalhost) {
+      cookies.push({
+        name: 'x-vercel-protection-bypass',
+        value: process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+        domain: baseUrlHost,
+        path: '/',
+        httpOnly: false,
+        secure: true,
+        sameSite: 'None',
+      });
+    }
+
+    // Inject cookies into browser context
+    await context.addCookies(cookies);
 
     // use is Playwright fixture, not React hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
