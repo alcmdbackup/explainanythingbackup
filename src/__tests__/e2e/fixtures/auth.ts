@@ -96,15 +96,20 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const base64url = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
     const cookieValue = `base64-${base64url}`;
 
+    // Determine domain from BASE_URL (localhost for local dev, vercel.app for production)
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
+    const baseUrlHost = new URL(baseUrl).hostname;
+    const isLocalhost = baseUrlHost === 'localhost' || baseUrlHost === '127.0.0.1';
+
     // Inject Supabase auth cookies into browser context
     await context.addCookies([
       {
         name: `sb-${projectRef}-auth-token`,
         value: cookieValue,
-        domain: 'localhost',
+        domain: baseUrlHost,
         path: '/',
         httpOnly: false,
-        secure: false,
+        secure: !isLocalhost,
         sameSite: 'Lax',
       },
     ]);
