@@ -22,6 +22,12 @@ export default defineConfig({
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
+    // Vercel Deployment Protection bypass - set cookie if secret is available
+    ...(process.env.VERCEL_AUTOMATION_BYPASS_SECRET ? {
+      extraHTTPHeaders: {
+        'x-vercel-protection-bypass': process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
+      },
+    } : {}),
   },
   projects: [
     // Chromium Critical - fast subset for PR CI (~40 tests tagged @critical)
