@@ -111,8 +111,19 @@ COUNTER=$((COUNTER + 1))
 # Save new counter
 echo "$COUNTER" > "$COUNTER_FILE"
 
-# Create five worktrees in parent directory
-for i in 0 1 2 3 4; do
+# Step 3a: Create branch for explainanything-feature0 (the main directory) as worktree_x_0
+echo -e "\n${BLUE}Step 3a: Creating branch for explainanything-feature0...${NC}"
+FEATURE0_BRANCH="git_worktree_${COUNTER}_0"
+
+# Delete branch if it already exists
+git branch -D "$FEATURE0_BRANCH" 2>/dev/null || true
+
+# Create and checkout the new branch in the main directory
+git checkout -b "$FEATURE0_BRANCH"
+echo -e "${GREEN}Created branch $FEATURE0_BRANCH for explainanything-feature0${NC}"
+
+# Step 3b: Create five worktrees in parent directory (indices 1-5)
+for i in 1 2 3 4 5; do
     BRANCH_NAME="git_worktree_${COUNTER}_${i}"
     WORKTREE_PATH="$PARENT_DIR/worktree_${COUNTER}_${i}"
 
