@@ -27,11 +27,14 @@ async function waitForServerReady(
 
   for (let i = 0; i < maxRetries; i++) {
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
       const response = await fetch(url, {
         method: 'GET',
         headers,
-        signal: AbortSignal.timeout(5000),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       if (response.ok || response.status === 304) {
         console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
         return;
@@ -43,7 +46,9 @@ async function waitForServerReady(
     } catch (error) {
       // Log first and last errors for debugging
       if (i === 0 || i === maxRetries - 1) {
-        console.log(`   Attempt ${i + 1}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const errMsg = error instanceof Error ? error.message : 'Unknown error';
+        const errCause = error instanceof Error && error.cause ? ` (cause: ${error.cause})` : '';
+        console.log(`   Attempt ${i + 1}: ${errMsg}${errCause}`);
       }
     }
 
