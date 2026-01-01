@@ -1,44 +1,54 @@
 /**
- * E2E tests for global-error.tsx (root error boundary).
+ * E2E tests for error boundaries (error.tsx and global-error.tsx).
  *
  * These tests verify that:
- * 1. Unhandled errors trigger the global error boundary
+ * 1. Unhandled page errors trigger the error boundary (error.tsx)
  * 2. The error UI is displayed correctly
  * 3. The reset button allows recovery
  * 4. Sentry receives the error (verified indirectly through component mount)
  *
  * NOTE: These tests are NOT tagged @critical, so they only run on PRs to production.
- * This is intentional because:
- * - Global error scenarios are edge cases
- * - The test requires a special debug route
- * - Full error boundary testing is more important for production releases
+ *
+ * Important distinction:
+ * - error.tsx catches errors in page components and nested layouts
+ * - global-error.tsx only catches errors in the root layout itself (rare)
  */
 
 import { test, expect } from '@playwright/test';
 
-test.describe('Global Error Boundary', () => {
+test.describe('Error Boundary', () => {
   test.describe('Error Display', () => {
-    test('should display global error page when unhandled error occurs', async ({ page }) => {
+    test('should display error page when unhandled error occurs in page', async ({
+      page,
+    }) => {
       // Navigate to test page that throws an error
       await page.goto('/test-global-error?throw=true');
 
-      // Wait for either global error or the test page content
-      // The error boundary should catch the thrown error
-      const globalErrorContainer = page.locator('[data-testid="global-error-container"]');
-      const globalErrorTitle = page.locator('[data-testid="global-error-title"]');
+      // Wait for either error boundary to appear
+      // Page-level errors are caught by error.tsx, not global-error.tsx
+      const errorContainer = page.locator(
+        '[data-testid="error-boundary-container"]'
+      );
+      const errorTitle = page.locator('[data-testid="error-boundary-title"]');
 
-      // Wait for global error to appear (with generous timeout for error propagation)
-      await expect(globalErrorContainer).toBeVisible({ timeout: 15000 });
+      // Wait for error boundary to appear (with generous timeout for error propagation)
+      await expect(errorContainer).toBeVisible({ timeout: 15000 });
 
       // Verify the error UI elements
-      await expect(globalErrorTitle).toHaveText('Something went wrong');
+      await expect(errorTitle).toHaveText('Something went wrong');
 
       // Verify the error message is displayed
-      const errorMessage = page.locator('[data-testid="global-error-message"]');
-      await expect(errorMessage).toContainText('We encountered an unexpected error');
+      const errorMessage = page.locator(
+        '[data-testid="error-boundary-message"]'
+      );
+      await expect(errorMessage).toContainText(
+        'We encountered an unexpected error'
+      );
 
       // Verify the reset button is present
-      const resetButton = page.locator('[data-testid="global-error-reset-button"]');
+      const resetButton = page.locator(
+        '[data-testid="error-boundary-reset-button"]'
+      );
       await expect(resetButton).toBeVisible();
       await expect(resetButton).toHaveText('Try again');
     });
@@ -46,31 +56,44 @@ test.describe('Global Error Boundary', () => {
     test('should have proper styling for error page', async ({ page }) => {
       await page.goto('/test-global-error?throw=true');
 
-      const globalErrorContainer = page.locator('[data-testid="global-error-container"]');
-      await expect(globalErrorContainer).toBeVisible({ timeout: 15000 });
+      const errorContainer = page.locator(
+        '[data-testid="error-boundary-container"]'
+      );
+      await expect(errorContainer).toBeVisible({ timeout: 15000 });
 
       // Verify the container has centering styles
-      const containerStyles = await globalErrorContainer.evaluate((el) => {
+      const containerStyles = await errorContainer.evaluate((el) => {
         const styles = window.getComputedStyle(el);
         return {
           display: styles.display,
-          minHeight: styles.minHeight,
+          // minHeight is computed to pixels, so check it's at least viewport height
+          minHeightPx: parseInt(styles.minHeight, 10),
+          viewportHeight: window.innerHeight,
         };
       });
 
       expect(containerStyles.display).toBe('flex');
-      expect(containerStyles.minHeight).toBe('100vh');
+      // The container should be at least as tall as the viewport
+      expect(containerStyles.minHeightPx).toBeGreaterThanOrEqual(
+        containerStyles.viewportHeight
+      );
     });
   });
 
   test.describe('Error Recovery', () => {
-    test('should allow user to attempt recovery via reset button', async ({ page }) => {
+    test('should allow user to attempt recovery via reset button', async ({
+      page,
+    }) => {
       await page.goto('/test-global-error?throw=true');
 
-      const globalErrorContainer = page.locator('[data-testid="global-error-container"]');
-      await expect(globalErrorContainer).toBeVisible({ timeout: 15000 });
+      const errorContainer = page.locator(
+        '[data-testid="error-boundary-container"]'
+      );
+      await expect(errorContainer).toBeVisible({ timeout: 15000 });
 
-      const resetButton = page.locator('[data-testid="global-error-reset-button"]');
+      const resetButton = page.locator(
+        '[data-testid="error-boundary-reset-button"]'
+      );
       await expect(resetButton).toBeVisible();
 
       // Click the reset button
@@ -79,12 +102,14 @@ test.describe('Global Error Boundary', () => {
       // After reset, the page will try to re-render
       // Since the URL still has ?throw=true, it will throw again
       // But this verifies the reset mechanism works
-      await expect(globalErrorContainer).toBeVisible({ timeout: 15000 });
+      await expect(errorContainer).toBeVisible({ timeout: 15000 });
     });
   });
 
   test.describe('Normal Operation', () => {
-    test('should not show global error when no error occurs', async ({ page }) => {
+    test('should not show error boundary when no error occurs', async ({
+      page,
+    }) => {
       // Navigate to test page WITHOUT the throw parameter
       await page.goto('/test-global-error');
 
@@ -95,9 +120,11 @@ test.describe('Global Error Boundary', () => {
       const pageContent = await page.textContent('body');
       expect(pageContent).toContain('Global Error Test Page');
 
-      // Global error should NOT be visible
-      const globalErrorContainer = page.locator('[data-testid="global-error-container"]');
-      await expect(globalErrorContainer).not.toBeVisible();
+      // Error boundary should NOT be visible
+      const errorContainer = page.locator(
+        '[data-testid="error-boundary-container"]'
+      );
+      await expect(errorContainer).not.toBeVisible();
     });
   });
 });
