@@ -33,8 +33,17 @@ async function waitForServerReady(
         method: 'GET',
         headers,
         signal: controller.signal,
+        redirect: 'manual', // Don't follow redirects - bypass headers are lost on redirect
       });
       clearTimeout(timeoutId);
+
+      // If we get a redirect, it means auth bypass didn't work
+      if (response.status >= 300 && response.status < 400) {
+        if (i === 0) {
+          console.log(`   Attempt ${i + 1}: redirect to ${response.headers.get('location')} (bypass may not be working)`);
+        }
+        continue;
+      }
       if (response.ok || response.status === 304) {
         console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
         return;
