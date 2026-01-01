@@ -38,6 +38,7 @@ jobs:
           # Use bypass token if Deployment Protection is enabled
           # Must use headers + follow redirects + cookie jar for persistence
           if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
+            echo "Using bypass token (length: ${#VERCEL_AUTOMATION_BYPASS_SECRET})"
             response=$(curl -sL \
               -c /tmp/cookies.txt -b /tmp/cookies.txt \
               -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
@@ -46,10 +47,15 @@ jobs:
           else
             response=$(curl -s "$DEPLOY_URL/api/health")
           fi
-          status=$(echo "$response" | jq -r '.status')
+
+          echo "Raw response (first 500 chars):"
+          echo "$response" | head -c 500
+          echo ""
+
+          status=$(echo "$response" | jq -r '.status' 2>/dev/null || echo "parse_error")
 
           echo "Health check response:"
-          echo "$response" | jq .
+          echo "$response" | jq . 2>/dev/null || echo "Failed to parse as JSON"
 
           if [ "$status" != "healthy" ]; then
             echo "::error::Health check failed - status: $status"
