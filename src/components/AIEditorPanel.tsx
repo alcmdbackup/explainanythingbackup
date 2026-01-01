@@ -9,6 +9,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } from '../editorFiles/actions/actions';
 import { Spinner } from '@/components/ui/spinner';
 import { SourceList } from '@/components/sources';
+import OutputModeToggle, { type OutputMode } from './OutputModeToggle';
 import type { SourceChipType } from '@/lib/schemas/schemas';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
 
@@ -35,6 +36,12 @@ interface AIEditorPanelProps {
   onSourcesChange?: (sources: SourceChipType[]) => void;
   /** User ID for source fetching (required if sources are provided) */
   userId?: string;
+  /** Current output mode (inline-diff vs rewrite) */
+  outputMode?: OutputMode;
+  /** Callback when output mode changes */
+  onOutputModeChange?: (mode: OutputMode) => void;
+  /** Callback for rewrite mode - called with prompt and sources */
+  onRewrite?: (prompt: string, sources: SourceChipType[]) => Promise<void>;
 }
 
 interface ProgressState {
@@ -220,7 +227,10 @@ export default function AIEditorPanel({
   loadedSessionId,
   sources = [],
   onSourcesChange,
-  userId
+  userId,
+  outputMode = 'inline-diff',
+  onOutputModeChange,
+  onRewrite
 }: AIEditorPanelProps) {
   const [userPrompt, setUserPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -270,7 +280,32 @@ export default function AIEditorPanel({
     setLastResult(null);
 
     try {
-      // Prepare session data with sources (sources will be formatted server-side)
+      // Route based on output mode
+      if (outputMode === 'rewrite' && onRewrite) {
+        // Rewrite mode: call parent callback which handles the full regeneration
+        handleProgressUpdate('Generating new version...', 20);
+        console.log('🎭 AIEditorPanel: Calling onRewrite callback', {
+          userPrompt: promptToUse.trim(),
+          sourceCount: sources?.length || 0
+        });
+
+        await onRewrite(promptToUse.trim(), sources);
+
+        // History and UI state handled by parent
+        setSuggestionHistory(prev => [{
+          id: generateId(),
+          prompt: promptToUse.trim(),
+          timestamp: new Date(),
+          success: true,
+          sessionId: undefined
+        }, ...prev].slice(0, 10));
+
+        // Clear prompt on success
+        setUserPrompt('');
+        return;
+      }
+
+      // Inline diff mode: use existing AI suggestions pipeline
       handleProgressUpdate('Processing AI suggestions...', 20);
 
       const sessionRequestData = sessionData ? {
@@ -287,7 +322,8 @@ export default function AIEditorPanel({
         sessionRequestData,
         userPrompt: promptToUse.trim(),
         contentLength: currentContent.length,
-        sourceCount: sources?.length || 0
+        sourceCount: sources?.length || 0,
+        outputMode
       });
 
       handleProgressUpdate('Processing AI suggestions...', 50);
@@ -388,7 +424,7 @@ export default function AIEditorPanel({
       setIsLoading(false);
       setProgressState(null);
     }
-  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData, sources, userId]);
+  }, [userPrompt, currentContent, onContentChange, handleProgressUpdate, onEnterEditMode, sessionData, sources, userId, outputMode, onRewrite]);
 
   const handleQuickAction = useCallback((action: QuickAction) => {
     setUserPrompt(action.prompt);
@@ -535,6 +571,15 @@ export default function AIEditorPanel({
             </div>
           )}
 
+          {/* Output Mode Toggle */}
+          {onOutputModeChange && (
+            <OutputModeToggle
+              value={outputMode}
+              onChange={onOutputModeChange}
+              disabled={isLoading}
+            />
+          )}
+
           {/* Submit Button */}
           <button
             onClick={() => handleSubmit()}
@@ -550,14 +595,14 @@ export default function AIEditorPanel({
               {isLoading ? (
                 <>
                   <Spinner variant="quill" size={18} />
-                  <span>Composing...</span>
+                  <span>{outputMode === 'rewrite' ? 'Generating...' : 'Composing...'}</span>
                 </>
               ) : (
                 <>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                   </svg>
-                  <span>Get Suggestions</span>
+                  <span>{outputMode === 'rewrite' ? 'Generate New Version' : 'Get Suggestions'}</span>
                 </>
               )}
             </span>

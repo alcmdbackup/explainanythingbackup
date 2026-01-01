@@ -58,8 +58,11 @@ function ResultsPageContent() {
     // Track pending AI suggestions (blocks save when true)
     const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
 
-    // AI Suggestions Panel state (visible by default, collapsible)
+    // AI Editor Panel state (visible by default, collapsible)
     const [isAIPanelOpen, setIsAIPanelOpen] = useState(true);
+
+    // Output mode for AI editor (inline-diff vs rewrite)
+    const [outputMode, setOutputMode] = useState<'inline-diff' | 'rewrite'>('inline-diff');
 
     // Convert sources to bibliography format (with index for citations)
     const bibliographySources = useMemo(() =>
@@ -1426,6 +1429,33 @@ function ResultsPageContent() {
                         sources={sources}
                         onSourcesChange={setSources}
                         userId={userid || undefined}
+                        outputMode={outputMode}
+                        onOutputModeChange={setOutputMode}
+                        onRewrite={async (prompt, rewriteSources) => {
+                            // Route to handleUserAction with Rewrite input type
+                            logger.debug('AIEditorPanel onRewrite called', {
+                                prompt,
+                                sourcesCount: rewriteSources?.length || 0,
+                                explanationId,
+                                explanationTitle
+                            }, FILE_DEBUG);
+
+                            // Use prompt as user input for rewrite
+                            const rewriteInput = explanationTitle
+                                ? `${explanationTitle}: ${prompt}`
+                                : prompt;
+
+                            await handleUserAction(
+                                rewriteInput,
+                                UserInputType.Rewrite,
+                                mode,
+                                userid,
+                                [], // additionalRules
+                                explanationId || null,
+                                explanationVector,
+                                rewriteSources
+                            );
+                        }}
                         />
                     </div>
 
