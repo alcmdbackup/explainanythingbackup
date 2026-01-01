@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import TagBar from './TagBar';
 import { getAllTagsAction } from '@/actions/actions';
 import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
-import { TagBarMode } from '@/lib/schemas/schemas';
+// TagBarMode removed - special modes deprecated
 import {
   createMockTagBarProps,
   createMockSimpleTag,
@@ -23,23 +23,12 @@ jest.mock('@/lib/services/explanationTags', () => ({
 }));
 
 jest.mock('@/reducers/tagModeReducer', () => {
-  const { TagBarMode } = jest.requireActual('@/lib/schemas/schemas');
   return {
     ...jest.requireActual('@/reducers/tagModeReducer'),
     getCurrentTags: jest.fn((state) => {
-      if (state.mode === 'rewriteWithTags') return state.tempTags || [];
       return state.tags || [];
     }),
-    getTagBarMode: jest.fn((state) => {
-      if (state.mode === 'rewriteWithTags') return TagBarMode.RewriteWithTags;
-      if (state.mode === 'editWithTags') return TagBarMode.EditWithTags;
-      return TagBarMode.Normal;
-    }),
     isTagsModified: jest.fn((state) => {
-      // rewriteWithTags and editWithTags modes are always modified
-      if (state.mode === 'rewriteWithTags' || state.mode === 'editWithTags') {
-        return true;
-      }
       const tags = state.tags || [];
       if (!Array.isArray(tags)) return false;
       return tags.some((tag: any) => {
@@ -145,37 +134,7 @@ describe('TagBar', () => {
       expect(screen.getByText('Apply Tags')).toBeInTheDocument();
     });
 
-    it('should display correct title based on mode - RewriteWithTags', () => {
-      const simpleTag = createMockSimpleTag({
-        tag_active_current: true,
-        tag_active_initial: false, // Modified: was not initially active
-      });
-      const props = createMockTagBarProps({
-        tagState: createMockTagState({
-          tags: [simpleTag],
-          mode: 'rewriteWithTags', // Use exact enum value with spaces
-        }),
-      });
-      render(<TagBar {...props} />);
-
-      expect(screen.getByText('Rewrite with Tags')).toBeInTheDocument();
-    });
-
-    it('should display correct title based on mode - EditWithTags', () => {
-      const simpleTag = createMockSimpleTag({
-        tag_active_current: true,
-        tag_active_initial: false,
-      });
-      const props = createMockTagBarProps({
-        tagState: createMockTagState({
-          tags: [simpleTag],
-          mode: 'editWithTags',
-        }),
-      });
-      render(<TagBar {...props} />);
-
-      expect(screen.getByText('Edit with Tags')).toBeInTheDocument();
-    });
+    // Special mode title tests removed - special modes deprecated
 
     it('should show apply and reset buttons in modified state', () => {
       const simpleTag = createMockSimpleTag({
@@ -923,104 +882,7 @@ describe('TagBar', () => {
       });
     });
 
-    it('should call tagBarApplyClickHandler with descriptions in rewrite mode', async () => {
-      const mockTagBarApplyClickHandler = jest.fn();
-      const simpleTag = createMockSimpleTag({
-        tag_name: 'Test Tag',
-        tag_description: 'Test Description',
-        tag_active_current: true,
-        tag_active_initial: false,
-      });
-      const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [simpleTag], mode: 'rewriteWithTags' }),
-        tagBarApplyClickHandler: mockTagBarApplyClickHandler,
-      });
-      render(<TagBar {...props} />);
-
-      const applyButton = screen.getByRole('button', { name: /apply/i });
-      fireEvent.click(applyButton);
-
-      await waitFor(() => {
-        expect(mockTagBarApplyClickHandler).toHaveBeenCalledWith(['Test Description']);
-      });
-    });
-
-    it('should call tagBarApplyClickHandler with descriptions in edit mode', async () => {
-      const mockTagBarApplyClickHandler = jest.fn();
-      const simpleTag = createMockSimpleTag({
-        tag_name: 'Edit Tag',
-        tag_description: 'Edit Description',
-        tag_active_current: true,
-        tag_active_initial: false,
-      });
-      const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [simpleTag], mode: 'editWithTags' }),
-        tagBarApplyClickHandler: mockTagBarApplyClickHandler,
-      });
-      render(<TagBar {...props} />);
-
-      const applyButton = screen.getByRole('button', { name: /apply/i });
-      fireEvent.click(applyButton);
-
-      await waitFor(() => {
-        expect(mockTagBarApplyClickHandler).toHaveBeenCalledWith(['Edit Description']);
-      });
-    });
-
-    it('should extract only active tag descriptions for apply', async () => {
-      const mockTagBarApplyClickHandler = jest.fn();
-      const activeTag = createMockSimpleTag({
-        tag_description: 'Active Description',
-        tag_active_current: true,
-        tag_active_initial: false,
-      });
-      const inactiveTag = createMockSimpleTag({
-        tag_description: 'Inactive Description',
-        tag_active_current: false,
-        tag_active_initial: true,
-      });
-      const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [activeTag, inactiveTag], mode: 'rewriteWithTags' }),
-        tagBarApplyClickHandler: mockTagBarApplyClickHandler,
-      });
-      render(<TagBar {...props} />);
-
-      const applyButton = screen.getByRole('button', { name: /apply/i });
-      fireEvent.click(applyButton);
-
-      await waitFor(() => {
-        expect(mockTagBarApplyClickHandler).toHaveBeenCalledWith(['Active Description']);
-      });
-    });
-
-    it('should extract descriptions from active preset tags', async () => {
-      const mockTagBarApplyClickHandler = jest.fn();
-      const presetTag = createMockPresetTag({
-        tags: [
-          {
-            id: 1,
-            tag_name: 'Option 1',
-            tag_description: 'Option 1 Description',
-            presetTagId: 100,
-            created_at: new Date().toISOString(),
-          },
-        ],
-        currentActiveTagId: 1,
-        tag_active_current: true,
-      });
-      const props = createMockTagBarProps({
-        tagState: createMockTagState({ tags: [presetTag], mode: 'rewriteWithTags' }),
-        tagBarApplyClickHandler: mockTagBarApplyClickHandler,
-      });
-      render(<TagBar {...props} />);
-
-      const applyButton = screen.getByRole('button', { name: /apply/i });
-      fireEvent.click(applyButton);
-
-      await waitFor(() => {
-        expect(mockTagBarApplyClickHandler).toHaveBeenCalledWith(['Option 1 Description']);
-      });
-    });
+    // Special mode tagBarApplyClickHandler tests removed - special modes deprecated
 
     it('should reset tags when reset button clicked', () => {
       const mockDispatch = jest.fn();

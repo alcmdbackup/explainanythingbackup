@@ -3,14 +3,13 @@
 import { useState, useEffect, useRef, useReducer, useCallback, Suspense, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { AppRouterInstance } from 'next/dist/shared/lib/app-router-context.shared-runtime';
-import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, getTempTagsForRewriteWithTagsAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
+import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExplanationEventAction, saveOrPublishChanges, resolveLinksForDisplayAction } from '@/actions/actions';
 import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import TagBar from '@/components/TagBar';
-import FeedbackPanel from '@/components/FeedbackPanel';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
@@ -52,9 +51,8 @@ function ResultsPageContent() {
     const [streamCompleted, setStreamCompleted] = useState(false);
     const [tagState, dispatchTagAction] = useReducer(tagModeReducer, createInitialTagModeState());
 
-    // Sources state for feedback/rewrite with sources
+    // Sources state for AI editing with sources
     const [sources, setSources] = useState<SourceChipType[]>([]);
-    const [showFeedbackPanel, setShowFeedbackPanel] = useState(false);
 
     // Track pending AI suggestions (blocks save when true)
     const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
@@ -159,31 +157,6 @@ function ResultsPageContent() {
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, [tagState.mode, tagState.showRegenerateDropdown]);
-
-    /**
-     * Initializes temporary tags for "rewrite with tags" functionality
-     *
-     * • Fetches two preset tags from database: "medium" (ID 2) and "moderate" (ID 5)
-     * • Converts database tags to TagUIType format with both active states set to true
-     * • Uses getTempTagsForRewriteWithTagsAction to retrieve actual tag data
-     * • Dispatches ENTER_REWRITE_MODE action with fetched tags
-     *
-     * Used by: "Rewrite with tags" button click handler
-     * Calls: getTempTagsForRewriteWithTagsAction, dispatchTagAction
-     */
-    const initializeTempTagsForRewriteWithTags = async () => {
-        try {
-            const result = await getTempTagsForRewriteWithTagsAction();
-            if (result.success && result.data) {
-                // Dispatch action to enter rewrite mode with temp tags
-                dispatchTagAction({ type: 'ENTER_REWRITE_MODE', tempTags: result.data });
-            } else {
-                logger.error('Failed to fetch temp tags for rewrite with tags', { error: result.error });
-            }
-        } catch (error) {
-            logger.error('Error initializing temp tags for rewrite with tags', { error: error instanceof Error ? error.message : String(error) });
-        }
-    };
 
     /**
      * Determines the mode from URL parameters or localStorage
@@ -507,84 +480,6 @@ function ResultsPageContent() {
             router.push(newUrl);
             // Note: setIsLoading(false) will be handled by the page reload
         }
-    };
-
-    /**
-     * Handles apply button clicks from TagBar in rewrite or edit mode
-     * 
-     * • Routes to appropriate UserInputType based on current modeOverride
-     * • Calls handleUserAction with tag descriptions as additional rules
-     * • Supports both rewrite with tags and edit with tags modes
-     * 
-     * Used by: TagBar component tagBarApplyClickHandler prop
-     * Calls: handleUserAction
-     */
-    const handleTagBarApplyClick = async (tagDescriptions: string[]) => {
-        logger.debug('handleTagBarApplyClick called', { tagDescriptions, tagStateMode: tagState.mode, prompt, explanationTitle, userid }, FILE_DEBUG);
-
-        // Handle apply button click in rewrite or edit mode
-        if (tagState.mode === 'rewriteWithTags') {
-            // For rewrite with tags, use the current explanation title as input
-            const inputForRewrite = explanationTitle || prompt;
-            logger.debug('Calling handleUserAction with RewriteWithTags', { mode, inputForRewrite }, FILE_DEBUG);
-            await handleUserAction(inputForRewrite, UserInputType.RewriteWithTags, mode, userid, tagDescriptions, null, null);
-        } else if (tagState.mode === 'editWithTags') {
-            // For edit with tags, use the current explanation title as input
-            const inputForEdit = explanationTitle || prompt;
-            logger.debug('Calling handleUserAction with EditWithTags', { mode, inputForEdit }, FILE_DEBUG);
-            await handleUserAction(inputForEdit, UserInputType.EditWithTags, mode, userid, tagDescriptions, null, null);
-        } else {
-            logger.debug('No matching mode found', { tagStateMode: tagState.mode }, FILE_DEBUG);
-        }
-    };
-
-    /**
-     * Handles apply from FeedbackPanel (tags + sources combined)
-     *
-     * Uses RewriteWithTags user input type with sources attached
-     */
-    const handleFeedbackPanelApply = async (tagDescriptions: string[], panelSources: SourceChipType[]) => {
-        console.log('handleFeedbackPanelApply called', { tagDescriptions, sourcesCount: panelSources.length });
-
-        const inputForRewrite = explanationTitle || prompt;
-        if (!inputForRewrite) {
-            dispatchLifecycle({ type: 'ERROR', error: 'No input available for rewriting. Please try again.' });
-            return;
-        }
-
-        // Close the feedback panel
-        setShowFeedbackPanel(false);
-
-        // Call handleUserAction with sources
-        await handleUserAction(
-            inputForRewrite,
-            UserInputType.RewriteWithTags,
-            mode,
-            userid,
-            tagDescriptions,
-            null,
-            null,
-            panelSources
-        );
-    };
-
-    /**
-     * Handles reset from FeedbackPanel
-     */
-    const handleFeedbackPanelReset = () => {
-        dispatchTagAction({ type: 'RESET_TAGS' });
-        setSources([]);
-    };
-
-    /**
-     * Opens the FeedbackPanel for rewrite with feedback
-     */
-    const handleOpenFeedbackPanel = async () => {
-        // Initialize temp tags like rewrite with tags does
-        await initializeTempTagsForRewriteWithTags();
-        setShowFeedbackPanel(true);
-        // Close the dropdown
-        dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
     };
 
     /**
@@ -1194,33 +1089,15 @@ function ResultsPageContent() {
                                                     <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
                                                         <div className="py-1">
                                                             <button
-                                                                data-testid="rewrite-with-tags"
-                                                                disabled={isPageLoading || isStreaming}
-                                                                onClick={async () => {
-                                                                    await initializeTempTagsForRewriteWithTags();
-                                                                }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                                            >
-                                                                Rewrite with tags
-                                                            </button>
-                                                            <button
-                                                                data-testid="edit-with-tags"
+                                                                data-testid="advanced-ai-editor"
                                                                 disabled={isPageLoading || isStreaming}
                                                                 onClick={() => {
-                                                                    dispatchTagAction({ type: 'ENTER_EDIT_MODE' });
+                                                                    dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
+                                                                    setShowAdvancedModal(true);
                                                                 }}
                                                                 className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
-                                                                Edit with tags
-                                                            </button>
-                                                            <div className="border-t border-[var(--border-default)] my-1"></div>
-                                                            <button
-                                                                data-testid="rewrite-with-feedback"
-                                                                disabled={isPageLoading || isStreaming}
-                                                                onClick={handleOpenFeedbackPanel}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                                                            >
-                                                                Rewrite with feedback
+                                                                Advanced AI editor...
                                                             </button>
                                                         </div>
                                                     </div>
@@ -1290,41 +1167,25 @@ function ResultsPageContent() {
                                 </div>
                                 )}
                                 
-                                {/* Tags/Feedback section */}
+                                {/* Tags section */}
                                 <div className="mb-2">
-                                    {showFeedbackPanel ? (
-                                        <FeedbackPanel
-                                            tagState={tagState}
-                                            dispatchTagAction={dispatchTagAction}
-                                            sources={sources}
-                                            onSourcesChange={setSources}
-                                            onApply={handleFeedbackPanelApply}
-                                            onReset={handleFeedbackPanelReset}
-                                            explanationId={explanationId}
-                                            isStreaming={isStreaming}
-                                            className="mb-2"
-                                        />
-                                    ) : (
-                                        <TagBar
-                                            tagState={tagState}
-                                            dispatch={dispatchTagAction}
-                                            className="mb-2"
-                                            explanationId={explanationId}
-                                            onTagClick={(tag) => {
-                                                // Handle tag clicks here - you can implement search, filtering, etc.
-                                                logger.debug('Tag clicked', { tag }, FILE_DEBUG);
-                                                // Example: could trigger a search for explanations with this tag
-                                                // or navigate to a tag-specific page
-                                            }}
-                                            tagBarApplyClickHandler={handleTagBarApplyClick}
-                                            isStreaming={isStreaming}
-                                        />
-                                    )}
+                                    <TagBar
+                                        tagState={tagState}
+                                        dispatch={dispatchTagAction}
+                                        className="mb-2"
+                                        explanationId={explanationId}
+                                        onTagClick={(tag) => {
+                                            // Handle tag clicks here - you can implement search, filtering, etc.
+                                            logger.debug('Tag clicked', { tag }, FILE_DEBUG);
+                                            // Example: could trigger a search for explanations with this tag
+                                            // or navigate to a tag-specific page
+                                        }}
+                                        isStreaming={isStreaming}
+                                    />
                                 </div>
                                 {/* Debug logging */}
                                 {(() => {
-                                    logger.debug('TagBar/FeedbackPanel props', {
-                                        showFeedbackPanel,
+                                    logger.debug('TagBar props', {
                                         tagState,
                                         explanationId,
                                         sourcesCount: sources.length

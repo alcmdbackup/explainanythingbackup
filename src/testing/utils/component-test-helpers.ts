@@ -63,29 +63,9 @@ export const createMockPresetTag = (overrides: Partial<PresetTagUIType> = {}): P
 
 /**
  * Creates a mock TagModeState for testing TagBar
+ * Simplified to only support Normal mode (special modes deprecated)
  */
 export const createMockTagState = (overrides: any = {}): TagModeState => {
-  const mode = overrides.mode || 'normal';
-
-  if (mode === 'rewriteWithTags') {
-    return {
-      mode: 'rewriteWithTags',
-      tempTags: overrides.tags || overrides.tempTags || [],
-      originalTags: overrides.originalTags || [],
-      showRegenerateDropdown: false,
-    };
-  }
-
-  if (mode === 'editWithTags') {
-    return {
-      mode: 'editWithTags',
-      tags: overrides.tags || [],
-      originalTags: overrides.originalTags || [],
-      showRegenerateDropdown: false,
-    };
-  }
-
-  // Normal mode
   return {
     mode: 'normal',
     tags: overrides.tags || [],
@@ -128,7 +108,6 @@ export const createMockTagBarProps = (overrides = {}) => ({
   dispatch: jest.fn(),
   explanationId: faker.number.int({ min: 1, max: 1000 }),
   onTagClick: jest.fn(),
-  tagBarApplyClickHandler: jest.fn(),
   isStreaming: false,
   className: '',
   ...overrides,

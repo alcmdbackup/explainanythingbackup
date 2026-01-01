@@ -2,10 +2,10 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { TagFullDbType, TagUIType, TagBarMode } from '@/lib/schemas/schemas';
+import { TagFullDbType, TagUIType } from '@/lib/schemas/schemas';
 import { getAllTagsAction } from '@/actions/actions';
 import { handleApplyForModifyTags } from '@/lib/services/explanationTags';
-import { TagModeState, TagModeAction, getCurrentTags, getTagBarMode, isTagsModified as getIsTagsModified } from '@/reducers/tagModeReducer';
+import { TagModeState, TagModeAction, getCurrentTags, isTagsModified as getIsTagsModified } from '@/reducers/tagModeReducer';
 
 interface TagBarProps {
     tagState: TagModeState;
@@ -13,17 +13,16 @@ interface TagBarProps {
     className?: string;
     onTagClick?: (tag: TagFullDbType) => void;
     explanationId?: number | null;
-    tagBarApplyClickHandler?: (tagDescriptions: string[]) => void;
     isStreaming?: boolean;
 }
 
 /**
  * Displays tags in a horizontal bar with bookmark-style styling
  * Midnight Scholar theme - Tags as elegant bookmarks with gold accents
+ * Now simplified to only support Normal mode (special modes deprecated in favor of modal)
  */
-export default function TagBar({ tagState, dispatch, className = '', onTagClick, explanationId, tagBarApplyClickHandler, isStreaming = false }: TagBarProps) {
+export default function TagBar({ tagState, dispatch, className = '', onTagClick, explanationId, isStreaming = false }: TagBarProps) {
     const tags = getCurrentTags(tagState);
-    const modeOverride = getTagBarMode(tagState);
     const effectiveIsTagsModified = getIsTagsModified(tagState);
     const [openDropdown, setOpenDropdown] = useState<number | null>(null);
     const [showModifiedMenu, setShowModifiedMenu] = useState(false);
@@ -68,55 +67,12 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
         setShowModifiedMenu(false);
     };
 
-    const handleApplyRouter = async () => {
-        if (modeOverride === TagBarMode.Normal && !explanationId) {
+    const handleApply = async () => {
+        if (!explanationId) {
             console.error('No explanation ID provided for applying tags');
             return;
         }
 
-        if (modeOverride === TagBarMode.RewriteWithTags) {
-            await handleApplyRewriteWithTags();
-        } else if (modeOverride === TagBarMode.EditWithTags) {
-            await handleApplyEditWithTags();
-        } else {
-            await handleApplyNormal();
-        }
-    };
-
-    const extractActiveTagDescriptions = (): string[] => {
-        const tagDescriptions: string[] = [];
-        tags.forEach(tag => {
-            if ('tag_name' in tag) {
-                if (tag.tag_active_current) {
-                    tagDescriptions.push(tag.tag_description);
-                }
-            } else {
-                if (tag.tag_active_current) {
-                    const currentTag = tag.tags.find(t => t.id === tag.currentActiveTagId);
-                    if (currentTag) {
-                        tagDescriptions.push(currentTag.tag_description);
-                    }
-                }
-            }
-        });
-        return tagDescriptions;
-    };
-
-    const handleApplyRewriteWithTags = async () => {
-        if (tagBarApplyClickHandler) {
-            const tagDescriptions = extractActiveTagDescriptions();
-            tagBarApplyClickHandler(tagDescriptions);
-        }
-    };
-
-    const handleApplyEditWithTags = async () => {
-        if (tagBarApplyClickHandler) {
-            const tagDescriptions = extractActiveTagDescriptions();
-            tagBarApplyClickHandler(tagDescriptions);
-        }
-    };
-
-    const handleApplyNormal = async () => {
         try {
             const result = await handleApplyForModifyTags(explanationId!, tags);
 
@@ -497,9 +453,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                             <svg className="w-4 h-4 text-[var(--accent-gold)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
                             </svg>
-                            {modeOverride === TagBarMode.Normal ? "Apply Tags" :
-                             modeOverride === TagBarMode.RewriteWithTags ? "Rewrite with Tags" :
-                             modeOverride === TagBarMode.EditWithTags ? "Edit with Tags" : "Apply Tags"}
+Apply Tags
                         </h3>
                     </div>
 
@@ -528,7 +482,7 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
                         <div className="flex space-x-2 ml-4">
                             <button
                                 data-testid="tag-apply-button"
-                                onClick={handleApplyRouter}
+                                onClick={handleApply}
                                 disabled={!explanationId}
                                 className={`px-3 py-1.5 text-xs font-ui font-medium rounded-page transition-all duration-200 ${
                                     explanationId
