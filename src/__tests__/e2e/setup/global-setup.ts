@@ -15,11 +15,11 @@ async function waitForServerReady(
 
   console.log(`   Waiting for server at ${url}...`);
 
-  // Add Vercel bypass headers if secret is available
-  const headers: Record<string, string> = {};
+  // Add Vercel bypass via query parameter (more reliable than headers for Node.js fetch)
+  let fetchUrl = url;
   if (process.env.VERCEL_AUTOMATION_BYPASS_SECRET) {
-    headers['x-vercel-protection-bypass'] = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
-    headers['x-vercel-set-bypass-cookie'] = 'true';
+    const separator = url.includes('?') ? '&' : '?';
+    fetchUrl = `${url}${separator}x-vercel-protection-bypass=${process.env.VERCEL_AUTOMATION_BYPASS_SECRET}`;
     console.log(`   Using bypass token (length: ${process.env.VERCEL_AUTOMATION_BYPASS_SECRET.length})`);
   } else {
     console.log('   No bypass token available');
@@ -29,21 +29,11 @@ async function waitForServerReady(
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
-      const response = await fetch(url, {
+      const response = await fetch(fetchUrl, {
         method: 'GET',
-        headers,
         signal: controller.signal,
-        redirect: 'manual', // Don't follow redirects - bypass headers are lost on redirect
       });
       clearTimeout(timeoutId);
-
-      // If we get a redirect, it means auth bypass didn't work
-      if (response.status >= 300 && response.status < 400) {
-        if (i === 0) {
-          console.log(`   Attempt ${i + 1}: redirect to ${response.headers.get('location')} (bypass may not be working)`);
-        }
-        continue;
-      }
       if (response.ok || response.status === 304) {
         console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
         return;
