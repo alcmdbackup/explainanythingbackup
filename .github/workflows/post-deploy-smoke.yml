@@ -102,8 +102,8 @@ jobs:
 
       - name: Run Smoke Tests against Production
         env:
-          # Override base URL to point to production deployment
-          BASE_URL: ${{ github.event.deployment_status.target_url }}
+          # Use production domain (not preview URL) to avoid Deployment Protection
+          BASE_URL: https://explainanything.vercel.app
           # Supabase connection (required for auth fixture)
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
