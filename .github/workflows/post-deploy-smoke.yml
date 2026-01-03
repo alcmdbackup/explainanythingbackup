@@ -29,12 +29,39 @@ jobs:
 
       - name: Health Check
         id: health
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: |
           DEPLOY_URL="${{ github.event.deployment_status.target_url }}"
           echo "Checking health at: $DEPLOY_URL/api/health"
 
-          response=$(curl -s "$DEPLOY_URL/api/health")
-          status=$(echo "$response" | jq -r '.status')
+          # Add bypass header for protected deployments
+          if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
+            http_code=$(curl -s -o /tmp/health.json -w '%{http_code}' \
+              -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              "$DEPLOY_URL/api/health")
+          else
+            http_code=$(curl -s -o /tmp/health.json -w '%{http_code}' "$DEPLOY_URL/api/health")
+          fi
+
+          # Handle all non-200 status codes (use = for POSIX compliance)
+          if [ "$http_code" = "403" ]; then
+            echo "::error::Deployment protection blocked request (403). Check VERCEL_AUTOMATION_BYPASS_SECRET."
+            exit 1
+          elif [ "$http_code" != "200" ]; then
+            echo "::error::Health check returned HTTP $http_code"
+            cat /tmp/health.json 2>/dev/null || echo "(No response body)"
+            exit 1
+          fi
+
+          # Add jq error handling
+          response=$(cat /tmp/health.json)
+          if ! status=$(echo "$response" | jq -r '.status' 2>/dev/null); then
+            echo "::error::Failed to parse health check JSON response"
+            echo "Response body:"
+            cat /tmp/health.json
+            exit 1
+          fi
 
           echo "Health check response:"
           echo "$response" | jq .
@@ -47,13 +74,13 @@ jobs:
             tags_status=$(echo "$response" | jq -r '.checks.requiredTags.status')
             env_status=$(echo "$response" | jq -r '.checks.environment.status')
 
-            if [ "$db_status" == "fail" ]; then
+            if [ "$db_status" = "fail" ]; then
               echo "::error::Database check failed: $(echo "$response" | jq -r '.checks.database.message')"
             fi
-            if [ "$tags_status" == "fail" ]; then
+            if [ "$tags_status" = "fail" ]; then
               echo "::error::Required tags check failed: $(echo "$response" | jq -r '.checks.requiredTags.message')"
             fi
-            if [ "$env_status" == "fail" ]; then
+            if [ "$env_status" = "fail" ]; then
               echo "::error::Environment check failed: $(echo "$response" | jq -r '.checks.environment.message')"
             fi
 
@@ -89,6 +116,11 @@ jobs:
           TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
           TEST_USER_ID: ${{ secrets.PROD_TEST_USER_ID }}
+          # Vercel bypass for protected deployments
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          # Supabase env vars for auth fixture
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: |
           echo "Running smoke tests against: $BASE_URL"
           npx playwright test --project=chromium --grep="@smoke" --reporter=list

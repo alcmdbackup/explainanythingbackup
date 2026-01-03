@@ -1,12 +1,16 @@
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { cleanupBypassCookieFile } from './vercel-bypass';
 
 async function globalTeardown() {
   console.log('🧹 E2E Global Teardown: Starting...');
 
   // Load environment variables from .env.local
   dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
+
+  // Cleanup Vercel bypass cookie file
+  await cleanupBypassCookieFile();
 
   const testUserId = process.env.TEST_USER_ID;
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;

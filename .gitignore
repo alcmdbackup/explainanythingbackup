@@ -49,3 +49,6 @@ next-env.d.ts
 .playwright-mcp/
 test-results-debug/
 client.log
+
+# E2E test artifacts
+.vercel-bypass-cookie.json
