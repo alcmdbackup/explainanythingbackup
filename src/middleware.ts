@@ -18,6 +18,6 @@ export const config = {
      * - api/monitoring (Sentry tunnel endpoint)
      * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|error|api/client-logs|api/traces|api/monitoring|api/health|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 }

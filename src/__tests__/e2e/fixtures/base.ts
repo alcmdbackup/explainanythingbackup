@@ -14,6 +14,22 @@ export const test = base.extend({
       const bypassState = loadBypassCookieState();
       if (bypassState?.cookie) {
         await context.addCookies([bypassState.cookie]);
+
+        // Validate cookie was actually added
+        const cookies = await context.cookies();
+        const bypassCookie = cookies.find((c) => c.name === bypassState.cookie.name);
+        if (!bypassCookie) {
+          console.error(
+            `❌ Failed to inject bypass cookie "${bypassState.cookie.name}" - ` +
+              `domain mismatch? Cookie domain: ${bypassState.cookie.domain || '(none)'}`
+          );
+        }
+      } else {
+        // Bypass is needed but cookie file is missing/invalid
+        console.error(
+          '❌ Bypass cookie required but not available. ' +
+            'Ensure global-setup ran successfully and VERCEL_AUTOMATION_BYPASS_SECRET is set.'
+        );
       }
     }
 
