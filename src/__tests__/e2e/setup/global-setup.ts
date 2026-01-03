@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { setupVercelBypass } from './vercel-bypass';
 
 /**
  * Waits for the web server to be ready by polling the health endpoint.
@@ -105,11 +106,16 @@ async function globalSetup() {
   // Note: E2E_TEST_MODE check removed - this setup only runs during Playwright tests,
   // so we always want it to execute. The env var is now set at runtime only.
 
+  // Setup Vercel bypass BEFORE server check (for external URLs)
+  // This obtains the cryptographically-signed bypass cookie from Vercel's edge
+  await setupVercelBypass();
+
   // Wait for server to be ready (especially important for production builds in CI)
+  // Always run health check even for external URLs - bypass request hits / not /api/health
   const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
   try {
     await waitForServerReady(baseUrl, {
-      maxRetries: process.env.CI ? 60 : 30,  // 60s for CI (build takes time), 30s locally
+      maxRetries: process.env.CI ? 60 : 30, // 60s for CI (build takes time), 30s locally
       retryInterval: 1000,
     });
   } catch (error) {

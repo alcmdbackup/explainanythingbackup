@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../fixtures/base';
 import { LoginPage } from '../helpers/pages/LoginPage';
 import { waitForState, waitForPageStable } from '../helpers/wait-utils';
 import { safeScreenshot } from '../helpers/error-utils';

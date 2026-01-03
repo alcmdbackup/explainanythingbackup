@@ -11,6 +11,23 @@
 
 ---
 
+## Running Tests Against External URLs
+
+When running E2E tests against Vercel deployments (production or preview), the `VERCEL_AUTOMATION_BYPASS_SECRET` environment variable must be set to bypass Vercel's Deployment Protection.
+
+```bash
+BASE_URL=https://explainanything.vercel.app \
+VERCEL_AUTOMATION_BYPASS_SECRET=$SECRET \
+npm run test:e2e -- --grep="@smoke"
+```
+
+The bypass mechanism:
+1. `global-setup.ts` obtains a cryptographically-signed bypass cookie from Vercel's edge
+2. `fixtures/auth.ts` and `fixtures/base.ts` inject this cookie into browser contexts
+3. See `docs/planning/smoke_test_bypass_deployment_protection_20260102/` for full documentation
+
+---
+
 ## Implementation Progress
 
 ### ✅ Phase 1: Foundation Setup (COMPLETE - Nov 15, 2025)

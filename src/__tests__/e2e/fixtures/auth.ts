@@ -2,6 +2,7 @@ import { test as base, expect, Page } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { needsBypassCookie, loadBypassCookieState } from '../setup/vercel-bypass';
 
 // Load environment variables from .env.local
 // This is needed because Playwright tests run in Node.js workers, not through Next.js
@@ -79,6 +80,11 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const supabaseUrl = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!);
     const projectRef = supabaseUrl.hostname.split('.')[0];
 
+    // Dynamic domain and secure flag based on BASE_URL
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
+    const cookieDomain = new URL(baseUrl).hostname;
+    const isSecure = baseUrl.startsWith('https');
+
     // Create the session object in the format Supabase SSR expects
     const sessionData = {
       access_token: session.access_token,
@@ -97,17 +103,26 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const cookieValue = `base64-${base64url}`;
 
     // Inject Supabase auth cookies into browser context
+    // Use dynamic domain and secure flag based on BASE_URL
     await context.addCookies([
       {
         name: `sb-${projectRef}-auth-token`,
         value: cookieValue,
-        domain: 'localhost',
+        domain: cookieDomain,
         path: '/',
         httpOnly: false,
-        secure: false,
-        sameSite: 'Lax',
+        secure: isSecure,
+        sameSite: isSecure ? 'None' : 'Lax',
       },
     ]);
+
+    // Inject Vercel bypass cookie if available (for protected deployments)
+    if (needsBypassCookie()) {
+      const bypassState = loadBypassCookieState();
+      if (bypassState?.cookie) {
+        await context.addCookies([bypassState.cookie]);
+      }
+    }
 
     // use is Playwright fixture, not React hook
     // eslint-disable-next-line react-hooks/rules-of-hooks
