@@ -2,12 +2,14 @@
 
 ## Environment Files
 
-| File | Purpose | When to Use |
-|------|---------|-------------|
-| `.env.local` | Local development | Default for `npm run dev`. Full credentials for dev database, Grafana tracing, test user. |
-| `.env.prod` | Production reference | Contains prod Supabase/Pinecone IDs. Used by Vercel for production deployments. |
-| `.env.stage` | Staging/preview testing | For testing Vercel preview deployments locally. Uses dev database. |
-| `.env.test` | Automated testing | Used by Jest integration tests. Sets `NODE_ENV=test`, uses `test` Pinecone namespace. |
+| File | Purpose | Grafana | Sentry | When to Use |
+|------|---------|---------|--------|-------------|
+| `.env.local` | Local development | ✅ Yes | ❌ No | Default for `npm run dev`. Full credentials for dev database, Grafana tracing, test user. |
+| `.env.prod` | Production reference | ❌ No* | ❌ No* | Contains prod Supabase/Pinecone IDs. Observability configured in Vercel. |
+| `.env.stage` | Staging/preview testing | ❌ No | ❌ No | For testing Vercel preview deployments locally. Uses dev database. |
+| `.env.test` | Automated testing | ❌ No | ❌ No | Used by Jest integration tests. Sets `NODE_ENV=test`, uses `test` Pinecone namespace. |
+
+*Production observability (Grafana OTLP, Sentry) is configured via **Vercel environment variables**, not in `.env.prod`.
 
 **Note**: All `.env*` files are gitignored. Copy `.env.example` to `.env.local` to get started.
 
