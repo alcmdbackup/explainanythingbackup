@@ -31,21 +31,28 @@ async function authenticateWithRetry(retries = MAX_AUTH_RETRIES): Promise<Sessio
   // Return cached session if still valid (with 5 minute buffer)
   const now = Date.now();
   if (cachedSession && sessionExpiry > now + 5 * 60 * 1000) {
+    console.log('   ✓ Using cached auth session');
     return cachedSession;
   }
 
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const testEmail = process.env.TEST_USER_EMAIL || 'abecha@gmail.com';
+  console.log(`   Authenticating with Supabase: ${supabaseUrl}`);
+  console.log(`   Test user email: ${testEmail}`);
+
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    supabaseUrl,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
   );
 
   for (let attempt = 1; attempt <= retries; attempt++) {
     const { data, error } = await supabase.auth.signInWithPassword({
-      email: process.env.TEST_USER_EMAIL || 'abecha@gmail.com',
+      email: testEmail,
       password: process.env.TEST_USER_PASSWORD || 'password',
     });
 
     if (!error && data.session && data.user) {
+      console.log(`   ✓ Auth succeeded for user: ${data.user.email} (${data.user.id})`);
       cachedSession = {
         access_token: data.session.access_token,
         refresh_token: data.session.refresh_token,
@@ -84,6 +91,8 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
     const cookieDomain = new URL(baseUrl).hostname;
     const isSecure = baseUrl.startsWith('https');
+    const cookieName = `sb-${projectRef}-auth-token`;
+    console.log(`   Setting auth cookie: ${cookieName} on domain: ${cookieDomain} (secure: ${isSecure})`);
 
     // Create the session object in the format Supabase SSR expects
     const sessionData = {
@@ -106,7 +115,7 @@ export const test = base.extend<{ authenticatedPage: Page }>({
     // Use dynamic domain and secure flag based on BASE_URL
     await context.addCookies([
       {
-        name: `sb-${projectRef}-auth-token`,
+        name: cookieName,
         value: cookieValue,
         domain: cookieDomain,
         path: '/',
