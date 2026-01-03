@@ -2,10 +2,11 @@
 Follow the instructions below precisely. 
 1. Always start by looking at the codebase and populating the research doc. Keep iterating on research until the results are thorough enough to start planning. Use different agents to form different perspectives if needed and then reconcile their results. Multiple rounds are OK.
 2. Once the research doc is ready, please update the plan doc in the plan folder based on the template provided. The plan must be incrementally executable and testable. Make sure to create and update any tests and documentation as needed.
-3. Please create multiple subagents to critically evaluate the plan, based on the plan evaluation guidelines in the section below. Ask them if the plan is ready for execution, or has any critical gaps. Proceed only once there is only minor feedback being passed back. 
-4. Make sure all sections in plan template are completed. 
-5. Once plan is ready, then execute the plan incrementally in phases, and update the progress doc along the way. Commit once each phase of the plan is done.  
-6. Upon wrapping up, follow instrucctions below. 
+3. Please create multiple subagents to critically evaluate the plan, based on the plan evaluation guidelines in the section below. Ask them if the plan is ready for execution, or has any critical gaps. 
+4. Repeat the critique with multiple agents until there is only minor feedback being passed back. 
+5. Make sure all sections in plan template are completed. 
+6. Once plan is ready, then execute the plan incrementally in phases, and update the progress doc along the way. Commit once each phase of the plan is done.  
+7. Upon wrapping up, follow instrucctions below. 
 
 # Plan evaluation guidelines
 
