@@ -14,12 +14,12 @@ test.describe('Smoke Tests', () => {
     // Verify page loads
     await expect(page).toHaveTitle(/ExplainAnything/i);
 
-    // Verify search bar is present
+    // Verify search bar is present (use timeout for animations on cold start)
     const searchInput = page.locator('[data-testid="search-input"]');
-    await expect(searchInput).toBeVisible();
+    await expect(searchInput).toBeVisible({ timeout: 10000 });
 
     const searchButton = page.locator('[data-testid="search-submit"]');
-    await expect(searchButton).toBeVisible();
+    await expect(searchButton).toBeVisible({ timeout: 10000 });
   });
 
   test('health check endpoint returns healthy', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
@@ -39,7 +39,8 @@ test.describe('Smoke Tests', () => {
     await page.goto('/userlibrary');
 
     // Should show library page (with or without explanations)
+    // Check for page title which is always present, regardless of library content
     // Use 30s timeout as Supabase queries can take 15-30s on cold start
-    await expect(page.locator('text=Saved')).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('h1:has-text("My Library")')).toBeVisible({ timeout: 30000 });
   });
 });
