@@ -12,6 +12,12 @@ const SET_BYPASS_COOKIE_HEADER = 'x-vercel-set-bypass-cookie';
 
 // Use deterministic filename (not random per worker) to enable cross-worker sharing
 const BYPASS_COOKIE_FILE = path.join(os.tmpdir(), '.vercel-bypass-cookie.json');
+const BYPASS_COOKIE_LOCK = path.join(os.tmpdir(), '.vercel-bypass-cookie.lock');
+
+// Cookie expiry constants
+const COOKIE_STALE_THRESHOLD_MS = 55 * 60 * 1000; // 55 minutes (refresh before 60 min expiry)
+const LOCK_TIMEOUT_MS = 5000; // 5 seconds max wait for lock
+const LOCK_RETRY_MS = 100; // Retry interval for acquiring lock
 
 interface BypassCookie {
   name: string;
@@ -171,7 +177,42 @@ export async function obtainBypassCookieWithRetry(
 }
 
 /**
- * Synchronous write to avoid race condition with workers.
+ * Acquire file lock for safe cross-worker file access.
+ * Uses exclusive file creation as a simple lock mechanism.
+ */
+function acquireLock(): boolean {
+  const startTime = Date.now();
+  while (Date.now() - startTime < LOCK_TIMEOUT_MS) {
+    try {
+      // O_CREAT | O_EXCL - fails if file exists (atomic lock)
+      const fd = fs.openSync(BYPASS_COOKIE_LOCK, fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY);
+      fs.closeSync(fd);
+      return true;
+    } catch {
+      // Lock held by another process, wait and retry
+      const waitTime = Math.min(LOCK_RETRY_MS, LOCK_TIMEOUT_MS - (Date.now() - startTime));
+      if (waitTime > 0) {
+        // Synchronous sleep using Atomics.wait with SharedArrayBuffer
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, waitTime);
+      }
+    }
+  }
+  return false;
+}
+
+/**
+ * Release file lock.
+ */
+function releaseLock(): void {
+  try {
+    fs.unlinkSync(BYPASS_COOKIE_LOCK);
+  } catch {
+    // Lock file doesn't exist, that's fine
+  }
+}
+
+/**
+ * Synchronous write with file locking to avoid race condition with workers.
  * Sets restrictive file permissions (0o600).
  */
 export function saveBypassCookieState(cookie: BypassCookie): void {
@@ -179,28 +220,62 @@ export function saveBypassCookieState(cookie: BypassCookie): void {
     cookie,
     timestamp: Date.now(),
   };
-  // Write synchronously to ensure file is ready before workers start
-  fs.writeFileSync(BYPASS_COOKIE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+
+  if (!acquireLock()) {
+    console.warn('   ⚠️  Could not acquire lock for saving bypass cookie, proceeding anyway');
+  }
+
+  try {
+    // Write synchronously to ensure file is ready before workers start
+    fs.writeFileSync(BYPASS_COOKIE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+  } finally {
+    releaseLock();
+  }
   // Note: Removed unreliable process.on('exit') handler - cleanup relies on global-teardown
 }
 
 /**
- * Load bypass cookie state from file (synchronous for fixture initialization)
+ * Load bypass cookie state from file with file locking (synchronous for fixture initialization)
  */
 export function loadBypassCookieState(): BypassCookieState | null {
+  if (!acquireLock()) {
+    console.warn('   ⚠️  Could not acquire lock for reading bypass cookie');
+  }
+
   try {
     const content = fs.readFileSync(BYPASS_COOKIE_FILE, 'utf-8');
     const state = JSON.parse(content) as BypassCookieState;
 
-    // Warn if cookie is stale (>55 min old, expires at 60 min)
-    if (state.timestamp && Date.now() - state.timestamp > 55 * 60 * 1000) {
-      console.warn('   ⚠️  Bypass cookie may be stale (>55 min old)');
+    // Check if cookie is stale (>55 min old, expires at 60 min)
+    if (state.timestamp && Date.now() - state.timestamp > COOKIE_STALE_THRESHOLD_MS) {
+      console.warn('   ⚠️  Bypass cookie is stale (>55 min old), tests may fail');
+    }
+
+    // Validate cookie structure
+    if (!state.cookie || !state.cookie.name || !state.cookie.value) {
+      console.error('   ❌ Invalid bypass cookie state: missing required fields');
+      return null;
     }
 
     return state;
-  } catch {
+  } catch (error) {
+    // Log error for debugging (helps diagnose file corruption or permission issues)
+    if (error instanceof Error && !error.message.includes('ENOENT')) {
+      console.error(`   ❌ Failed to load bypass cookie: ${error.message}`);
+    }
     return null;
+  } finally {
+    releaseLock();
   }
+}
+
+/**
+ * Check if the current bypass cookie is stale and needs refresh
+ */
+export function isBypassCookieStale(): boolean {
+  const state = loadBypassCookieState();
+  if (!state) return true;
+  return Date.now() - state.timestamp > COOKIE_STALE_THRESHOLD_MS;
 }
 
 /**
