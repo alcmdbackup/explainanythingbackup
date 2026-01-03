@@ -1,8 +1,8 @@
 # Smoke Test Bypass Deployment Protection - Progress
 
-## Overall Status: 🔄 Post-Deploy Testing (Iteration 3)
+## Overall Status: 🔄 Post-Deploy Testing (Iteration 5)
 
-Implementation complete. Multiple production failures identified and fixed through iterative debugging.
+Infrastructure complete. Test-specific failures remaining (data/seeding issues).
 
 ---
 
@@ -152,10 +152,187 @@ curl -s -L -o /tmp/health.json -w '%{http_code}' \
 | 2026-01-03 06:06 | Second production smoke test | ❌ Failed - HTML instead of JSON |
 | 2026-01-03 06:15 | Parallel agent analysis | 11 issues identified across 4 categories |
 | 2026-01-03 06:30 | Comprehensive fixes applied | Middleware, locking, validation, timeouts |
+| 2026-01-03 ~07:00 | Iteration 4 - Server ready timeout | ❌ `waitForServerReady` missing bypass header |
+| 2026-01-03 ~07:30 | PR #120 merged | Added bypass header to `waitForServerReady()` |
+| 2026-01-03 ~08:00 | Iteration 5 - Secrets empty | ❌ `PROD_TEST_USER_*` secrets inaccessible |
+| 2026-01-03 ~08:30 | Root cause: Environment secrets | Workflow missing `environment: Production` |
+| 2026-01-03 ~09:00 | PR #121 merged | Added `environment: Production` + timeout fix |
+| 2026-01-03 ~09:30 | PR #122 merged to production | Deployed to production |
+| 2026-01-03 ~10:00 | Iteration 6 - Tests failing | ✅ Infrastructure works, ❌ 3/4 tests fail |
+
+---
+
+## Iteration 6 Results (Latest - 2026-01-03)
+
+**Run ID**: 20679318711
+
+### What's Working ✅
+- Secrets now accessible (showing `***` masked values)
+- Server ready check passes on first attempt
+- Health check endpoint returns 200 with healthy status
+- Health smoke test passes
+
+### What's Failing ❌
+
+| Test | Error | Root Cause |
+|------|-------|------------|
+| `home page loads and has search bar` | `[data-testid="search-input"]` not found | Search input may not be on home page or different testid |
+| `user library loads` | Timeout waiting for "Saved" text | Test user has no saved explanations in library |
+| `should enter rewrite with tags mode` | Timeout waiting for table | Same library issue - no data for test user |
+
+### Key Discovery: GitHub Environment Secrets
+
+The `PROD_TEST_USER_*` secrets were configured as **Environment secrets** (scoped to "Production" environment), not repository secrets.
+
+**Problem**: The workflow job checked `github.event.deployment.environment == 'Production'` (Vercel's deployment environment name), but this does NOT grant access to GitHub environment secrets.
+
+**Fix**: Added `environment: Production` declaration to the job:
+```yaml
+jobs:
+  smoke-test:
+    environment: Production  # <-- This grants access to env secrets
+    if: |
+      github.event.deployment_status.state == 'success' &&
+      github.event.deployment.environment == 'Production'
+```
+
+---
+
+## Exploration Agent Analysis (2026-01-03 Iteration 6)
+
+4 parallel agents investigated the remaining test failures. Summary of findings:
+
+### Agent 1: Home Page Search Input
+
+**Status**: ✅ Component IS correctly defined and rendered
+
+- `data-testid="search-input"` exists at `src/components/SearchBar.tsx:125` (home variant) and `:195` (nav variant)
+- SearchBar IS rendered on home page at `src/app/page.tsx:52-58`
+- Test expectation is correct
+
+**Likely Root Cause**: Timing/animation issue
+- Component has animation classes (`atlas-animate-fade-up stagger-3`)
+- Test may check visibility before animation completes
+
+**Recommended Fix**: Add explicit timeout:
+```typescript
+await expect(searchInput).toBeVisible({ timeout: 10000 });
+```
+
+### Agent 2: User Library Test
+
+**Status**: ❌ Test has incorrect assumption
+
+**Critical Finding**: The "Saved" column header is **conditionally rendered**:
+```typescript
+// src/components/ExplanationsTablePage.tsx:170-174
+{hasDateSaved && (
+    <th>Saved</th>
+)}
+```
+
+- `hasDateSaved` = `explanations.some(e => e.dateSaved)` (line 74)
+- When library is empty OR no explanations have `dateSaved`, the "Saved" text doesn't appear
+- Test user likely has no saved explanations → empty state renders "Nothing saved yet"
+
+**Recommended Fix**: Change test to check for always-present elements:
+```typescript
+// Instead of: await expect(page.locator('text=Saved')).toBeVisible();
+await expect(page.locator('h1:has-text("My Library")')).toBeVisible();
+// OR
+await expect(page.locator('[data-testid="library-empty-state"]')).toBeVisible();
+```
+
+### Agent 3: Auth Fixture
+
+**Status**: ⚠️ Potential silent failures
+
+**Findings**:
+1. **Different Supabase instances**: Local uses `ifubinffdbyewoezcidz.supabase.co`, prod uses `qbxhivoezkfbjbsctdzo.supabase.co`
+2. Cookie name uses projectRef: `sb-{projectRef}-auth-token`
+3. If secrets don't match prod Supabase users, auth fails silently
+4. Fallback credentials (`abecha@gmail.com`) may not exist in prod instance
+
+**Recommendation**: Verify `PROD_TEST_USER_*` credentials exist in production Supabase instance.
+
+### Agent 4: Comprehensive Issues
+
+**Critical Issues Found**:
+
+| Issue | File | Line | Impact |
+|-------|------|------|--------|
+| Hardcoded tag IDs 2 & 5 | `tags.ts` | 336 | Health check fails if tags missing |
+| SERVICE_ROLE_KEY not in CI | `post-deploy-smoke.yml` | - | Seeding skipped in prod |
+| "Saved" text assumption | `smoke.spec.ts` | 43 | Test fails on empty library |
+| Silent test skips | `action-buttons.spec.ts` | multiple | Tests pass but don't run |
+
+**Seeding Issue**:
+```typescript
+// global-setup.ts:156-163
+if (process.env.SUPABASE_SERVICE_ROLE_KEY) {  // NOT set in CI
+  await seedSharedFixtures();  // Never runs in production
+}
+```
+
+**Health Check Tag IDs**:
+```typescript
+// tags.ts:336
+.in('id', [2, 5])  // Hardcoded - must exist in prod DB
+```
+
+---
+
+## Recommended Fixes (Priority Order)
+
+### 1. 🔴 CRITICAL: Update Smoke Test for Empty Library
+```typescript
+// smoke.spec.ts - change from:
+await expect(page.locator('text=Saved')).toBeVisible({ timeout: 30000 });
+// to:
+await expect(page.locator('h1:has-text("My Library")')).toBeVisible({ timeout: 30000 });
+```
+
+### 2. 🔴 CRITICAL: Verify Tags 2 & 5 Exist in Production
+Run in production Supabase:
+```sql
+SELECT id, tag_name FROM tags WHERE id IN (2, 5);
+```
+
+### 3. 🟠 HIGH: Add SUPABASE_SERVICE_ROLE_KEY to GitHub Secrets
+- Go to GitHub → Settings → Environments → Production
+- Add secret: `SUPABASE_SERVICE_ROLE_KEY`
+- Update workflow to pass it to tests
+
+### 4. 🟠 HIGH: Verify Prod Test User Exists
+Verify in production Supabase that `PROD_TEST_USER_EMAIL` user exists and has correct `PROD_TEST_USER_ID`.
+
+### 5. 🟡 MEDIUM: Add Home Page Test Timeout
+```typescript
+// smoke.spec.ts - add timeout:
+const searchInput = page.locator('[data-testid="search-input"]');
+await expect(searchInput).toBeVisible({ timeout: 10000 });
+```
 
 ---
 
 ## Key Learnings
+
+### 0. GitHub Environment vs Repository Secrets (2026-01-03 ~08:30)
+
+**Critical distinction**:
+- **Repository secrets**: Available to all workflow jobs by default
+- **Environment secrets**: Scoped to specific environments, require `environment:` declaration
+
+The `if:` condition `github.event.deployment.environment == 'Production'` checks **Vercel's** deployment environment name. This is completely separate from GitHub's environment secrets system.
+
+To access environment secrets, you MUST add:
+```yaml
+jobs:
+  job-name:
+    environment: EnvironmentName  # Grants access to that environment's secrets
+```
+
+`gh secret list` only shows repository secrets, not environment secrets. Environment secrets are only visible in GitHub UI under Settings → Environments → [Environment] → Secrets.
 
 ### 1. curl Redirect Behavior
 The Vercel bypass mechanism works in two steps:
@@ -266,3 +443,16 @@ Used 4 parallel exploration agents to analyze potential failure points. Found 11
 | `src/__tests__/integration/vercel-bypass.integration.test.ts` | CREATE |
 | `src/middleware.ts` | MODIFY (add api/health exclusion) |
 | `src/app/api/health/route.ts` | MODIFY (add query timeout) |
+
+---
+
+## PRs Created
+
+| PR | Description | Status |
+|----|-------------|--------|
+| #115 | curl redirect fix for health check | ✅ Merged |
+| #117 | Deployed #115 to production | ✅ Merged |
+| #118 | Comprehensive fixes: file locking, validation, timeouts | ✅ Merged |
+| #120 | Add bypass header to `waitForServerReady()` | ✅ Merged |
+| #121 | Add `environment: Production` + timeout fix | ✅ Merged |
+| #122 | Deploy to production | ✅ Merged |
