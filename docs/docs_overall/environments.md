@@ -1,5 +1,18 @@
 # Environments
 
+## Environment Files
+
+| File | Purpose | When to Use |
+|------|---------|-------------|
+| `.env.local` | Local development | Default for `npm run dev`. Full credentials for dev database, Grafana tracing, test user. |
+| `.env.prod` | Production reference | Contains prod Supabase/Pinecone IDs. Used by Vercel for production deployments. |
+| `.env.stage` | Staging/preview testing | For testing Vercel preview deployments locally. Uses dev database. |
+| `.env.test` | Automated testing | Used by Jest integration tests. Sets `NODE_ENV=test`, uses `test` Pinecone namespace. |
+
+**Note**: All `.env*` files are gitignored. Copy `.env.example` to `.env.local` to get started.
+
+---
+
 ## Overview
 
 | Environment | Supabase Project | Pinecone Index | URL |
