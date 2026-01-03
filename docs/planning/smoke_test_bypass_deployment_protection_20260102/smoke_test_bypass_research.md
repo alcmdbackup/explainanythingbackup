@@ -56,3 +56,69 @@ Key findings from docs:
 2. Global setup runs before tests and can make fetch requests
 3. Cookie domain was hardcoded to `localhost` - needs to be dynamic for external URLs
 4. `VERCEL_AUTOMATION_BYPASS_SECRET` is already in GitHub secrets
+
+## 5. Critical Gaps Identified (Agent Review)
+
+Multiple review agents identified the following gaps in the original approach:
+
+### 5.1 Set-Cookie Header Parsing
+**Issue**: `response.headers.get('set-cookie')` may not return all cookies in Node.js
+**Resolution**: Use `response.headers.getSetCookie()` (Node 18+ API) to get array of Set-Cookie values
+
+### 5.2 Cookie Structure Transformation
+**Issue**: No code to transform Set-Cookie string to Playwright's `Cookie` object format
+**Resolution**: Parse Set-Cookie manually: `cookieString.split(';')[0].split('=')` to extract name/value
+
+### 5.3 Supabase Cookie Also Needs Fix
+**Issue**: The Supabase auth cookie in `auth.ts` line 104 also has hardcoded `domain: 'localhost'`
+**Resolution**: Both cookies need dynamic domain AND `secure`/`sameSite` attributes based on `BASE_URL`
+
+```typescript
+// BEFORE (broken for external URLs)
+domain: 'localhost',
+secure: false,
+sameSite: 'Lax',
+
+// AFTER (works for both localhost and external)
+domain: cookieDomain,           // dynamic from BASE_URL
+secure: isSecure,               // true for https
+sameSite: isSecure ? 'None' : 'Lax',  // None required for cross-origin
+```
+
+### 5.4 chromium-unauth Project
+**Issue**: `playwright.config.ts` has a `chromium-unauth` project with explicit empty `storageState` that won't receive bypass cookies
+**Resolution**: Skip bypass for unauth tests - they test unauthenticated flows that don't need protected routes
+
+### 5.5 Error Handling
+**Issue**: No handling for invalid/missing secret or unexpected response codes
+**Resolution**: Add explicit warnings and graceful fallbacks
+
+### 5.6 Vercel Cookie Name
+**Issue**: Cookie name varies between deployments
+**Resolution**: Search for `_vercel_jwt` OR `__Host-vercel-bypass` in Set-Cookie headers
+
+## 6. Technical Verification
+
+### `redirect: 'manual'` Verification
+Confirmed via MDN and node-fetch documentation that `redirect: 'manual'` stops at redirect response and provides access to Set-Cookie headers before they're lost.
+
+### Cookie Attributes for Playwright
+Verified Playwright's `context.addCookies()` format:
+```typescript
+{
+  name: string;
+  value: string;
+  domain: string;      // Exact domain, no leading dot
+  path: string;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: 'None' | 'Lax' | 'Strict';  // Capitalized
+  expires?: number;    // Unix timestamp in seconds
+}
+```
+
+### Cross-Worker Cookie Sharing
+Playwright workers are separate Node.js processes. File-based sharing is appropriate:
+- Global setup writes cookie to `.vercel-bypass-cookie.json`
+- Each worker reads from file in fixture
+- Global teardown cleans up file
