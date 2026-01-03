@@ -19,6 +19,17 @@
           }
         ]
       }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/scripts/track-review-agent.sh"
+          }
+        ]
+      }
     ]
   }
 }
