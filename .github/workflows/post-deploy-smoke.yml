@@ -36,12 +36,16 @@ jobs:
           echo "Checking health at: $DEPLOY_URL/api/health"
 
           # Add bypass header for protected deployments
+          # Use -L to follow redirects (Vercel returns 307 with Set-Cookie, then redirects)
+          # Use -c/-b to handle cookies across redirects
           if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
-            http_code=$(curl -s -o /tmp/health.json -w '%{http_code}' \
+            http_code=$(curl -s -L -o /tmp/health.json -w '%{http_code}' \
+              -c /tmp/cookies.txt -b /tmp/cookies.txt \
               -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+              -H "x-vercel-set-bypass-cookie: samesitenone" \
               "$DEPLOY_URL/api/health")
           else
-            http_code=$(curl -s -o /tmp/health.json -w '%{http_code}' "$DEPLOY_URL/api/health")
+            http_code=$(curl -s -L -o /tmp/health.json -w '%{http_code}' "$DEPLOY_URL/api/health")
           fi
 
           # Handle all non-200 status codes (use = for POSIX compliance)
