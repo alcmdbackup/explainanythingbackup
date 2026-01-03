@@ -164,11 +164,31 @@ Critical gaps to address:
 
 Applying fixes to the planning document...
 ```
-→ Use TodoWrite to track each gap
-→ Edit the planning document to fix each critical gap
-→ Mark todos complete
-→ Increment iteration
-→ GO TO Step 2
+
+**YOU MUST perform these actions (not optional):**
+
+1. **Create todos** - Use TodoWrite to add one todo per critical gap
+2. **Fix each gap** - For EACH critical gap:
+   - Mark the todo as `in_progress`
+   - Use the Edit tool to modify the planning document
+   - Add the missing section, fix the incorrect assumption, or address the issue
+   - Mark the todo as `completed`
+3. **Show diff summary** - After all fixes, summarize what was changed
+4. **Increment iteration** - Update state file with new iteration count
+5. **Re-run review** - GO TO Step 2 (launch 3 agents again)
+
+**Example fix workflow:**
+```
+Gap: "No rollback plan documented"
+
+1. TodoWrite: Add "Add rollback plan section" (in_progress)
+2. Edit planning.md:
+   - Add "## 10. Rollback Plan" section
+   - Document revert steps, mitigation, escalation
+3. TodoWrite: Mark "Add rollback plan section" (completed)
+```
+
+DO NOT just report gaps and stop. You MUST fix them and re-review.
 
 ### 5. Update State
 
