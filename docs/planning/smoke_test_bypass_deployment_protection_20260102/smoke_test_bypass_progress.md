@@ -1,8 +1,8 @@
 # Smoke Test Bypass Deployment Protection - Progress
 
-## Overall Status: ✅ Implementation Complete
+## Overall Status: 🔄 Post-Deploy Testing
 
-All phases implemented and verified. Ready for merge.
+Implementation complete and merged to production. First production run failed - fixing curl redirect handling.
 
 ---
 
@@ -64,9 +64,9 @@ All phases implemented and verified. Ready for merge.
 
 ## Phase 4: Update GitHub Workflow
 
-**Status**: ✅ Complete
+**Status**: 🔄 Iteration Required
 
-### Work Done
+### Work Done (Initial)
 - Added bypass header to health check curl
 - Added 403 handling and all non-200 status codes
 - Used POSIX-compliant `=` instead of `==`
@@ -74,6 +74,36 @@ All phases implemented and verified. Ready for merge.
 - Added `VERCEL_AUTOMATION_BYPASS_SECRET` to Playwright env
 - Added `NEXT_PUBLIC_SUPABASE_URL` to Playwright env
 - Added `NEXT_PUBLIC_SUPABASE_ANON_KEY` to Playwright env
+
+### Issue Found in Production (2026-01-03)
+First production smoke test failed with HTTP 307:
+```
+Checking health at: https://explainanything-9z7ht184o-acs-projects-dcdb9943.vercel.app/api/health
+##[error]Health check returned HTTP 307
+```
+
+**Root Cause**: The bypass mechanism returns 307 with Set-Cookie header, then redirects to the same URL. Without `-L`, curl stops at the redirect response.
+
+### Fix Applied
+- Added `-L` to follow redirects
+- Added `-c/-b` to persist cookies across redirects
+- Added `x-vercel-set-bypass-cookie: samesitenone` header
+
+```bash
+# Before (broken)
+curl -s -o /tmp/health.json -w '%{http_code}' \
+  -H "x-vercel-protection-bypass: $SECRET" \
+  "$URL"
+
+# After (fixed)
+curl -s -L -o /tmp/health.json -w '%{http_code}' \
+  -c /tmp/cookies.txt -b /tmp/cookies.txt \
+  -H "x-vercel-protection-bypass: $SECRET" \
+  -H "x-vercel-set-bypass-cookie: samesitenone" \
+  "$URL"
+```
+
+**PR**: #115
 
 ---
 
@@ -100,7 +130,7 @@ All phases implemented and verified. Ready for merge.
 
 ## Verification
 
-**Status**: ✅ Complete
+**Status**: ✅ Complete (Local)
 
 ### Results
 - TypeScript: ✅ No errors
@@ -108,7 +138,35 @@ All phases implemented and verified. Ready for merge.
 - Build: ✅ Successful
 - Integration tests: ✅ 14/14 passing
 - E2E tests (unauth): ✅ 2/2 passing
-- Unit tests: ✅ 2233/2234 passing (1 pre-existing flaky test)
+- Unit tests: ✅ 2234/2247 passing
+
+---
+
+## Production Deployment Log
+
+| Date | Event | Result |
+|------|-------|--------|
+| 2026-01-03 05:41 | First production smoke test | ❌ Failed - HTTP 307 |
+| 2026-01-03 05:50 | Fix PR #115 created | Pending merge |
+
+---
+
+## Key Learnings
+
+### 1. curl Redirect Behavior
+The Vercel bypass mechanism works in two steps:
+1. Request with bypass header → 307 redirect + Set-Cookie
+2. Follow redirect with cookie → 200 OK
+
+Without `-L` (follow redirects) and `-c/-b` (cookie jar), curl stops at step 1.
+
+### 2. Planning Doc Gaps
+The original planning doc focused on Playwright's fetch API but didn't account for the GitHub workflow's curl-based health check needing the same redirect handling.
+
+### 3. Vercel Environment Naming
+- Merging to `main` triggers a "staging" deployment
+- Merging to `production` branch triggers "Production" deployment
+- The smoke test only runs for `environment == 'Production'`
 
 ---
 
@@ -119,9 +177,10 @@ All phases implemented and verified. Ready for merge.
 - [x] Build succeeds: `npm run build`
 - [x] Integration tests pass: `npm run test:integration -- vercel-bypass`
 - [x] E2E unauth tests pass locally
-- [ ] Verify `VERCEL_AUTOMATION_BYPASS_SECRET` exists in GitHub Secrets
-- [ ] Verify `NEXT_PUBLIC_SUPABASE_URL` exists in GitHub Secrets
-- [ ] Verify `NEXT_PUBLIC_SUPABASE_ANON_KEY` exists in GitHub Secrets
+- [x] `VERCEL_AUTOMATION_BYPASS_SECRET` exists in GitHub Secrets
+- [x] `NEXT_PUBLIC_SUPABASE_URL` exists in GitHub Secrets
+- [x] `NEXT_PUBLIC_SUPABASE_ANON_KEY` exists in GitHub Secrets
+- [ ] Production smoke test passes
 
 ---
 
@@ -135,7 +194,7 @@ All phases implemented and verified. Ready for merge.
 | `src/__tests__/e2e/fixtures/base.ts` | CREATE |
 | `src/__tests__/e2e/setup/global-teardown.ts` | MODIFY |
 | `src/__tests__/e2e/specs/auth.unauth.spec.ts` | MODIFY |
-| `.github/workflows/post-deploy-smoke.yml` | MODIFY |
+| `.github/workflows/post-deploy-smoke.yml` | MODIFY (x2) |
 | `.gitignore` | MODIFY |
 | `src/__tests__/e2e/E2E_TESTING_PLAN.md` | MODIFY |
 | `src/__tests__/integration/vercel-bypass.integration.test.ts` | CREATE |
