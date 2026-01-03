@@ -39,6 +39,7 @@ test.describe('Smoke Tests', () => {
     await page.goto('/userlibrary');
 
     // Should show library page (with or without explanations)
-    await expect(page.locator('text=Saved')).toBeVisible({ timeout: 10000 });
+    // Use 30s timeout as Supabase queries can take 15-30s on cold start
+    await expect(page.locator('text=Saved')).toBeVisible({ timeout: 30000 });
   });
 });

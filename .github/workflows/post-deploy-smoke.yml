@@ -6,6 +6,8 @@ on:
 
 jobs:
   smoke-test:
+    # Use Production environment to access PROD_TEST_USER_* secrets
+    environment: Production
     # Only run on successful deployments to production
     if: |
       github.event.deployment_status.state == 'success' &&

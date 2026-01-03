@@ -7,24 +7,40 @@ import { setupVercelBypass } from './vercel-bypass';
  * Waits for the web server to be ready by polling the health endpoint.
  * This is especially important when using production builds in CI,
  * where the build step adds significant startup time.
+ *
+ * For Vercel-protected deployments, includes the bypass header to get past
+ * deployment protection before the bypass cookie is available.
  */
 async function waitForServerReady(
   url: string,
   options: { maxRetries?: number; retryInterval?: number } = {}
 ): Promise<void> {
   const { maxRetries = 30, retryInterval = 1000 } = options;
+  const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
 
   console.log(`   Waiting for server at ${url}...`);
 
   for (let i = 0; i < maxRetries; i++) {
     try {
+      // Build headers - include bypass header for Vercel-protected deployments
+      const headers: Record<string, string> = {};
+      if (bypassSecret) {
+        headers['x-vercel-protection-bypass'] = bypassSecret;
+      }
+
       const response = await fetch(url, {
-        method: 'HEAD',
+        method: 'GET', // Use GET for /api/health to get actual response
+        headers,
         signal: AbortSignal.timeout(5000),
+        redirect: 'follow', // Follow Vercel's 307 redirect
       });
       if (response.ok || response.status === 304) {
         console.log(`   ✓ Server is ready (attempt ${i + 1}/${maxRetries})`);
         return;
+      }
+      // Log non-OK status for debugging
+      if (i === 0 || (i + 1) % 10 === 0) {
+        console.log(`   ⏳ Server returned ${response.status} (attempt ${i + 1}/${maxRetries})`);
       }
     } catch {
       // Server not ready yet, continue polling
@@ -111,10 +127,11 @@ async function globalSetup() {
   await setupVercelBypass();
 
   // Wait for server to be ready (especially important for production builds in CI)
-  // Always run health check even for external URLs - bypass request hits / not /api/health
+  // Use /api/health endpoint which is excluded from auth middleware
   const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
+  const healthUrl = `${baseUrl}/api/health`;
   try {
-    await waitForServerReady(baseUrl, {
+    await waitForServerReady(healthUrl, {
       maxRetries: process.env.CI ? 60 : 30, // 60s for CI (build takes time), 30s locally
       retryInterval: 1000,
     });
