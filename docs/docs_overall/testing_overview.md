@@ -132,6 +132,12 @@ typecheck → lint → unit tests → integration tests → E2E tests
 
 > **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
 
+### Supabase Migrations Workflow (`supabase-migrations.yml`)
+
+**Trigger:** Push to `main` with changes in `supabase/migrations/**`
+
+Deploys migrations to Staging first, then Production. See [environments.md](environments.md#database-migrations) for details.
+
 ---
 
 ## GitHub Secrets
