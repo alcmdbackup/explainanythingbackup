@@ -1,5 +1,7 @@
-# Automatically deploy Supabase migrations when they change
-# Deploys to staging first, then production (with manual approval gate)
+# Deploy Supabase migrations
+# Mirrors the normal git flow:
+# - Push to main → deploy to Staging Supabase
+# - Push to production → deploy to Production Supabase
 #
 # ROLLBACK: If a migration fails or causes issues:
 # 1. Supabase migrations are NOT automatically rolled back
@@ -13,22 +15,28 @@ on:
   push:
     branches:
       - main
+      - production
     paths:
       - 'supabase/migrations/**'
-  workflow_dispatch:  # Allow manual trigger
+  workflow_dispatch:  # Manual trigger
     inputs:
-      skip_staging:
-        description: 'Skip staging deployment (emergency prod fix)'
-        required: false
-        default: 'false'
-        type: boolean
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+          - both
 
 jobs:
   deploy-staging:
     name: Deploy to Staging
     runs-on: ubuntu-latest
     environment: Development
-    if: ${{ github.event.inputs.skip_staging != 'true' }}
+    # Run on: push to main, or manual with staging/both
+    if: ${{ github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.environment == 'staging' || github.event.inputs.environment == 'both')) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -59,11 +67,9 @@ jobs:
   deploy-production:
     name: Deploy to Production
     runs-on: ubuntu-latest
-    # IMPORTANT: Production environment should have "Required reviewers" enabled
-    # Go to: Settings > Environments > Production > Add required reviewers
     environment: Production
-    needs: deploy-staging
-    if: ${{ always() && (needs.deploy-staging.result == 'success' || github.event.inputs.skip_staging == 'true') }}
+    # Run on: push to production, or manual with production/both
+    if: ${{ github.ref == 'refs/heads/production' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.environment == 'production' || github.event.inputs.environment == 'both')) }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
