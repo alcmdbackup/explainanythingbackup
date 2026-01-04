@@ -248,9 +248,8 @@ export default function TagBar({ tagState, dispatch, className = '', onTagClick,
         );
     }
 
-    if (!tags || tags.length === 0) {
-        return null;
-    }
+    // Note: We intentionally don't return null when tags.length === 0
+    // The normal display path below will still show the "Add tag" button via AddTagInput
 
     const isTagsModified = effectiveIsTagsModified;
 

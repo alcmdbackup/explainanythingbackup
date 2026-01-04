@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { safeWaitFor, safeTextContent, safeIsVisible } from '../error-utils';
 
 export class UserLibraryPage extends BasePage {
   constructor(page: Page) {
@@ -11,15 +12,21 @@ export class UserLibraryPage extends BasePage {
   }
 
   async waitForLoading() {
-    await this.page.locator('[data-testid="library-loading"]').waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-      // Loading may be too fast to catch
-    });
+    await safeWaitFor(
+      this.page.locator('[data-testid="library-loading"]'),
+      'visible',
+      'UserLibraryPage.waitForLoading',
+      5000
+    );
   }
 
   async waitForLoadingToFinish() {
-    await this.page.locator('[data-testid="library-loading"]').waitFor({ state: 'detached', timeout: 30000 }).catch(() => {
-      // Loading may already be done
-    });
+    await safeWaitFor(
+      this.page.locator('[data-testid="library-loading"]'),
+      'detached',
+      'UserLibraryPage.waitForLoadingToFinish',
+      30000
+    );
   }
 
   async waitForContentOrError(timeout: number = 30000): Promise<'table' | 'error' | 'empty' | 'title' | 'timeout'> {
@@ -59,7 +66,10 @@ export class UserLibraryPage extends BasePage {
     const rows = this.page.locator('[data-testid="explanation-row"]');
     const row = rows.nth(index);
     const title = await row.locator('[data-testid="explanation-title"]').textContent();
-    const saveDate = await row.locator('[data-testid="save-date"]').textContent().catch(() => null);
+    const saveDate = await safeTextContent(
+      row.locator('[data-testid="save-date"]'),
+      'UserLibraryPage.getExplanationByIndex (saveDate)'
+    );
     return { title, saveDate };
   }
 
@@ -99,8 +109,14 @@ export class UserLibraryPage extends BasePage {
     const titleHeader = this.page.locator('th:has-text("Title")');
     const dateHeader = this.page.locator('th:has-text("Created")');
 
-    const titleHasAscending = await titleHeader.locator('svg.w-4.h-4').isVisible().catch(() => false);
-    const dateHasAscending = await dateHeader.locator('svg.w-4.h-4').isVisible().catch(() => false);
+    const titleHasAscending = await safeIsVisible(
+      titleHeader.locator('svg.w-4.h-4'),
+      'UserLibraryPage.getSortIndicator title'
+    );
+    const dateHasAscending = await safeIsVisible(
+      dateHeader.locator('svg.w-4.h-4'),
+      'UserLibraryPage.getSortIndicator date'
+    );
 
     if (titleHasAscending) {
       return { column: 'title', ascending: await titleHeader.locator('svg').evaluate(el => el.classList.contains('inline')) };

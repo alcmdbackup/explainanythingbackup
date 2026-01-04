@@ -14,7 +14,6 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
   mockDiffContent,
@@ -30,48 +29,49 @@ import {
   waitForEditMode,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions Pipeline', () => {
   // Enable retries for this test suite due to SSE mock timing issues
   test.describe.configure({ retries: 2 });
 
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'AI Suggestions Pipeline Test',
+      content: '<h2>Quantum Physics</h2><p>This introductory sentence explains quantum physics. Quantum mechanics describes behavior at atomic scales. It is a fundamental theory in modern physics.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
+
   // ============= Panel Interaction Tests =============
 
   test.describe('Panel Interaction', () => {
-    // Uses library loading pattern instead of SSE mocking for reliability
     test('should display AI suggestions panel', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
 
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-      // Click View on first explanation
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const isPanelVisible = await resultsPage.isAISuggestionsPanelVisible();
       expect(isPanelVisible).toBe(true);
     });
 
-    // NOTE: These tests use library loading pattern instead of SSE mocking for reliability.
-    // They require NEXT_PUBLIC_USE_AI_API_ROUTE=true so the panel uses mockable API route.
-
     test('should show loading state when submitting suggestion', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       // Add delay to observe loading state
       await mockAISuggestionsPipelineAPI(page, {
@@ -80,9 +80,7 @@ test.describe('AI Suggestions Pipeline', () => {
         delay: 1000,
       });
 
-      // Click View on first explanation
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions (required for editor to be editable)
@@ -100,21 +98,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      // Click View on first explanation
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions (required for editor to be editable)
@@ -132,21 +122,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: false,
         error: 'AI service temporarily unavailable',
       });
 
-      // Click View on first explanation
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions (required for editor to be editable)
@@ -164,25 +146,17 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Diff Visualization Tests =============
 
   test.describe('Diff Visualization', () => {
-    // Uses library loading pattern instead of SSE mocking for reliability
     test('should render insertion diffs', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
@@ -199,20 +173,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.deletion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
@@ -229,20 +196,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.mixed,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
@@ -260,25 +220,17 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Accept/Reject Interaction Tests =============
 
   test.describe('Accept/Reject Interactions', () => {
-    // Uses library loading pattern instead of SSE mocking for reliability
     test('should return content with CriticMarkup for accept/reject UI', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Trigger AI suggestions via API route
@@ -296,20 +248,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions (required for editor to be editable)
@@ -333,20 +278,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -362,20 +300,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -393,20 +324,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.deletion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -422,20 +346,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.deletion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -453,20 +370,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.mixed,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -482,27 +392,19 @@ test.describe('AI Suggestions Pipeline', () => {
   });
 
   // ============= Prompt-Specific Tests =============
-  // Uses library loading pattern instead of SSE mocking for reliability
 
   test.describe('Prompt-Specific: Remove First Sentence', () => {
     test('should show deletion diff for first sentence', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -518,20 +420,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -548,20 +443,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -580,20 +468,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -611,20 +492,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -641,20 +515,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -673,20 +540,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -706,20 +566,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {
@@ -737,20 +590,13 @@ test.describe('AI Suggestions Pipeline', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const result = await triggerAISuggestionsViaAPI(page, {

@@ -10,7 +10,6 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
   mockPromptSpecificContent,
@@ -25,27 +24,43 @@ import {
   waitForEditMode,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('Save Blocking with Pending AI Suggestions', () => {
   test.describe.configure({ retries: 2 });
+
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create test data using the factory - no fixtures needed
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Save Blocking Test Explanation',
+      content: '<p>This is test content for save blocking tests. It has multiple sentences.</p>',
+      status: 'draft', // Use draft status so publish button is visible
+    });
+  });
+
+  test.afterAll(async () => {
+    // Clean up test data
+    await testExplanation.cleanup();
+  });
 
   test('save button should be disabled when AI suggestions are pending', async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
+    // Mock AI suggestions API before navigation
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockPromptSpecificContent.removeFirstSentence,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to the test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -74,19 +89,14 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockPromptSpecificContent.removeFirstSentence,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to the test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -117,19 +127,14 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockPromptSpecificContent.removeFirstSentence,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to the test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -168,19 +173,14 @@ test.describe('Save Blocking with Pending AI Suggestions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockPromptSpecificContent.removeFirstSentence,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to the test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions

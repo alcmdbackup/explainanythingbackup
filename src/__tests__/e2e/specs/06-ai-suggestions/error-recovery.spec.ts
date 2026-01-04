@@ -12,7 +12,6 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
   mockDiffContent,
@@ -21,29 +20,42 @@ import {
   submitAISuggestionPrompt,
   waitForSuggestionsError,
   waitForSuggestionsSuccess,
-  waitForSuggestionsLoading,
   waitForDiffNodes,
   getDiffCounts,
   getEditorTextContent,
   waitForEditMode,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import { safeWaitFor } from '../../helpers/error-utils';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions Error Recovery', () => {
   test.describe.configure({ retries: 2 });
+
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Error Recovery Test',
+      content: '<p>Test content for error recovery tests. This has multiple sentences for AI suggestions.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
 
   test('should show error for API 500 and allow retry', async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     const contentBefore = await getEditorTextContent(page);
@@ -91,14 +103,8 @@ test.describe('AI Suggestions Error Recovery', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -128,14 +134,8 @@ test.describe('AI Suggestions Error Recovery', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     const contentBefore = await getEditorTextContent(page);
@@ -161,14 +161,8 @@ test.describe('AI Suggestions Error Recovery', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     const contentBefore = await getEditorTextContent(page);
@@ -188,10 +182,13 @@ test.describe('AI Suggestions Error Recovery', () => {
     await submitAISuggestionPrompt(page, 'Make changes');
 
     // Should show error or handle gracefully - wait for error state
-    // Silent catch: error may not appear if handled differently
-    await waitForSuggestionsError(page).catch(() => {
-      // Error state may not be visible if handled gracefully
-    });
+    // Error may not appear if handled gracefully by the UI
+    await safeWaitFor(
+      page.locator('[data-testid="suggestions-error"]'),
+      'visible',
+      'error-recovery.spec (malformed JSON error state)',
+      5000
+    );
 
     // Content should be unchanged
     const contentAfter = await getEditorTextContent(page);
@@ -202,14 +199,8 @@ test.describe('AI Suggestions Error Recovery', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -245,14 +236,8 @@ test.describe('AI Suggestions Error Recovery', () => {
     test.setTimeout(60000);
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -269,10 +254,13 @@ test.describe('AI Suggestions Error Recovery', () => {
     await submitAISuggestionPrompt(page, 'Add content');
 
     // Wait for loading state to appear (verifies UI is handling the slow request)
-    // Silent catch: loading state may be very brief or test timing may miss it
-    await waitForSuggestionsLoading(page).catch(() => {
-      // Loading state may be too brief to catch
-    });
+    // Loading state may be very brief or test timing may miss it
+    await safeWaitFor(
+      page.locator('[data-testid="suggestions-loading"]'),
+      'visible',
+      'error-recovery.spec (timeout loading state)',
+      5000
+    );
 
     // Content should still be intact regardless of loading state
     const contentAfterTimeout = await getEditorTextContent(page);

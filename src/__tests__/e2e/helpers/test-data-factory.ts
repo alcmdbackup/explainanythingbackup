@@ -26,18 +26,51 @@ function generateTestPrefix(): string {
   return `test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-interface CreateTestExplanationOptions {
+export interface CreateTestExplanationOptions {
   title: string;
   content?: string;
   status?: string;
+  topicId?: number;
 }
 
-interface TestExplanation {
+export interface TestExplanation {
   id: string;
   explanation_title: string;
   content: string;
   status: string;
   cleanup: () => Promise<void>;
+}
+
+/**
+ * Gets or creates a test topic for explanations.
+ * Uses upsert to be idempotent and handle concurrent access safely.
+ * Returns the topic ID.
+ */
+async function getOrCreateTestTopic(): Promise<number> {
+  const supabase = getSupabase();
+
+  // Use upsert to atomically get or create - safe for concurrent test workers
+  const { data: topic, error } = await supabase
+    .from('topics')
+    .upsert(
+      {
+        topic_title: 'test-e2e-topic',
+        topic_description: 'Topic for E2E tests (test-data-factory)',
+      },
+      { onConflict: 'topic_title' }
+    )
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to get or create test topic: ${error.message}`);
+  }
+
+  if (!topic?.id) {
+    throw new Error('Failed to get topic ID after upsert');
+  }
+
+  return topic.id;
 }
 
 /**
@@ -55,6 +88,9 @@ export async function createTestExplanation(
     throw new Error('TEST_USER_ID is required for creating test explanations');
   }
 
+  // Get or create a topic (required field)
+  const topicId = options.topicId ?? await getOrCreateTestTopic();
+
   const { data, error } = await supabase
     .from('explanations')
     .insert({
@@ -63,6 +99,7 @@ export async function createTestExplanation(
       explanation_title: `${prefix}-${options.title}`,
       content: options.content ?? '<p>Test content for E2E testing.</p>',
       status: options.status ?? 'published',
+      primary_topic_id: topicId,
     })
     .select()
     .single();
@@ -103,11 +140,12 @@ export async function createTestExplanationInLibrary(
   return explanation;
 }
 
-interface CreateTestTagOptions {
+export interface CreateTestTagOptions {
   name: string;
+  description?: string;
 }
 
-interface TestTag {
+export interface TestTag {
   id: string;
   tag_name: string;
   cleanup: () => Promise<void>;
@@ -124,6 +162,7 @@ export async function createTestTag(options: CreateTestTagOptions): Promise<Test
     .from('tags')
     .insert({
       tag_name: `${prefix}-${options.name}`,
+      tag_description: options.description ?? 'Test tag for E2E testing',
     })
     .select()
     .single();

@@ -6,13 +6,12 @@
  * - Accept/reject interactions affecting editor content
  * - Error recovery maintaining editor state
  *
- * Uses library loading pattern for reliability (no SSE mocking).
+ * Uses test-data-factory for reliable, isolated test data.
  * Requires NEXT_PUBLIC_USE_AI_API_ROUTE=true for mockable API route.
  */
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
   mockPromptSpecificContent,
@@ -30,10 +29,29 @@ import {
   getEditorTextContent,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions Editor Integration', () => {
   // Enable retries for reliability
   test.describe.configure({ retries: 2 });
+
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Editor Integration Test',
+      content: '<h2>Quantum Physics</h2><p>This introductory sentence explains the topic. Quantum mechanics describes behavior at atomic scales. It is fundamental to modern physics.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
 
   // ============= Deletion Diff Tests =============
 
@@ -42,21 +60,14 @@ test.describe('AI Suggestions Editor Integration', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      // Load content from library (no SSE, reliable DB fetch)
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      // Click View on first explanation
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      // Navigate directly to test explanation
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions (required for editor to be editable)
@@ -80,19 +91,13 @@ test.describe('AI Suggestions Editor Integration', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -119,19 +124,13 @@ test.describe('AI Suggestions Editor Integration', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -166,19 +165,13 @@ test.describe('AI Suggestions Editor Integration', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.shortenFirstParagraph,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -203,19 +196,13 @@ test.describe('AI Suggestions Editor Integration', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -239,15 +226,9 @@ test.describe('AI Suggestions Editor Integration', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       // Get editor content before error
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       const contentBefore = await getEditorTextContent(page);

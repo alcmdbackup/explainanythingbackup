@@ -121,6 +121,7 @@ test.describe('Search and Generate Flow', () => {
       expect(isComplete).toBe(true);
     });
 
+    // eslint-disable-next-line flakiness/no-test-skip -- Requires real DB, not mockable
     test.skip('should automatically assign tags after generation', async ({ authenticatedPage: page }) => {
       // SKIP: Requires real database to load tags after redirect
       // Tags are not stored in SSE stream, they're loaded from DB after redirect
@@ -138,6 +139,7 @@ test.describe('Search and Generate Flow', () => {
       expect(tagTexts).toMatch(/physics|quantum|advanced/);
     });
 
+    // eslint-disable-next-line flakiness/no-test-skip -- Requires real DB, not mockable
     test.skip('should enable save-to-library button after generation', async ({ authenticatedPage: page }) => {
       // SKIP: Requires real database to populate content after redirect
       // Button state depends on explanation data loaded from DB

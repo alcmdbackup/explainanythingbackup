@@ -13,7 +13,7 @@ jobs:
   e2e-full:
     name: E2E Full (${{ matrix.browser }})
     runs-on: ubuntu-latest
-    environment: Development
+    environment: staging
     strategy:
       fail-fast: false
       matrix:

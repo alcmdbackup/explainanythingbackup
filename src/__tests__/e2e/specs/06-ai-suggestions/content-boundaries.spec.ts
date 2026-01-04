@@ -11,7 +11,6 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
 } from '../../helpers/api-mocks';
@@ -23,6 +22,10 @@ import {
   waitForEditMode,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 // Mock responses with modifications
 const mockResponses = {
@@ -86,23 +89,32 @@ Inline code: \`const x = 42\``,
 test.describe('AI Suggestions Content Boundaries', () => {
   test.describe.configure({ retries: 2 });
 
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Content Boundaries Test',
+      content: '<h1>Content Boundaries</h1><p>Test content for content boundary tests. This has multiple sentences for AI suggestions.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
+
   test('should handle suggestions on content with code blocks', async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockResponses.codeBlocks,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -122,19 +134,13 @@ test.describe('AI Suggestions Content Boundaries', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockResponses.nestedList,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -155,19 +161,13 @@ test.describe('AI Suggestions Content Boundaries', () => {
     test.setTimeout(60000);
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
       content: mockResponses.longContent,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -187,14 +187,8 @@ test.describe('AI Suggestions Content Boundaries', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
 
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
-
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Try to submit empty prompt
@@ -210,11 +204,6 @@ test.describe('AI Suggestions Content Boundaries', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     // Response with special characters preserved
     await mockAISuggestionsPipelineAPI(page, {
@@ -228,8 +217,7 @@ test.describe('AI Suggestions Content Boundaries', () => {
 - Arrows: → ← ↑ ↓ ⇒ ⇐`,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -249,11 +237,6 @@ test.describe('AI Suggestions Content Boundaries', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
@@ -271,8 +254,7 @@ test.describe('AI Suggestions Content Boundaries', () => {
 | Cell 3   | Cell 4   |`,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions

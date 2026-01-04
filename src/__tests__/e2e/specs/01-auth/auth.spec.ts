@@ -34,6 +34,7 @@ test.describe('Authentication Flow', () => {
     // TODO: Fix logout test - Server Action redirect() not working from onClick handler
     // The signOut server action uses redirect() which doesn't work properly when called from onClick
     // Should be converted to form action or use startTransition
+    // eslint-disable-next-line flakiness/no-test-skip -- Server Action bug, not missing data
     test.skip('should logout successfully', async ({ authenticatedPage }) => {
       const loginPage = new LoginPage(authenticatedPage);
 

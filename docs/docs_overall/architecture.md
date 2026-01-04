@@ -1,8 +1,21 @@
 # Architecture
 
-## Summary
+## Vision & Principles
 
-**ExplainAnything** is an AI-powered educational content platform that generates, stores, and retrieves explanations using semantic search and LLM generation.
+**ExplainAnything** is an AI-powered publishing and discovery platform that produces high-quality explanatory content through large-scale AI generation combined with human feedback.
+
+**Core loop**: AI generates content → humans provide feedback → content improves → repeat.
+
+### Principles
+1. **AI-Driven Generation**: LLMs draft content faster/cheaper than humans
+2. **Everyone is a Creator**: AI makes editing accessible to all
+3. **Maximize Feedback**: Force frequent feedback to algorithmically improve content
+4. **Attribution**: Original creators receive credit for downstream uses
+5. **Growth**: Measured by content creation and consumption
+
+---
+
+## Summary
 
 ### How It Works
 ```
@@ -80,46 +93,27 @@ export const functionName = serverReadRequestId(_functionName);
 
 ---
 
-## Feature Systems
+## Feature Documentation
 
-### Tag System
-- **Dual Types**: Simple tags + preset collections (mutually exclusive groups)
-- **AI-Powered**: Automatic tag assignment via GPT-4 during content generation
-- **Services**: `tags.ts`, `explanationTags.ts`, `tagEvaluation.ts`
-- **Details**: See `docs/docs_overall/tag_system.md`
+For detailed implementation of each feature, see [feature_deep_dives/](../feature_deep_dives/).
 
-### Link System
-- **Purpose**: Auto-link key terms to internal/external resources
-- **Workflow**: Terms added to whitelist → `linkResolver` scans content → Links applied at render time
-- **Services**: `linkWhitelist.ts`, `linkCandidates.ts`, `linkResolver.ts`, `links.ts`
+---
 
-### Summary System
-- **Purpose**: AI-generated summaries for explore page teasers, SEO meta descriptions, and keyword search
-- **Workflow**: Article published → `explanationSummarizer` generates summary via gpt-4.1-nano → Stored in `explanations` table
-- **Pattern**: Fire-and-forget (doesn't block publish flow, errors logged but not propagated)
-- **Fields**: `summary_teaser` (30-50 word preview), `meta_description` (SEO, max 160 chars), `keywords` (array for search)
-- **Backfill**: `scripts/backfill-summaries.ts` for existing articles
+## Testing
 
-### Editor System
-- **Lexical Editor** with custom plugins:
-  - `DiffTagNode` - AI suggestion diffs
-  - `TextRevealPlugin` - Animated text reveal
-  - `importExportUtils.ts` - Markdown ↔ Lexical conversion
-- **AI Editing**: Unified sidebar (`AIEditorPanel`) + modal (`AdvancedAIEditorModal`) with:
-  - Dual output modes: inline-diff (CriticMarkup) or full rewrite
-  - Source URL integration for context
-  - Tag-based editing in modal
-  - `aiSuggestion.ts` + `markdownASTdiff/` for AST-based diffing
+Four-tier testing strategy: Unit (Jest), ESM (Node), Integration (real DB), E2E (Playwright).
 
-### Authentication
-- Supabase Auth (email/OAuth)
-- Middleware-based route protection (`middleware.ts`)
-- Utilities in `lib/utils/supabase/`
+See [testing_overview.md](testing_overview.md) for testing rules and quick reference commands.
 
-### Analytics
-- Raw events (`userExplanationEvents`) → Aggregated metrics (`explanationMetrics`)
-- PostgreSQL stored procedures for batch calculations
-- **Details**: See `docs/docs_overall/aggregate_metrics_readme.md`
+See [testing_setup.md](../feature_deep_dives/testing_setup.md) for detailed configuration and patterns.
+
+---
+
+## Environments
+
+Six environments: Local Dev, Unit Tests, Integration Tests, GitHub CI, Vercel Preview, Vercel Production.
+
+See [environments.md](environments.md) for database config, env vars, Vercel setup, and observability.
 
 ---
 
@@ -164,33 +158,6 @@ export const functionName = serverReadRequestId(_functionName);
 
 ---
 
-## Testing
-
-### Three-Tier Strategy
-| Tier | Tool | Location | Command |
-|------|------|----------|---------|
-| Unit | Jest + jsdom | Colocated `.test.ts` files | `npm test` |
-| Integration | Jest + node | `__tests__/integration/` | `npm run test:integration` |
-| E2E | Playwright | `__tests__/e2e/specs/` | `npm run test:e2e` |
-
-### E2E Organization
-- `01-auth/` - Authentication flows
-- `02-search-generate/` - Search and generation
-- `03-library/` - User library
-- `04-content-viewing/` - Tags, viewing
-- `05-edge-cases/` - Error handling
-
----
-
-## State Management
-
-- **Local State**: `useState`, `useEffect`
-- **Complex State**: `useReducer` (`pageLifecycleReducer`, `tagModeReducer`)
-- **Custom Hooks**: `useExplanationLoader`, `useStreamingEditor`, `useUserAuth`
-- **Context**: `RequestIdContext`, `ThemeContext`
-
----
-
 ## Appendix
 
 ### Directory Structure (Top-Level)
@@ -209,15 +176,7 @@ src/
 └── testing/          # Test fixtures, mocks, utilities
 ```
 
-### CI/CD (GitHub Actions)
-**ci.yml** (on push/PR): TypeScript → Lint → Unit tests → Integration → E2E
-
-**e2e-nightly.yml**: Daily full browser matrix (Chromium + Firefox)
-
-See `docs/docs_overall/environments.md` for detailed environment configuration, test execution differences (local vs CI), and GitHub Actions workflow comparison.
-
 ### Design System
 **Midnight Scholar Theme**: Book-inspired aesthetics with light/dark modes, custom typography (Playfair Display, Source Serif 4), and warm shadows.
 
-### Migrations
-Located in `supabase/migrations/` - 6 migration files for schema evolution.
+See [design_style_guide.md](design_style_guide.md) for complete design system documentation.

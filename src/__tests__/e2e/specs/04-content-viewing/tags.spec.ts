@@ -1,43 +1,65 @@
+/**
+ * E2E Tests for Tag Management
+ *
+ * Tests for tag display, modification, and changes panel on results page.
+ * Uses test-data-factory for isolated, reliable test data.
+ */
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
+import {
+  createTestExplanationInLibrary,
+  createTestTag,
+  type TestExplanation,
+  type TestTag,
+} from '../../helpers/test-data-factory';
+import { createClient } from '@supabase/supabase-js';
+
+/**
+ * Associates an existing tag with an explanation via the junction table.
+ */
+async function associateTagWithExplanation(explanationId: string, tagId: string): Promise<void> {
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const { error } = await supabase.from('explanation_tags').insert({
+    explanation_id: explanationId,
+    tag_id: tagId,
+  });
+
+  if (error) {
+    throw new Error(`Failed to associate tag with explanation: ${error.message}`);
+  }
+}
 
 test.describe('Tag Management', () => {
-  let resultsPage: ResultsPage;
-  let libraryPage: UserLibraryPage;
-
   // Add retries for flaky network conditions
   test.describe.configure({ retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading
   test.setTimeout(60000);
 
-  test.beforeEach(async ({ authenticatedPage }) => {
-    resultsPage = new ResultsPage(authenticatedPage);
-    libraryPage = new UserLibraryPage(authenticatedPage);
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Tag Management Test',
+      content: '<h1>Tag Test Content</h1><p>This is test content for tag management tests.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
   });
 
   test('should display existing tags on explanation', { tag: '@critical' }, async ({ authenticatedPage }) => {
-    // Navigate to library first to get an explanation with tags
-    await authenticatedPage.goto('/userlibrary');
-    const libraryState = await libraryPage.waitForLibraryReady();
-    if (libraryState === 'error') {
-      throw new Error('Library failed to load');
-    }
-    if (libraryState === 'empty') {
-      test.skip();
-      return;
-    }
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-    if (!hasExplanations) {
-      test.skip();
-      return;
-    }
-
-    // Navigate to first explanation
-    await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-    await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+    // Navigate directly to test explanation
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Verify tags are displayed (may be 0 or more)
@@ -46,25 +68,10 @@ test.describe('Tag Management', () => {
   });
 
   test('should show tag management buttons when tags are modified', async ({ authenticatedPage }) => {
-    // Navigate to an explanation
-    await authenticatedPage.goto('/userlibrary');
-    const libraryState = await libraryPage.waitForLibraryReady();
-    if (libraryState === 'error') {
-      throw new Error('Library failed to load');
-    }
-    if (libraryState === 'empty') {
-      test.skip();
-      return;
-    }
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-    if (!hasExplanations) {
-      test.skip();
-      return;
-    }
-
-    await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-    await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+    // Navigate directly to test explanation
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Check if Apply and Reset buttons exist (they appear when tags are modified)
@@ -88,25 +95,10 @@ test.describe('Tag Management', () => {
   });
 
   test('should handle tag input field interaction', async ({ authenticatedPage }) => {
-    // Navigate to an explanation
-    await authenticatedPage.goto('/userlibrary');
-    const libraryState = await libraryPage.waitForLibraryReady();
-    if (libraryState === 'error') {
-      throw new Error('Library failed to load');
-    }
-    if (libraryState === 'empty') {
-      test.skip();
-      return;
-    }
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-    if (!hasExplanations) {
-      test.skip();
-      return;
-    }
-
-    await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-    await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+    // Navigate directly to test explanation
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Look for add tag input (may need to click a button to show it first)
@@ -118,25 +110,10 @@ test.describe('Tag Management', () => {
   });
 
   test('should preserve tag state after page refresh', { tag: '@critical' }, async ({ authenticatedPage }) => {
-    // Navigate to an explanation
-    await authenticatedPage.goto('/userlibrary');
-    const libraryState = await libraryPage.waitForLibraryReady();
-    if (libraryState === 'error') {
-      throw new Error('Library failed to load');
-    }
-    if (libraryState === 'empty') {
-      test.skip();
-      return;
-    }
+    const resultsPage = new ResultsPage(authenticatedPage);
 
-    const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-    if (!hasExplanations) {
-      test.skip();
-      return;
-    }
-
-    await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-    await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+    // Navigate directly to test explanation
+    await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Get initial tag count
@@ -153,21 +130,10 @@ test.describe('Tag Management', () => {
 
   test.describe('Add Tag Flow (P2)', () => {
     test('should open tag input when add button clicked', async ({ authenticatedPage }) => {
-      await authenticatedPage.goto('/userlibrary');
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Click add tag trigger
@@ -179,21 +145,10 @@ test.describe('Tag Management', () => {
     });
 
     test('should handle cancel button click', async ({ authenticatedPage }) => {
-      await authenticatedPage.goto('/userlibrary');
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Open add tag input
@@ -210,30 +165,38 @@ test.describe('Tag Management', () => {
   });
 
   test.describe('Changes Panel (P2)', () => {
+    // These tests need an explanation WITH a tag to test tag removal
+    let taggedExplanation: TestExplanation;
+    let testTag: TestTag;
+
+    test.beforeAll(async () => {
+      // Create an explanation specifically for Changes Panel tests
+      taggedExplanation = await createTestExplanationInLibrary({
+        title: 'Changes Panel Test',
+        content: '<h1>Changes Panel Content</h1><p>This is test content for changes panel tests.</p>',
+        status: 'published',
+      });
+
+      // Create a tag and associate it with the explanation
+      testTag = await createTestTag({ name: 'changes-panel-tag' });
+      await associateTagWithExplanation(taggedExplanation.id, testTag.id);
+    });
+
+    test.afterAll(async () => {
+      await taggedExplanation.cleanup();
+      await testTag.cleanup();
+    });
+
     test('should toggle changes panel visibility', async ({ authenticatedPage }) => {
-      await authenticatedPage.goto('/userlibrary');
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+      // Navigate directly to the tagged explanation
+      await authenticatedPage.goto(`/results?explanation_id=${taggedExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
-      // First need to modify tags to see the changes panel
+      // Verify we have at least one tag to remove
       const tagCount = await resultsPage.getTagCount();
-      if (tagCount === 0) {
-        test.skip();
-        return;
-      }
+      expect(tagCount).toBeGreaterThan(0);
 
       // Remove a tag to trigger modification state
       await resultsPage.removeTag(0);
@@ -250,28 +213,15 @@ test.describe('Tag Management', () => {
     });
 
     test('should display removed tags with minus indicator', async ({ authenticatedPage }) => {
-      await authenticatedPage.goto('/userlibrary');
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
+      // Navigate directly to the tagged explanation
+      await authenticatedPage.goto(`/results?explanation_id=${taggedExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
+      // Verify we have at least one tag to remove
       const tagCount = await resultsPage.getTagCount();
-      if (tagCount === 0) {
-        test.skip();
-        return;
-      }
+      expect(tagCount).toBeGreaterThan(0);
 
       // Remove a tag
       await resultsPage.removeTag(0);

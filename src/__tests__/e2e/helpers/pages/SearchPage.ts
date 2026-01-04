@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { safeIsVisible } from '../error-utils';
 
 export class SearchPage extends BasePage {
   private searchInput = '[data-testid="search-input"]';
@@ -73,7 +74,7 @@ export class SearchPage extends BasePage {
   async clickSearch() {
     // Check if submit button exists (home variant has it, nav variant doesn't)
     const button = this.page.locator(this.searchButton);
-    const buttonExists = await button.isVisible().catch(() => false);
+    const buttonExists = await safeIsVisible(button, 'SearchPage.clickSearch');
     if (buttonExists) {
       await button.click();
     } else {

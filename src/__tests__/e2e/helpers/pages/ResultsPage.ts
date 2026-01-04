@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { safeIsVisible, safeWaitFor } from '../error-utils';
 
 export class ResultsPage extends BasePage {
   // Selectors
@@ -69,13 +70,15 @@ export class ResultsPage extends BasePage {
       });
     } catch {
       // Fallback: wait for title or content to appear
+      // If neither appears within timeout, proceed anyway (best-effort)
+      // eslint-disable-next-line flakiness/no-silent-catch -- Best-effort fallback, URL redirect is authoritative
       await Promise.race([
         this.page.locator(this.explanationTitle).waitFor({ state: 'visible', timeout: 10000 }),
         this.page.locator(this.explanationContent).waitFor({ state: 'visible', timeout: 10000 }),
       ]).catch(() => {
-        // If both fail, just wait a bit and continue
+        // Both failed - proceed without additional delay
+        // The URL redirect (checked before this) is the authoritative signal
       });
-      await this.page.waitForTimeout(1000);
     }
 
     // Optionally verify stream-complete indicator is attached (should be present after redirect)
@@ -206,11 +209,19 @@ export class ResultsPage extends BasePage {
 
   // Loading state methods
   async isLoading() {
-    return await this.page.isVisible(this.loadingIndicator).catch(() => false);
+    return await safeIsVisible(
+      this.page.locator(this.loadingIndicator),
+      'ResultsPage.isLoading'
+    );
   }
 
   async waitForLoadingToFinish(timeout = 30000) {
-    await this.page.locator(this.loadingIndicator).waitFor({ state: 'hidden', timeout }).catch(() => null);
+    await safeWaitFor(
+      this.page.locator(this.loadingIndicator),
+      'hidden',
+      'ResultsPage.waitForLoadingToFinish',
+      timeout
+    );
   }
 
   // URL parameter helpers

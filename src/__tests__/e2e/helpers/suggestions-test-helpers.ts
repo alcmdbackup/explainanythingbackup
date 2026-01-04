@@ -1,4 +1,5 @@
 import { Page, Locator, expect } from '@playwright/test';
+import { safeIsVisible } from './error-utils';
 
 /**
  * Test helpers for AI Suggestions E2E tests.
@@ -284,7 +285,7 @@ export async function getDiffCounts(page: Page): Promise<{
 export async function enterEditMode(page: Page, timeout = 10000): Promise<void> {
   // Check if already in edit mode (Done button visible)
   const doneButton = page.locator('[data-testid="edit-button"]:has-text("Done")');
-  if (await doneButton.isVisible({ timeout: 1000 }).catch(() => false)) {
+  if (await safeIsVisible(doneButton, 'enterEditMode check', 1000)) {
     return; // Already in edit mode
   }
 
@@ -295,17 +296,13 @@ export async function enterEditMode(page: Page, timeout = 10000): Promise<void> 
   // Force click with all modifiers to ensure the click is handled
   await editButton.click({ force: true });
 
-  // Wait a moment for React state to update
-  await page.waitForTimeout(500);
-
-  // Wait for Done button to appear (confirms edit mode)
+  // Wait for Done button to appear (confirms edit mode via observable condition)
   // If this fails, try clicking again as sometimes first click may not register
   try {
     await page.waitForSelector('[data-testid="edit-button"]:has-text("Done")', { timeout: 3000 });
   } catch {
     // First click may have failed - try again
     await editButton.click({ force: true });
-    await page.waitForTimeout(500);
     await page.waitForSelector('[data-testid="edit-button"]:has-text("Done")', { timeout });
   }
 }
