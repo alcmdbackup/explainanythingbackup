@@ -122,10 +122,10 @@ jobs:
         env:
           # Override base URL to point to production deployment
           BASE_URL: ${{ github.event.deployment_status.target_url }}
-          # Production test credentials
-          TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
-          TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
-          TEST_USER_ID: ${{ secrets.PROD_TEST_USER_ID }}
+          # Production test credentials (from Production environment)
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
           # Vercel bypass for protected deployments
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           # Supabase env vars for auth fixture

@@ -210,9 +210,11 @@ src/
 ```
 
 ### CI/CD (GitHub Actions)
-**ci.yml** (on push/PR): TypeScript → Lint → Unit tests → Integration → E2E (2 shards)
+**ci.yml** (on push/PR): TypeScript → Lint → Unit tests → Integration → E2E
 
-**e2e-nightly.yml**: Daily full browser matrix
+**e2e-nightly.yml**: Daily full browser matrix (Chromium + Firefox)
+
+See `docs/docs_overall/environments.md` for detailed environment configuration, test execution differences (local vs CI), and GitHub Actions workflow comparison.
 
 ### Design System
 **Midnight Scholar Theme**: Book-inspired aesthetics with light/dark modes, custom typography (Playfair Display, Source Serif 4), and warm shadows.
