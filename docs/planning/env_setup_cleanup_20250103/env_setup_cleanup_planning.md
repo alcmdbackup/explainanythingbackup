@@ -285,3 +285,117 @@ This is a documentation-only change with no functional code modifications. If is
 | `.env.example` | CREATE | ~35 lines |
 | `.env.stage` | MODIFY | ~20 lines |
 | `docs/docs_overall/getting_started.md` | MODIFY | +1 line |
+
+---
+
+## 9. GitHub Secrets Consolidation
+
+### Background
+
+Currently, GitHub secrets are split between repository-level and environment-level without a clear structure:
+- **Repository Secrets**: 11 secrets, all pointing to dev database
+- **Production Environment Secrets**: 6 secrets with `PROD_` prefix for test users
+
+This creates inconsistent naming and makes it unclear which secrets belong to which environment.
+
+### Goal
+
+Use GitHub Environments for everything, with consistent naming:
+- **Repository Secrets**: Only shared secrets (API keys that don't change between environments)
+- **Development Environment**: Dev database credentials and test users
+- **Production Environment**: Prod database credentials and test users (same names, different values)
+
+### Proposed Structure
+
+**Repository Secrets (shared across all environments):**
+
+| Secret | Purpose |
+|--------|---------|
+| `OPENAI_API_KEY` | OpenAI API key (same for dev/prod) |
+| `PINECONE_API_KEY` | Pinecone API key (same for dev/prod) |
+
+**Development Environment Secrets:**
+
+| Secret | Value |
+|--------|-------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Dev Supabase URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Dev anon key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Dev service role |
+| `PINECONE_INDEX_NAME_ALL` | `explainanythingdevlarge` |
+| `PINECONE_NAMESPACE` | `test` |
+| `TEST_USER_EMAIL` | Dev test user email |
+| `TEST_USER_PASSWORD` | Dev test user password |
+| `TEST_USER_ID` | Dev test user UUID |
+
+**Production Environment Secrets:**
+
+| Secret | Value |
+|--------|-------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Prod Supabase URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Prod anon key |
+| `TEST_USER_EMAIL` | Prod test user email |
+| `TEST_USER_PASSWORD` | Prod test user password |
+| `TEST_USER_ID` | Prod test user UUID |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | Vercel bypass secret |
+
+### Benefits
+
+1. **Consistent naming**: `TEST_USER_*` everywhere, no `PROD_` prefix needed
+2. **Clear separation**: Dev vs Prod credentials in their respective environments
+3. **Environment-level controls**: Can add approval requirements for Production
+4. **Easier auditing**: Clear which workflows access which credentials
+5. **No duplication**: Shared API keys stay at repository level
+
+### Workflow Changes Required
+
+**ci.yml** - Add environment declaration:
+```yaml
+jobs:
+  integration-tests:
+    environment: Development
+    # ... rest unchanged
+
+  e2e-critical:
+    environment: Development
+    # ... rest unchanged
+
+  e2e-full:
+    environment: Development
+    # ... rest unchanged
+```
+
+**e2e-nightly.yml** - Add environment declaration:
+```yaml
+jobs:
+  e2e-full:
+    environment: Development
+    # ... rest unchanged
+```
+
+**post-deploy-smoke.yml** - Update secret references:
+```yaml
+# Change from:
+TEST_USER_EMAIL: ${{ secrets.PROD_TEST_USER_EMAIL }}
+TEST_USER_PASSWORD: ${{ secrets.PROD_TEST_USER_PASSWORD }}
+TEST_USER_ID: ${{ secrets.PROD_TEST_USER_ID }}
+
+# To:
+TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+```
+
+### Execution Steps
+
+1. **Create Development environment** in GitHub (Settings → Environments)
+2. **Copy secrets to Development environment**:
+   - Move dev-specific secrets from repository level
+   - Keep only `OPENAI_API_KEY` and `PINECONE_API_KEY` at repository level
+3. **Update Production environment**:
+   - Rename `PROD_TEST_USER_*` to `TEST_USER_*`
+4. **Update workflow files**:
+   - Add `environment: Development` to ci.yml jobs
+   - Add `environment: Development` to e2e-nightly.yml
+   - Update post-deploy-smoke.yml to use `TEST_USER_*`
+5. **Delete repository-level secrets** (after verifying workflows work)
+6. **Update documentation** in environments.md

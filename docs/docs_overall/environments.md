@@ -101,33 +101,71 @@ typecheck → lint → unit tests → integration tests → E2E tests
 - `E2E_TEST_MODE=true` for SSE streaming compatibility
 - **Fail strategy:** Continues on failure (tests all browsers)
 
+### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
+
+**Trigger:** Vercel deployment completes successfully to Production
+
+**Behavior:**
+- Runs `@smoke` tagged E2E tests against the live production URL
+- Uses **Production environment secrets** (separate from repository secrets)
+- Health check before running tests
+- Chromium only
+
 ### Workflow Comparison
 
-| Aspect | CI | Nightly |
-|--------|-----|---------|
-| **Trigger** | PR to main/production | Daily 6 AM UTC |
-| **Branch** | PR branch | main |
-| **Test types** | Unit → Integration → E2E | E2E only |
-| **E2E scope** | Critical or sharded full | Full suite |
-| **Browsers** | Chromium | Chromium + Firefox |
-| **On failure** | Stop immediately | Continue testing |
+| Aspect | CI | Nightly | Post-Deploy Smoke |
+|--------|-----|---------|-------------------|
+| **Trigger** | PR to main/production | Daily 6 AM UTC | Vercel deploy success |
+| **Branch** | PR branch | main | production |
+| **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
+| **Target** | Local build | Local build | Live production URL |
+| **Secrets** | Repository (dev) | Repository (dev) | Production environment |
+| **Browsers** | Chromium | Chromium + Firefox | Chromium |
+
+> **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
 
 ### GitHub Secrets
 
-Both CI and Nightly workflows use the same secrets (dev database credentials):
+Secrets are organized using GitHub Environments for clear separation:
+
+#### Repository Secrets (Shared)
+
+Available to all workflows - API keys that don't change between environments:
+
+| Secret | Purpose |
+|--------|---------|
+| `OPENAI_API_KEY` | OpenAI API key |
+| `PINECONE_API_KEY` | Pinecone API key |
+
+#### Development Environment Secrets
+
+Used by `ci.yml` and `e2e-nightly.yml` with `environment: Development`:
 
 | Secret | Value |
 |--------|-------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Dev Supabase URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Dev anon key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Dev service role |
-| `OPENAI_API_KEY` | OpenAI API key |
-| `PINECONE_API_KEY` | Pinecone API key |
 | `PINECONE_INDEX_NAME_ALL` | `explainanythingdevlarge` |
 | `PINECONE_NAMESPACE` | `test` |
-| `TEST_USER_EMAIL` | E2E test user |
-| `TEST_USER_PASSWORD` | E2E test password |
-| `TEST_USER_ID` | E2E test user UUID |
+| `TEST_USER_EMAIL` | Dev test user email |
+| `TEST_USER_PASSWORD` | Dev test user password |
+| `TEST_USER_ID` | Dev test user UUID |
+
+#### Production Environment Secrets
+
+Used by `post-deploy-smoke.yml` with `environment: Production`:
+
+| Secret | Value |
+|--------|-------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Prod Supabase URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Prod anon key |
+| `TEST_USER_EMAIL` | Prod test user email |
+| `TEST_USER_PASSWORD` | Prod test user password |
+| `TEST_USER_ID` | Prod test user UUID |
+| `VERCEL_AUTOMATION_BYPASS_SECRET` | Bypass Vercel deployment protection |
+
+> **Note:** Same secret names (`TEST_USER_*`) are used in both environments with different values. GitHub's environment override behavior ensures the correct credentials are used.
 
 ---
 
