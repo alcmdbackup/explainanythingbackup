@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "OTEL_TRACES_EXPORTER=\"otlp\" OTEL_EXPORTER_OTLP_ENDPOINT=\"https://otlp-gateway-prod-us-west-0.grafana.net/otlp\" OTEL_EXPORTER_OTLP_HEADERS=\"Authorization=Basic MTMyODA2MzpnbGNfZXlKdklqb2lNVFE1TWpNMk15SXNJbTRpT2lKaFkxOW5jbUZtWVc1aElpd2lheUk2SW5RMU1WUjZNRU5LY3pGUmVFWllPVGN3WWpGTE9WaElOaUlzSW0waU9uc2ljaUk2SW5CeWIyUXRkWE10ZDJWemRDMHdJbjE5\" OTEL_RESOURCE_ATTRIBUTES=\"service.name=explainanything,service.namespace=my-application-group,deployment.environment=development\" OTEL_NODE_RESOURCE_DETECTORS=\"env,host,os\" NODE_OPTIONS=\"--require @opentelemetry/auto-instrumentations-node/register\" next dev --turbopack",
+    "dev:server": "next dev --turbopack",
+    "dev:client": "echo 'Next.js unified server - use dev:server' && exit 0",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",

@@ -1,7 +1,39 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { readdirSync, readFileSync } from 'fs';
 import { setupVercelBypass } from './vercel-bypass';
+
+/**
+ * Discovers the frontend URL from Claude Code instance files.
+ * Mirrors the logic in playwright.config.ts to ensure consistency.
+ */
+function discoverInstanceURL(): string | null {
+  try {
+    const instanceFiles = readdirSync('/tmp').filter(f => f.startsWith('claude-instance-'));
+    if (instanceFiles.length === 0) return null;
+
+    const cwd = process.cwd();
+
+    // Try to find an instance matching our project root
+    for (const file of instanceFiles) {
+      try {
+        const info = JSON.parse(readFileSync(`/tmp/${file}`, 'utf-8'));
+        if (info.project_root === cwd) {
+          return info.frontend_url;
+        }
+      } catch {
+        // Skip malformed files
+      }
+    }
+
+    // Fallback to first available instance
+    const firstInfo = JSON.parse(readFileSync(`/tmp/${instanceFiles[0]}`, 'utf-8'));
+    return firstInfo.frontend_url;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Waits for the web server to be ready by polling the health endpoint.
@@ -127,8 +159,11 @@ async function globalSetup() {
   await setupVercelBypass();
 
   // Wait for server to be ready (especially important for production builds in CI)
+  // Priority: BASE_URL env > instance discovery > hardcoded fallback
+  const instanceURL = discoverInstanceURL();
+  const baseUrl = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
+  console.log(`   Using server: ${baseUrl}${instanceURL && !process.env.BASE_URL ? ' (discovered from instance)' : ''}`);
   // Use /api/health endpoint which is excluded from auth middleware
-  const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
   const healthUrl = `${baseUrl}/api/health`;
   try {
     await waitForServerReady(healthUrl, {
@@ -213,7 +248,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Check if test explanation already exists via userLibrary join
-   
+
   const { data: existing, error: existingError } = await supabase
     .from('userLibrary')
     .select('explanationid, explanations!inner(explanation_title)')

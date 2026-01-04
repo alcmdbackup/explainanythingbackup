@@ -110,6 +110,7 @@ typecheck → lint → unit tests → integration tests → E2E tests
 - Uses **Production environment secrets** (separate from repository secrets)
 - Health check before running tests
 - Chromium only
+- **Slack notification** on failure (if `SLACK_WEBHOOK_URL` is configured)
 
 ### Workflow Comparison
 
@@ -164,6 +165,7 @@ Used by `post-deploy-smoke.yml` with `environment: Production`:
 | `TEST_USER_PASSWORD` | Prod test user password |
 | `TEST_USER_ID` | Prod test user UUID |
 | `VERCEL_AUTOMATION_BYPASS_SECRET` | Bypass Vercel deployment protection |
+| `SLACK_WEBHOOK_URL` | Slack webhook for smoke test failure alerts (optional) |
 
 > **Note:** Same secret names (`TEST_USER_*`) are used in both environments with different values. GitHub's environment override behavior ensures the correct credentials are used.
 
