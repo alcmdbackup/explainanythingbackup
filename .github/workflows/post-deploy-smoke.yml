@@ -145,8 +145,48 @@ jobs:
             test-results/
           retention-days: 7
 
-      - name: Notify on failure
+      - name: Notify Slack on failure
         if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
           echo "::error::Post-deployment smoke tests failed! Check the deployment at ${{ github.event.deployment_status.target_url }}"
-          # Add Slack/Discord notification here if desired
+
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{
+                "blocks": [
+                  {
+                    "type": "header",
+                    "text": {
+                      "type": "plain_text",
+                      "text": "🚨 Production Smoke Tests Failed",
+                      "emoji": true
+                    }
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Environment:*\nProduction"
+                      },
+                      {
+                        "type": "mrkdwn",
+                        "text": "*Deployment:*\n<${{ github.event.deployment_status.target_url }}|View Site>"
+                      }
+                    ]
+                  },
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "*Actions Run:*\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"
+                    }
+                  }
+                ]
+              }' \
+              "$SLACK_WEBHOOK_URL"
+          else
+            echo "::warning::SLACK_WEBHOOK_URL not configured - skipping Slack notification"
+          fi

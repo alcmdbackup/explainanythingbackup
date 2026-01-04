@@ -1,8 +1,80 @@
 import { defineConfig, devices } from '@playwright/test';
+import { readdirSync, readFileSync, existsSync } from 'fs';
+import { execSync } from 'child_process';
+import { join } from 'path';
 
 // Note: Do NOT set E2E_TEST_MODE here - it would pollute the environment during
 // `npm run build` and cause the app to reject the production build.
 // E2E_TEST_MODE is set inline in the webServer command for runtime only.
+
+/**
+ * Ensures a dev server is running before discovering its URL.
+ * Starts server on-demand if not already running, resets idle timer.
+ */
+function ensureServerRunning(): void {
+  const ensureScript = join(__dirname, 'docs/planning/tmux_usage/ensure-server.sh');
+  if (!existsSync(ensureScript)) {
+    console.log('[Playwright] ensure-server.sh not found, skipping on-demand start');
+    return;
+  }
+
+  try {
+    console.log('[Playwright] Ensuring dev server is running...');
+    execSync(`bash "${ensureScript}"`, {
+      stdio: 'inherit',
+      timeout: 60000  // 60s timeout for server startup
+    });
+  } catch (error) {
+    console.warn('[Playwright] Failed to ensure server:', error);
+  }
+}
+
+/**
+ * Discovers the frontend URL from Claude Code instance files.
+ * When Claude Code starts, it creates /tmp/claude-instance-{id}.json with server URLs.
+ * This function finds the matching instance for the current project.
+ */
+function discoverInstanceURL(): string | null {
+  try {
+    const instanceFiles = readdirSync('/tmp').filter(f => f.startsWith('claude-instance-'));
+    if (instanceFiles.length === 0) return null;
+
+    const cwd = process.cwd();
+
+    // Try to find an instance matching our project root
+    for (const file of instanceFiles) {
+      try {
+        const info = JSON.parse(readFileSync(`/tmp/${file}`, 'utf-8'));
+        if (info.project_root === cwd) {
+          console.log(`[Playwright] Using Claude instance ${info.instance_id}: ${info.frontend_url}`);
+          return info.frontend_url;
+        }
+      } catch {
+        // Skip malformed files
+      }
+    }
+
+    // No exact match - use first available instance (for worktrees with different paths)
+    // H2: Warn user that fallback may connect to wrong project
+    const firstInfo = JSON.parse(readFileSync(`/tmp/${instanceFiles[0]}`, 'utf-8'));
+    console.warn(`[Playwright] WARNING: No instance matches project_root "${cwd}"`);
+    console.warn(`[Playwright] Falling back to instance ${firstInfo.instance_id} from "${firstInfo.project_root}"`);
+    console.warn(`[Playwright] Tests may run against wrong server! Set BASE_URL to override.`);
+    return firstInfo.frontend_url;
+  } catch {
+    return null;
+  }
+}
+
+// Ensure server is running before discovery (on-demand start)
+// Skip in CI where webServer handles startup
+if (!process.env.CI) {
+  ensureServerRunning();
+}
+
+// Resolve baseURL: explicit env var > instance discovery > hardcoded fallback
+const instanceURL = discoverInstanceURL();
+const baseURL = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
 
 export default defineConfig({
   globalSetup: './src/__tests__/e2e/setup/global-setup.ts',
@@ -17,8 +89,8 @@ export default defineConfig({
     ['json', { outputFile: 'test-results/results.json' }],
   ],
   use: {
-    // Allow BASE_URL override for running against production
-    baseURL: process.env.BASE_URL || 'http://localhost:3008',
+    // Priority: BASE_URL env > Claude instance discovery > fallback
+    baseURL,
     trace: 'on-first-retry',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -62,8 +134,8 @@ export default defineConfig({
       },
     },
   ],
-  // Disable webServer when BASE_URL is set (running against production/staging)
-  ...(process.env.BASE_URL ? {} : {
+  // Disable webServer when using external server (BASE_URL set or Claude instance discovered)
+  ...(process.env.BASE_URL || instanceURL ? {} : {
     webServer: {
       // Use production build in CI for stability; dev server locally for HMR
       // Note: E2E_TEST_MODE must be set at runtime (npm start), not build time,
@@ -71,7 +143,7 @@ export default defineConfig({
       command: process.env.CI
         ? 'npm run build && E2E_TEST_MODE=true npm start -- -p 3008'
         : 'npm run dev -- -p 3008',
-      url: 'http://localhost:3008',
+      url: baseURL,
       reuseExistingServer: !process.env.CI,
       timeout: process.env.CI ? 180000 : 120000,  // Extra time for build in CI
       env: {
