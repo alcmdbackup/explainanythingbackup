@@ -223,6 +223,7 @@ test.describe('Remember Me Feature', () => {
   // NOTE: The following tests are skipped because Supabase SSR uses cookies for auth,
   // and the sb-* keys may not appear in browser storage in CI environments.
   // The remember me preference storage (supabase_remember_me key) is tested above.
+  // eslint-disable-next-line flakiness/no-test-skip -- Supabase SSR uses cookies, storage keys not available
   test.skip('should use localStorage for auth when remember me is checked', async ({ page }) => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
@@ -241,6 +242,7 @@ test.describe('Remember Me Feature', () => {
     expect(storageType).toBe('localStorage');
   });
 
+  // eslint-disable-next-line flakiness/no-test-skip -- Supabase SSR uses cookies, storage keys not available
   test.skip('should use sessionStorage for auth when remember me is unchecked', async ({ page }) => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();

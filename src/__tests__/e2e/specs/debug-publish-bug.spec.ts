@@ -8,7 +8,10 @@ import { SearchPage } from '../helpers/pages/SearchPage';
 import { ResultsPage } from '../helpers/pages/ResultsPage';
 
 test.describe('Publish Bug After Streaming', () => {
-  // Extended timeout needed for streaming generation (90s) + navigation + publish
+  // Extended timeout needed: streaming generation alone can take up to 90s in real scenarios.
+  // This is a debug/investigation test that intentionally tests real streaming behavior
+  // without mocking, so the timeout must exceed streaming duration.
+  // See docs/docs_overall/testing_rules.md for timeout guidelines.
   // eslint-disable-next-line flakiness/max-test-timeout
   test.setTimeout(120000);
 

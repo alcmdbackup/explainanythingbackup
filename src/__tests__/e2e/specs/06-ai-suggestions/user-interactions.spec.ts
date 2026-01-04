@@ -12,7 +12,6 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
   mockDiffContent,
@@ -26,19 +25,33 @@ import {
   waitForEditMode,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions User Interactions', () => {
   test.describe.configure({ retries: 2 });
+
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'User Interactions Test',
+      content: '<p>Test content for user interaction tests. This has multiple sentences for AI suggestions.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
 
   test('should disable submit button during loading', async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     // Add delay to observe loading state
     await mockAISuggestionsPipelineAPI(page, {
@@ -47,8 +60,8 @@ test.describe('AI Suggestions User Interactions', () => {
       delay: 2000,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -73,11 +86,6 @@ test.describe('AI Suggestions User Interactions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     let requestCount = 0;
     await page.route('**/api/runAISuggestionsPipeline', async (route) => {
@@ -95,8 +103,8 @@ test.describe('AI Suggestions User Interactions', () => {
       });
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Try to submit twice rapidly
@@ -122,11 +130,6 @@ test.describe('AI Suggestions User Interactions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     // First suggestion
     await mockAISuggestionsPipelineAPI(page, {
@@ -134,8 +137,8 @@ test.describe('AI Suggestions User Interactions', () => {
       content: mockDiffContent.insertion,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -171,11 +174,6 @@ test.describe('AI Suggestions User Interactions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
@@ -183,8 +181,8 @@ test.describe('AI Suggestions User Interactions', () => {
       delay: 1500,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions
@@ -208,11 +206,6 @@ test.describe('AI Suggestions User Interactions', () => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
-    const libraryPage = new UserLibraryPage(page);
-
-    await libraryPage.navigate();
-    const libraryState = await libraryPage.waitForLibraryReady();
-    test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
     await mockAISuggestionsPipelineAPI(page, {
       success: true,
@@ -220,8 +213,8 @@ test.describe('AI Suggestions User Interactions', () => {
       delay: 1000,
     });
 
-    await libraryPage.clickViewByIndex(0);
-    await page.waitForURL(/\/results\?explanation_id=/);
+    // Navigate directly to test explanation
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
 
     // Enter edit mode before submitting AI suggestions

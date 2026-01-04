@@ -2,30 +2,44 @@
  * E2E Tests for Results Page Action Buttons
  *
  * Tests for Save, Edit, Format Toggle, Mode Dropdown, and Rewrite functionality.
+ * Uses test-data-factory for tests that need existing explanations.
  */
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import { SearchPage } from '../../helpers/pages/SearchPage';
-test.describe('Action Buttons', () => {
-  let resultsPage: ResultsPage;
-  let libraryPage: UserLibraryPage;
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
+test.describe('Action Buttons', () => {
   // Add retries for flaky network conditions
   test.describe.configure({ retries: 1 });
 
   // Increase timeout for these tests since they involve DB loading and streaming
   test.setTimeout(60000);
 
-  test.beforeEach(async ({ authenticatedPage }) => {
-    resultsPage = new ResultsPage(authenticatedPage);
-    libraryPage = new UserLibraryPage(authenticatedPage);
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for tests that need existing explanations
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Action Buttons Test',
+      content: '<h1>Action Test Content</h1><p>This is test content for action button tests.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
   });
 
   test.describe('Save Button Flow (P0)', () => {
     // Note: With E2E_TEST_MODE, the API returns mock SSE streaming,
     // so these tests no longer require real OpenAI API calls.
     test('should save explanation to library when save button clicked', { tag: '@critical' }, async ({ authenticatedPage }) => {
+      const resultsPage = new ResultsPage(authenticatedPage);
+
       // Generate a new explanation that isn't saved yet
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();
@@ -60,6 +74,8 @@ test.describe('Action Buttons', () => {
     });
 
     test('should disable save button after successful save', async ({ authenticatedPage }) => {
+      const resultsPage = new ResultsPage(authenticatedPage);
+
       // Generate new explanation
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();
@@ -80,23 +96,10 @@ test.describe('Action Buttons', () => {
     });
 
     test('should show already saved state for existing saved explanations', { tag: '@critical' }, async ({ authenticatedPage }) => {
-      // Navigate to library to get an existing saved explanation
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      // Click on first explanation
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
       // Wait for lifecycle phase to reach 'viewing' so userSaved state is set
       await resultsPage.waitForViewingPhase();
@@ -111,22 +114,10 @@ test.describe('Action Buttons', () => {
 
   test.describe('Edit Mode (P0)', () => {
     test('should enter edit mode when edit button clicked', { tag: '@critical' }, async ({ authenticatedPage }) => {
-      // Get existing explanation
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
       // Wait for lifecycle phase to reach 'viewing' (required for ENTER_EDIT_MODE action)
       await resultsPage.waitForViewingPhase();
@@ -152,22 +143,10 @@ test.describe('Action Buttons', () => {
     });
 
     test('should exit edit mode when done button clicked', async ({ authenticatedPage }) => {
-      // Get existing explanation
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
       // Wait for lifecycle phase to reach 'viewing' (required for ENTER_EDIT_MODE action)
       await resultsPage.waitForViewingPhase();
@@ -190,21 +169,10 @@ test.describe('Action Buttons', () => {
 
   test.describe('Format Toggle (P2)', () => {
     test('should toggle from markdown to plain text view', async ({ authenticatedPage }) => {
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Verify format toggle is visible
@@ -224,21 +192,10 @@ test.describe('Action Buttons', () => {
     });
 
     test('should toggle from plain text back to markdown', async ({ authenticatedPage }) => {
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Toggle to plain text first
@@ -253,21 +210,10 @@ test.describe('Action Buttons', () => {
 
   test.describe('Mode Dropdown (P2)', () => {
     test('should change mode to Skip Match', async ({ authenticatedPage }) => {
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Verify mode select is visible
@@ -283,21 +229,10 @@ test.describe('Action Buttons', () => {
     });
 
     test('should change mode to Force Match', async ({ authenticatedPage }) => {
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Change to Force Match mode
@@ -311,21 +246,10 @@ test.describe('Action Buttons', () => {
 
   test.describe('Rewrite Flow (P1)', () => {
     test('should trigger regeneration when rewrite button clicked', async ({ authenticatedPage }) => {
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Click rewrite button
@@ -344,22 +268,12 @@ test.describe('Action Buttons', () => {
 
     // Skip: The "Rewrite with tags" UI button (data-testid="rewrite-with-tags") is not
     // currently present in the results page dropdown. Re-enable when feature is implemented.
+    // eslint-disable-next-line flakiness/no-test-skip -- Feature not implemented
     test.skip('should show rewrite with tags option in dropdown', async ({ authenticatedPage }) => {
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Open rewrite dropdown
@@ -372,26 +286,12 @@ test.describe('Action Buttons', () => {
 
     // Skip: The "Rewrite with tags" UI button (data-testid="rewrite-with-tags") is not
     // currently present in the results page. Re-enable when feature is implemented.
+    // eslint-disable-next-line flakiness/no-test-skip -- Feature not implemented
     test.skip('should enter rewrite with tags mode and show TagBar', async ({ authenticatedPage }) => {
-      // This test validates that:
-      // 1. The tags seed data exists in the database (IDs 2 and 5)
-      // 2. The getTempTagsForRewriteWithTagsAction server action works
-      // 3. The TagBar appears in RewriteWithTags mode
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Open rewrite dropdown and click "Rewrite with tags"
@@ -409,23 +309,12 @@ test.describe('Action Buttons', () => {
 
     // Skip: The "Edit with tags" UI button (data-testid="edit-with-tags") is not
     // currently present in the results page. Re-enable when feature is implemented.
+    // eslint-disable-next-line flakiness/no-test-skip -- Feature not implemented
     test.skip('should enter edit with tags mode and show TagBar', async ({ authenticatedPage }) => {
-      // This test validates the Edit with Tags flow works correctly
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      if (libraryState !== 'loaded') {
-        test.skip();
-        return;
-      }
+      const resultsPage = new ResultsPage(authenticatedPage);
 
-      const hasExplanations = await authenticatedPage.locator('[data-testid="explanation-row"]').count() > 0;
-      if (!hasExplanations) {
-        test.skip();
-        return;
-      }
-
-      await authenticatedPage.locator('[data-testid="explanation-row"]').first().locator('a:has-text("View")').click();
-      await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Open rewrite dropdown and click "Edit with tags"

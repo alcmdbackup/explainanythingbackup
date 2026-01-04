@@ -1,5 +1,6 @@
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
+import { safeWaitFor } from '../error-utils';
 
 /**
  * Page object for Import Articles feature
@@ -189,14 +190,19 @@ export class ImportPage extends BasePage {
      */
     async waitForDetectionComplete() {
         // Wait for detecting to appear then disappear
-        // Silent catches are intentional - detection may be too fast to observe
-        // or may have already completed before we check
-        await this.page.locator(this.detectingIndicator).waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-            // Detection may be too fast to catch, or already done
-        });
-        await this.page.locator(this.detectingIndicator).waitFor({ state: 'hidden', timeout: 10000 }).catch(() => {
-            // Detection already complete
-        });
+        // Detection may be too fast to observe or may have already completed
+        await safeWaitFor(
+            this.page.locator(this.detectingIndicator),
+            'visible',
+            'ImportPage.waitForDetectionComplete (detecting visible)',
+            5000
+        );
+        await safeWaitFor(
+            this.page.locator(this.detectingIndicator),
+            'hidden',
+            'ImportPage.waitForDetectionComplete (detecting hidden)',
+            10000
+        );
     }
 
     /**

@@ -1,11 +1,36 @@
+/**
+ * E2E Tests for User Library Management
+ *
+ * Tests library page functionality including navigation, sorting, and search.
+ * Uses test-data-factory to ensure test data exists (no conditional skips).
+ */
 import { test, expect } from '../../fixtures/auth';
 import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
+import { safeIsVisible } from '../../helpers/error-utils';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('User Library Management', () => {
   // Run tests serially to avoid shared data contention
   test.describe.configure({ mode: 'serial' });
 
   let libraryPage: UserLibraryPage;
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create test data to ensure library is never empty
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Library Test Explanation',
+      content: '<p>Test content for library management tests.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
 
   test.beforeEach(async ({ authenticatedPage }) => {
     libraryPage = new UserLibraryPage(authenticatedPage);
@@ -21,7 +46,10 @@ test.describe('User Library Management', () => {
     await authenticatedPage.goto('/userlibrary');
 
     // Should show loading indicator (it's OK if loading is too fast to catch)
-    await authenticatedPage.locator('[data-testid="library-loading"]').isVisible().catch(() => false);
+    await safeIsVisible(
+      authenticatedPage.locator('[data-testid="library-loading"]'),
+      'library.spec (loading indicator)'
+    );
 
     // This test passes if we reach here - loading may be too fast to catch
     expect(true).toBe(true);
@@ -32,9 +60,18 @@ test.describe('User Library Management', () => {
     await waitForPageReady(libraryPage);
 
     // Should show either content table, empty state, OR error message
-    const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    const hasEmptyState = await authenticatedPage.locator('[data-testid="library-empty-state"]').isVisible().catch(() => false);
-    const hasError = await authenticatedPage.locator('[data-testid="library-error"]').isVisible().catch(() => false);
+    const hasTable = await safeIsVisible(
+      authenticatedPage.locator('table'),
+      'library.spec (table)'
+    );
+    const hasEmptyState = await safeIsVisible(
+      authenticatedPage.locator('[data-testid="library-empty-state"]'),
+      'library.spec (empty state)'
+    );
+    const hasError = await safeIsVisible(
+      authenticatedPage.locator('[data-testid="library-error"]'),
+      'library.spec (error)'
+    );
 
     // Page should render something after loading
     expect(hasTable || hasEmptyState || hasError).toBe(true);
@@ -54,11 +91,12 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    if (!hasTable) {
-      test.skip();
-      return;
-    }
+    // With test data created in beforeAll, table should always be visible
+    const hasTable = await safeIsVisible(
+      authenticatedPage.locator('table'),
+      'library.spec (sortable headers check)'
+    );
+    expect(hasTable).toBe(true);
 
     // Check for sortable headers
     const titleHeader = authenticatedPage.locator('th:has-text("Title")');
@@ -72,11 +110,12 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    if (!hasTable) {
-      test.skip();
-      return;
-    }
+    // With test data created in beforeAll, table should always be visible
+    const hasTable = await safeIsVisible(
+      authenticatedPage.locator('table'),
+      'library.spec (sort by title check)'
+    );
+    expect(hasTable).toBe(true);
 
     // Click title header to sort
     await libraryPage.clickSortByTitle();
@@ -91,11 +130,12 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    if (!hasTable) {
-      test.skip();
-      return;
-    }
+    // With test data created in beforeAll, table should always be visible
+    const hasTable = await safeIsVisible(
+      authenticatedPage.locator('table'),
+      'library.spec (sort by date check)'
+    );
+    expect(hasTable).toBe(true);
 
     // Toggle sort order (default is date desc)
     await libraryPage.clickSortByDate();
@@ -110,12 +150,9 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
+    // With test data created in beforeAll, explanation count should be > 0
     const explanationCount = await libraryPage.getExplanationCount();
-
-    if (explanationCount === 0) {
-      test.skip();
-      return;
-    }
+    expect(explanationCount).toBeGreaterThan(0);
 
     // Click the View link for the first explanation
     await libraryPage.clickViewByIndex(0);
@@ -130,11 +167,9 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
+    // With test data created in beforeAll, explanation count should be > 0
     const explanationCount = await libraryPage.getExplanationCount();
-    if (explanationCount === 0) {
-      test.skip();
-      return;
-    }
+    expect(explanationCount).toBeGreaterThan(0);
 
     // Saved column should be visible in user library
     const hasDateSavedHeader = await authenticatedPage.locator('th:has-text("Saved")').isVisible();
@@ -145,11 +180,12 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    const hasTable = await authenticatedPage.locator('table').isVisible().catch(() => false);
-    if (!hasTable) {
-      test.skip();
-      return;
-    }
+    // With test data created in beforeAll, table should always be visible
+    const hasTable = await safeIsVisible(
+      authenticatedPage.locator('table'),
+      'library.spec (search bar check)'
+    );
+    expect(hasTable).toBe(true);
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);
@@ -159,11 +195,9 @@ test.describe('User Library Management', () => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
+    // Search bar should always be present in navigation
     const hasSearchBar = await libraryPage.hasSearchBar();
-    if (!hasSearchBar) {
-      test.skip();
-      return;
-    }
+    expect(hasSearchBar).toBe(true);
 
     // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');

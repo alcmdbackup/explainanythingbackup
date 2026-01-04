@@ -50,6 +50,17 @@ const eslintConfig = [
     rules: {
       "flakiness/no-wait-for-timeout": "error",
       "flakiness/max-test-timeout": "warn",
+      "flakiness/no-test-skip": "error",
+    },
+  },
+  // Silent error swallowing prevention for E2E helpers and specs
+  {
+    files: ["**/e2e/**/*.ts", "**/e2e/**/*.tsx"],
+    plugins: {
+      flakiness: flakinessRules,
+    },
+    rules: {
+      "flakiness/no-silent-catch": "error",
     },
   },
   // Promise handling rules to catch silent error swallowing

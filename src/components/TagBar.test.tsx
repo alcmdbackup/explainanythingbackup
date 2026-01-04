@@ -74,14 +74,16 @@ describe('TagBar', () => {
       expect(addButton).toHaveAttribute('title', 'Add tag (disabled during streaming)');
     });
 
-    it('should render empty (null) when not streaming and no tags', () => {
+    it('should render Add tag button when not streaming and no tags', () => {
       const props = createMockTagBarProps({
         isStreaming: false,
         tagState: createMockTagState({ tags: [] }),
       });
-      const { container } = render(<TagBar {...props} />);
+      render(<TagBar {...props} />);
 
-      expect(container.firstChild).toBeNull();
+      // Should show Add tag button even with no tags
+      expect(screen.getByTestId('add-tag-trigger')).toBeInTheDocument();
+      expect(screen.getByText('Tags:')).toBeInTheDocument();
     });
 
     it('should render tags in normal unmodified state', () => {
@@ -957,24 +959,26 @@ describe('TagBar', () => {
       });
     });
 
-    it('should handle empty tags array gracefully', () => {
+    it('should handle empty tags array gracefully by showing Add tag button', () => {
       const props = createMockTagBarProps({
         tagState: createMockTagState({ tags: [] }),
         isStreaming: false,
       });
-      const { container } = render(<TagBar {...props} />);
+      render(<TagBar {...props} />);
 
-      expect(container.firstChild).toBeNull();
+      // Should show Add tag button even with empty tags array
+      expect(screen.getByTestId('add-tag-trigger')).toBeInTheDocument();
     });
 
-    it('should handle null tags gracefully', () => {
+    it('should handle null tags gracefully by showing Add tag button', () => {
       const props = createMockTagBarProps({
         tagState: createMockTagState({ tags: null as any }),
         isStreaming: false,
       });
-      const { container } = render(<TagBar {...props} />);
+      render(<TagBar {...props} />);
 
-      expect(container.firstChild).toBeNull();
+      // Should show Add tag button even with null tags
+      expect(screen.getByTestId('add-tag-trigger')).toBeInTheDocument();
     });
 
     it('should apply custom className', () => {

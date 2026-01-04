@@ -2,32 +2,37 @@
  * Phase 6: Regeneration E2E Tests
  *
  * Tests for the Rewrite/Regeneration functionality on the results page.
+ * Uses test-data-factory for isolated, reliable test data.
  */
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('Regeneration Flow', () => {
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'Regeneration Test',
+      content: '<h1>Regeneration Content</h1><p>This is test content for regeneration tests.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
+
   test.describe('Rewrite Button', () => {
     test('should show rewrite button after content loads', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
 
-      // Navigate to library to get an existing explanation
-      await libraryPage.navigate();
-
-      // Wait for table to load and check if there are rows
-      const hasRows = await libraryPage.waitForTableToLoad(30000);
-      if (!hasRows) {
-        test.skip();
-        return;
-      }
-
-      // Click first row to view explanation
-      await libraryPage.clickViewOnRow(0);
-
-      // Wait for navigation to results page
-      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
 
       // Wait for content to load on results page
       await resultsPage.waitForAnyContent(30000);
@@ -42,22 +47,12 @@ test.describe('Regeneration Flow', () => {
 
     // Skip: The "Rewrite with tags" UI button (data-testid="rewrite-with-tags") is not
     // currently present in the results page dropdown. Re-enable when feature is implemented.
+    // eslint-disable-next-line flakiness/no-test-skip -- Feature not implemented
     test.skip('should open dropdown and show rewrite options', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
 
-      // Get existing explanation from library
-      await libraryPage.navigate();
-      const hasRows = await libraryPage.waitForTableToLoad(30000);
-      if (!hasRows) {
-        test.skip();
-        return;
-      }
-
-      await libraryPage.clickViewOnRow(0);
-
-      // Wait for navigation to results page
-      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(30000);
       await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 
@@ -71,20 +66,9 @@ test.describe('Regeneration Flow', () => {
 
     test('should show content with title after loading from library', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
 
-      // Get existing explanation from library
-      await libraryPage.navigate();
-      const hasRows = await libraryPage.waitForTableToLoad(30000);
-      if (!hasRows) {
-        test.skip();
-        return;
-      }
-
-      await libraryPage.clickViewOnRow(0);
-
-      // Wait for navigation to results page
-      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(30000);
       await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 
@@ -98,20 +82,9 @@ test.describe('Regeneration Flow', () => {
 
     test('should have functional rewrite button after content loads', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
 
-      // Get existing explanation from library
-      await libraryPage.navigate();
-      const hasRows = await libraryPage.waitForTableToLoad(30000);
-      if (!hasRows) {
-        test.skip();
-        return;
-      }
-
-      await libraryPage.clickViewOnRow(0);
-
-      // Wait for navigation to results page
-      await page.waitForURL(/\/results\?explanation_id=/, { timeout: 15000 });
+      // Navigate directly to test explanation
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(30000);
       await page.locator('[data-testid="rewrite-button"]').waitFor({ state: 'visible', timeout: 10000 });
 

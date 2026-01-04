@@ -13,7 +13,6 @@
 
 import { test, expect } from '../../fixtures/auth';
 import { ResultsPage } from '../../helpers/pages/ResultsPage';
-import { UserLibraryPage } from '../../helpers/pages/UserLibraryPage';
 import {
   mockAISuggestionsPipelineAPI,
   mockDiffContent,
@@ -29,28 +28,42 @@ import {
   waitForEditMode,
   enterEditMode,
 } from '../../helpers/suggestions-test-helpers';
+import { safeWaitFor } from '../../helpers/error-utils';
+import {
+  createTestExplanationInLibrary,
+  type TestExplanation,
+} from '../../helpers/test-data-factory';
 
 test.describe('AI Suggestions State Management', () => {
   test.describe.configure({ retries: 2 });
+
+  let testExplanation: TestExplanation;
+
+  test.beforeAll(async () => {
+    // Create isolated test data for this test file
+    testExplanation = await createTestExplanationInLibrary({
+      title: 'State Management Test',
+      content: '<h2>Quantum Physics</h2><p>This introductory sentence explains the topic. Quantum mechanics describes behavior at atomic scales. It is fundamental to modern physics and engineering.</p>',
+      status: 'published',
+    });
+  });
+
+  test.afterAll(async () => {
+    await testExplanation.cleanup();
+  });
 
   test.describe('Undo/Redo Operations', () => {
     test('undo after accept should restore diff UI', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -76,10 +89,13 @@ test.describe('AI Suggestions State Management', () => {
       await page.keyboard.press('Meta+z');
 
       // Wait for diff state to change (either restored or processing complete)
-      // Silent catch: diff may or may not be restored depending on undo implementation
-      await page.locator('[data-diff-key]').first().waitFor({ state: 'visible', timeout: 5000 }).catch(() => {
-        // Diff may not be restored - assertion below handles both cases
-      });
+      // Diff may or may not be restored depending on undo implementation
+      await safeWaitFor(
+        page.locator('[data-diff-key]').first(),
+        'visible',
+        'state-management.spec (undo restore diff)',
+        5000
+      );
 
       // Verify diff is restored (or undo was processed)
       const afterUndoCounts = await getDiffCounts(page);
@@ -91,19 +107,13 @@ test.describe('AI Suggestions State Management', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.removeFirstSentence,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -135,19 +145,13 @@ test.describe('AI Suggestions State Management', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -168,10 +172,12 @@ test.describe('AI Suggestions State Management', () => {
         await acceptAllButton.click();
 
         // Wait for all diffs to disappear
-        // Silent catch: we verify via assertion below
-        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
-          // Diffs may already be hidden
-        });
+        await safeWaitFor(
+          page.locator('[data-diff-key]').first(),
+          'hidden',
+          'state-management.spec (accept all diffs hidden)',
+          5000
+        );
 
         // All diffs should be removed
         const afterCounts = await getDiffCounts(page);
@@ -183,19 +189,13 @@ test.describe('AI Suggestions State Management', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       await mockAISuggestionsPipelineAPI(page, {
         success: true,
         content: mockPromptSpecificContent.improveEntireArticle,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -216,10 +216,12 @@ test.describe('AI Suggestions State Management', () => {
         await rejectAllButton.click();
 
         // Wait for all diffs to disappear
-        // Silent catch: we verify via assertion below
-        await page.locator('[data-diff-key]').first().waitFor({ state: 'hidden', timeout: 5000 }).catch(() => {
-          // Diffs may already be hidden
-        });
+        await safeWaitFor(
+          page.locator('[data-diff-key]').first(),
+          'hidden',
+          'state-management.spec (reject all diffs hidden)',
+          5000
+        );
 
         // All diffs should be removed
         const afterCounts = await getDiffCounts(page);
@@ -233,11 +235,6 @@ test.describe('AI Suggestions State Management', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       // First round
       await mockAISuggestionsPipelineAPI(page, {
@@ -245,8 +242,7 @@ test.describe('AI Suggestions State Management', () => {
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
@@ -280,11 +276,6 @@ test.describe('AI Suggestions State Management', () => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
-      const libraryPage = new UserLibraryPage(page);
-
-      await libraryPage.navigate();
-      const libraryState = await libraryPage.waitForLibraryReady();
-      test.skip(libraryState !== 'loaded', 'No saved explanations available');
 
       // First round
       await mockAISuggestionsPipelineAPI(page, {
@@ -292,8 +283,7 @@ test.describe('AI Suggestions State Management', () => {
         content: mockDiffContent.insertion,
       });
 
-      await libraryPage.clickViewByIndex(0);
-      await page.waitForURL(/\/results\?explanation_id=/);
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
 
       // Enter edit mode before submitting AI suggestions
