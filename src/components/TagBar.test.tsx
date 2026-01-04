@@ -949,7 +949,15 @@ describe('TagBar', () => {
       const addButton = screen.getByRole('button', { name: /add tag/i });
       fireEvent.click(addButton);
 
-      await screen.findByText('Available');
+      // Wait for add interface to open (search input appears)
+      await waitFor(() => {
+        expect(screen.getByPlaceholderText(/search tags/i)).toBeInTheDocument();
+      });
+
+      // Wait for available tags to load from async action
+      await waitFor(() => {
+        expect(screen.getByText('Available')).toBeInTheDocument();
+      });
 
       // Click outside
       fireEvent.mouseDown(document.body);
