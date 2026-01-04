@@ -1,28 +1,106 @@
 # Environments
 
-## Environment Files
+## Environment Definitions
 
-| File | Purpose | Grafana | Sentry | When to Use |
-|------|---------|---------|--------|-------------|
-| `.env.local` | Local development | ✅ Yes | ❌ No | Default for `npm run dev`. Full credentials for dev database, Grafana tracing, test user. |
-| `.env.prod` | Production reference | ❌ No* | ❌ No* | Contains prod Supabase/Pinecone IDs. Observability configured in Vercel. |
-| `.env.stage` | Staging/preview testing | ❌ No | ❌ No | For testing Vercel preview deployments locally. Uses dev database. |
-| `.env.test` | Automated testing | ❌ No | ❌ No | Used by Jest integration tests. Sets `NODE_ENV=test`, uses `test` Pinecone namespace. |
+This section defines each environment and how it is configured.
 
-*Production observability (Grafana OTLP, Sentry) is configured via **Vercel environment variables**, not in `.env.prod`.
+### Local Development
 
-**Note**: All `.env*` files are gitignored. Copy `.env.example` to `.env.local` to get started.
+**Purpose**: Day-to-day development on your machine.
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config Source** | `.env.local` file |
+| **How to use** | `npm run dev` (Next.js auto-loads `.env.local`) |
+| **Database** | Dev Supabase (`ifubinffdbyewoezcidz`) |
+| **Pinecone** | `explainanythingdevlarge` |
+| **Grafana OTLP** | ✅ Configured in `.env.local` |
+| **Sentry** | ❌ Not configured locally |
 
 ---
 
-## Overview
+### Jest Integration Tests
 
-| Environment | Supabase Project | Pinecone Index | URL |
-|-------------|------------------|----------------|-----|
-| **Local Dev** | `ifubinffdbyewoezcidz` | `explainanythingdevlarge` | localhost:3000 |
-| **Staging** | `ifubinffdbyewoezcidz` | `explainanythingdevlarge` | Vercel preview |
-| **Production** | `qbxhivoezkfbjbsctdzo` | `explainanythingprodlarge` | explainanything.vercel.app |
-| **CI/Test** | `ifubinffdbyewoezcidz` | `explainanythingdevlarge` (ns: `test`) | N/A |
+**Purpose**: Automated integration tests that run against real Supabase.
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config Source** | `.env.test` file (loaded by `jest.integration-setup.js`) |
+| **How to use** | `npm run test:integration` |
+| **Database** | Dev Supabase (`ifubinffdbyewoezcidz`) |
+| **Pinecone** | `explainanythingdevlarge`, namespace: `test` |
+| **Grafana OTLP** | ❌ Not configured |
+| **Sentry** | ❌ Not configured |
+
+---
+
+### GitHub Actions CI
+
+**Purpose**: Automated CI pipeline for PRs (typecheck, lint, unit, integration, E2E).
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config Source** | GitHub Secrets (injected as env vars in workflows) |
+| **How to use** | Triggered automatically on PRs to `main` or `production` |
+| **Database** | Dev Supabase (`ifubinffdbyewoezcidz`) |
+| **Pinecone** | `explainanythingdevlarge`, namespace: `test` |
+| **Grafana OTLP** | ❌ Not configured |
+| **Sentry** | ❌ Not configured |
+
+---
+
+### Vercel Preview (Staging)
+
+**Purpose**: Preview deployments for PRs before merging.
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config Source** | Vercel Environment Variables (Preview environment) |
+| **How to use** | Automatic on PR creation |
+| **Database** | Dev Supabase (`ifubinffdbyewoezcidz`) |
+| **Pinecone** | `explainanythingdevlarge` |
+| **Grafana OTLP** | ✅ Configured in Vercel |
+| **Sentry** | ✅ Configured in Vercel |
+
+---
+
+### Vercel Production
+
+**Purpose**: Live application for end users.
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config Source** | Vercel Environment Variables (Production environment) |
+| **URL** | https://explainanything.vercel.app |
+| **Database** | Prod Supabase (`qbxhivoezkfbjbsctdzo`) |
+| **Pinecone** | `explainanythingprodlarge` |
+| **Grafana OTLP** | ✅ Configured in Vercel |
+| **Sentry** | ✅ Configured in Vercel |
+
+---
+
+## .env Files Reference
+
+| File | Used By | Purpose |
+|------|---------|---------|
+| `.env.local` | `npm run dev`, E2E tests | Primary local development file. Next.js auto-loads this. |
+| `.env.test` | `npm run test:integration` | Jest integration tests. Loaded by `jest.integration-setup.js`. |
+| `.env.stage` | Not actively used | Template for staging testing. Copy credentials from `.env.local` if needed. |
+| `.env.prod` | Not actively used | Reference file with prod Supabase/Pinecone IDs. **Not used by Vercel** - Vercel has its own env vars. |
+
+**Note**: All `.env*` files are gitignored except `.env.example`. Copy `.env.example` to `.env.local` to get started.
+
+---
+
+## Configuration Sources Summary
+
+| Environment | Source | Grafana | Sentry |
+|-------------|--------|---------|--------|
+| Local Dev | `.env.local` | ✅ | ❌ |
+| Integration Tests | `.env.test` | ❌ | ❌ |
+| GitHub CI | GitHub Secrets | ❌ | ❌ |
+| Vercel Preview | Vercel Env Vars | ✅ | ✅ |
+| Vercel Production | Vercel Env Vars | ✅ | ✅ |
 
 ---
 
@@ -32,12 +110,13 @@
 - **Project ID**: `ifubinffdbyewoezcidz`
 - **URL**: https://ifubinffdbyewoezcidz.supabase.co
 - **Dashboard**: https://supabase.com/dashboard/project/ifubinffdbyewoezcidz
-- **Used by**: Local dev, staging, CI tests
+- **Used by**: Local dev, integration tests, CI, Vercel preview
 
 ### Production Database
 - **Project ID**: `qbxhivoezkfbjbsctdzo`
 - **URL**: https://qbxhivoezkfbjbsctdzo.supabase.co
 - **Dashboard**: https://supabase.com/dashboard/project/qbxhivoezkfbjbsctdzo
+- **Used by**: Vercel production only
 
 ---
 
@@ -55,6 +134,13 @@
 - **Team**: acs-projects-dcdb9943
 - **Project**: explainanything
 - **Production URL**: https://explainanything.vercel.app
+
+### Vercel Environment Variables
+
+Vercel has separate environment variable sets for:
+- **Production**: Uses prod Supabase/Pinecone, has Grafana OTLP and Sentry configured
+- **Preview**: Uses dev Supabase/Pinecone, has Grafana OTLP and Sentry configured
+- **Development**: Rarely used (local dev uses `.env.local` instead)
 
 ---
 
