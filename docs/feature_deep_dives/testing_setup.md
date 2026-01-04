@@ -10,12 +10,14 @@ ExplainAnything uses a **four-tier testing strategy**:
 | **ESM** | Node test runner + tsx | Node ESM | Tests for ESM-only packages (unified, remark-parse) |
 | **Integration** | Jest + node | Real Supabase | Service + database tests with mocked external APIs |
 | **E2E** | Playwright | Real browser | Full user flows against running app |
+| **Exploratory** | Playwright MCP | Real browser | AI-driven discovery of UX issues and bugs |
 
 ### Test Statistics
 - **Unit**: 60+ colocated `.test.ts` files
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
 - **Integration**: 11 test files in `__tests__/integration/`
 - **E2E**: 17 spec files in `__tests__/e2e/specs/` (including 6 AI suggestions specs)
+- **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
 
 ---
 
@@ -43,6 +45,12 @@ npm run test:e2e:chromium     # Chromium only
 
 # Run all
 npm run test:all              # Unit + Integration
+
+# Exploratory testing (Claude Code skill)
+/user-test                    # Autonomous exploration
+/user-test --mode=goal --goal="save an explanation"
+/user-test --mode=persona --persona=confused-user
+/user-test --dry-run          # Report only, no GitHub issues
 ```
 
 ---
