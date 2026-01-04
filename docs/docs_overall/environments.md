@@ -165,11 +165,11 @@ Vercel has separate environment variable sets for:
 |----------|-------------|---------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase API URL | `https://xxx.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | JWT token |
-| `SUPABASE_SERVICE_ROLE_KEY` | Admin key (server-only) | JWT token |
 | `OPENAI_API_KEY` | OpenAI API key | `sk-proj-...` |
 | `PINECONE_API_KEY` | Pinecone API key | `pcsk_...` |
-| `PINECONE_INDEX_NAME_ALL` | Pinecone index | `explainanythingdevlarge` |
-| `PINECONE_INDEX` | Legacy index reference | `explainanythingdevlarge` |
+| `PINECONE_INDEX_NAME_ALL` | Pinecone index (used by application) | `explainanythingdevlarge` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Admin key (server-only) | JWT token |
+| `PINECONE_INDEX` | Legacy variable (not used by app code, but set in CI) | `explainanythingdevlarge` |
 
 ### Optional Variables
 | Variable | Description | Default |
