@@ -14,15 +14,13 @@
 
 ## .env Files
 
-| File | Status | Used By | Purpose |
-|------|--------|---------|---------|
-| `.env.local` | **Active** | `npm run dev`, E2E tests | Primary local development. Next.js auto-loads this. |
-| `.env.test` | **Active** | `npm run test:integration` | Jest integration tests. Loaded by `jest.integration-setup.js`. |
-| `.env.example` | **Template** | New developers | Copy to `.env.local` to get started. Safe to commit (no secrets). |
-| `.env.stage` | **Not used** | — | Legacy template. Not actively used. |
-| `.env.prod` | **Not used** | — | Reference file with prod IDs. Not used by Vercel (Vercel has its own env vars). |
+| File | Used By | Purpose |
+|------|---------|---------|
+| `.env.local` | `npm run dev`, E2E tests | Primary local development. Next.js auto-loads this. |
+| `.env.test` | `npm run test:integration` | Jest integration tests. Loaded by `jest.integration-setup.js`. |
+| `.env.example` | New developers | Template to copy to `.env.local`. Safe to commit (no secrets). |
 
-> **Note**: `.env.prod` and `.env.stage` are **not actively used**. Production and staging environments are configured via Vercel's environment variables panel, not local files.
+> **Note**: Production and staging environments are configured via **Vercel's environment variables panel**, not local files. There are no `.env.prod` or `.env.stage` files.
 
 ---
 
@@ -167,9 +165,8 @@ Vercel has separate environment variable sets for:
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | JWT token |
 | `OPENAI_API_KEY` | OpenAI API key | `sk-proj-...` |
 | `PINECONE_API_KEY` | Pinecone API key | `pcsk_...` |
-| `PINECONE_INDEX_NAME_ALL` | Pinecone index (used by application) | `explainanythingdevlarge` |
+| `PINECONE_INDEX_NAME_ALL` | Pinecone index | `explainanythingdevlarge` |
 | `SUPABASE_SERVICE_ROLE_KEY` | Admin key (server-only) | JWT token |
-| `PINECONE_INDEX` | Legacy variable (not used by app code, but set in CI) | `explainanythingdevlarge` |
 
 ### Optional Variables
 | Variable | Description | Default |
@@ -211,7 +208,6 @@ Vercel has separate environment variable sets for:
 | `OPENAI_API_KEY` | OpenAI API |
 | `PINECONE_API_KEY` | Pinecone API |
 | `PINECONE_INDEX_NAME_ALL` | Dev index |
-| `PINECONE_INDEX` | Legacy index reference |
 | `PINECONE_NAMESPACE` | `test` |
 | `TEST_USER_EMAIL` | E2E user email |
 | `TEST_USER_PASSWORD` | E2E user password |
