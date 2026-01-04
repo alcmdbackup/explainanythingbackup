@@ -27,6 +27,31 @@ Dashboards:
 - Dev: https://supabase.com/dashboard/project/ifubinffdbyewoezcidz
 - Prod: https://supabase.com/dashboard/project/qbxhivoezkfbjbsctdzo
 
+### Database Migrations
+
+Migrations are stored in `supabase/migrations/` and deployed automatically via GitHub Actions.
+
+**Workflow**: `.github/workflows/supabase-migrations.yml`
+
+| Trigger | Staging | Production |
+|---------|---------|------------|
+| Push to `main` with changes in `supabase/migrations/**` | Auto-deploy | Auto-deploy (after staging succeeds) |
+| Manual dispatch | Optional skip | Requires staging success or explicit skip |
+
+**Manual deployment** (if needed):
+```bash
+# Link to project
+supabase link --project-ref <project-id>
+
+# Check pending migrations
+supabase migration list
+
+# Apply migrations
+supabase db push
+```
+
+**Safety**: Production environment in GitHub should have "Required reviewers" enabled for manual approval gate.
+
 ---
 
 ## Local Development
