@@ -1,8 +1,32 @@
 # Environments
 
-## Environment Definitions
+## Overview
 
-This section defines each environment and how it is configured.
+| Environment | Config Source | Supabase | Pinecone | Grafana | Sentry |
+|-------------|---------------|----------|----------|---------|--------|
+| **Local Dev** | `.env.local` | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` | ✅ | ❌ |
+| **Integration Tests** | `.env.test` | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` (ns: `test`) | ❌ | ❌ |
+| **GitHub CI** | GitHub Secrets | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` (ns: `test`) | ❌ | ❌ |
+| **Vercel Preview** | Vercel Env Vars | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` | ✅ | ✅ |
+| **Vercel Production** | Vercel Env Vars | Prod (`qbxhivoezkfbjbsctdzo`) | `explainanythingprodlarge` | ✅ | ✅ |
+
+---
+
+## .env Files
+
+| File | Status | Used By | Purpose |
+|------|--------|---------|---------|
+| `.env.local` | **Active** | `npm run dev`, E2E tests | Primary local development. Next.js auto-loads this. |
+| `.env.test` | **Active** | `npm run test:integration` | Jest integration tests. Loaded by `jest.integration-setup.js`. |
+| `.env.example` | **Template** | New developers | Copy to `.env.local` to get started. Safe to commit (no secrets). |
+| `.env.stage` | **Not used** | — | Legacy template. Not actively used. |
+| `.env.prod` | **Not used** | — | Reference file with prod IDs. Not used by Vercel (Vercel has its own env vars). |
+
+> **Note**: `.env.prod` and `.env.stage` are **not actively used**. Production and staging environments are configured via Vercel's environment variables panel, not local files.
+
+---
+
+## Environment Details
 
 ### Local Development
 
@@ -76,31 +100,6 @@ This section defines each environment and how it is configured.
 | **Pinecone** | `explainanythingprodlarge` |
 | **Grafana OTLP** | ✅ Configured in Vercel |
 | **Sentry** | ✅ Configured in Vercel |
-
----
-
-## .env Files Reference
-
-| File | Used By | Purpose |
-|------|---------|---------|
-| `.env.local` | `npm run dev`, E2E tests | Primary local development file. Next.js auto-loads this. |
-| `.env.test` | `npm run test:integration` | Jest integration tests. Loaded by `jest.integration-setup.js`. |
-| `.env.stage` | Not actively used | Template for staging testing. Copy credentials from `.env.local` if needed. |
-| `.env.prod` | Not actively used | Reference file with prod Supabase/Pinecone IDs. **Not used by Vercel** - Vercel has its own env vars. |
-
-**Note**: All `.env*` files are gitignored except `.env.example`. Copy `.env.example` to `.env.local` to get started.
-
----
-
-## Configuration Sources Summary
-
-| Environment | Source | Grafana | Sentry |
-|-------------|--------|---------|--------|
-| Local Dev | `.env.local` | ✅ | ❌ |
-| Integration Tests | `.env.test` | ❌ | ❌ |
-| GitHub CI | GitHub Secrets | ❌ | ❌ |
-| Vercel Preview | Vercel Env Vars | ✅ | ✅ |
-| Vercel Production | Vercel Env Vars | ✅ | ✅ |
 
 ---
 
