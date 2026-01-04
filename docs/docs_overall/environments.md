@@ -26,7 +26,7 @@ Dashboards:
 
 ---
 
-## Local Setup
+## Local Development
 
 1. Copy `.env.example` to `.env.local`
 2. Fill in values from Supabase/Pinecone/OpenAI dashboards
@@ -44,24 +44,77 @@ Dashboards:
 
 ## Testing
 
-| Test Type | Command | Config | External Services |
-|-----------|---------|--------|-------------------|
-| **Unit** | `npm test` | `jest.config.js` | All mocked |
-| **Integration** | `npm run test:integration` | `jest.integration.config.js` | Real Supabase, mocked AI |
-| **E2E** | `npm run test:e2e` | `playwright.config.ts` | All real |
+### Test Types Comparison
+
+| Aspect | Unit | Integration | E2E |
+|--------|------|-------------|-----|
+| **Command** | `npm test` | `npm run test:integration` | `npm run test:e2e` |
+| **Config** | `jest.config.js` | `jest.integration.config.js` | `playwright.config.ts` |
+| **Environment** | jsdom | Node.js | Real browser |
+| **Supabase** | Mocked | Real (service role) | Real (anon key) |
+| **OpenAI** | Mocked | Mocked | Real (mockable) |
+| **Pinecone** | Mocked | Mocked | Real |
+| **Timeout** | 5s | 30s | 30s (local) / 60s (CI) |
+
+### Local vs CI Execution
+
+| Aspect | Local | CI |
+|--------|-------|-----|
+| **Unit tests** | Same behavior | `--maxWorkers=2` |
+| **Integration** | Same behavior | Same behavior |
+| **E2E server** | `npm run dev` (HMR) | `npm run build && npm start` |
+| **E2E retries** | 0 | 2 |
+| **E2E timeout** | 30s test / 10s expect | 60s test / 20s expect |
+| **E2E mode** | `E2E_TEST_MODE` via env | `E2E_TEST_MODE` inline at runtime |
 
 ---
 
-## CI/CD
+## GitHub Actions
 
-| Workflow | Trigger | Branch | Tests |
-|----------|---------|--------|-------|
-| `ci.yml` | PRs to main/production | PR branch | Unit, Integration, E2E |
-| `e2e-nightly.yml` | Daily 6AM UTC | main | Full E2E (Chromium + Firefox) |
+### CI Workflow (`ci.yml`)
 
-Both workflows use the same **GitHub Secrets** (dev database credentials).
+**Trigger:** Pull requests to `main` or `production`
+
+**Pipeline:**
+```
+typecheck → lint → unit tests → integration tests → E2E tests
+```
+
+**E2E Behavior by Target Branch:**
+
+| Target Branch | E2E Scope | Tests | Sharding |
+|---------------|-----------|-------|----------|
+| `main` | Critical only | ~36 `@critical` tagged | None |
+| `production` | Full suite | All tests | 4 shards |
+
+- **Browser:** Chromium only
+- **Fail strategy:** fail-fast (stops on first failure)
+
+### Nightly Workflow (`e2e-nightly.yml`)
+
+**Trigger:** Daily at 6 AM UTC (or manual dispatch)
+
+**Behavior:**
+- Runs on `main` branch
+- Full E2E test suite (no sharding)
+- **Browser matrix:** Chromium + Firefox
+- `E2E_TEST_MODE=true` for SSE streaming compatibility
+- **Fail strategy:** Continues on failure (tests all browsers)
+
+### Workflow Comparison
+
+| Aspect | CI | Nightly |
+|--------|-----|---------|
+| **Trigger** | PR to main/production | Daily 6 AM UTC |
+| **Branch** | PR branch | main |
+| **Test types** | Unit → Integration → E2E | E2E only |
+| **E2E scope** | Critical or sharded full | Full suite |
+| **Browsers** | Chromium | Chromium + Firefox |
+| **On failure** | Stop immediately | Continue testing |
 
 ### GitHub Secrets
+
+Both CI and Nightly workflows use the same secrets (dev database credentials):
 
 | Secret | Value |
 |--------|-------|

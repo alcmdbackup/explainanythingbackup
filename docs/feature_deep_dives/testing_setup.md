@@ -242,54 +242,26 @@ export const test = base.extend<{ authenticatedPage: Page }>({
 
 ## CI/CD Integration
 
+> **Full details**: See `docs/docs_overall/environments.md` for comprehensive environment configuration, local vs CI execution differences, and workflow comparisons.
+
 ### ci.yml (Push/PR)
 
 ```
 TypeScript Check ─┐
-Lint ─────────────┼─→ Integration Tests ─→ E2E Tests (2 shards)
+Lint ─────────────┼─→ Integration Tests ─→ E2E Tests
 Unit Tests + ESM ─┘
 ```
 
-**Job Details:**
-- **TypeScript Check**: `npx tsc --noEmit --project tsconfig.ci.json`
-- **Unit Tests**: `npm run test:ci` + `npm run test:esm` (runs both in same job)
-- **Integration Tests**: Requires typecheck, lint, unit-tests to pass first
-- **E2E Tests**: `--shard=1/2` and `--shard=2/2` with `fail-fast: true`
-
-**Caching:**
-- npm dependencies cached via `actions/setup-node` with `cache: 'npm'`
-- Playwright browsers cached with version-specific key:
-  ```yaml
-  key: playwright-${{ runner.os }}-${{ steps.playwright-version.outputs.version }}
-  ```
-- Conditional browser install: only downloads if cache miss
-
-**Configuration:**
-- E2E sharding: `--shard=1/2` and `--shard=2/2`
-- Retries: 2 in CI, 0 locally
-- Workers: 2 in CI
-- `--max-failures=1` for fast feedback
-
-**Environment Variables (CI Secrets):**
-```
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-OPENAI_API_KEY
-PINECONE_API_KEY
-PINECONE_INDEX_NAME_ALL
-PINECONE_INDEX
-PINECONE_NAMESPACE
-TEST_USER_EMAIL              # E2E only
-TEST_USER_PASSWORD           # E2E only
-NEXT_PUBLIC_USE_AI_API_ROUTE # Enable AI route mocking
-```
+**E2E Behavior by Target Branch:**
+- **PRs to `main`**: Critical tests only (~36 `@critical` tagged), no sharding
+- **PRs to `production`**: Full suite, 4 shards with `fail-fast: true`
 
 ### e2e-nightly.yml
 
 - **Schedule**: 6 AM UTC daily
-- **Browsers**: Chromium only (Firefox SSE mocking unreliable)
+- **Browsers**: Chromium + Firefox (full browser matrix)
 - Full test suite, no sharding
+- `E2E_TEST_MODE=true` for SSE streaming compatibility
 - Manual trigger via `workflow_dispatch`
 
 ---
@@ -387,7 +359,7 @@ testSensitiveDataSanitization()     // Test PII redaction
 ## Known Issues
 
 1. **E2E logout test skipped**: `signOut()` uses `redirect()` incompatible with onClick
-2. **Firefox SSE mocking**: Unreliable in Playwright, nightly runs chromium only
+2. **Firefox SSE**: Nightly runs now include Firefox with `E2E_TEST_MODE=true` for real SSE streaming
 3. **Coverage at 0%**: Progressive increase planned
 4. **Supabase rate limits**: Rapid auth tests may trigger limits (use `--workers=1`)
 5. **AI suggestions E2E**: Requires `NEXT_PUBLIC_USE_AI_API_ROUTE='true'` in environment

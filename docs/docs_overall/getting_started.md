@@ -1,6 +1,5 @@
 # Getting started
 - Always start by reading /docs/docs_overall/architecture.md
-- For environment setup, read /docs/docs_overall/environments.md
 - To understand the product at a high-level, read /docs/docs_overall/white_paper and /docs/docs_overall/product_overview
 - For understand specific areas, look under /docs/feature_deep_dives. These will be periodically updated.
 
