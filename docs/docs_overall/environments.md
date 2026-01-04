@@ -4,7 +4,7 @@
 
 | Environment | Config Source | Supabase | Pinecone | Grafana | Sentry |
 |-------------|---------------|----------|----------|---------|--------|
-| **Local Dev** | `.env.local` | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` | ✅ | ❌ |
+| **Local Dev** | `.env.local` | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` | ❌ | ❌ |
 | **Integration Tests** | `.env.test` | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` (ns: `test`) | ❌ | ❌ |
 | **GitHub CI** | GitHub Secrets | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` (ns: `test`) | ❌ | ❌ |
 | **Vercel Preview** | Vercel Env Vars | Dev (`ifubinffdbyewoezcidz`) | `explainanythingdevlarge` | ✅ | ✅ |
@@ -36,8 +36,8 @@
 | **How to use** | `npm run dev` (Next.js auto-loads `.env.local`) |
 | **Database** | Dev Supabase (`ifubinffdbyewoezcidz`) |
 | **Pinecone** | `explainanythingdevlarge` |
-| **Grafana OTLP** | ✅ Configured in `.env.local` |
-| **Sentry** | ❌ Not configured locally |
+| **Grafana OTLP** | ❌ Not configured (optional) |
+| **Sentry** | ❌ Not configured |
 
 ---
 
@@ -220,4 +220,47 @@ Vercel has separate environment variable sets for:
 | Workflow | Trigger | Tests | Notes |
 |----------|---------|-------|-------|
 | `ci.yml` | PRs to main/production | Unit, Integration, E2E | E2E sharded (2 or 4) |
-| `e2e-nightly.yml` | Daily 6AM UTC | Full E2E | Chromium, E2E_TEST_MODE=true |
+| `e2e-nightly.yml` | Daily 6AM UTC | Full E2E | Chromium + Firefox |
+
+Both workflows use the **same GitHub Secrets** for configuration. The nightly job runs against the `main` branch, while CI runs against the PR branch.
+
+---
+
+## Test Configuration
+
+### Unit Tests (`npm test`)
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config file** | `jest.config.js` |
+| **Setup file** | `jest.setup.js` |
+| **Environment** | `jsdom` (browser-like) |
+| **External services** | All mocked (Supabase, Pinecone, OpenAI) |
+| **Env vars** | Hardcoded test values in `jest.setup.js` |
+
+Unit tests are fully isolated with no external dependencies. All services are mocked via `moduleNameMapper` in the Jest config.
+
+### Integration Tests (`npm run test:integration`)
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config file** | `jest.integration.config.js` |
+| **Setup file** | `jest.integration-setup.js` |
+| **Environment** | `node` |
+| **Supabase** | **Real** (dev database) |
+| **Pinecone/OpenAI** | Mocked (for speed/cost) |
+| **Env vars** | Loaded from `.env.test` |
+
+Integration tests use the real Supabase database but mock external AI services. The `.env.test` file configures `PINECONE_NAMESPACE=test` for isolation.
+
+### E2E Tests (`npm run test:e2e`)
+
+| Aspect | Configuration |
+|--------|---------------|
+| **Config file** | `playwright.config.ts` |
+| **Setup file** | `src/__tests__/e2e/setup/global-setup.ts` |
+| **Environment** | Real browser (Chromium/Firefox) |
+| **All services** | **Real** (dev database, real API calls) |
+| **Env vars** | Loaded from `.env.local` (local) or GitHub Secrets (CI) |
+
+E2E tests run the full application in a real browser. Locally uses `npm run dev`, CI uses a production build with `E2E_TEST_MODE=true`.
