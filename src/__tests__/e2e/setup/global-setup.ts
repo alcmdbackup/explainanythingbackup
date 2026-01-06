@@ -175,6 +175,51 @@ async function globalSetup() {
     throw error;
   }
 
+  // Detect production environment for safety checks
+  const isProduction = baseUrl.includes('vercel.app') || baseUrl.includes('explainanything');
+
+  // PRODUCTION SAFETY: Cross-validate TEST_USER_ID matches TEST_USER_EMAIL
+  if (isProduction) {
+    const testUserId = process.env.TEST_USER_ID;
+    const testUserEmail = process.env.TEST_USER_EMAIL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!testUserId || !testUserEmail || !serviceRoleKey) {
+      throw new Error('PRODUCTION SAFETY: TEST_USER_ID, TEST_USER_EMAIL, and SUPABASE_SERVICE_ROLE_KEY required');
+    }
+
+    // Create client with timeout to prevent hanging
+    const prodSupabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+      global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) }) }
+    });
+
+    try {
+      const { data: userData, error } = await prodSupabase.auth.admin.getUserById(testUserId);
+
+      if (error || !userData?.user) {
+        throw new Error(`PRODUCTION SAFETY: Could not verify TEST_USER_ID: ${error?.message}`);
+      }
+
+      if (userData.user.email !== testUserEmail) {
+        throw new Error(
+          `PRODUCTION SAFETY: TEST_USER_ID belongs to "${userData.user.email}" but TEST_USER_EMAIL is "${testUserEmail}"`
+        );
+      }
+
+      const isTestUser = testUserEmail.includes('e2e') || testUserEmail.includes('test');
+      if (!isTestUser) {
+        throw new Error(`PRODUCTION SAFETY: Email "${testUserEmail}" doesn't match pattern *e2e* or *test*`);
+      }
+
+      console.log(`   ✓ Verified production test user: ${testUserEmail}`);
+    } catch (e) {
+      if (e instanceof Error && e.name === 'TimeoutError') {
+        throw new Error('PRODUCTION SAFETY: Supabase verification timed out after 10s');
+      }
+      throw e;
+    }
+  }
+
   // Verify required environment variables
   const requiredEnvVars = [
     'NEXT_PUBLIC_SUPABASE_URL',
@@ -189,7 +234,8 @@ async function globalSetup() {
   }
 
   // Optional: Seed shared fixtures if service role key is available
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  // Skip fixture seeding in production - we use pre-existing test data
+  if (!isProduction && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
       await seedSharedFixtures();
     } catch (error) {

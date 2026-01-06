@@ -21,7 +21,48 @@ async function globalTeardown() {
     return;
   }
 
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey);
+  // Create client with timeout to prevent hanging
+  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+    global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) }) }
+  });
+
+  // PRODUCTION SAFETY CHECK (before any destructive operations)
+  const isProduction = process.env.BASE_URL?.includes('vercel.app') ||
+                       process.env.BASE_URL?.includes('explainanything');
+
+  if (isProduction) {
+    try {
+      // Re-verify test user email pattern before ANY cleanup
+      const { data: userData, error } = await supabase.auth.admin.getUserById(testUserId);
+
+      if (error || !userData?.user) {
+        console.error('❌ SAFETY ABORT: Could not verify test user:', error?.message);
+        console.log('✅ E2E Global Teardown: Complete (aborted - safety check failed)');
+        return;
+      }
+
+      const email = userData.user.email || '';
+      const isTestUser = email.includes('e2e') || email.includes('test');
+
+      if (!isTestUser) {
+        console.error('❌ SAFETY ABORT: User email does not match test pattern!');
+        console.error('   Email:', email);
+        console.error('   Expected pattern: *e2e* or *test*');
+        console.log('✅ E2E Global Teardown: Complete (aborted - safety check failed)');
+        return;
+      }
+
+      console.log(`   ✓ Verified test user for cleanup: ${email}`);
+    } catch (e) {
+      if (e instanceof Error && e.name === 'TimeoutError') {
+        console.error('❌ SAFETY ABORT: Supabase verification timed out after 10s');
+      } else {
+        console.error('❌ SAFETY ABORT: Unexpected error verifying test user:', e);
+      }
+      console.log('✅ E2E Global Teardown: Complete (aborted - safety check failed)');
+      return;
+    }
+  }
 
   try {
     // Step 1: Get explanation IDs via userLibrary BEFORE deleting (explanations table has no user_id)

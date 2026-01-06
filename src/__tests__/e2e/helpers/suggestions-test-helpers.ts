@@ -2,6 +2,23 @@ import { Page, Locator, expect } from '@playwright/test';
 import { safeIsVisible } from './error-utils';
 
 /**
+ * Detect production environment for extended timeouts.
+ * Production uses real AI which is much slower than mocked responses.
+ */
+const isProduction = (): boolean => {
+  const baseUrl = process.env.BASE_URL || '';
+  return baseUrl.includes('vercel.app') || baseUrl.includes('explainanything');
+};
+
+/**
+ * Get appropriate timeout for the environment.
+ * Production (real AI): 30s, Other environments: default (typically 5s)
+ */
+const getTimeout = (defaultMs: number): number => {
+  return isProduction() ? 30000 : defaultMs;
+};
+
+/**
  * Test helpers for AI Suggestions E2E tests.
  *
  * These helpers use the test-only API route `/api/runAISuggestionsPipeline`
@@ -46,8 +63,9 @@ export async function triggerAISuggestionsViaAPI(
  * Waits for diff nodes (CriticMarkup) to appear in the editor after AI suggestions.
  * Uses data-diff-key attribute which is set by DiffTagNodeInline.
  */
-export async function waitForDiffNodes(page: Page, timeout = 5000): Promise<void> {
-  await page.waitForSelector('[data-diff-key]', { timeout });
+export async function waitForDiffNodes(page: Page, timeout?: number): Promise<void> {
+  const effectiveTimeout = timeout ?? getTimeout(5000);
+  await page.waitForSelector('[data-diff-key]', { timeout: effectiveTimeout });
 }
 
 /**
@@ -85,7 +103,7 @@ export async function getUpdateDiffs(page: Page): Promise<Locator[]> {
 export async function getAcceptButton(page: Page, diffNode: Locator): Promise<Locator> {
   await diffNode.hover();
   const button = page.locator('[data-testid="accept-diff-button"]');
-  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   return button;
 }
 
@@ -96,7 +114,7 @@ export async function getAcceptButton(page: Page, diffNode: Locator): Promise<Lo
 export async function getRejectButton(page: Page, diffNode: Locator): Promise<Locator> {
   await diffNode.hover();
   const button = page.locator('[data-testid="reject-diff-button"]');
-  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   return button;
 }
 
@@ -121,7 +139,7 @@ export async function rejectDiff(page: Page, diffNode: Locator): Promise<void> {
  */
 export async function acceptAllDiffs(page: Page): Promise<void> {
   const acceptAllButton = page.locator('[data-testid="accept-all-diffs-button"]');
-  await acceptAllButton.waitFor({ state: 'visible', timeout: 5000 });
+  await acceptAllButton.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   await acceptAllButton.click();
 }
 
@@ -130,7 +148,7 @@ export async function acceptAllDiffs(page: Page): Promise<void> {
  */
 export async function rejectAllDiffs(page: Page): Promise<void> {
   const rejectAllButton = page.locator('[data-testid="reject-all-diffs-button"]');
-  await rejectAllButton.waitFor({ state: 'visible', timeout: 5000 });
+  await rejectAllButton.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   await rejectAllButton.click();
 }
 
@@ -165,22 +183,25 @@ export async function submitAISuggestionPrompt(
 /**
  * Waits for the AI suggestions panel to show success state.
  */
-export async function waitForSuggestionsSuccess(page: Page, timeout = 10000): Promise<void> {
-  await page.waitForSelector('[data-testid="suggestions-success"]', { timeout });
+export async function waitForSuggestionsSuccess(page: Page, timeout?: number): Promise<void> {
+  const effectiveTimeout = timeout ?? getTimeout(10000);
+  await page.waitForSelector('[data-testid="suggestions-success"]', { timeout: effectiveTimeout });
 }
 
 /**
  * Waits for the AI suggestions panel to show error state.
  */
-export async function waitForSuggestionsError(page: Page, timeout = 5000): Promise<void> {
-  await page.waitForSelector('[data-testid="suggestions-error"]', { timeout });
+export async function waitForSuggestionsError(page: Page, timeout?: number): Promise<void> {
+  const effectiveTimeout = timeout ?? getTimeout(5000);
+  await page.waitForSelector('[data-testid="suggestions-error"]', { timeout: effectiveTimeout });
 }
 
 /**
  * Waits for the AI suggestions panel to show loading state.
  */
-export async function waitForSuggestionsLoading(page: Page, timeout = 5000): Promise<void> {
-  await page.waitForSelector('[data-testid="suggestions-loading"]', { timeout });
+export async function waitForSuggestionsLoading(page: Page, timeout?: number): Promise<void> {
+  const effectiveTimeout = timeout ?? getTimeout(5000);
+  await page.waitForSelector('[data-testid="suggestions-loading"]', { timeout: effectiveTimeout });
 }
 
 /**
@@ -244,7 +265,7 @@ export async function getEditorTextContent(page: Page, timeout = 30000): Promise
  */
 export async function clickAcceptOnFirstDiff(page: Page): Promise<void> {
   const button = page.locator('button[data-action="accept"]').first();
-  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   await button.click();
 }
 
@@ -254,7 +275,7 @@ export async function clickAcceptOnFirstDiff(page: Page): Promise<void> {
  */
 export async function clickRejectOnFirstDiff(page: Page): Promise<void> {
   const button = page.locator('button[data-action="reject"]').first();
-  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   await button.click();
 }
 
@@ -319,6 +340,6 @@ export async function waitForEditMode(page: Page, timeout = 10000): Promise<void
  */
 export async function clickDoneButton(page: Page): Promise<void> {
   const button = page.locator('button:has-text("Done")');
-  await button.waitFor({ state: 'visible', timeout: 5000 });
+  await button.waitFor({ state: 'visible', timeout: getTimeout(5000) });
   await button.click();
 }
