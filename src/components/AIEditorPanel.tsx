@@ -418,7 +418,11 @@ export default function AIEditorPanel({
           hasContent: !!result.content,
           error: result.error
         });
-        setError(result.error || 'Failed to generate suggestions');
+        // Extract message from ErrorResponse object or use fallback
+        const errorMsg = typeof result.error === 'object' && result.error?.message
+          ? `[${result.error.code}] ${result.error.message}`
+          : (result.error || 'Failed to generate suggestions');
+        setError(errorMsg);
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unexpected error occurred';
