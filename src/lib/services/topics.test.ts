@@ -56,9 +56,9 @@ describe('Topics Service', () => {
         updated_at: '2024-01-01T00:00:00Z'
       };
 
-      // Mock the select query to find existing topic
-      mockSupabase.single.mockResolvedValue({
-        data: existingTopic,
+      // Mock the select query with limit(1) to find existing topic (returns array)
+      mockSupabase.limit.mockResolvedValue({
+        data: [existingTopic],
         error: null
       });
 
@@ -70,6 +70,7 @@ describe('Topics Service', () => {
       expect(mockSupabase.from).toHaveBeenCalledWith('topics');
       expect(mockSupabase.select).toHaveBeenCalled();
       expect(mockSupabase.eq).toHaveBeenCalledWith('topic_title', 'Physics');
+      expect(mockSupabase.limit).toHaveBeenCalledWith(1);
       expect(mockSupabase.insert).not.toHaveBeenCalled(); // Should not insert if exists
     });
 
@@ -88,13 +89,13 @@ describe('Topics Service', () => {
         updated_at: '2024-01-01T00:00:00Z'
       };
 
-      // Mock select to not find existing topic (PGRST116 = No rows found)
-      mockSupabase.single.mockResolvedValueOnce({
-        data: null,
-        error: { code: 'PGRST116', message: 'No rows found' }
+      // Mock select with limit(1) to return empty array (no existing topic)
+      mockSupabase.limit.mockResolvedValueOnce({
+        data: [],
+        error: null
       });
 
-      // Mock insert success
+      // Mock insert success (still uses .single() for insert)
       mockSupabase.single.mockResolvedValueOnce({
         data: createdTopic,
         error: null
@@ -109,7 +110,7 @@ describe('Topics Service', () => {
       expect(mockSupabase.insert).toHaveBeenCalledWith(newTopic);
     });
 
-    it('should throw error for database failures (non-PGRST116)', async () => {
+    it('should throw error for database failures on select', async () => {
       // Arrange
       const newTopic: TopicInsertType = {
         topic_title: 'Biology',
@@ -121,7 +122,8 @@ describe('Topics Service', () => {
         message: 'Database connection error'
       };
 
-      mockSupabase.single.mockResolvedValue({
+      // Mock select with limit(1) to return error
+      mockSupabase.limit.mockResolvedValue({
         data: null,
         error: dbError
       });
@@ -137,10 +139,10 @@ describe('Topics Service', () => {
         topic_description: 'Study of Earth'
       };
 
-      // Mock select to not find existing
-      mockSupabase.single.mockResolvedValueOnce({
-        data: null,
-        error: { code: 'PGRST116', message: 'No rows found' }
+      // Mock select with limit(1) to return empty array (no existing topic)
+      mockSupabase.limit.mockResolvedValueOnce({
+        data: [],
+        error: null
       });
 
       // Mock insert failure

@@ -167,3 +167,80 @@ throw new Error(`[${errorCode}] ${errorMessage}${errorDetails}`);
 - [ ] Run nightly workflow again
 - [ ] Verify actual LLM error is now visible in test failure output
 - [ ] Verify Supabase errors now show database context
+
+---
+
+## Phase 5: Root Cause Investigation (Workflow Run 20771911079)
+
+### Screenshot Analysis
+Analyzed Playwright screenshots from latest failed run. Found the actual error displayed:
+
+> **"Cannot coerce the result to a single JSON object"**
+
+This is a PostgREST error when a `.single()` query returns 0 or multiple rows.
+
+### Fix 1: Test Error Detection (Track A) ✅
+
+**Problem**: Tests waited 60-90s for URL redirect, never detecting the visible error.
+
+**Fix**: Modified `waitForStreamingComplete()` in `ResultsPage.ts` to race between:
+- Success: URL changes to include `explanation_id`
+- Failure: Error message becomes visible (`.text-red-700`)
+
+```typescript
+const result = await Promise.race([
+  this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout })
+    .then(() => ({ success: true as const })),
+  errorLocator.first().waitFor({ state: 'visible', timeout })
+    .then(async () => ({
+      success: false as const,
+      error: await errorLocator.first().textContent() || 'Unknown error'
+    })),
+]);
+```
+
+**Result**: Tests now fail fast with clear error message instead of 60s timeout.
+
+### Fix 2: Duplicate Topic Handling (Track C) ✅
+
+**Root Cause Found**: `createTopic()` in `topics.ts` used `.single()` when checking for existing topics:
+
+```typescript
+// BEFORE: Fails if duplicate topics exist
+const { data: existing } = await supabase
+  .from('topics')
+  .select()
+  .eq('topic_title', topic.topic_title)
+  .single();  // <-- PostgREST error if >1 row!
+```
+
+**Why duplicates exist**: Previous test runs created topics with same titles (e.g., "Understanding Quantum Entanglement"). Race conditions during parallel test execution could also create duplicates.
+
+**Fix Applied**: Changed to `.limit(1)` to gracefully handle duplicates:
+
+```typescript
+// AFTER: Returns first match, handles duplicates gracefully
+const { data: existingList } = await supabase
+  .from('topics')
+  .select()
+  .eq('topic_title', topic.topic_title)
+  .limit(1);
+
+if (existingList && existingList.length > 0) return existingList[0];
+```
+
+**Commit**: `5344fef` - fix(topics): use limit(1) instead of single() for duplicate topic handling
+
+---
+
+## Summary of All Fixes
+
+| Issue | Root Cause | Fix | Status |
+|-------|------------|-----|--------|
+| Tests timeout 60s | Tests don't detect error state | Race URL vs error visibility in `waitForStreamingComplete()` | ✅ Pushed |
+| "Cannot coerce" error | `.single()` on duplicate topics | Use `.limit(1)` in `createTopic()` | ✅ Pushed |
+| Error context lost | Supabase errors not instanceof Error | Added `isSupabaseError()` type guard | ✅ Already in main |
+| Generic error messages | AI pipeline loses error details | Enhanced error messages with code/details | ✅ Already in main |
+
+### Next: Trigger Workflow to Verify
+All fixes are now pushed. Need to trigger a new workflow run to verify.

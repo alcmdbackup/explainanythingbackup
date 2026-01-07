@@ -23,23 +23,25 @@ import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schema
 /**
  * Create a new topic record only if it does not already exist (by topic_title)
  * - Checks for an existing topic with the same topic_title
- * - If found, returns the existing topic
+ * - If found, returns the existing topic (first one if duplicates exist)
  * - If not found, inserts a new topic and returns it
  * - Used by saveExplanationAndTopic and other topic creation flows
  * - Calls supabase topics table for both select and insert
  */
 export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbType> {
   const supabase = await createSupabaseServerClient()
-  
+
   // Check if topic with the same title exists
-  const { data: existing, error: selectError } = await supabase
+  // Use .limit(1) instead of .single() to handle duplicate topics gracefully
+  // (duplicates can occur from race conditions or previous test runs)
+  const { data: existingList, error: selectError } = await supabase
     .from('topics')
     .select()
     .eq('topic_title', topic.topic_title)
-    .single();
+    .limit(1);
 
-  if (selectError && selectError.code !== 'PGRST116') throw selectError; // PGRST116: No rows found
-  if (existing) return existing;
+  if (selectError) throw selectError;
+  if (existingList && existingList.length > 0) return existingList[0];
 
   // Insert if not found
   const { data, error } = await supabase
