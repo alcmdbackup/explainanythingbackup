@@ -58,9 +58,35 @@ export class ResultsPage extends BasePage {
   }
 
   async waitForStreamingComplete(timeout = 60000) {
-    // Wait for URL redirect first - this happens after streaming completes
-    // The redirect is the reliable signal (stream-complete indicator may race with router.push)
-    await this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout });
+    // Race between: URL redirect (success) vs Error visible (failure)
+    // This prevents 60s timeouts when streaming fails with a database error
+    const errorLocator = this.page.locator('.text-red-700, [data-testid="error-message"]');
+
+    const result = await Promise.race([
+      // Success path: URL changes to include explanation_id
+      this.page.waitForURL(/\/results\?.*explanation_id=/, { timeout })
+        .then(() => ({ success: true as const })),
+      // Failure path: Error message becomes visible
+      errorLocator.first().waitFor({ state: 'visible', timeout })
+        .then(async () => ({
+          success: false as const,
+          error: await errorLocator.first().textContent() || 'Unknown error'
+        })),
+    ]).catch((e) => ({
+      success: false as const,
+      error: `Timeout waiting for streaming: ${e instanceof Error ? e.message : String(e)}`
+    }));
+
+    if (!result.success) {
+      // Log current page state for debugging
+      const url = this.page.url();
+      const errorMsg = 'error' in result ? result.error : 'Unknown error';
+      console.error('[waitForStreamingComplete] FAILED:', {
+        error: errorMsg,
+        currentUrl: url,
+      });
+      throw new Error(`Streaming failed: ${errorMsg}`);
+    }
 
     // Wait for page to fully load after redirect
     // The data-user-saved-loaded attribute is set when loadExplanation completes

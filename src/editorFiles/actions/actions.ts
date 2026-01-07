@@ -388,9 +388,14 @@ export const runAISuggestionsPipelineAction = withLogging(
             logger.debug('🎭 runAISuggestionsPipelineAction: Pipeline result', {
                 success: result.success,
                 hasContent: !!result.content,
+                hasError: !!result.error,
                 session_id: result.session_id
             }, FILE_DEBUG);
 
+            // Ensure error is always a string when success is false
+            if (!result.success && !result.error) {
+                return { ...result, error: 'AI pipeline failed without specific error' };
+            }
             return result;
         } catch (error) {
             logger.error('runAISuggestionsPipelineAction Error', {
