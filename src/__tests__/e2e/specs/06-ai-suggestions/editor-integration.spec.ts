@@ -34,7 +34,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('AI Suggestions Editor Integration', () => {
+test.describe('AI Suggestions Editor Integration', { tag: '@skip-prod' }, () => {
   // Enable retries for reliability
   test.describe.configure({ retries: 2 });
 

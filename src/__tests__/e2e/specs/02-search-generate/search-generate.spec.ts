@@ -6,8 +6,13 @@ import {
   mockReturnExplanationAPIError,
   defaultMockExplanation,
   shortMockExplanation,
+  loadProductionTestData,
+  isProductionEnvironment,
 } from '../../helpers/api-mocks';
 import { waitForState } from '../../helpers/wait-utils';
+
+// Production tests use seeded explanation data instead of mocks
+const isProduction = isProductionEnvironment();
 
 test.describe('Search and Generate Flow', () => {
   test.describe('Search Navigation', () => {
@@ -79,10 +84,22 @@ test.describe('Search and Generate Flow', () => {
 
       const resultsPage = new ResultsPage(page);
 
-      // With E2E_TEST_MODE, the API returns real SSE stream - no mock needed
-      // But we still mock to control the exact content
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      if (isProduction) {
+        // In production, use seeded explanation from global-setup
+        const prodData = loadProductionTestData();
+        expect(prodData, 'Production test data not found - global-setup may have failed').not.toBeNull();
 
+        // Navigate directly to the seeded explanation
+        await page.goto(`${process.env.BASE_URL}/results?explanation_id=${prodData!.explanationId}`);
+        await resultsPage.waitForAnyContent();
+        const title = await resultsPage.getTitle();
+        expect(title.length).toBeGreaterThan(0);
+        expect(title).toContain('Quantum Entanglement');
+        return;
+      }
+
+      // Local/CI: use mocks for speed and determinism
+      await mockReturnExplanationAPI(page, defaultMockExplanation);
       await resultsPage.navigate('quantum entanglement');
       await resultsPage.waitForStreamingStart();
 
@@ -96,8 +113,20 @@ test.describe('Search and Generate Flow', () => {
 
       const resultsPage = new ResultsPage(page);
 
-      await mockReturnExplanationAPI(page, defaultMockExplanation);
+      if (isProduction) {
+        // In production, use seeded explanation from global-setup
+        const prodData = loadProductionTestData();
+        expect(prodData, 'Production test data not found - global-setup may have failed').not.toBeNull();
 
+        await page.goto(`${process.env.BASE_URL}/results?explanation_id=${prodData!.explanationId}`);
+        await resultsPage.waitForAnyContent();
+        const hasContent = await resultsPage.hasContent();
+        expect(hasContent).toBe(true);
+        return;
+      }
+
+      // Local/CI: use mocks for speed and determinism
+      await mockReturnExplanationAPI(page, defaultMockExplanation);
       await resultsPage.navigate('quantum entanglement');
 
       // Wait for streaming to complete (before redirect happens)
@@ -112,6 +141,20 @@ test.describe('Search and Generate Flow', () => {
     test('should show stream-complete indicator when generation finishes', async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);
 
+      if (isProduction) {
+        // In production, use seeded explanation - no streaming indicator for DB loads
+        const prodData = loadProductionTestData();
+        expect(prodData, 'Production test data not found - global-setup may have failed').not.toBeNull();
+
+        await page.goto(`${process.env.BASE_URL}/results?explanation_id=${prodData!.explanationId}`);
+        await resultsPage.waitForAnyContent();
+        // For loaded explanations, just verify content is present (no streaming indicator)
+        const hasContent = await resultsPage.hasContent();
+        expect(hasContent).toBe(true);
+        return;
+      }
+
+      // Local/CI: use mocks for speed and determinism
       await mockReturnExplanationAPI(page, shortMockExplanation);
 
       await resultsPage.navigate('brief explanation');
@@ -202,6 +245,20 @@ test.describe('Search and Generate Flow', () => {
 
       const resultsPage = new ResultsPage(page);
 
+      if (isProduction) {
+        // In production, verify explanation_id is preserved in URL
+        const prodData = loadProductionTestData();
+        expect(prodData, 'Production test data not found - global-setup may have failed').not.toBeNull();
+
+        await page.goto(`${process.env.BASE_URL}/results?explanation_id=${prodData!.explanationId}`);
+        await resultsPage.waitForAnyContent();
+        // Verify the explanation_id is in the URL
+        const explanationId = await resultsPage.getExplanationIdFromUrl();
+        expect(explanationId).toBe(String(prodData!.explanationId));
+        return;
+      }
+
+      // Local/CI: use mocks for speed and determinism
       await mockReturnExplanationAPI(page, defaultMockExplanation);
 
       const query = 'test query preservation';

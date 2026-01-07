@@ -127,11 +127,17 @@ jobs:
         run: |
           # BLOCKING pre-flight check: ensure @skip-prod tags exist where expected
           # Tests requiring mocks MUST have this tag or they'll fail in production
-          echo "Checking for @skip-prod tags in error test files..."
+          echo "Checking for @skip-prod tags in mock-dependent test files..."
           missing=0
 
           # Use find to handle glob expansion properly
-          for file in $(find src/__tests__/e2e/specs -name "errors.spec.ts" -o -name "error-recovery.spec.ts" 2>/dev/null); do
+          # Checks: error tests (2 files) + AI suggestion tests (4 files) = 6 total
+          for file in $(find src/__tests__/e2e/specs -name "errors.spec.ts" \
+            -o -name "error-recovery.spec.ts" \
+            -o -name "editor-integration.spec.ts" \
+            -o -name "content-boundaries.spec.ts" \
+            -o -name "state-management.spec.ts" \
+            -o -name "save-blocking.spec.ts" 2>/dev/null); do
             if grep -q "@skip-prod" "$file"; then
               echo "✓ $file has @skip-prod tag"
             else
@@ -142,10 +148,10 @@ jobs:
 
           if [ "$missing" -gt 0 ]; then
             echo "::error::$missing files missing @skip-prod tags. These tests will fail in production!"
-            echo "Add { tag: ['@skip-prod'] } to tests that require mocked errors."
+            echo "Add { tag: '@skip-prod' } to tests that require mocked APIs."
             exit 1
           fi
-          echo "All error test files have @skip-prod tags"
+          echo "All mock-dependent test files have @skip-prod tags"
 
       - name: Run E2E Tests
         run: npx playwright test --project=${{ matrix.browser }} --grep-invert="@skip-prod"

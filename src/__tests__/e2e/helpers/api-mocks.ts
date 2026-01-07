@@ -1,4 +1,29 @@
 import { Page } from '@playwright/test';
+import * as fs from 'fs';
+
+// Path to production test data file (written by global-setup, read by tests)
+export const PROD_TEST_DATA_PATH = '/tmp/e2e-prod-test-data.json';
+
+/**
+ * Load production test data if available.
+ * Returns null in non-production or if file doesn't exist.
+ */
+export function loadProductionTestData(): { explanationId: number; title: string } | null {
+  try {
+    if (!fs.existsSync(PROD_TEST_DATA_PATH)) return null;
+    return JSON.parse(fs.readFileSync(PROD_TEST_DATA_PATH, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if running against production environment.
+ */
+export function isProductionEnvironment(): boolean {
+  const baseUrl = process.env.BASE_URL || '';
+  return baseUrl.includes('vercel.app') || baseUrl.includes('explainanything');
+}
 
 interface MockExplanationResponse {
   title: string;

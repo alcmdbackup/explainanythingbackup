@@ -34,7 +34,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('AI Suggestions State Management', () => {
+test.describe('AI Suggestions State Management', { tag: '@skip-prod' }, () => {
   test.describe.configure({ retries: 2 });
 
   let testExplanation: TestExplanation;

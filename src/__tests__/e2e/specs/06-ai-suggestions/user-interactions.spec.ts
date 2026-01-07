@@ -48,7 +48,31 @@ test.describe('AI Suggestions User Interactions', () => {
     await testExplanation.cleanup();
   });
 
-  test('should disable submit button during loading', async ({ authenticatedPage: page }, testInfo) => {
+  // Real production AI test - validates diff buttons appear after real AI response
+  test('should show accept/reject buttons after AI response', { tag: ['@prod-ai'] }, async ({ authenticatedPage: page }) => {
+    // Use test.slow() to allow for real AI latency (triples default timeout)
+    test.slow();
+
+    const resultsPage = new ResultsPage(page);
+
+    await page.goto(`/results?explanation_id=${testExplanation.id}`);
+    await resultsPage.waitForAnyContent(60000);
+
+    await enterEditMode(page);
+    await submitAISuggestionPrompt(page, 'Add more details');
+
+    // Wait for AI success and diff nodes - real AI may take longer
+    await waitForSuggestionsSuccess(page, 120000); // 2 minute timeout for real AI
+    await waitForDiffNodes(page);
+
+    // Check that accept/reject buttons exist (using button text since that's the pattern in this codebase)
+    const acceptButton = page.locator('button:has-text("✓")').first();
+    const rejectButton = page.locator('button:has-text("✕")').first();
+    await expect(acceptButton).toBeVisible({ timeout: 5000 });
+    await expect(rejectButton).toBeVisible({ timeout: 5000 });
+  });
+
+  test('should disable submit button during loading', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
@@ -82,7 +106,7 @@ test.describe('AI Suggestions User Interactions', () => {
     await expect(textarea).toBeDisabled();
   });
 
-  test('should prevent rapid double-submit', async ({ authenticatedPage: page }, testInfo) => {
+  test('should prevent rapid double-submit', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
@@ -126,7 +150,7 @@ test.describe('AI Suggestions User Interactions', () => {
     expect(requestCount).toBe(1);
   });
 
-  test('should handle submit after accepting some diffs', async ({ authenticatedPage: page }, testInfo) => {
+  test('should handle submit after accepting some diffs', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
@@ -170,7 +194,7 @@ test.describe('AI Suggestions User Interactions', () => {
     expect(diffCount).toBeGreaterThan(0);
   });
 
-  test('should disable prompt input while loading', async ({ authenticatedPage: page }, testInfo) => {
+  test('should disable prompt input while loading', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);
@@ -202,7 +226,7 @@ test.describe('AI Suggestions User Interactions', () => {
     await expect(textarea).toBeEnabled();
   });
 
-  test('should show loading progress during pipeline execution', async ({ authenticatedPage: page }, testInfo) => {
+  test('should show loading progress during pipeline execution', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
     if (testInfo.retry === 0) test.slow();
 
     const resultsPage = new ResultsPage(page);

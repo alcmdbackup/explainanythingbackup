@@ -64,6 +64,32 @@ async function globalTeardown() {
     }
   }
 
+  // Clean up production test explanation if it exists
+  const fs = await import('fs');
+  const testDataPath = '/tmp/e2e-prod-test-data.json';
+  try {
+    if (fs.existsSync(testDataPath)) {
+      const testData = JSON.parse(fs.readFileSync(testDataPath, 'utf-8'));
+      if (testData.explanationId) {
+        console.log(`   Cleaning up production test explanation ${testData.explanationId}...`);
+
+        // Delete from userLibrary first (FK constraint)
+        await supabase.from('userLibrary').delete()
+          .eq('explanationid', testData.explanationId)
+          .eq('userid', testUserId);
+
+        // Delete the explanation
+        await supabase.from('explanations').delete()
+          .eq('id', testData.explanationId);
+
+        console.log('   ✓ Cleaned up production test explanation');
+      }
+      fs.unlinkSync(testDataPath);
+    }
+  } catch (e) {
+    console.warn('   ⚠️  Failed to clean up production test explanation:', e);
+  }
+
   try {
     // Step 1: Get explanation IDs via userLibrary BEFORE deleting (explanations table has no user_id)
     const { data: libraryEntries } = await supabase
