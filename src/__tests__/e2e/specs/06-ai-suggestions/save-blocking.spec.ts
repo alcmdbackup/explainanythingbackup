@@ -29,7 +29,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('Save Blocking with Pending AI Suggestions', () => {
+test.describe('Save Blocking with Pending AI Suggestions', { tag: '@skip-prod' }, () => {
   test.describe.configure({ retries: 2 });
 
   let testExplanation: TestExplanation;

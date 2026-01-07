@@ -32,7 +32,7 @@ import {
   type TestExplanation,
 } from '../../helpers/test-data-factory';
 
-test.describe('AI Suggestions Error Recovery', () => {
+test.describe('AI Suggestions Error Recovery @skip-prod', () => {
   test.describe.configure({ retries: 2 });
 
   let testExplanation: TestExplanation;

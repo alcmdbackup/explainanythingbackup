@@ -157,6 +157,51 @@ describe('errorHandling', () => {
       });
     });
 
+    it('should handle Supabase error objects as DATABASE_ERROR', () => {
+      // Supabase errors are plain objects with { code, message, details?, hint? }
+      const supabaseError = {
+        code: 'PGRST116',
+        message: 'JSON object requested, multiple (or no) rows returned',
+        details: 'The result contains 0 rows',
+        hint: null
+      };
+      const context = 'supabase_error_context';
+
+      const result = handleError(supabaseError, context);
+
+      expect(result).toEqual({
+        code: ERROR_CODES.DATABASE_ERROR,
+        message: 'JSON object requested, multiple (or no) rows returned',
+        details: {
+          supabaseCode: 'PGRST116',
+          hint: null,
+          rawDetails: 'The result contains 0 rows'
+        }
+      });
+    });
+
+    it('should handle Supabase RLS policy error', () => {
+      const rlsError = {
+        code: '42501',
+        message: 'new row violates row-level security policy for table "explanations"',
+        details: null,
+        hint: null
+      };
+      const context = 'rls_error_context';
+
+      const result = handleError(rlsError, context);
+
+      expect(result).toEqual({
+        code: ERROR_CODES.DATABASE_ERROR,
+        message: 'new row violates row-level security policy for table "explanations"',
+        details: {
+          supabaseCode: '42501',
+          hint: null,
+          rawDetails: null
+        }
+      });
+    });
+
     it('should handle null errors', () => {
       const error = null;
       const context = 'null_error_context';

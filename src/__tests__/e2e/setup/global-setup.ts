@@ -175,6 +175,55 @@ async function globalSetup() {
     throw error;
   }
 
+  // Detect production environment for safety checks
+  const isProduction = baseUrl.includes('vercel.app') || baseUrl.includes('explainanything');
+
+  // PRODUCTION SAFETY: Cross-validate TEST_USER_ID matches TEST_USER_EMAIL
+  if (isProduction) {
+    const testUserId = process.env.TEST_USER_ID;
+    const testUserEmail = process.env.TEST_USER_EMAIL;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!testUserId || !testUserEmail || !serviceRoleKey) {
+      throw new Error('PRODUCTION SAFETY: TEST_USER_ID, TEST_USER_EMAIL, and SUPABASE_SERVICE_ROLE_KEY required');
+    }
+
+    // Create client with timeout to prevent hanging
+    const prodSupabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, serviceRoleKey, {
+      global: { fetch: (url, options) => fetch(url, { ...options, signal: AbortSignal.timeout(10000) }) }
+    });
+
+    try {
+      const { data: userData, error } = await prodSupabase.auth.admin.getUserById(testUserId);
+
+      if (error || !userData?.user) {
+        throw new Error(`PRODUCTION SAFETY: Could not verify TEST_USER_ID: ${error?.message}`);
+      }
+
+      if (userData.user.email !== testUserEmail) {
+        throw new Error(
+          `PRODUCTION SAFETY: TEST_USER_ID belongs to "${userData.user.email}" but TEST_USER_EMAIL is "${testUserEmail}"`
+        );
+      }
+
+      const isTestUser = testUserEmail.includes('e2e') || testUserEmail.includes('test');
+      if (!isTestUser) {
+        throw new Error(`PRODUCTION SAFETY: Email "${testUserEmail}" doesn't match pattern *e2e* or *test*`);
+      }
+
+      console.log(`   ✓ Verified production test user: ${testUserEmail}`);
+
+      // Seed a test explanation for production E2E tests
+      // This creates a REAL explanation that tests can load via getExplanationByIdAction
+      await seedProductionTestExplanation(prodSupabase, testUserId);
+    } catch (e) {
+      if (e instanceof Error && e.name === 'TimeoutError') {
+        throw new Error('PRODUCTION SAFETY: Supabase verification timed out after 10s');
+      }
+      throw e;
+    }
+  }
+
   // Verify required environment variables
   const requiredEnvVars = [
     'NEXT_PUBLIC_SUPABASE_URL',
@@ -189,7 +238,8 @@ async function globalSetup() {
   }
 
   // Optional: Seed shared fixtures if service role key is available
-  if (process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  // Skip fixture seeding in production - we use pre-existing test data
+  if (!isProduction && process.env.SUPABASE_SERVICE_ROLE_KEY) {
     try {
       await seedSharedFixtures();
     } catch (error) {
@@ -330,6 +380,80 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   // Associate tag with the new explanation
   await ensureTagAssociated(supabase, explanation.id);
   console.log('   ✓ Seeded test explanation');
+}
+
+/**
+ * Seeds a test explanation for production E2E testing.
+ * Unlike local fixtures, this creates content that matches what tests expect.
+ * The explanation ID is written to a temp file for tests to read.
+ */
+async function seedProductionTestExplanation(supabase: SupabaseClient, testUserId: string) {
+  console.log('   Seeding production test explanation...');
+
+  const timestamp = Date.now();
+
+  // Get or create topic - THROW on failure so we know about it
+  const { data: topic, error: topicError } = await supabase
+    .from('topics')
+    .upsert({ topic_title: 'e2e-test-topic', topic_description: 'Topic for E2E tests' }, { onConflict: 'topic_title' })
+    .select()
+    .single();
+
+  if (topicError || !topic) {
+    throw new Error(`PRODUCTION SEEDING FAILED: Could not create topic: ${topicError?.message}`);
+  }
+
+  // Create explanation with content matching defaultMockExplanation
+  // Use timestamp in title to ensure uniqueness across runs
+  const { data: explanation, error } = await supabase
+    .from('explanations')
+    .insert({
+      explanation_title: `test-${timestamp}-Understanding Quantum Entanglement`,
+      content: `# Understanding Quantum Entanglement
+
+Quantum entanglement is a phenomenon in quantum physics where two or more particles become interconnected.
+
+## Key Concepts
+
+1. **Superposition** - Particles can exist in multiple states simultaneously
+2. **Measurement** - Observing one particle instantly affects its entangled partner
+
+## Applications
+
+- Quantum computing
+- Quantum cryptography`,
+      status: 'published',
+      primary_topic_id: topic.id,
+    })
+    .select()
+    .single();
+
+  if (error || !explanation) {
+    throw new Error(`PRODUCTION SEEDING FAILED: Could not create explanation: ${error?.message}`);
+  }
+
+  // Add to user's library
+  const { error: libraryError } = await supabase.from('userLibrary').insert({
+    userid: testUserId,
+    explanationid: explanation.id,
+  });
+
+  if (libraryError) {
+    // Clean up orphaned explanation before throwing
+    await supabase.from('explanations').delete().eq('id', explanation.id);
+    throw new Error(`PRODUCTION SEEDING FAILED: Could not add to library: ${libraryError.message}`);
+  }
+
+  // Write the explanation ID to temp file for tests to read
+  const fs = await import('fs');
+  const testDataPath = '/tmp/e2e-prod-test-data.json';
+  fs.writeFileSync(testDataPath, JSON.stringify({
+    explanationId: explanation.id,
+    title: explanation.explanation_title,
+    createdAt: new Date().toISOString(),
+  }));
+
+  console.log(`   ✓ Seeded production explanation ID ${explanation.id} → ${testDataPath}`);
 }
 
 export default globalSetup;

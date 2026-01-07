@@ -76,14 +76,17 @@ if (!process.env.CI) {
 const instanceURL = discoverInstanceURL();
 const baseURL = process.env.BASE_URL || instanceURL || 'http://localhost:3008';
 
+// Detect production environment for extended timeouts and serial execution
+const isProduction = baseURL.includes('vercel.app') || baseURL.includes('explainanything');
+
 export default defineConfig({
   globalSetup: './src/__tests__/e2e/setup/global-setup.ts',
   globalTeardown: './src/__tests__/e2e/setup/global-teardown.ts',
   testDir: './src/__tests__/e2e',
-  fullyParallel: true,
+  fullyParallel: isProduction ? false : true,  // Serial execution in production to avoid rate limiting
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 2 : 2,  // Production build in CI is more stable, allows 2 workers
+  retries: isProduction ? 3 : (process.env.CI ? 2 : 0),  // More retries for real AI flakiness
+  workers: isProduction ? 2 : 2,  // 2 workers in production (with 30s helper timeouts)
   reporter: [
     ['html'],
     ['json', { outputFile: 'test-results/results.json' }],
@@ -154,8 +157,9 @@ export default defineConfig({
       },
     },
   }),
-  timeout: process.env.CI ? 60000 : 30000,
+  // Extended timeouts for production (real AI latency)
+  timeout: isProduction ? 120000 : (process.env.CI ? 60000 : 30000),
   expect: {
-    timeout: process.env.CI ? 20000 : 10000,
+    timeout: isProduction ? 60000 : (process.env.CI ? 20000 : 10000),
   },
 });

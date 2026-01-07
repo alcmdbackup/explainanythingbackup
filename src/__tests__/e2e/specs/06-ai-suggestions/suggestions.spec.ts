@@ -56,7 +56,7 @@ test.describe('AI Suggestions Pipeline', () => {
   // ============= Panel Interaction Tests =============
 
   test.describe('Panel Interaction', () => {
-    test('should display AI suggestions panel', { tag: '@critical' }, async ({ authenticatedPage: page }, testInfo) => {
+    test('should display AI suggestions panel', { tag: ['@critical', '@prod-ai'] }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
@@ -68,7 +68,24 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(isPanelVisible).toBe(true);
     });
 
-    test('should show loading state when submitting suggestion', async ({ authenticatedPage: page }, testInfo) => {
+    // Test 2: Real production AI test - no mocking, validates core AI flow
+    test('should submit prompt and receive successful AI response', { tag: ['@prod-ai'] }, async ({ authenticatedPage: page }) => {
+      // Use test.slow() to allow for real AI latency (triples default timeout)
+      test.slow();
+
+      const resultsPage = new ResultsPage(page);
+
+      await page.goto(`/results?explanation_id=${testExplanation.id}`);
+      await resultsPage.waitForAnyContent(60000);
+
+      await enterEditMode(page);
+      await submitAISuggestionPrompt(page, 'Improve this text');
+
+      // Assert success - real AI should work in production
+      await waitForSuggestionsSuccess(page, 120000); // 2 minute timeout for real AI
+    });
+
+    test('should show loading state when submitting suggestion', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
@@ -94,7 +111,7 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(await page.locator('[data-testid="suggestions-loading"]').isVisible()).toBe(true);
     });
 
-    test('should display success message after suggestions applied', async ({ authenticatedPage: page }, testInfo) => {
+    test('should display success message after suggestions applied', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
@@ -118,7 +135,7 @@ test.describe('AI Suggestions Pipeline', () => {
       expect(await page.locator('[data-testid="suggestions-success"]').isVisible()).toBe(true);
     });
 
-    test('should handle suggestion error gracefully', async ({ authenticatedPage: page }, testInfo) => {
+    test('should handle suggestion error gracefully', { tag: '@skip-prod' }, async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
       const resultsPage = new ResultsPage(page);
@@ -145,7 +162,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
   // ============= Diff Visualization Tests =============
 
-  test.describe('Diff Visualization', () => {
+  test.describe('Diff Visualization', { tag: '@skip-prod' }, () => {
     test('should render insertion diffs', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
@@ -219,7 +236,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
   // ============= Accept/Reject Interaction Tests =============
 
-  test.describe('Accept/Reject Interactions', () => {
+  test.describe('Accept/Reject Interactions', { tag: '@skip-prod' }, () => {
     test('should return content with CriticMarkup for accept/reject UI', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
@@ -393,7 +410,7 @@ test.describe('AI Suggestions Pipeline', () => {
 
   // ============= Prompt-Specific Tests =============
 
-  test.describe('Prompt-Specific: Remove First Sentence', () => {
+  test.describe('Prompt-Specific: Remove First Sentence', { tag: '@skip-prod' }, () => {
     test('should show deletion diff for first sentence', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
@@ -463,7 +480,7 @@ test.describe('AI Suggestions Pipeline', () => {
     });
   });
 
-  test.describe('Prompt-Specific: Shorten First Paragraph', () => {
+  test.describe('Prompt-Specific: Shorten First Paragraph', { tag: '@skip-prod' }, () => {
     test('should show deletion and insertion diffs for paragraph condensation', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 
@@ -535,7 +552,7 @@ test.describe('AI Suggestions Pipeline', () => {
     });
   });
 
-  test.describe('Prompt-Specific: Improve Entire Article', () => {
+  test.describe('Prompt-Specific: Improve Entire Article', { tag: '@skip-prod' }, () => {
     test('should show multiple diffs across entire article', async ({ authenticatedPage: page }, testInfo) => {
       if (testInfo.retry === 0) test.slow();
 

@@ -1,47 +1,59 @@
-name: E2E Nightly (Full Browser Matrix)
+name: E2E Nightly (Production)
 
 on:
   schedule:
-    - cron: '0 6 * * *' # 6 AM UTC daily
-  workflow_dispatch: # Allow manual trigger
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    - cron: '0 6 * * *'
+  workflow_dispatch:
 
 jobs:
-  e2e-full:
-    name: E2E Full (${{ matrix.browser }})
+  e2e:
     runs-on: ubuntu-latest
-    environment: staging
+    environment: Production
+    timeout-minutes: 45
+
+    # Sequential browser execution to avoid OpenAI rate limiting
     strategy:
       fail-fast: false
+      max-parallel: 1  # Run one browser at a time
       matrix:
-        # With E2E_TEST_MODE providing real SSE streaming, Firefox should now work
         browser: [chromium, firefox]
+
     env:
+      # Production URL - no local build
+      BASE_URL: https://explainanything.vercel.app
+
+      # Production secrets
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       PINECONE_API_KEY: ${{ secrets.PINECONE_API_KEY }}
       PINECONE_INDEX_NAME_ALL: ${{ secrets.PINECONE_INDEX_NAME_ALL }}
-      PINECONE_NAMESPACE: ${{ secrets.PINECONE_NAMESPACE }}
-      # Enable API route for AI suggestions (mockable in E2E tests)
-      NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
-      # Enable E2E test mode for SSE streaming bypass
-      E2E_TEST_MODE: 'true'
-      # Test user credentials for per-worker auth and cleanup
+
+      # Vercel bypass for protected deployments
+      VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+
+      # Test user credentials
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+
+      # NO E2E_TEST_MODE - uses real AI
+
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+        # TODO: Restore after validation
+        # with:
+        #   ref: production  # Checkout production branch
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
-      - run: npm ci
+
+      - name: Install dependencies
+        run: npm ci
 
       - name: Get Playwright version
         id: playwright-version
@@ -58,17 +70,125 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: npx playwright install --with-deps ${{ matrix.browser }}
 
-      - name: Install Playwright deps (if cached)
+      - name: Install Playwright deps (when cached)
         if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps ${{ matrix.browser }}
 
-      - run: npm run test:e2e -- --project=${{ matrix.browser }}
+      - name: Health Check (with retry)
+        env:
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          DEPLOY_URL="https://explainanything.vercel.app"
+          MAX_RETRIES=3
+          RETRY_DELAY=10
 
-      - uses: actions/upload-artifact@v4
+          health_check() {
+            if [ -n "$VERCEL_AUTOMATION_BYPASS_SECRET" ]; then
+              curl -s -L --max-redirs 5 --connect-timeout 10 --max-time 30 \
+                -o /tmp/health.json -w '%{http_code}' \
+                -c /tmp/cookies.txt -b /tmp/cookies.txt \
+                -H "x-vercel-protection-bypass: $VERCEL_AUTOMATION_BYPASS_SECRET" \
+                -H "x-vercel-set-bypass-cookie: samesitenone" \
+                "$DEPLOY_URL/api/health"
+            else
+              curl -s -L --max-redirs 5 --connect-timeout 10 --max-time 30 \
+                -o /tmp/health.json -w '%{http_code}' "$DEPLOY_URL/api/health"
+            fi
+          }
+
+          for attempt in $(seq 1 $MAX_RETRIES); do
+            echo "Health check attempt $attempt/$MAX_RETRIES: $DEPLOY_URL/api/health"
+            http_code=$(health_check)
+
+            if [ "$http_code" = "403" ]; then
+              echo "::error::Deployment protection blocked (403). Check VERCEL_AUTOMATION_BYPASS_SECRET."
+              exit 1  # Don't retry auth failures
+            elif [ "$http_code" = "200" ]; then
+              response=$(cat /tmp/health.json)
+              status=$(echo "$response" | jq -r '.status')
+              echo "$response" | jq .
+              if [ "$status" = "healthy" ]; then
+                echo "::notice::Health check passed on attempt $attempt!"
+                exit 0
+              fi
+            fi
+
+            if [ "$attempt" -lt "$MAX_RETRIES" ]; then
+              echo "Attempt $attempt failed (HTTP $http_code), retrying in ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+            fi
+          done
+
+          echo "::error::Health check failed after $MAX_RETRIES attempts"
+          cat /tmp/health.json 2>/dev/null || echo "(No response body)"
+          exit 1
+
+      - name: Audit @skip-prod tags (BLOCKING)
+        run: |
+          # BLOCKING pre-flight check: ensure @skip-prod tags exist where expected
+          # Tests requiring mocks MUST have this tag or they'll fail in production
+          echo "Checking for @skip-prod tags in mock-dependent test files..."
+          missing=0
+
+          # Use find to handle glob expansion properly
+          # Checks: error tests (2 files) + AI suggestion tests (4 files) = 6 total
+          for file in $(find src/__tests__/e2e/specs -name "errors.spec.ts" \
+            -o -name "error-recovery.spec.ts" \
+            -o -name "editor-integration.spec.ts" \
+            -o -name "content-boundaries.spec.ts" \
+            -o -name "state-management.spec.ts" \
+            -o -name "save-blocking.spec.ts" 2>/dev/null); do
+            if grep -q "@skip-prod" "$file"; then
+              echo "✓ $file has @skip-prod tag"
+            else
+              echo "::error::BLOCKING: $file missing @skip-prod tag"
+              missing=$((missing + 1))
+            fi
+          done
+
+          if [ "$missing" -gt 0 ]; then
+            echo "::error::$missing files missing @skip-prod tags. These tests will fail in production!"
+            echo "Add { tag: '@skip-prod' } to tests that require mocked APIs."
+            exit 1
+          fi
+          echo "All mock-dependent test files have @skip-prod tags"
+
+      - name: Run E2E Tests
+        run: npx playwright test --project=${{ matrix.browser }} --grep-invert="@skip-prod"
+
+      - name: Upload test results
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: playwright-report-nightly-${{ matrix.browser }}
-          path: |
-            playwright-report/
-            test-results/
-          retention-days: 7
+          name: playwright-report-${{ matrix.browser }}
+          path: playwright-report/
+          retention-days: 30
+
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          echo "::error::Nightly E2E tests failed!"
+          if [ -n "$SLACK_WEBHOOK_URL" ]; then
+            curl -X POST -H 'Content-type: application/json' \
+              --data '{
+                "blocks": [
+                  {
+                    "type": "header",
+                    "text": {"type": "plain_text", "text": "🚨 Nightly E2E Tests Failed", "emoji": true}
+                  },
+                  {
+                    "type": "section",
+                    "fields": [
+                      {"type": "mrkdwn", "text": "*Environment:*\nProduction"},
+                      {"type": "mrkdwn", "text": "*Browser:*\n${{ matrix.browser }}"}
+                    ]
+                  },
+                  {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "*Actions Run:*\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View Logs>"}
+                  }
+                ]
+              }' "$SLACK_WEBHOOK_URL"
+          fi

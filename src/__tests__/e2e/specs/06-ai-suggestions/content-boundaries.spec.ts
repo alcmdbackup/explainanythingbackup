@@ -86,7 +86,7 @@ Inline code: \`const x = 42\``,
          1. Ordered Level 4`,
 };
 
-test.describe('AI Suggestions Content Boundaries', () => {
+test.describe('AI Suggestions Content Boundaries', { tag: '@skip-prod' }, () => {
   test.describe.configure({ retries: 2 });
 
   let testExplanation: TestExplanation;

@@ -15,7 +15,7 @@ import {
 import { waitForState, waitForRouteReady } from '../../helpers/wait-utils';
 import { safeScreenshot } from '../../helpers/error-utils';
 
-test.describe('Error Handling', () => {
+test.describe('Error Handling @skip-prod', () => {
   test.describe('API Errors', () => {
     test('should not display content when API returns 500', { tag: '@critical' }, async ({ authenticatedPage: page }) => {
       const resultsPage = new ResultsPage(page);

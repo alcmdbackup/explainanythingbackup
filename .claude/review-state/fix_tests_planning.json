@@ -1,0 +1,42 @@
+{
+  "plan_file": "docs/planning/fix_tests_in_production_20260106/fix_tests_planning.md",
+  "iteration": 5,
+  "max_iterations": 5,
+  "history": [
+    {
+      "iteration": 1,
+      "timestamp": "2026-01-06T12:00:00Z",
+      "scores": [3, 3, 3],
+      "critical_gaps": ["Selector mismatch", "Workflow audit", "Timeout strategy", "Rate limiting", "Local verification"],
+      "outcome": "iterate"
+    },
+    {
+      "iteration": 2,
+      "timestamp": "2026-01-06T12:15:00Z",
+      "scores": [3, 3, 4],
+      "critical_gaps": ["Tag format", "Rollback plan", "Production verification optional"],
+      "outcome": "iterate"
+    },
+    {
+      "iteration": 3,
+      "timestamp": "2026-01-06T12:30:00Z",
+      "scores": [4, 3, 4],
+      "critical_gaps": ["Incomplete snippets", "Helper reuse"],
+      "outcome": "iterate"
+    },
+    {
+      "iteration": 4,
+      "timestamp": "2026-01-06T12:45:00Z",
+      "scores": [3, 4, 3],
+      "critical_gaps": ["@critical vs @prod-ai", "OPENAI_API_KEY", "Helper usage"],
+      "outcome": "iterate"
+    },
+    {
+      "iteration": 5,
+      "timestamp": "2026-01-06T13:00:00Z",
+      "scores": [5, 5, 5],
+      "critical_gaps": [],
+      "outcome": "approved"
+    }
+  ]
+}

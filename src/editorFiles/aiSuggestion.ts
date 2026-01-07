@@ -387,7 +387,11 @@ export async function runAISuggestionsPipeline(
 
   if (!suggestionsResult.success || !suggestionsResult.data) {
     console.error('❌ PIPELINE STEP 1 FAILED:', suggestionsResult.error);
-    throw new Error(suggestionsResult.error?.message || 'Failed to generate AI suggestions');
+    // Include error code and details for better debugging
+    const errorCode = suggestionsResult.error?.code || 'UNKNOWN';
+    const errorMessage = suggestionsResult.error?.message || 'Failed to generate AI suggestions';
+    const errorDetails = suggestionsResult.error?.details ? ` (${JSON.stringify(suggestionsResult.error.details)})` : '';
+    throw new Error(`[${errorCode}] ${errorMessage}${errorDetails}`);
   }
   const suggestions = suggestionsResult.data;
 
@@ -433,7 +437,11 @@ export async function runAISuggestionsPipeline(
 
   if (!editedContentResult.success || !editedContentResult.data) {
     console.error('❌ PIPELINE STEP 2 FAILED:', editedContentResult.error);
-    throw new Error(editedContentResult.error?.message || 'Failed to apply AI suggestions');
+    // Include error code and details for better debugging
+    const errorCode = editedContentResult.error?.code || 'UNKNOWN';
+    const errorMessage = editedContentResult.error?.message || 'Failed to apply AI suggestions';
+    const errorDetails = editedContentResult.error?.details ? ` (${JSON.stringify(editedContentResult.error.details)})` : '';
+    throw new Error(`[${errorCode}] ${errorMessage}${errorDetails}`);
   }
   const editedContent = editedContentResult.data;
 
