@@ -60,14 +60,13 @@ export function calculateExpiryDate(): string {
  * Detect if content appears to be behind a paywall
  */
 export function detectPaywall(html: string): boolean {
+  // TODO: Improve paywall detection - currently causes false positives on Wikipedia
+  // The simple string matching triggers on legitimate sites that have phrases like
+  // "create a free account" or "members only" in navigation/footer areas
   const paywallIndicators = [
-    'subscribe to continue',
-    'subscription required',
-    'members only',
-    'paywall',
-    'sign up to read',
-    'create a free account',
-    'premium content',
+    'subscribe to continue reading',
+    'subscription required to',
+    'sign up to read this',
     'unlock this article'
   ];
 

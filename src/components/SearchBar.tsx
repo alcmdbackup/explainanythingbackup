@@ -151,6 +151,7 @@ export default function SearchBar({
                         <button
                             type="button"
                             onClick={() => setIsSourcesExpanded(!isSourcesExpanded)}
+                            data-testid="add-sources-toggle"
                             className="flex items-center gap-1 text-sm text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
                         >
                             {isSourcesExpanded ? (

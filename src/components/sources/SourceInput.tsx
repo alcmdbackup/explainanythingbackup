@@ -129,6 +129,7 @@ export default function SourceInput({
           }}
           onKeyDown={handleKeyDown}
           placeholder="Paste source URL..."
+          data-testid="source-url-input"
           disabled={disabled || isLoading}
           className={cn(
             'flex-1 px-3 py-2 rounded-page text-sm',
@@ -146,6 +147,7 @@ export default function SourceInput({
           disabled={disabled || isLoading || !url.trim()}
           variant="outline"
           size="sm"
+          data-testid="source-add-button"
           className="shrink-0"
         >
           {isLoading ? (

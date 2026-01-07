@@ -27,6 +27,7 @@ export default function SourceChip({
 
   return (
     <div
+      data-testid={`source-chip-${source.status}`}
       className={cn(
         'inline-flex items-center gap-2 px-3 py-1.5 rounded-page',
         'bg-[var(--surface-elevated)] border border-[var(--border-default)]',

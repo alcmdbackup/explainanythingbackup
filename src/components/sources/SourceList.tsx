@@ -66,7 +66,7 @@ export default function SourceList({
         <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
           <span>{sources.length}/{maxSources} sources</span>
           {hasFailedSources && (
-            <span className="text-[var(--status-error)]">
+            <span data-testid="sources-failed-message" className="text-[var(--status-error)]">
               (some sources failed to load)
             </span>
           )}

@@ -183,6 +183,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
  * - Adds diversity scores based on comparison with previous explanation
  * - Used by generateAiExplanation to enrich source data with diversity metrics
  * - Calls getExplanationById for each source
+ * - Gracefully skips explanations that are inaccessible (deleted, RLS-blocked, etc.)
  */
 export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts: VectorSearchResult[], diversityComparison: VectorSearchResult[] | null): Promise<matchWithCurrentContentType[]> {
     logger.debug('Starting enhanceMatchesWithCurrentContentAndDiversity', {
@@ -195,13 +196,24 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
         diversity_comparison_metadata_keys: diversityComparison?.[0]?.metadata ? Object.keys(diversityComparison[0].metadata) : []
     }, FILE_DEBUG);
 
-    return Promise.all(similarTexts.map(async (result: VectorSearchResult) => {
+    const results = await Promise.all(similarTexts.map(async (result: VectorSearchResult) => {
         logger.debug('Processing source', {
             metadata: result.metadata,
             score: result.score
         }, FILE_DEBUG);
 
-        const explanation = await getExplanationById(result.metadata.explanation_id);
+        // Gracefully handle inaccessible explanations (deleted, RLS-blocked, stale vector entries)
+        let explanation;
+        try {
+            explanation = await getExplanationById(result.metadata.explanation_id);
+        } catch (error) {
+            logger.warn('Skipping inaccessible explanation in vector results', {
+                explanation_id: result.metadata.explanation_id,
+                error: error instanceof Error ? error.message : 'Unknown error'
+            });
+            return null; // Will be filtered out below
+        }
+
         logger.debug('Retrieved explanation', {
             explanation_id: result.metadata.explanation_id,
             found: !!explanation,
@@ -252,4 +264,7 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
 
         return enhancedSource;
     }));
+
+    // Filter out null results (inaccessible explanations)
+    return results.filter((result): result is matchWithCurrentContentType => result !== null);
 } 
