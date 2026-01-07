@@ -59,21 +59,26 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
  * Get an explanation record by ID
  * @param id Explanation record ID
  * @returns Explanation record if found
+ *
+ * Uses .limit(1) instead of .single() to handle edge cases gracefully
+ * (e.g., replication lag, RLS timing issues) without throwing PostgREST errors
  */
 export async function getExplanationById(id: number): Promise<ExplanationFullDbType> {
   const supabase = await createSupabaseServerClient()
-  
-  const { data, error } = await supabase
+
+  // Use .limit(1) instead of .single() to avoid "Cannot coerce" errors
+  // when replication lag or RLS timing causes 0 rows to be returned temporarily
+  const { data: results, error } = await supabase
     .from('explanations')
     .select()
     .eq('id', id)
-    .single();
+    .limit(1);
 
   if (error) throw error;
-  if (!data) {
+  if (!results || results.length === 0) {
     throw new Error(`Explanation not found for ID: ${id}`);
   }
-  return data;
+  return results[0];
 }
 
 /**

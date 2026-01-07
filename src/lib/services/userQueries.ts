@@ -67,19 +67,22 @@ export async function getRecentUserQueries(
  * Get a user query record by ID
  * @param id User query record ID
  * @returns User query record if found
+ *
+ * Uses .limit(1) instead of .single() to handle edge cases gracefully
  */
 export async function getUserQueryById(id: number) {
   const supabase = await createSupabaseServerClient()
-  
-  const { data, error } = await supabase
+
+  // Use .limit(1) instead of .single() to avoid "Cannot coerce" errors
+  const { data: results, error } = await supabase
     .from('userQueries')
     .select()
     .eq('id', id)
-    .single();
+    .limit(1);
 
   if (error) throw error;
-  if (!data) {
+  if (!results || results.length === 0) {
     throw new Error(`User query not found for ID: ${id}`);
   }
-  return data;
+  return results[0];
 } 

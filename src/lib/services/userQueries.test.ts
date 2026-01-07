@@ -21,6 +21,7 @@ type MockSupabaseClient = {
   insert: jest.Mock;
   select: jest.Mock;
   single: jest.Mock;
+  limit: jest.Mock;
   eq: jest.Mock;
   order: jest.Mock;
   range: jest.Mock;
@@ -38,6 +39,7 @@ describe('UserQueries Service', () => {
       insert: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
       single: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockReturnThis(),
@@ -260,8 +262,9 @@ describe('UserQueries Service', () => {
         created_at: '2024-01-01T00:00:00Z'
       };
 
-      mockSupabase.single.mockResolvedValue({
-        data: mockQuery,
+      // Now uses .limit(1) instead of .single()
+      mockSupabase.limit.mockResolvedValue({
+        data: [mockQuery],
         error: null
       });
 
@@ -272,13 +275,13 @@ describe('UserQueries Service', () => {
       expect(result).toEqual(mockQuery);
       expect(mockSupabase.from).toHaveBeenCalledWith('userQueries');
       expect(mockSupabase.eq).toHaveBeenCalledWith('id', 1);
-      expect(mockSupabase.single).toHaveBeenCalled();
+      expect(mockSupabase.limit).toHaveBeenCalledWith(1);
     });
 
     it('should throw error when query not found', async () => {
-      // Arrange
-      mockSupabase.single.mockResolvedValue({
-        data: null,
+      // Arrange - empty array returned (no results)
+      mockSupabase.limit.mockResolvedValue({
+        data: [],
         error: null
       });
 
@@ -289,7 +292,7 @@ describe('UserQueries Service', () => {
     it('should throw error when database query fails', async () => {
       // Arrange
       const mockError = { message: 'Database error' };
-      mockSupabase.single.mockResolvedValue({
+      mockSupabase.limit.mockResolvedValue({
         data: null,
         error: mockError
       });

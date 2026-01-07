@@ -244,3 +244,86 @@ if (existingList && existingList.length > 0) return existingList[0];
 
 ### Next: Trigger Workflow to Verify
 All fixes are now pushed. Need to trigger a new workflow run to verify.
+
+---
+
+## Phase 6: Deeper Root Cause (Workflow Run 20797403264)
+
+### Error Changed - Fix Working!
+After deploying the `.single()` → `.limit(1)` fix, the error message changed from:
+- **Before**: `Cannot coerce the result to a single JSON object`
+- **After**: `Explanation not found for ID: 759` (and 434, 17)
+
+This confirms the `.limit(1)` fix is working - we now get a clear "not found" error instead of a cryptic PostgREST error.
+
+### New Root Cause: Stale Vector Store Entries
+
+**Investigation**: Analyzed Playwright snapshots from run 20797403264:
+```
+/data/1fc1ebd99a89d976a2139b2230ada94aa18beaee.md: "Explanation not found for ID: 434"
+/data/bc79aae02ef0f5778eb057350ff70828f2f713a3.md: "Explanation not found for ID: 759"
+/data/cfcd7d15498cc8a60ffebf884834a215540c0ae1.md: "Explanation not found for ID: 17"
+```
+
+**Root Cause Found**: The vector store contains stale entries pointing to old explanation IDs (759, 434, 17) that are either:
+- Deleted from the database
+- RLS-blocked (e.g., draft status from different user)
+- Created by old test runs that were later cleaned up
+
+**Code Path**:
+1. Vector similarity search returns matches with old IDs
+2. `enhanceMatchesWithCurrentContentAndDiversity()` in `findMatches.ts` calls `getExplanationById()` for each match
+3. `getExplanationById()` throws "Explanation not found for ID: X"
+4. Because calls are inside `Promise.all()`, ONE failure crashes the ENTIRE operation
+
+### Fix 3: Graceful Handling of Inaccessible Explanations ✅
+
+**File Modified**: `src/lib/services/findMatches.ts`
+
+**Change**: Wrap `getExplanationById()` in try/catch and filter out inaccessible explanations:
+
+```typescript
+// BEFORE: One missing explanation crashes everything
+const explanation = await getExplanationById(result.metadata.explanation_id);
+
+// AFTER: Skip inaccessible explanations gracefully
+let explanation;
+try {
+    explanation = await getExplanationById(result.metadata.explanation_id);
+} catch (error) {
+    logger.warn('Skipping inaccessible explanation in vector results', {
+        explanation_id: result.metadata.explanation_id,
+        error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    return null; // Will be filtered out below
+}
+
+// ... rest of function ...
+
+// Filter out null results (inaccessible explanations)
+return results.filter((result): result is matchWithCurrentContentType => result !== null);
+```
+
+**Commit**: `d8c001e` - fix(findMatches): gracefully skip inaccessible explanations in vector results
+
+**PR**: #173 (merge-main-to-prod-jan7 → main)
+
+---
+
+## Updated Summary of All Fixes
+
+| Issue | Root Cause | Fix | Status |
+|-------|------------|-----|--------|
+| Tests timeout 60s | Tests don't detect error state | Race URL vs error visibility in `waitForStreamingComplete()` | ✅ Merged |
+| "Cannot coerce" error (topics) | `.single()` on duplicate topics | Use `.limit(1)` in `createTopic()` | ✅ Merged |
+| "Cannot coerce" error (explanations) | `.single()` returns 0 rows | Use `.limit(1)` in `getExplanationById()` | ✅ PR #173 |
+| "Cannot coerce" error (userQueries) | `.single()` returns 0 rows | Use `.limit(1)` in `getUserQueryById()` | ✅ PR #173 |
+| "Explanation not found" crashes | Stale vector entries for deleted/blocked explanations | Try/catch + filter in `enhanceMatchesWithCurrentContentAndDiversity()` | ✅ PR #173 |
+| Error context lost | Supabase errors not instanceof Error | Added `isSupabaseError()` type guard | ✅ Merged |
+| Generic error messages | AI pipeline loses error details | Enhanced error messages with code/details | ✅ Merged |
+
+### Next Steps
+1. Merge PR #173 to main
+2. PR #172 (main → production) will include all fixes
+3. Merge PR #172 to production
+4. Trigger workflow run to verify all tests pass
