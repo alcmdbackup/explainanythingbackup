@@ -49,7 +49,8 @@ test.describe('AI Suggestions User Interactions', () => {
   });
 
   // Real production AI test - validates diff buttons appear after real AI response
-  test('should show accept/reject buttons after AI response', { tag: ['@prod-ai'] }, async ({ authenticatedPage: page }) => {
+  // Skipped in prod due to AI unreliability - mocked equivalent in save-blocking.spec.ts
+  test('should show accept/reject buttons after AI response', { tag: ['@prod-ai', '@skip-prod'] }, async ({ authenticatedPage: page }) => {
     // Use test.slow() to allow for real AI latency (triples default timeout)
     test.slow();
 
