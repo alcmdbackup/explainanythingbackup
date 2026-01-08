@@ -130,9 +130,10 @@ jobs:
           TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
           # Vercel bypass for protected deployments
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          # Supabase env vars for auth fixture
+          # Supabase env vars for auth fixture and production safety validation
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           echo "Running smoke tests against: $BASE_URL"
           npx playwright test --project=chromium --grep="@smoke" --reporter=list
