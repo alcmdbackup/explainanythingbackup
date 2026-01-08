@@ -56,4 +56,4 @@ client.log
 .vercel-bypass-cookie.json
 
 # Claude Code
-.claude/review-state/agent-completions.jsonl
+.claude/review-state/

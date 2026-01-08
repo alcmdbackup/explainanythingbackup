@@ -8,10 +8,12 @@ jobs:
   smoke-test:
     # Use Production environment to access PROD_TEST_USER_* secrets
     environment: Production
-    # Only run on successful deployments to production
+    # Only run on successful Vercel deployments to production
+    # Filter out GitHub Actions environment deployments (which have GitHub URLs as target_url)
     if: |
       github.event.deployment_status.state == 'success' &&
-      github.event.deployment.environment == 'Production'
+      github.event.deployment.environment == 'Production' &&
+      contains(github.event.deployment_status.target_url, 'vercel.app')
     runs-on: ubuntu-latest
 
     steps:
