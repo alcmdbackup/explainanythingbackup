@@ -13,6 +13,24 @@
             "command": "bash .claude/hooks/block-supabase-writes.sh"
           }
         ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-workflow-ready.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/check-workflow-ready.sh"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -39,6 +57,24 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/check-test-patterns.sh $FILE_PATH"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/track-prerequisites.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "TodoWrite",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/track-prerequisites.sh"
           }
         ]
       }

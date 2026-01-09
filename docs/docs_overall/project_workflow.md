@@ -6,39 +6,59 @@ Complete workflow for starting, planning, executing, and wrapping up projects.
 
 Before starting any new project, ensure the following requirements are met:
 
-1. **Project path required** - Reject any attempt to start without a path in format `/docs/planning/project_name_date` (e.g., `/docs/planning/fix_bug_20251225`). Ask for clarification if path is not clear.
-2. **Folder setup** - Create a new folder at this path if needed
-3. **Doc setup** - Create documents within this folder following the templates below:
-   - `_research.md` (e.g., `fix_bug_research.md`)
-   - `_planning.md` (e.g., `fix_bug_planning.md`)
-   - `_progress.md` (e.g., `fix_bug_progress.md`)
-4. **Create a GitHub issue** - Include a 3-5 sentence summary of the work needed
-5. **Provide URL** - Share the link to the relevant project folder
+1. **Project path required** - Path in format `/docs/planning/project_name_date` (e.g., `/docs/planning/fix_bug_20251225`)
+2. **Branch setup** - Create and checkout a new branch from remote main, matching the project name:
+   ```bash
+   git fetch origin && git checkout -b project_name_date origin/main
+   ```
+3. **Folder setup** - Create a new folder at the project path
+4. **Doc setup** - Create documents within this folder:
+   - `_status.json` (workflow enforcement state - auto-created by hooks)
+   - `_research.md` (research findings)
+   - `_planning.md` (brainstorm results + implementation plan)
+   - `_progress.md` (execution tracking)
+5. **Create a GitHub issue** - Include a 3-5 sentence summary of the work needed
+6. **Provide URL** - Share the link to the relevant project folder
 
-Always use the planning doc for updates, rather than internal Claude planning files.
+**Important:** Always use `_planning.md` in your project folder for plans, not `.claude/plans/`.
+
+### Bypassing Workflow Enforcement
+
+For quick fixes or emergencies, use one of these bypass methods:
+
+1. **Branch prefix** - Use `hotfix/`, `fix/`, `docs/`, or `chore/` prefix (e.g., `fix/typo-in-header`)
+2. **Environment variable** - Start Claude with `WORKFLOW_BYPASS=true`
+
+See the planning doc for full bypass documentation.
 
 ---
 
 ## Execution Steps
 
 ### Step 1: Research
-- Look at the codebase and populate the research doc
+- Look at the codebase and populate `_research.md`
 - Keep iterating on research until results are thorough enough to start planning
 - Use different agents to form different perspectives if needed, then reconcile results
 - Multiple rounds are OK
 
-### Step 2: Plan
-- Update the plan doc based on the template provided
+### Step 2: Brainstorm
+- Explore different approaches in `_planning.md`
+- Consider trade-offs, alternatives, and edge cases
+- Don't commit to a specific approach yet - explore options
+- Document pros/cons of each approach considered
+
+### Step 3: Plan
+- Formalize the chosen approach in `_planning.md`
 - The plan must be incrementally executable and testable
 - Create and update any tests and documentation as needed
 
-### Step 3: Plan Review
+### Step 4: Plan Review
 - Use `/plan-review <path-to-plan>` to run the iterative multi-agent review loop
 - This launches 3 parallel agents (Security, Architecture, Testing) that score the plan 1-5
 - The loop continues until all agents vote 5/5 or max iterations reached
 - See [Iterative Planning Agent](../feature_deep_dives/iterative_planning_agent.md) for details
 
-### Step 4: Complete Plan
+### Step 5: Complete Plan
 - Ensure all sections in plan template are completed
 - Final criteria:
   - Plan conveys high-level structure
@@ -47,18 +67,19 @@ Always use the planning doc for updates, rather than internal Claude planning fi
   - Plan lists all code modified
   - Plan lists all tests added or modified (unit/integration/E2E)
 
-### Step 5: Execute
+### Step 6: Execute
 - Execute the plan incrementally in phases
-- Update the progress doc along the way
+- Update `_progress.md` along the way
 - Commit once each phase is done
 
-### Step 6: Wrap Up
+### Step 7: Wrap Up
 - Run build, tsc, lint, unit, integration, and E2E tests
 - Fix all issues regardless of whether they originated with this project
 - Update all relevant documentation
 
-### Step 7: Push to main
+### Step 8: Push & PR
 - Push to remote, then create a PR to pull into main branch (which is really staging)
+- Make sure to avoid merge conflicts
 - Do not worry about production, that will be taken care of later
 
 ---

@@ -1,11 +1,11 @@
 #!/bin/bash
-# Blocks direct dev server commands to enforce on-demand tmux infrastructure.
+# Blocks direct dev server commands and file write operations to enforce proper tooling.
 # See: docs/planning/tmux_usage/using_tmux_recommendations.md
 
 COMMAND="$TOOL_INPUT"
 
 # Patterns that indicate manual server start attempts
-BLOCKED_PATTERNS=(
+SERVER_PATTERNS=(
   "npm run dev"
   "npm start"
   "next dev"
@@ -14,7 +14,7 @@ BLOCKED_PATTERNS=(
   "npx next dev"
 )
 
-for pattern in "${BLOCKED_PATTERNS[@]}"; do
+for pattern in "${SERVER_PATTERNS[@]}"; do
   if [[ "$COMMAND" == *"$pattern"* ]]; then
     # Allow if called from infrastructure scripts
     if [[ "$COMMAND" == *"ensure-server"* ]] || [[ "$COMMAND" == *"start-dev-tmux"* ]]; then
@@ -35,5 +35,39 @@ EOF
   fi
 done
 
-# Not a server command - allow
+# Patterns that indicate bash file writes (bypass Edit/Write hooks)
+# Only block writes to code directories, allow writes to /tmp, logs, etc.
+FILE_WRITE_PATTERNS=(
+  "> src/"
+  ">> src/"
+  "> app/"
+  ">> app/"
+  "> components/"
+  ">> components/"
+  "> lib/"
+  ">> lib/"
+  "> packages/"
+  ">> packages/"
+  "| tee src/"
+  "| tee app/"
+  "| tee -a src/"
+  "| tee -a app/"
+)
+
+for pattern in "${FILE_WRITE_PATTERNS[@]}"; do
+  if [[ "$COMMAND" == *"$pattern"* ]]; then
+    cat << 'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Direct file writes via bash are blocked.\n\nUse the Edit or Write tools instead to:\n- Ensure proper workflow enforcement\n- Enable automatic linting\n- Track file changes\n\nExample: Use Edit tool to modify files, not `echo > file`"
+  }
+}
+EOF
+    exit 0
+  fi
+done
+
+# Not a blocked command - allow
 exit 0
