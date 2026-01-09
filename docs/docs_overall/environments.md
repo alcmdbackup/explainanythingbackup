@@ -88,7 +88,40 @@ Only deployed environments (Vercel) have observability configured.
 | Tool | Purpose | Config |
 |------|---------|--------|
 | **Grafana OTLP** | Distributed tracing | `OTEL_EXPORTER_OTLP_ENDPOINT` |
+| **Grafana Loki** | Log aggregation | Same OTLP endpoint |
 | **Sentry** | Error tracking | Tunnel: `/api/monitoring` |
+
+### Log Levels
+
+By default, production only sends ERROR/WARN logs to Grafana Loki. Enable all log levels for debugging:
+
+| Variable | Type | Purpose | Default |
+|----------|------|---------|---------|
+| `OTEL_SEND_ALL_LOG_LEVELS` | Runtime | Server sends debug/info logs to Grafana | `false` |
+| `NEXT_PUBLIC_LOG_ALL_LEVELS` | Build-time | Client sends debug logs to server | `false` |
+
+**Important**: `NEXT_PUBLIC_*` variables are baked into the JavaScript bundle at build time. Changing them requires a new deployment, not just an env var update.
+
+### LogCLI (Query Logs Locally)
+
+Install LogCLI to query production logs from your terminal:
+
+```bash
+brew install grafana/tap/logcli
+```
+
+Add credentials to `.env.local`:
+```bash
+LOKI_ADDR=https://logs-prod-us-central-0.grafana.net
+LOKI_USERNAME=<from-grafana-cloud>
+LOKI_PASSWORD=<from-grafana-cloud>
+```
+
+Query logs by request ID:
+```bash
+./scripts/query-logs.sh <request-id> [time-range]
+./scripts/query-logs.sh abc123 1h
+```
 
 ---
 
@@ -111,8 +144,10 @@ Only deployed environments (Vercel) have observability configured.
 |----------|-------------|
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Grafana OTLP endpoint |
 | `OTEL_EXPORTER_OTLP_HEADERS` | OTLP auth header |
+| `OTEL_SEND_ALL_LOG_LEVELS` | Send debug/info logs to Grafana (runtime) |
 | `NEXT_PUBLIC_GRAFANA_OTLP_ENDPOINT` | Browser OTLP endpoint |
 | `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` | Browser OTLP token (intentionally public) |
+| `NEXT_PUBLIC_LOG_ALL_LEVELS` | Client sends all log levels (build-time) |
 | `SENTRY_DSN` | Sentry DSN |
 
 ### Testing
