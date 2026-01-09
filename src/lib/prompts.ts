@@ -285,10 +285,16 @@ ${sourcesSection}
 - For inline math using single dollars: $\\frac{2}{5}$, for block math use double dollars
 - Use lists and bullets sparingly
 - IMPORTANT: Cite sources inline using [n] notation where n is the source number (e.g., [1], [2])
-- Place citations at the end of sentences or clauses that use information from that source
+- CITATION PLACEMENT: Place citations immediately after KEY FACTUAL CLAIMS, not entire sentences:
+  - Cite specific facts: dates, numbers, names, locations, statistics
+  - Cite technical terms when introducing sourced definitions
+  - Example: "Einstein developed **relativity** [2] in **1905** [1], fundamentally changing physics."
+  - NOT: "Einstein developed relativity in 1905, fundamentally changing physics. [1][2]"
+- Do NOT cite common knowledge or widely accepted facts that don't require verification
+- Do NOT cite every clause - only cite specific, verifiable claims that come from the sources
 - Prefer direct information from VERBATIM sources; use SUMMARIZED sources for supporting context
-- You may synthesize information across multiple sources
-- If sources conflict, note the discrepancy and cite both${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
+- You may synthesize information across multiple sources, citing each source where its information is used
+- If sources conflict, note the discrepancy inline and cite both: "Source A claims X [1], while Source B states Y [2]"${additionalRules.length > 0 ? '\n' + additionalRules.map(rule => `- ${rule}`).join('\n') : ''}
 
 `;
 }

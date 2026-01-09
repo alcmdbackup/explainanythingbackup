@@ -5,10 +5,11 @@ import {
     getExplanationByIdAction,
     isExplanationSavedByUserAction,
     getTagsForExplanationAction,
+    getSourcesForExplanationAction,
     loadFromPineconeUsingExplanationIdAction,
     resolveLinksForDisplayAction
 } from '@/actions/actions';
-import { ExplanationStatus, TagUIType, matchWithCurrentContentType } from '@/lib/schemas/schemas';
+import { ExplanationStatus, TagUIType, matchWithCurrentContentType, SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 
@@ -56,6 +57,12 @@ export interface UseExplanationLoaderOptions {
      * Used by edit/publishing reducer in parent component
      */
     onSetOriginalValues?: (content: string, title: string, status: ExplanationStatus) => void;
+
+    /**
+     * Callback invoked when sources are loaded for the explanation
+     * Used to populate sources state for Bibliography and clickable citations
+     */
+    onSourcesLoad?: (sources: SourceChipType[]) => void;
 }
 
 export interface UseExplanationLoaderReturn {
@@ -97,7 +104,7 @@ export interface UseExplanationLoaderReturn {
 export function useExplanationLoader(
     options: UseExplanationLoaderOptions = {}
 ): UseExplanationLoaderReturn {
-    const { userId = 'anonymous', onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues } = options;
+    const { userId = 'anonymous', onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues, onSourcesLoad } = options;
     const { withRequestId } = useClientPassRequestId(userId);
 
     // State for the 7 explanation-related variables
@@ -247,6 +254,22 @@ export function useExplanationLoader(
                 }
             }
 
+            // Fetch sources linked to the explanation (for Bibliography and clickable citations)
+            if (onSourcesLoad) {
+                const sourcesResult = await getSourcesForExplanationAction(
+                    withRequestId({ explanationId: explanation.id })
+                );
+                if (sourcesResult.success && sourcesResult.data) {
+                    onSourcesLoad(sourcesResult.data);
+                } else {
+                    logger.debug('No sources found for explanation or fetch failed:', {
+                        explanationId: explanation.id,
+                        error: sourcesResult.error
+                    });
+                    onSourcesLoad([]);
+                }
+            }
+
             // Load vector representation from Pinecone
             logger.debug('Attempting to load vector for explanation:', {
                 explanationId: explanation.id,
@@ -321,7 +344,7 @@ export function useExplanationLoader(
             logger.error('Failed to load explanation:', { error: errorMessage });
             setIsLoading(false);
         }
-    }, [withRequestId, checkUserSaved, onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues]);
+    }, [withRequestId, checkUserSaved, onTagsLoad, onMatchesLoad, onClearPrompt, onSetOriginalValues, onSourcesLoad]);
 
     /**
      * Clears the systemSavedId

@@ -126,7 +126,8 @@ function ResultsPageContent() {
                 title,
                 status
             });
-        }
+        },
+        onSourcesLoad: setSources
     });
 
     // Text reveal animation settings

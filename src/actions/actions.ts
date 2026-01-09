@@ -20,7 +20,8 @@ import {
 } from '@/lib/services/metrics';
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags, getTempTagsForRewriteWithTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
-import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType } from '@/lib/schemas/schemas';
+import { getSourcesByExplanationId } from '@/lib/services/sourceCache';
+import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType, type SourceChipType } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
 import { createSupabaseServerClient } from '../lib/utils/supabase/server';
@@ -910,6 +911,67 @@ const _getTagsForExplanationAction = withLogging(
 );
 
 export const getTagsForExplanationAction = serverReadRequestId(_getTagsForExplanationAction);
+
+/**
+ * Gets all sources linked to a specific explanation (server action)
+ *
+ * • Retrieves sources from article_sources junction table
+ * • Converts SourceCacheFullType to SourceChipType for UI consumption
+ * • Used to populate Bibliography and enable clickable citations
+ * • Calls: getSourcesByExplanationId
+ * • Used by: Results page when loading existing explanations
+ */
+const _getSourcesForExplanationAction = withLogging(
+    async function getSourcesForExplanationAction(params: { explanationId: number }): Promise<{
+        success: boolean;
+        data: SourceChipType[] | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            // E2E test mode: return empty sources for mock IDs
+            if (process.env.E2E_TEST_MODE === 'true' && params.explanationId >= 90000) {
+                return {
+                    success: true,
+                    data: [],
+                    error: null
+                };
+            }
+
+            const sources = await getSourcesByExplanationId(params.explanationId);
+
+            // Convert SourceCacheFullType[] to SourceChipType[]
+            // Note: pending -> loading, failed -> failed, success -> success
+            const sourceChips: SourceChipType[] = sources.map(source => ({
+                url: source.url,
+                title: source.title,
+                favicon_url: source.favicon_url,
+                domain: source.domain,
+                status: source.fetch_status === 'success' ? 'success'
+                      : source.fetch_status === 'pending' ? 'loading'
+                      : 'failed',
+                error_message: source.error_message
+            }));
+
+            return {
+                success: true,
+                data: sourceChips,
+                error: null
+            };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'getSourcesForExplanationAction', { explanationId: params.explanationId })
+            };
+        }
+    },
+    'getSourcesForExplanationAction',
+    {
+        enabled: FILE_DEBUG
+    }
+);
+
+export const getSourcesForExplanationAction = serverReadRequestId(_getSourcesForExplanationAction);
 
 /**
  * Gets all tags with the specified preset tag IDs (server action)

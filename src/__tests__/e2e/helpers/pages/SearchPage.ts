@@ -1,4 +1,4 @@
-import { Page } from '@playwright/test';
+import { Page, expect } from '@playwright/test';
 import { BasePage } from './BasePage';
 import { safeIsVisible } from '../error-utils';
 
@@ -49,6 +49,8 @@ export class SearchPage extends BasePage {
 
     const button = this.page.locator(this.searchButton);
     await button.waitFor({ state: 'visible' });
+    // Wait for button to be enabled (React state update complete)
+    await expect(button).toBeEnabled({ timeout: 5000 });
     await button.click();
   }
 
