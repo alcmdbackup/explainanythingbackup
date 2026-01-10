@@ -43,7 +43,7 @@ import {
   getAllTags,
   getTempTagsForRewriteWithTags
 } from '@/lib/services/tags';
-import { TagFullDbType, TagInsertType, SourceCacheFullType } from '@/lib/schemas/schemas';
+import { TagFullDbType, TagInsertType, SourceCacheFullType, FetchStatus } from '@/lib/schemas/schemas';
 import { getSourcesByExplanationId } from '@/lib/services/sourceCache';
 
 describe('Tag Server Actions', () => {
@@ -420,11 +420,15 @@ describe('Source Server Actions', () => {
           domain: 'example.com',
           title: 'Example Article 1',
           favicon_url: 'https://example.com/favicon.ico',
-          fetch_status: 'success',
+          fetch_status: FetchStatus.Success,
           extracted_text: 'Some content here',
           is_summarized: false,
           error_message: null,
-          created_at: '2024-01-01T00:00:00Z'
+          created_at: '2024-01-01T00:00:00Z',
+          original_length: 100,
+          expires_at: null,
+          url_hash: 'hash1',
+          fetched_at: '2024-01-01T00:00:00Z'
         },
         {
           id: 2,
@@ -432,11 +436,15 @@ describe('Source Server Actions', () => {
           domain: 'test.org',
           title: 'Test Article 2',
           favicon_url: 'https://test.org/favicon.ico',
-          fetch_status: 'pending',
+          fetch_status: FetchStatus.Pending,
           extracted_text: null,
           is_summarized: false,
           error_message: null,
-          created_at: '2024-01-02T00:00:00Z'
+          created_at: '2024-01-02T00:00:00Z',
+          original_length: null,
+          expires_at: null,
+          url_hash: 'hash2',
+          fetched_at: null
         },
         {
           id: 3,
@@ -444,11 +452,15 @@ describe('Source Server Actions', () => {
           domain: 'failed.com',
           title: 'Failed Article',
           favicon_url: null,
-          fetch_status: 'failed',
+          fetch_status: FetchStatus.Failed,
           extracted_text: null,
           is_summarized: false,
           error_message: 'Connection timeout',
-          created_at: '2024-01-03T00:00:00Z'
+          created_at: '2024-01-03T00:00:00Z',
+          original_length: null,
+          expires_at: null,
+          url_hash: 'hash3',
+          fetched_at: null
         }
       ];
 

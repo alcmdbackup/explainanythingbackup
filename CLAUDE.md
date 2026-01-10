@@ -77,4 +77,3 @@ For quick fixes or emergencies:
 2. **Environment variable** - `WORKFLOW_BYPASS=true claude`
 
 Main/master branches and legacy projects (without `_status.json`) are automatically exempt.
-
