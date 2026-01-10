@@ -423,12 +423,12 @@ describe('Source Server Actions', () => {
           fetch_status: FetchStatus.Success,
           extracted_text: 'Some content here',
           is_summarized: false,
-          error_message: null,
-          created_at: '2024-01-01T00:00:00Z',
           original_length: 100,
+          error_message: null,
           expires_at: null,
           url_hash: 'hash1',
-          fetched_at: '2024-01-01T00:00:00Z'
+          fetched_at: '2024-01-01T00:00:00Z',
+          created_at: '2024-01-01T00:00:00Z'
         },
         {
           id: 2,
@@ -439,12 +439,12 @@ describe('Source Server Actions', () => {
           fetch_status: FetchStatus.Pending,
           extracted_text: null,
           is_summarized: false,
-          error_message: null,
-          created_at: '2024-01-02T00:00:00Z',
           original_length: null,
+          error_message: null,
           expires_at: null,
           url_hash: 'hash2',
-          fetched_at: null
+          fetched_at: null,
+          created_at: '2024-01-02T00:00:00Z'
         },
         {
           id: 3,
@@ -455,12 +455,12 @@ describe('Source Server Actions', () => {
           fetch_status: FetchStatus.Failed,
           extracted_text: null,
           is_summarized: false,
-          error_message: 'Connection timeout',
-          created_at: '2024-01-03T00:00:00Z',
           original_length: null,
+          error_message: 'Connection timeout',
           expires_at: null,
           url_hash: 'hash3',
-          fetched_at: null
+          fetched_at: null,
+          created_at: '2024-01-03T00:00:00Z'
         }
       ];
 
