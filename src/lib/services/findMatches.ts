@@ -4,6 +4,7 @@ import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode, type VectorSearchResult } from '@/lib/schemas/schemas';
 import { createMatchSelectionPrompt } from '@/lib/prompts';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 const FILE_DEBUG = true;
 
@@ -50,7 +51,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
    * - Called by generateAiExplanation for matching
    * - Uses formatTopMatches and createMatchSelectionPrompt
    */
-  export async function findBestMatchFromList(
+  async function findBestMatchFromListImpl(
     userQuery: string, 
     matches: matchWithCurrentContentType[],
     matchMode: MatchMode,
@@ -185,7 +186,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
  * - Calls getExplanationById for each source
  * - Gracefully skips explanations that are inaccessible (deleted, RLS-blocked, etc.)
  */
-export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts: VectorSearchResult[], diversityComparison: VectorSearchResult[] | null): Promise<matchWithCurrentContentType[]> {
+async function enhanceMatchesWithCurrentContentAndDiversityImpl(similarTexts: VectorSearchResult[], diversityComparison: VectorSearchResult[] | null): Promise<matchWithCurrentContentType[]> {
     logger.debug('Starting enhanceMatchesWithCurrentContentAndDiversity', {
         input_count: similarTexts?.length || 0,
         diversity_comparison_count: diversityComparison?.length || 0,
@@ -267,4 +268,17 @@ export async function enhanceMatchesWithCurrentContentAndDiversity(similarTexts:
 
     // Filter out null results (inaccessible explanations)
     return results.filter((result): result is matchWithCurrentContentType => result !== null);
-} 
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const findBestMatchFromList = withLogging(
+  findBestMatchFromListImpl,
+  'findBestMatchFromList',
+  { logErrors: true }
+);
+
+export const enhanceMatchesWithCurrentContentAndDiversity = withLogging(
+  enhanceMatchesWithCurrentContentAndDiversityImpl,
+  'enhanceMatchesWithCurrentContentAndDiversity',
+  { logErrors: true }
+);

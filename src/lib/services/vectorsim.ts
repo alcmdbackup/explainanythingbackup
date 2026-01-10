@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import { Pinecone, RecordValues } from '@pinecone-database/pinecone';
 import { createLLMSpan, createVectorSpan } from '../../../instrumentation';
 import { AnchorSet, VectorSearchResult } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 const FILE_DEBUG = true
 const maxNumberAnchors = 1
@@ -271,7 +272,7 @@ async function upsertEmbeddings(
  * @param {boolean} isAnchor Whether to filter for anchor vectors only
  * @param {AnchorSet | null} anchorSet The anchor set to filter by when isAnchor is true
  */
-async function searchForSimilarVectors(queryEmbedding: number[], isAnchor: boolean = false, anchorSet: AnchorSet | null = null, topK: number = 5, namespace: string = 'default'): Promise<VectorSearchResult[]> {
+async function searchForSimilarVectorsImpl(queryEmbedding: number[], isAnchor: boolean = false, anchorSet: AnchorSet | null = null, topK: number = 5, namespace: string = 'default'): Promise<VectorSearchResult[]> {
     // Validate that anchorSet is not null when isAnchor is true
     if (isAnchor && anchorSet === null) {
         throw new Error('anchorSet cannot be null when isAnchor is true');
@@ -388,9 +389,9 @@ async function createQueryEmbedding(query: string): Promise<number[]> {
  * @param {AnchorSet | null} anchorSet The anchor set to filter by when isAnchor is true (default: null)
  * @returns {Promise<Array>} Array of matching results with their metadata
  */
-async function findMatchesInVectorDb(query: string, isAnchor: boolean, anchorSet: AnchorSet | null, topK: number = 5, namespace: string = 'default'): Promise<VectorSearchResult[]> {
+async function findMatchesInVectorDbImpl(query: string, isAnchor: boolean, anchorSet: AnchorSet | null, topK: number = 5, namespace: string = 'default'): Promise<VectorSearchResult[]> {
   const embedding = await createQueryEmbedding(query);
-  
+
   logger.debug('Query details:', {
     query,
     embeddingPreview: embedding.slice(0, 5),
@@ -398,8 +399,8 @@ async function findMatchesInVectorDb(query: string, isAnchor: boolean, anchorSet
     isAnchor,
     anchorSet
   }, FILE_DEBUG);
-  
-  return searchForSimilarVectors(embedding, isAnchor, anchorSet, topK, namespace);
+
+  return searchForSimilarVectorsImpl(embedding, isAnchor, anchorSet, topK, namespace);
 }
 
 /**
@@ -413,7 +414,7 @@ async function findMatchesInVectorDb(query: string, isAnchor: boolean, anchorSet
  * • Used by returnExplanationLogic to evaluate content relevance
  * • Calls no other functions
  */
-async function calculateAllowedScores(anchorMatches: VectorSearchResult[], explanationMatches: VectorSearchResult[]): Promise<{
+async function calculateAllowedScoresImpl(anchorMatches: VectorSearchResult[], explanationMatches: VectorSearchResult[]): Promise<{
   anchorScore: number;
   explanationScore: number;
   allowedTitle: boolean;
@@ -476,7 +477,7 @@ async function calculateAllowedScores(anchorMatches: VectorSearchResult[], expla
  * }
  * @throws {Error} If embedding creation or storage fails
  */
-async function processContentToStoreEmbedding(
+async function processContentToStoreEmbeddingImpl(
   markdown: string,
   explanation_id: number,
   topic_id: number,
@@ -534,7 +535,7 @@ async function processContentToStoreEmbedding(
  * • Used by results page to load explanation vector for comparison and analysis
  * • Calls no other functions
  */
-async function loadFromPineconeUsingExplanationId(explanationId: number, namespace: string = 'default'): Promise<any | null> {
+async function loadFromPineconeUsingExplanationIdImpl(explanationId: number, namespace: string = 'default'): Promise<any | null> {
     if (typeof explanationId !== 'number') {
         throw new Error('explanationId must be a number');
     }
@@ -639,7 +640,38 @@ async function loadFromPineconeUsingExplanationId(explanationId: number, namespa
     return result;
 }
 
-export { 
+// Wrap all async functions with automatic logging for entry/exit/timing
+const findMatchesInVectorDb = withLogging(
+  findMatchesInVectorDbImpl,
+  'findMatchesInVectorDb',
+  { logErrors: true }
+);
+
+const processContentToStoreEmbedding = withLogging(
+  processContentToStoreEmbeddingImpl,
+  'processContentToStoreEmbedding',
+  { logErrors: true }
+);
+
+const calculateAllowedScores = withLogging(
+  calculateAllowedScoresImpl,
+  'calculateAllowedScores',
+  { logErrors: true }
+);
+
+const loadFromPineconeUsingExplanationId = withLogging(
+  loadFromPineconeUsingExplanationIdImpl,
+  'loadFromPineconeUsingExplanationId',
+  { logErrors: true }
+);
+
+const searchForSimilarVectors = withLogging(
+  searchForSimilarVectorsImpl,
+  'searchForSimilarVectors',
+  { logErrors: true }
+);
+
+export {
   findMatchesInVectorDb,
   processContentToStoreEmbedding,
   maxNumberAnchors,

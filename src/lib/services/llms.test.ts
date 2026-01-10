@@ -32,6 +32,8 @@ jest.mock('openai/helpers/zod');
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { callOpenAIModel, default_model, lighter_model } from './llms';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 describe('llms', () => {
   let mockCreateSpy: jest.Mock;
@@ -348,7 +350,7 @@ describe('llms', () => {
       delete (global as any).window;
     });
 
-    it('should save tracking data even when database save fails', async () => {
+    it('should throw ServiceError when database save fails', async () => {
       // Replace mock with specific response
       mockCreateSpy.mockResolvedValueOnce({
         choices: [{
@@ -366,33 +368,27 @@ describe('llms', () => {
       // Make database save fail
       mockSupabase.single.mockResolvedValueOnce({
         data: null,
-        error: new Error('Database error')
+        error: { message: 'Database error', code: 'PGRST301' }
       });
 
-      const mockLogger = logger as jest.Mocked<typeof logger>;
-
-      const result = await callOpenAIModel(
-        'Test prompt',
-        'test_source',
-        'user123',
-        'gpt-4.1-mini',
-        false,
-        null,
-        null,
-        null,
-        true
-      );
-
-      // Should still return result despite database error
-      expect(result).toBe('Test response');
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Failed to save LLM call tracking',
-        expect.objectContaining({
-          error: expect.any(String),
-          callSource: 'test_source',
-          userId: 'user123'
-        })
-      );
+      try {
+        await callOpenAIModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'gpt-4.1-mini',
+          false,
+          null,
+          null,
+          null,
+          true
+        );
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.DATABASE_ERROR);
+        expect((error as ServiceError).context).toBe('saveLlmCallTracking');
+      }
     });
 
     it('should handle streaming with reasoning tokens', async () => {
@@ -496,7 +492,7 @@ describe('llms', () => {
   });
 
   describe('edge cases', () => {
-    it('should handle invalid tracking data gracefully', async () => {
+    it('should throw ServiceError on invalid tracking data', async () => {
       // Replace mock with invalid token data
       mockCreateSpy.mockResolvedValueOnce({
         choices: [{
@@ -504,30 +500,58 @@ describe('llms', () => {
           finish_reason: 'stop'
         }],
         usage: {
-          prompt_tokens: 'invalid', // Invalid token count
+          prompt_tokens: 'invalid', // Invalid token count - will fail Zod validation
           completion_tokens: 20,
           total_tokens: 30
         },
         model: 'gpt-4.1-mini'
       });
 
-      const mockLogger = logger as jest.Mocked<typeof logger>;
+      await expect(
+        callOpenAIModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'gpt-4.1-mini',
+          false,
+          null,
+          null,
+          null,
+          false
+        )
+      ).rejects.toThrow(ServiceError);
 
-      const result = await callOpenAIModel(
-        'Test prompt',
-        'test_source',
-        'user123',
-        'gpt-4.1-mini',
-        false,
-        null,
-        null,
-        null,
-        false
-      );
+      // Reset mock for second call
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{
+          message: { content: 'Test' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 'invalid',
+          completion_tokens: 20,
+          total_tokens: 30
+        },
+        model: 'gpt-4.1-mini'
+      });
 
-      // Should still return result
-      expect(result).toBe('Test');
-      expect(mockLogger.error).toHaveBeenCalled();
+      try {
+        await callOpenAIModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'gpt-4.1-mini',
+          false,
+          null,
+          null,
+          null,
+          false
+        );
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.VALIDATION_ERROR);
+        expect((error as ServiceError).context).toBe('saveLlmCallTracking');
+      }
     });
 
     it('should handle streaming interruption gracefully', async () => {

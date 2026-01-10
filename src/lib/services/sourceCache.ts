@@ -10,6 +10,7 @@ import {
 } from '@/lib/schemas/schemas';
 import { fetchAndExtractSource, needsSummarization, calculateExpiryDate } from './sourceFetcher';
 import { summarizeSourceContent } from './sourceSummarizer';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for managing source cache operations
@@ -28,7 +29,7 @@ import { summarizeSourceContent } from './sourceSummarizer';
  * • Validates input against sourceCacheInsertSchema
  * • Handles duplicate URLs gracefully (returns existing)
  */
-export async function insertSourceCache(
+async function insertSourceCacheImpl(
   source: SourceCacheInsertType
 ): Promise<SourceCacheFullType> {
   const supabase = await createSupabaseServerClient();
@@ -68,7 +69,7 @@ export async function insertSourceCache(
 /**
  * Get a source by URL
  */
-export async function getSourceByUrl(url: string): Promise<SourceCacheFullType | null> {
+async function getSourceByUrlImpl(url: string): Promise<SourceCacheFullType | null> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -84,7 +85,7 @@ export async function getSourceByUrl(url: string): Promise<SourceCacheFullType |
 /**
  * Get a source by ID
  */
-export async function getSourceById(id: number): Promise<SourceCacheFullType | null> {
+async function getSourceByIdImpl(id: number): Promise<SourceCacheFullType | null> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -100,7 +101,7 @@ export async function getSourceById(id: number): Promise<SourceCacheFullType | n
 /**
  * Update a source cache entry
  */
-export async function updateSourceCache(
+async function updateSourceCacheImpl(
   id: number,
   updates: Partial<SourceCacheInsertType>
 ): Promise<SourceCacheFullType> {
@@ -133,7 +134,7 @@ export function isSourceExpired(source: SourceCacheFullType): boolean {
  * • If not cached or expired, fetches and caches
  * • Handles summarization for long content
  */
-export async function getOrCreateCachedSource(
+async function getOrCreateCachedSourceImpl(
   url: string,
   userid: string
 ): Promise<{
@@ -144,7 +145,7 @@ export async function getOrCreateCachedSource(
   logger.info('getOrCreateCachedSource: Starting', { url });
 
   // Check cache first
-  const cached = await getSourceByUrl(url);
+  const cached = await getSourceByUrlImpl(url);
 
   if (cached && !isSourceExpired(cached)) {
     logger.info('getOrCreateCachedSource: Cache hit', { url, id: cached.id });
@@ -162,7 +163,7 @@ export async function getOrCreateCachedSource(
     // Store failed fetch in cache to avoid repeated failures
     if (cached) {
       // Update existing with error
-      const updated = await updateSourceCache(cached.id, {
+      const updated = await updateSourceCacheImpl(cached.id, {
         fetch_status: FetchStatus.Failed,
         error_message: fetchResult.error,
         expires_at: calculateExpiryDate()
@@ -175,7 +176,7 @@ export async function getOrCreateCachedSource(
     }
 
     // Insert new failed entry
-    const failedSource = await insertSourceCache({
+    const failedSource = await insertSourceCacheImpl({
       url,
       title: null,
       favicon_url: null,
@@ -219,13 +220,13 @@ export async function getOrCreateCachedSource(
   // Insert or update cache
   let source: SourceCacheFullType;
   if (cached) {
-    source = await updateSourceCache(cached.id, {
+    source = await updateSourceCacheImpl(cached.id, {
       ...sourceData,
       fetch_status: FetchStatus.Success,
       error_message: null
     });
   } else {
-    source = await insertSourceCache(sourceData);
+    source = await insertSourceCacheImpl(sourceData);
   }
 
   logger.info('getOrCreateCachedSource: Cached new source', {
@@ -251,7 +252,7 @@ export async function getOrCreateCachedSource(
  * • Creates article_sources junction records
  * • Assigns positions 1-5 based on array order
  */
-export async function linkSourcesToExplanation(
+async function linkSourcesToExplanationImpl(
   explanationId: number,
   sourceIds: number[]
 ): Promise<void> {
@@ -295,7 +296,7 @@ export async function linkSourcesToExplanation(
  * • Returns sources in position order
  * • Joins source_cache data
  */
-export async function getSourcesByExplanationId(
+async function getSourcesByExplanationIdImpl(
   explanationId: number
 ): Promise<SourceCacheFullType[]> {
   const supabase = await createSupabaseServerClient();
@@ -320,7 +321,7 @@ export async function getSourcesByExplanationId(
 /**
  * Remove all sources from an explanation
  */
-export async function unlinkSourcesFromExplanation(
+async function unlinkSourcesFromExplanationImpl(
   explanationId: number
 ): Promise<void> {
   const supabase = await createSupabaseServerClient();
@@ -332,3 +333,54 @@ export async function unlinkSourcesFromExplanation(
 
   if (error) throw error;
 }
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const insertSourceCache = withLogging(
+  insertSourceCacheImpl,
+  'insertSourceCache',
+  { logErrors: true }
+);
+
+export const getSourceByUrl = withLogging(
+  getSourceByUrlImpl,
+  'getSourceByUrl',
+  { logErrors: true }
+);
+
+export const getSourceById = withLogging(
+  getSourceByIdImpl,
+  'getSourceById',
+  { logErrors: true }
+);
+
+export const updateSourceCache = withLogging(
+  updateSourceCacheImpl,
+  'updateSourceCache',
+  { logErrors: true }
+);
+
+// Note: isSourceExpired is sync and already exported at its definition
+
+export const getOrCreateCachedSource = withLogging(
+  getOrCreateCachedSourceImpl,
+  'getOrCreateCachedSource',
+  { logErrors: true }
+);
+
+export const linkSourcesToExplanation = withLogging(
+  linkSourcesToExplanationImpl,
+  'linkSourcesToExplanation',
+  { logErrors: true }
+);
+
+export const getSourcesByExplanationId = withLogging(
+  getSourcesByExplanationIdImpl,
+  'getSourcesByExplanationId',
+  { logErrors: true }
+);
+
+export const unlinkSourcesFromExplanation = withLogging(
+  unlinkSourcesFromExplanationImpl,
+  'unlinkSourcesFromExplanation',
+  { logErrors: true }
+);

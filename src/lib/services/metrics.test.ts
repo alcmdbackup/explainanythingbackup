@@ -11,6 +11,8 @@ import {
 } from './metrics';
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { UserExplanationEventsType, ExplanationMetricsType, ExplanationMetricsTableType } from '@/lib/schemas/schemas';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -76,6 +78,18 @@ describe('Metrics Service', () => {
 
       mockSupabase.single.mockResolvedValue({
         data: expectedResponse,
+        error: null
+      });
+
+      // Mock RPC for incrementExplanationViews (required for view events)
+      mockSupabase.rpc.mockResolvedValue({
+        data: [{
+          explanation_id: 456,
+          total_views: 1,
+          total_saves: 0,
+          save_rate: 0,
+          last_updated: '2024-01-01T00:00:00Z'
+        }],
         error: null
       });
 
@@ -148,10 +162,10 @@ describe('Metrics Service', () => {
         error: null
       });
 
-      // Mock the RPC call for increment
+      // Mock the RPC call for increment (uses explanation_id per schema)
       mockSupabase.rpc.mockResolvedValue({
         data: [{
-          explanationid: 456,
+          explanation_id: 456,
           total_views: 1,
           total_saves: 0,
           save_rate: 0,
@@ -190,7 +204,7 @@ describe('Metrics Service', () => {
       expect(mockSupabase.rpc).not.toHaveBeenCalled();
     });
 
-    it('should handle background metrics update failure gracefully', async () => {
+    it('should throw ServiceError when metrics update fails', async () => {
       // Arrange
       const viewEventData: UserExplanationEventsType = {
         event_name: 'explanation_viewed',
@@ -211,11 +225,15 @@ describe('Metrics Service', () => {
         error: { message: 'RPC failed' }
       });
 
-      // Act - should not throw even if background update fails
-      const result = await createUserExplanationEvent(viewEventData);
-
-      // Assert
-      expect(result.event_name).toBe('explanation_viewed');
+      // Act & Assert - should throw ServiceError when metrics update fails
+      try {
+        await createUserExplanationEvent(viewEventData);
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.DATABASE_ERROR);
+        expect((error as ServiceError).context).toBe('createUserExplanationEvent');
+      }
     });
   });
 

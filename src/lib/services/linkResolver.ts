@@ -10,6 +10,7 @@ import {
   LinkOverrideType,
   type WhitelistCacheEntryType
 } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Link Resolver Service
@@ -92,7 +93,7 @@ function escapeRegex(str: string): string {
  *
  * Returns Map of term_lower → override data
  */
-export async function getOverridesForArticle(
+async function getOverridesForArticleImpl(
   explanationId: number
 ): Promise<Map<string, ArticleLinkOverrideFullType>> {
   const supabase = await createSupabaseServerClient();
@@ -120,7 +121,7 @@ export async function getOverridesForArticle(
  * @param overrideType - 'custom_title' or 'disabled'
  * @param customTitle - The custom standalone title (required if overrideType is 'custom_title')
  */
-export async function setOverride(
+async function setOverrideImpl(
   explanationId: number,
   term: string,
   overrideType: 'custom_title' | 'disabled',
@@ -154,7 +155,7 @@ export async function setOverride(
 /**
  * Remove an override for a term in a specific article (revert to global default)
  */
-export async function removeOverride(
+async function removeOverrideImpl(
   explanationId: number,
   term: string
 ): Promise<void> {
@@ -222,7 +223,7 @@ async function resolveHeadingLinks(
  * @param content - The markdown content to resolve links in
  * @returns Array of resolved links sorted by position
  */
-export async function resolveLinksForArticle(
+async function resolveLinksForArticleImpl(
   explanationId: number,
   content: string
 ): Promise<ResolvedLinkType[]> {
@@ -241,7 +242,7 @@ export async function resolveLinksForArticle(
     Object.entries(snapshot.data)
   );
 
-  const overrides = await getOverridesForArticle(explanationId);
+  const overrides = await getOverridesForArticleImpl(explanationId);
   const matchedTerms = new Set<string>();
 
   // Content in lowercase for matching
@@ -352,3 +353,28 @@ export function applyLinksToContent(
 
   return result;
 }
+
+// Wrap async functions with automatic logging for entry/exit/timing
+export const getOverridesForArticle = withLogging(
+  getOverridesForArticleImpl,
+  'getOverridesForArticle',
+  { logErrors: true }
+);
+
+export const setOverride = withLogging(
+  setOverrideImpl,
+  'setOverride',
+  { logErrors: true }
+);
+
+export const removeOverride = withLogging(
+  removeOverrideImpl,
+  'removeOverride',
+  { logErrors: true }
+);
+
+export const resolveLinksForArticle = withLogging(
+  resolveLinksForArticleImpl,
+  'resolveLinksForArticle',
+  { logErrors: true }
+);

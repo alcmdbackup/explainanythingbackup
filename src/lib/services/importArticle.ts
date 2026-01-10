@@ -8,6 +8,7 @@
 import { z } from 'zod';
 import { callOpenAIModel, default_model } from './llms';
 import { type ImportSource } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 const FILE_DEBUG = true;
 
@@ -151,7 +152,7 @@ Respond with a JSON object containing "title" and "content" fields.`;
  * @param userId - User ID for tracking
  * @returns Formatted article with title and content
  */
-export async function cleanupAndReformat(
+async function cleanupAndReformatImpl(
     content: string,
     source: ImportSource,
     userId: string
@@ -200,3 +201,10 @@ export function validateImportContent(content: string): { isValid: boolean; erro
 
     return { isValid: true };
 }
+
+// Wrap async function with automatic logging for entry/exit/timing
+export const cleanupAndReformat = withLogging(
+    cleanupAndReformatImpl,
+    'cleanupAndReformat',
+    { logErrors: true }
+);

@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for interacting with the topics table in Supabase
@@ -28,7 +29,7 @@ import { type TopicFullDbType, type TopicInsertType } from '@/lib/schemas/schema
  * - Used by saveExplanationAndTopic and other topic creation flows
  * - Calls supabase topics table for both select and insert
  */
-export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbType> {
+async function createTopicImpl(topic: TopicInsertType): Promise<TopicFullDbType> {
   const supabase = await createSupabaseServerClient()
 
   // Check if topic with the same title exists
@@ -59,7 +60,7 @@ export async function createTopic(topic: TopicInsertType): Promise<TopicFullDbTy
  * @param id Topic record ID
  * @returns Topic record if found
  */
-export async function getTopicById(id: number): Promise<TopicFullDbType | null> {
+async function getTopicByIdImpl(id: number): Promise<TopicFullDbType | null> {
   const supabase = await createSupabaseServerClient()
 
   const { data, error } = await supabase
@@ -80,7 +81,7 @@ export async function getTopicById(id: number): Promise<TopicFullDbType | null> 
  * @param order Order direction
  * @returns Array of topic records
  */
-export async function getRecentTopics(
+async function getRecentTopicsImpl(
   limit: number = 10,
   offset: number = 0,
   orderBy: string = 'created_at',
@@ -110,7 +111,7 @@ export async function getRecentTopics(
  * @param updates Partial topic data to update
  * @returns Updated topic record
  */
-export async function updateTopic(
+async function updateTopicImpl(
   id: number,
   updates: Partial<TopicInsertType>
 ): Promise<TopicFullDbType> {
@@ -132,7 +133,7 @@ export async function updateTopic(
  * @param id Topic record ID
  * @returns void
  */
-export async function deleteTopic(id: number): Promise<void> {
+async function deleteTopicImpl(id: number): Promise<void> {
   const supabase = await createSupabaseServerClient()
   
   const { error } = await supabase
@@ -149,7 +150,7 @@ export async function deleteTopic(id: number): Promise<void> {
  * @param limit Maximum number of results to return
  * @returns Array of matching topic records
  */
-export async function searchTopicsByTitle(
+async function searchTopicsByTitleImpl(
   searchTerm: string,
   limit: number = 10
 ): Promise<TopicFullDbType[]> {
@@ -163,4 +164,41 @@ export async function searchTopicsByTitle(
 
   if (error) throw error;
   return data || [];
-} 
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const createTopic = withLogging(
+  createTopicImpl,
+  'createTopic',
+  { logErrors: true }
+);
+
+export const getTopicById = withLogging(
+  getTopicByIdImpl,
+  'getTopicById',
+  { logErrors: true }
+);
+
+export const getRecentTopics = withLogging(
+  getRecentTopicsImpl,
+  'getRecentTopics',
+  { logErrors: true }
+);
+
+export const updateTopic = withLogging(
+  updateTopicImpl,
+  'updateTopic',
+  { logErrors: true }
+);
+
+export const deleteTopic = withLogging(
+  deleteTopicImpl,
+  'deleteTopic',
+  { logErrors: true }
+);
+
+export const searchTopicsByTitle = withLogging(
+  searchTopicsByTitleImpl,
+  'searchTopicsByTitle',
+  { logErrors: true }
+);

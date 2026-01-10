@@ -33,6 +33,8 @@ jest.mock('@/lib/server_utilities', () => ({
   logger: {
     debug: jest.fn(),
     error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
   }
 }));
 

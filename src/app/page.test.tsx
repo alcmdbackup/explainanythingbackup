@@ -1,3 +1,6 @@
+/**
+ * Unit tests for the Home page component - testing workflow enforcement.
+ */
 import { render, screen } from '@testing-library/react';
 import Home from './page';
 

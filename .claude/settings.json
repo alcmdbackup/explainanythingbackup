@@ -20,6 +20,10 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/check-workflow-ready.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$NEW_CONTENT\""
           }
         ]
       },
@@ -29,6 +33,10 @@
           {
             "type": "command",
             "command": "bash .claude/hooks/check-workflow-ready.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash .claude/hooks/block-silent-failures.sh \"$FILE_PATH\" \"$CONTENT\""
           }
         ]
       }

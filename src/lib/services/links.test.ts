@@ -10,6 +10,8 @@ import {
 } from './links';
 import { callOpenAIModel } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 // Mock dependencies
 jest.mock('@/lib/services/llms');
@@ -17,6 +19,8 @@ jest.mock('@/lib/server_utilities', () => ({
   logger: {
     debug: jest.fn(),
     error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
   }
 }));
 jest.mock('@/lib/prompts', () => ({
@@ -82,39 +86,51 @@ More text.
       expect(result['## Test Heading']).toContain('%29');
     });
 
-    it('should handle AI response parsing errors gracefully', async () => {
+    it('should throw ServiceError on AI response parsing errors', async () => {
       // Arrange
       const content = '## Test';
       mockCallOpenAIModel.mockResolvedValue('invalid json');
 
-      // Act
-      const result = await createMappingsHeadingsToLinks(content, 'Test', 'user123');
-
-      // Assert
-      expect(result).toEqual({});
+      // Act & Assert
+      try {
+        await createMappingsHeadingsToLinks(content, 'Test', 'user123');
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.LLM_API_ERROR);
+        expect((error as ServiceError).context).toBe('createMappingsHeadingsToLinks');
+      }
     });
 
-    it('should handle missing articleTitle', async () => {
+    it('should throw ServiceError when articleTitle is missing', async () => {
       // Arrange
       const content = '## Test';
 
-      // Act
-      const result = await createMappingsHeadingsToLinks(content, '', 'user123');
-
-      // Assert
-      expect(result).toEqual({});
+      // Act & Assert
+      try {
+        await createMappingsHeadingsToLinks(content, '', 'user123');
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.LLM_API_ERROR);
+        expect((error as ServiceError).context).toBe('createMappingsHeadingsToLinks');
+      }
     });
 
-    it('should handle LLM throwing error', async () => {
+    it('should throw ServiceError when LLM fails', async () => {
       // Arrange
       const content = '## Test';
       mockCallOpenAIModel.mockRejectedValue(new Error('LLM Error'));
 
-      // Act
-      const result = await createMappingsHeadingsToLinks(content, 'Test', 'user123');
-
-      // Assert
-      expect(result).toEqual({});
+      // Act & Assert
+      try {
+        await createMappingsHeadingsToLinks(content, 'Test', 'user123');
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.LLM_API_ERROR);
+        expect((error as ServiceError).context).toBe('createMappingsHeadingsToLinks');
+      }
     });
 
     it('should log debug info when debug flag is true', async () => {
@@ -166,16 +182,20 @@ More text.
       expect(mockCallOpenAIModel).toHaveBeenCalled();
     });
 
-    it('should return original content when AI fails', async () => {
+    it('should throw ServiceError when AI fails', async () => {
       // Arrange
       const content = 'Machine learning is powerful.';
       mockCallOpenAIModel.mockRejectedValue(new Error('AI Error'));
 
-      // Act
-      const result = await enhanceContentWithInlineLinks(content, 'user123');
-
-      // Assert
-      expect(result).toBe(content);
+      // Act & Assert
+      try {
+        await enhanceContentWithInlineLinks(content, 'user123');
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.LLM_API_ERROR);
+        expect((error as ServiceError).context).toBe('enhanceContentWithInlineLinks');
+      }
     });
 
     it('should log debug info when debug flag is true', async () => {

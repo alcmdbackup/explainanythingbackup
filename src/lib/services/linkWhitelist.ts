@@ -18,6 +18,7 @@ import {
   type WhitelistCacheEntryType,
   type LinkWhitelistSnapshotType
 } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for managing the link whitelist system
@@ -38,7 +39,7 @@ import {
  * • Returns existing term if duplicate found
  * • Calls rebuildSnapshot() after successful insert
  */
-export async function createWhitelistTerm(
+async function createWhitelistTermImpl(
   term: LinkWhitelistInsertType
 ): Promise<LinkWhitelistFullType> {
   const supabase = await createSupabaseServerClient();
@@ -75,7 +76,7 @@ export async function createWhitelistTerm(
   if (error) throw error;
 
   // Rebuild snapshot after insert
-  await rebuildSnapshot();
+  await rebuildSnapshotImpl();
 
   return data;
 }
@@ -86,7 +87,7 @@ export async function createWhitelistTerm(
  * • Returns only terms with is_active = true
  * • Orders by canonical_term for consistent results
  */
-export async function getAllActiveWhitelistTerms(): Promise<LinkWhitelistFullType[]> {
+async function getAllActiveWhitelistTermsImpl(): Promise<LinkWhitelistFullType[]> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -106,7 +107,7 @@ export async function getAllActiveWhitelistTerms(): Promise<LinkWhitelistFullTyp
  * • Updates canonical_term_lower if canonical_term is changed
  * • Calls rebuildSnapshot() after successful update
  */
-export async function updateWhitelistTerm(
+async function updateWhitelistTermImpl(
   id: number,
   updates: Partial<LinkWhitelistInsertType>
 ): Promise<LinkWhitelistFullType> {
@@ -136,7 +137,7 @@ export async function updateWhitelistTerm(
   if (error) throw error;
 
   // Rebuild snapshot after update
-  await rebuildSnapshot();
+  await rebuildSnapshotImpl();
 
   return data;
 }
@@ -147,7 +148,7 @@ export async function updateWhitelistTerm(
  * • Cascades to delete associated aliases (via foreign key)
  * • Calls rebuildSnapshot() after successful delete
  */
-export async function deleteWhitelistTerm(id: number): Promise<void> {
+async function deleteWhitelistTermImpl(id: number): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase
@@ -158,7 +159,7 @@ export async function deleteWhitelistTerm(id: number): Promise<void> {
   if (error) throw error;
 
   // Rebuild snapshot after delete
-  await rebuildSnapshot();
+  await rebuildSnapshotImpl();
 }
 
 // ============================================================================
@@ -172,7 +173,7 @@ export async function deleteWhitelistTerm(id: number): Promise<void> {
  * • Skips duplicates (by alias_term_lower)
  * • Calls rebuildSnapshot() after successful inserts
  */
-export async function addAliases(
+async function addAliasesImpl(
   whitelistId: number,
   aliases: string[]
 ): Promise<LinkAliasFullType[]> {
@@ -226,7 +227,7 @@ export async function addAliases(
   if (error) throw error;
 
   // Rebuild snapshot after adding aliases
-  await rebuildSnapshot();
+  await rebuildSnapshotImpl();
 
   return [...(existingAliases || []), ...(data || [])];
 }
@@ -236,7 +237,7 @@ export async function addAliases(
  *
  * • Calls rebuildSnapshot() after successful delete
  */
-export async function removeAlias(aliasId: number): Promise<void> {
+async function removeAliasImpl(aliasId: number): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase
@@ -247,7 +248,7 @@ export async function removeAlias(aliasId: number): Promise<void> {
   if (error) throw error;
 
   // Rebuild snapshot after delete
-  await rebuildSnapshot();
+  await rebuildSnapshotImpl();
 }
 
 // ============================================================================
@@ -261,7 +262,7 @@ export async function removeAlias(aliasId: number): Promise<void> {
  * • Values contain canonical_term and standalone_title
  * • Aliases are resolved to their parent whitelist entry
  */
-export async function getActiveWhitelistAsMap(): Promise<Map<string, WhitelistCacheEntryType>> {
+async function getActiveWhitelistAsMapImpl(): Promise<Map<string, WhitelistCacheEntryType>> {
   const supabase = await createSupabaseServerClient();
 
   // Get all active whitelist terms
@@ -315,7 +316,7 @@ export async function getActiveWhitelistAsMap(): Promise<Map<string, WhitelistCa
  * • Atomically increments version number
  * • Stores in link_whitelist_snapshot table (single row, id=1)
  */
-export async function rebuildSnapshot(): Promise<LinkWhitelistSnapshotType> {
+async function rebuildSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
   const supabase = await createSupabaseServerClient();
 
   // Get current version
@@ -328,7 +329,7 @@ export async function rebuildSnapshot(): Promise<LinkWhitelistSnapshotType> {
   const newVersion = (current?.version ?? 0) + 1;
 
   // Build fresh data
-  const whitelistMap = await getActiveWhitelistAsMap();
+  const whitelistMap = await getActiveWhitelistAsMapImpl();
   const snapshotData: Record<string, WhitelistCacheEntryType> = Object.fromEntries(whitelistMap);
 
   // Upsert snapshot
@@ -354,7 +355,7 @@ export async function rebuildSnapshot(): Promise<LinkWhitelistSnapshotType> {
  * • Returns cached snapshot if exists
  * • Rebuilds snapshot if not found
  */
-export async function getSnapshot(): Promise<LinkWhitelistSnapshotType> {
+async function getSnapshotImpl(): Promise<LinkWhitelistSnapshotType> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -367,7 +368,7 @@ export async function getSnapshot(): Promise<LinkWhitelistSnapshotType> {
 
   // If no snapshot exists, rebuild it
   if (!data) {
-    return await rebuildSnapshot();
+    return await rebuildSnapshotImpl();
   }
 
   return data;
@@ -383,7 +384,7 @@ export async function getSnapshot(): Promise<LinkWhitelistSnapshotType> {
  * • Returns Map of heading_text_lower → standalone_title
  * • Empty map if no cached headings found
  */
-export async function getHeadingLinksForArticle(
+async function getHeadingLinksForArticleImpl(
   explanationId: number
 ): Promise<Map<string, string>> {
   const supabase = await createSupabaseServerClient();
@@ -410,7 +411,7 @@ export async function getHeadingLinksForArticle(
  * • Upserts each heading (updates if exists, inserts if not)
  * • Does NOT delete headings not in the new set (additive)
  */
-export async function saveHeadingLinks(
+async function saveHeadingLinksImpl(
   explanationId: number,
   headings: Record<string, string>
 ): Promise<void> {
@@ -457,7 +458,7 @@ export async function saveHeadingLinks(
  *
  * • Used when article content changes significantly
  */
-export async function deleteHeadingLinksForArticle(explanationId: number): Promise<void> {
+async function deleteHeadingLinksForArticleImpl(explanationId: number): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase
@@ -476,7 +477,7 @@ export async function deleteHeadingLinksForArticle(explanationId: number): Promi
  * • Returns Record<string, string> mapping heading text → standalone title
  * • Does NOT save to DB (caller should use saveHeadingLinks)
  */
-export async function generateHeadingStandaloneTitles(
+async function generateHeadingStandaloneTitlesImpl(
   content: string,
   articleTitle: string,
   userid: string,
@@ -570,7 +571,7 @@ export async function generateHeadingStandaloneTitles(
 /**
  * Get aliases for a specific whitelist term
  */
-export async function getAliasesForTerm(whitelistId: number): Promise<LinkAliasFullType[]> {
+async function getAliasesForTermImpl(whitelistId: number): Promise<LinkAliasFullType[]> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -586,7 +587,7 @@ export async function getAliasesForTerm(whitelistId: number): Promise<LinkAliasF
 /**
  * Get a whitelist term by ID
  */
-export async function getWhitelistTermById(id: number): Promise<LinkWhitelistFullType> {
+async function getWhitelistTermByIdImpl(id: number): Promise<LinkWhitelistFullType> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -602,3 +603,94 @@ export async function getWhitelistTermById(id: number): Promise<LinkWhitelistFul
 
   return data;
 }
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const createWhitelistTerm = withLogging(
+  createWhitelistTermImpl,
+  'createWhitelistTerm',
+  { logErrors: true }
+);
+
+export const getAllActiveWhitelistTerms = withLogging(
+  getAllActiveWhitelistTermsImpl,
+  'getAllActiveWhitelistTerms',
+  { logErrors: true }
+);
+
+export const updateWhitelistTerm = withLogging(
+  updateWhitelistTermImpl,
+  'updateWhitelistTerm',
+  { logErrors: true }
+);
+
+export const deleteWhitelistTerm = withLogging(
+  deleteWhitelistTermImpl,
+  'deleteWhitelistTerm',
+  { logErrors: true }
+);
+
+export const addAliases = withLogging(
+  addAliasesImpl,
+  'addAliases',
+  { logErrors: true }
+);
+
+export const removeAlias = withLogging(
+  removeAliasImpl,
+  'removeAlias',
+  { logErrors: true }
+);
+
+export const getActiveWhitelistAsMap = withLogging(
+  getActiveWhitelistAsMapImpl,
+  'getActiveWhitelistAsMap',
+  { logErrors: true }
+);
+
+export const rebuildSnapshot = withLogging(
+  rebuildSnapshotImpl,
+  'rebuildSnapshot',
+  { logErrors: true }
+);
+
+export const getSnapshot = withLogging(
+  getSnapshotImpl,
+  'getSnapshot',
+  { logErrors: true }
+);
+
+export const getHeadingLinksForArticle = withLogging(
+  getHeadingLinksForArticleImpl,
+  'getHeadingLinksForArticle',
+  { logErrors: true }
+);
+
+export const saveHeadingLinks = withLogging(
+  saveHeadingLinksImpl,
+  'saveHeadingLinks',
+  { logErrors: true }
+);
+
+export const deleteHeadingLinksForArticle = withLogging(
+  deleteHeadingLinksForArticleImpl,
+  'deleteHeadingLinksForArticle',
+  { logErrors: true }
+);
+
+export const generateHeadingStandaloneTitles = withLogging(
+  generateHeadingStandaloneTitlesImpl,
+  'generateHeadingStandaloneTitles',
+  { logErrors: true }
+);
+
+export const getAliasesForTerm = withLogging(
+  getAliasesForTermImpl,
+  'getAliasesForTerm',
+  { logErrors: true }
+);
+
+export const getWhitelistTermById = withLogging(
+  getWhitelistTermByIdImpl,
+  'getWhitelistTermById',
+  { logErrors: true }
+);

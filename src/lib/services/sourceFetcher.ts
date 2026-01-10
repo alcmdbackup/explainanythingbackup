@@ -5,6 +5,7 @@ import {
   FetchStatus,
   type SourceCacheInsertType
 } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 // Constants
 const FETCH_TIMEOUT_MS = 10000; // 10 seconds
@@ -82,7 +83,7 @@ export function detectPaywall(html: string): boolean {
  * • Extracts readable content using Readability
  * • Returns structured data for caching
  */
-export async function fetchAndExtractSource(url: string): Promise<FetchSourceResult> {
+async function fetchAndExtractSourceImpl(url: string): Promise<FetchSourceResult> {
   logger.info('fetchAndExtractSource: Starting', { url });
 
   // Validate URL
@@ -214,3 +215,10 @@ export function needsSummarization(wordCount: number): boolean {
 export function getWordThreshold(): number {
   return WORD_THRESHOLD;
 }
+
+// Wrap async function with automatic logging for entry/exit/timing
+export const fetchAndExtractSource = withLogging(
+  fetchAndExtractSourceImpl,
+  'fetchAndExtractSource',
+  { logErrors: true }
+);

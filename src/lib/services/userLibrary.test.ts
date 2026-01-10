@@ -9,6 +9,8 @@ import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/server_utilities';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 // Mock dependencies
 jest.mock('@/lib/utils/supabase/server', () => ({
@@ -112,7 +114,7 @@ describe('UserLibrary Service', () => {
       expect(incrementExplanationSaves).not.toHaveBeenCalled();
     });
 
-    it('should handle metrics update failure gracefully', async () => {
+    it('should throw ServiceError when metrics update fails', async () => {
       // Arrange
       const explanationId = 123;
       const userId = 'user-456';
@@ -131,21 +133,16 @@ describe('UserLibrary Service', () => {
       const metricsError = new Error('Metrics service unavailable');
       (incrementExplanationSaves as jest.Mock).mockRejectedValue(metricsError);
 
-      // Act
-      const result = await saveExplanationToLibrary(explanationId, userId);
-
-      // Assert - Should still return successfully even if metrics fail
-      expect(result).toEqual(expectedData);
-
-      // Intentional wait for fire-and-forget async call to complete for testing
-      await new Promise(resolve => setTimeout(resolve, 10));
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Failed to update explanation metrics after save',
-        {
-          explanationid: explanationId,
-          error: 'Metrics service unavailable'
-        }
-      );
+      // Act & Assert - Should throw ServiceError when metrics update fails
+      try {
+        await saveExplanationToLibrary(explanationId, userId);
+        fail('Expected ServiceError to be thrown');
+      } catch (error) {
+        expect(error).toBeInstanceOf(ServiceError);
+        expect((error as ServiceError).code).toBe(ERROR_CODES.DATABASE_ERROR);
+        expect((error as ServiceError).context).toBe('saveExplanationToLibrary');
+        expect((error as ServiceError).details).toEqual({ explanationid: explanationId });
+      }
     });
   });
 

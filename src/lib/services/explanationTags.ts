@@ -5,6 +5,7 @@ import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { type ExplanationTagFullDbType, type ExplanationTagInsertType, type TagFullDbType, explanationTagInsertSchema, TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/schemas/schemas';
 import { getTagsById, getTagsByPresetId, convertTagsToUIFormat } from './tags';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for interacting with the explanation_tags junction table in Supabase
@@ -33,7 +34,7 @@ import { getTagsById, getTagsByPresetId, convertTagsToUIFormat } from './tags';
  * • Used by tag assignment operations (single or multiple)
  * • Calls supabase explanation_tags table insert/update operations
  */
-export async function addTagsToExplanation(
+async function addTagsToExplanationImpl(
   explanationId: number,
   tagIds: number[]
 ): Promise<ExplanationTagFullDbType[]> {
@@ -128,7 +129,7 @@ export async function addTagsToExplanation(
  * • Used by tag removal operations (single or multiple)
  * • Calls supabase explanation_tags table update operation
  */
-export async function removeTagsFromExplanation(
+async function removeTagsFromExplanationImpl(
   explanationId: number,
   tagIds: number[]
 ): Promise<void> {
@@ -153,7 +154,7 @@ export async function removeTagsFromExplanation(
  * • Used by bulk operations and administrative tag management
  * • Calls removeTagsFromExplanation for each explanation
  */
-export async function bulkRemoveTagsFromExplanations(
+async function bulkRemoveTagsFromExplanationsImpl(
   explanationIds: number[],
   tagIds: number[]
 ): Promise<Array<{
@@ -170,7 +171,7 @@ export async function bulkRemoveTagsFromExplanations(
   const results = await Promise.allSettled(
     explanationIds.map(async (explanationId) => {
       try {
-        await removeTagsFromExplanation(explanationId, tagIds);
+        await removeTagsFromExplanationImpl(explanationId, tagIds);
         return {
           explanationId,
           success: true,
@@ -212,7 +213,7 @@ export async function bulkRemoveTagsFromExplanations(
  * • Used by tag editing interfaces for complete tag updates
  * • Calls removeAllTagsFromExplanation and addTagsToExplanation with validation
  */
-export async function replaceTagsForExplanationWithValidation(
+async function replaceTagsForExplanationWithValidationImpl(
   explanationId: number,
   tagIds: number[]
 ): Promise<{
@@ -224,11 +225,11 @@ export async function replaceTagsForExplanationWithValidation(
 }> {
   try {
     // First remove all existing tags
-    await removeAllTagsFromExplanation(explanationId);
-    
+    await removeAllTagsFromExplanationImpl(explanationId);
+
     // Then add the new tags with validation
     if (tagIds.length === 0) {
-      const finalTags = await getTagsForExplanation(explanationId);
+      const finalTags = await getTagsForExplanationImpl(explanationId);
       return {
         success: true,
         removed: 0,
@@ -238,8 +239,8 @@ export async function replaceTagsForExplanationWithValidation(
       };
     }
     
-    const addedTags = await addTagsToExplanation(explanationId, tagIds);
-    const finalTags = await getTagsForExplanation(explanationId);
+    const addedTags = await addTagsToExplanationImpl(explanationId, tagIds);
+    const finalTags = await getTagsForExplanationImpl(explanationId);
     
     return {
       success: true,
@@ -251,7 +252,7 @@ export async function replaceTagsForExplanationWithValidation(
   } catch (error) {
     // If anything fails, try to restore the original state
     try {
-      await removeAllTagsFromExplanation(explanationId);
+      await removeAllTagsFromExplanationImpl(explanationId);
     } catch (restoreError) {
       logger.error('Failed to restore explanation tags after error', {
         error: restoreError instanceof Error ? restoreError.message : String(restoreError)
@@ -277,7 +278,7 @@ export async function replaceTagsForExplanationWithValidation(
  * • Calls supabase with join between explanation_tags and tags tables
  * • Uses convertTagsToUIFormat helper function for consistent tag processing
  */
-export async function getTagsForExplanation(explanationId: number): Promise<TagUIType[]> {
+async function getTagsForExplanationImpl(explanationId: number): Promise<TagUIType[]> {
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -310,7 +311,7 @@ export async function getTagsForExplanation(explanationId: number): Promise<TagU
  * • Used by tag-based filtering and search operations
  * • Calls supabase explanation_tags table select operation
  */
-export async function getExplanationIdsForTag(tagId: number): Promise<number[]> {
+async function getExplanationIdsForTagImpl(tagId: number): Promise<number[]> {
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -330,7 +331,7 @@ export async function getExplanationIdsForTag(tagId: number): Promise<number[]> 
  * • Used by tag validation and UI state management
  * • Calls supabase explanation_tags table select operation
  */
-export async function explanationHasTags(
+async function explanationHasTagsImpl(
   explanationId: number,
   tagIds: number[]
 ): Promise<boolean[]> {
@@ -357,7 +358,7 @@ export async function explanationHasTags(
  * • Used by explanation deletion or tag reset operations
  * • Calls supabase explanation_tags table update operation
  */
-export async function removeAllTagsFromExplanation(explanationId: number): Promise<void> {
+async function removeAllTagsFromExplanationImpl(explanationId: number): Promise<void> {
   const supabase = await createSupabaseServerClient()
   
   const { error } = await supabase
@@ -376,7 +377,7 @@ export async function removeAllTagsFromExplanation(explanationId: number): Promi
  * • Used by tag analytics and management interfaces
  * • Calls supabase with aggregation on explanation_tags table
  */
-export async function getTagUsageStats(): Promise<Array<{ tag: TagFullDbType; usage_count: number }>> {
+async function getTagUsageStatsImpl(): Promise<Array<{ tag: TagFullDbType; usage_count: number }>> {
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -419,7 +420,7 @@ export async function getTagUsageStats(): Promise<Array<{ tag: TagFullDbType; us
  * • Used by tag bar apply button to commit tag changes to explanations
  * • Calls addTagsToExplanation and removeTagsFromExplanation for database operations
  */
-export async function handleApplyForModifyTags(
+async function handleApplyForModifyTagsImpl(
   explanationId: number,
   tags: TagUIType[]
 ): Promise<{
@@ -468,7 +469,7 @@ export async function handleApplyForModifyTags(
 
   try {
     if (tagsToAdd.length > 0) {
-      await addTagsToExplanation(explanationId, tagsToAdd);
+      await addTagsToExplanationImpl(explanationId, tagsToAdd);
       addedCount = tagsToAdd.length;
     }
   } catch (error) {
@@ -477,7 +478,7 @@ export async function handleApplyForModifyTags(
 
   try {
     if (tagsToRemove.length > 0) {
-      await removeTagsFromExplanation(explanationId, tagsToRemove);
+      await removeTagsFromExplanationImpl(explanationId, tagsToRemove);
       removedCount = tagsToRemove.length;
     }
   } catch (error) {
@@ -489,4 +490,65 @@ export async function handleApplyForModifyTags(
     removed: removedCount,
     errors
   };
-} 
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const addTagsToExplanation = withLogging(
+  addTagsToExplanationImpl,
+  'addTagsToExplanation',
+  { logErrors: true }
+);
+
+export const removeTagsFromExplanation = withLogging(
+  removeTagsFromExplanationImpl,
+  'removeTagsFromExplanation',
+  { logErrors: true }
+);
+
+export const bulkRemoveTagsFromExplanations = withLogging(
+  bulkRemoveTagsFromExplanationsImpl,
+  'bulkRemoveTagsFromExplanations',
+  { logErrors: true }
+);
+
+export const replaceTagsForExplanationWithValidation = withLogging(
+  replaceTagsForExplanationWithValidationImpl,
+  'replaceTagsForExplanationWithValidation',
+  { logErrors: true }
+);
+
+export const getTagsForExplanation = withLogging(
+  getTagsForExplanationImpl,
+  'getTagsForExplanation',
+  { logErrors: true }
+);
+
+export const getExplanationIdsForTag = withLogging(
+  getExplanationIdsForTagImpl,
+  'getExplanationIdsForTag',
+  { logErrors: true }
+);
+
+export const explanationHasTags = withLogging(
+  explanationHasTagsImpl,
+  'explanationHasTags',
+  { logErrors: true }
+);
+
+export const removeAllTagsFromExplanation = withLogging(
+  removeAllTagsFromExplanationImpl,
+  'removeAllTagsFromExplanation',
+  { logErrors: true }
+);
+
+export const getTagUsageStats = withLogging(
+  getTagUsageStatsImpl,
+  'getTagUsageStats',
+  { logErrors: true }
+);
+
+export const handleApplyForModifyTags = withLogging(
+  handleApplyForModifyTagsImpl,
+  'handleApplyForModifyTags',
+  { logErrors: true }
+);

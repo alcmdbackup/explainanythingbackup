@@ -1,8 +1,13 @@
 'use server'
+/**
+ * Service for interacting with the explanations table in Supabase.
+ * Provides CRUD operations and query methods for explanations.
+ */
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for interacting with the explanations table in Supabase
@@ -30,7 +35,7 @@ import { type ExplanationFullDbType, type ExplanationInsertType, type Explanatio
  * @param explanation Explanation data to insert
  * @returns Created explanation record
  */
-export async function createExplanation(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
+async function createExplanationImpl(explanation: ExplanationInsertType): Promise<ExplanationFullDbType> {
   const supabase = await createSupabaseServerClient()
   
 
@@ -63,7 +68,7 @@ export async function createExplanation(explanation: ExplanationInsertType): Pro
  * Uses .limit(1) instead of .single() to handle edge cases gracefully
  * (e.g., replication lag, RLS timing issues) without throwing PostgREST errors
  */
-export async function getExplanationById(id: number): Promise<ExplanationFullDbType> {
+async function getExplanationByIdImpl(id: number): Promise<ExplanationFullDbType> {
   const supabase = await createSupabaseServerClient()
 
   // Use .limit(1) instead of .single() to avoid "Cannot coerce" errors
@@ -98,7 +103,7 @@ export async function getExplanationById(id: number): Promise<ExplanationFullDbT
  * // Get top explanations all time
  * const topAll = await getRecentExplanations(10, 0, { sort: 'top', period: 'all' });
  */
-export async function getRecentExplanations(
+async function getRecentExplanationsImpl(
   limit: number = 10,
   offset: number = 0,
   options?: {
@@ -207,7 +212,7 @@ export async function getRecentExplanations(
  * @param updates Partial explanation data to update
  * @returns Updated explanation record
  */
-export async function updateExplanation(
+async function updateExplanationImpl(
   id: number,
   updates: Partial<ExplanationInsertType>
 ): Promise<ExplanationFullDbType> {
@@ -229,7 +234,7 @@ export async function updateExplanation(
  * @param id Explanation record ID
  * @returns void
  */
-export async function deleteExplanation(id: number): Promise<void> {
+async function deleteExplanationImpl(id: number): Promise<void> {
   const supabase = await createSupabaseServerClient()
 
   const { error } = await supabase
@@ -244,7 +249,7 @@ export async function deleteExplanation(id: number): Promise<void> {
  * Get explanation records by IDs
  * @param ids Array of explanation record IDs
  * @returns Array of explanation records that were found
- * 
+ *
  * Example usage:
  * ```typescript
  * const explanations = await getExplanationsByIds([1, 2, 3]);
@@ -252,7 +257,7 @@ export async function deleteExplanation(id: number): Promise<void> {
  * // Note: May return fewer items than requested if some IDs don't exist
  * ```
  */
-export async function getExplanationsByIds(ids: number[]): Promise<ExplanationFullDbType[]> {
+async function getExplanationsByIdsImpl(ids: number[]): Promise<ExplanationFullDbType[]> {
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -270,14 +275,14 @@ export async function getExplanationsByIds(ids: number[]): Promise<ExplanationFu
  * @param limit Number of records to return
  * @param offset Number of records to skip
  * @returns Array of explanation records related to the topic
- * 
+ *
  * Example usage:
  * ```typescript
  * const explanations = await getExplanationsByTopicId(1);
  * // Returns: ExplanationFullDbType[] - array of explanations with matching topic ID
  * ```
  */
-export async function getExplanationsByTopicId(
+async function getExplanationsByTopicIdImpl(
   topicId: number,
   limit: number = 10,
   offset: number = 0
@@ -293,4 +298,47 @@ export async function getExplanationsByTopicId(
 
   if (error) throw error;
   return data || [];
-} 
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const createExplanation = withLogging(
+  createExplanationImpl,
+  'createExplanation',
+  { logErrors: true }
+);
+
+export const getExplanationById = withLogging(
+  getExplanationByIdImpl,
+  'getExplanationById',
+  { logErrors: true }
+);
+
+export const getRecentExplanations = withLogging(
+  getRecentExplanationsImpl,
+  'getRecentExplanations',
+  { logErrors: true }
+);
+
+export const updateExplanation = withLogging(
+  updateExplanationImpl,
+  'updateExplanation',
+  { logErrors: true }
+);
+
+export const deleteExplanation = withLogging(
+  deleteExplanationImpl,
+  'deleteExplanation',
+  { logErrors: true }
+);
+
+export const getExplanationsByIds = withLogging(
+  getExplanationsByIdsImpl,
+  'getExplanationsByIds',
+  { logErrors: true }
+);
+
+export const getExplanationsByTopicId = withLogging(
+  getExplanationsByTopicIdImpl,
+  'getExplanationsByTopicId',
+  { logErrors: true }
+);

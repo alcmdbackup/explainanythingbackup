@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { type TagFullDbType, type TagInsertType, tagInsertSchema } from '@/lib/schemas/schemas';
 import { type TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Helper function to convert raw database tags to UI format
@@ -18,7 +19,7 @@ import { type TagUIType, simpleTagUISchema, PresetTagUISchema } from '@/lib/sche
  * Used by: getTagsForExplanation, getTempTagsForRewriteWithTags
  * Calls: getTagsByPresetId
  */
-export async function convertTagsToUIFormat(rawTags: TagFullDbType[]): Promise<TagUIType[]> {
+async function convertTagsToUIFormatImpl(rawTags: TagFullDbType[]): Promise<TagUIType[]> {
   // Group tags by presetTagId for processing
   const tagsByPresetId = new Map<number | null, TagFullDbType[]>();
   
@@ -38,8 +39,8 @@ export async function convertTagsToUIFormat(rawTags: TagFullDbType[]): Promise<T
   )];
   
   // Fetch all tags with presetTagIds in a single call
-  const allPresetTags = uniquePresetTagIds.length > 0 
-    ? await getTagsByPresetId(uniquePresetTagIds)
+  const allPresetTags = uniquePresetTagIds.length > 0
+    ? await getTagsByPresetIdImpl(uniquePresetTagIds)
     : [];
   
   // Group all preset tags by presetTagId for quick lookup
@@ -134,7 +135,7 @@ export async function convertTagsToUIFormat(rawTags: TagFullDbType[]): Promise<T
  * • Used by bulk tag import and initialization operations
  * • Calls supabase tags table for select and bulk insert operations
  */
-export async function createTags(tags: TagInsertType[]): Promise<TagFullDbType[]> {
+async function createTagsImpl(tags: TagInsertType[]): Promise<TagFullDbType[]> {
   const supabase = await createSupabaseServerClient()
   
   if (tags.length === 0) return [];
@@ -187,7 +188,7 @@ export async function createTags(tags: TagInsertType[]): Promise<TagFullDbType[]
  * • Used by bulk tag lookup operations and validation
  * • Calls supabase tags table select operation with IN clause
  */
-export async function getTagsById(ids: number[]): Promise<TagFullDbType[]> {
+async function getTagsByIdImpl(ids: number[]): Promise<TagFullDbType[]> {
   const supabase = await createSupabaseServerClient()
 
   if (ids.length === 0) return [];
@@ -209,7 +210,7 @@ export async function getTagsById(ids: number[]): Promise<TagFullDbType[]> {
  * • Used by tag editing and management operations
  * • Calls supabase tags table update operation
  */
-export async function updateTag(
+async function updateTagImpl(
   id: number,
   updates: Partial<TagInsertType>
 ): Promise<TagFullDbType> {
@@ -242,7 +243,7 @@ export async function updateTag(
  * • Used by tag management and cleanup operations
  * • Calls supabase tags table delete operation
  */
-export async function deleteTag(id: number): Promise<void> {
+async function deleteTagImpl(id: number): Promise<void> {
   const supabase = await createSupabaseServerClient()
   
   const { error } = await supabase
@@ -260,7 +261,7 @@ export async function deleteTag(id: number): Promise<void> {
  * • Used by tag autocomplete and search functionality
  * • Calls supabase tags table with ilike pattern matching
  */
-export async function searchTagsByName(
+async function searchTagsByNameImpl(
   searchTerm: string,
   limit: number = 10
 ): Promise<TagFullDbType[]> {
@@ -283,7 +284,7 @@ export async function searchTagsByName(
  * • Used by tag selection interfaces and admin operations
  * • Calls supabase tags table select all operation
  */
-export async function getAllTags(): Promise<TagFullDbType[]> {
+async function getAllTagsImpl(): Promise<TagFullDbType[]> {
   const supabase = await createSupabaseServerClient()
   
   const { data, error } = await supabase
@@ -302,7 +303,7 @@ export async function getAllTags(): Promise<TagFullDbType[]> {
  * • Used by preset tag grouping and related tag operations
  * • Calls supabase tags table select with presetTagId filter using 'in' operator
  */
-export async function getTagsByPresetId(presetTagIds: number[]): Promise<TagFullDbType[]> {
+async function getTagsByPresetIdImpl(presetTagIds: number[]): Promise<TagFullDbType[]> {
   const supabase = await createSupabaseServerClient()
   
   if (presetTagIds.length === 0) return [];
@@ -326,7 +327,7 @@ export async function getTagsByPresetId(presetTagIds: number[]): Promise<TagFull
  * • Reuses the same pattern as getTagsForExplanation for consistency
  * • Calls supabase tags table select operation for specific tag IDs
  */
-export async function getTempTagsForRewriteWithTags(): Promise<TagUIType[]> {
+async function getTempTagsForRewriteWithTagsImpl(): Promise<TagUIType[]> {
   const supabase = await createSupabaseServerClient()
   
   // Get the specific tags we want (Normal difficulty and Medium length)
@@ -341,5 +342,60 @@ export async function getTempTagsForRewriteWithTags(): Promise<TagUIType[]> {
   const rawTags = data || [];
   
   // Use the helper function to convert raw tags to UI format
-  return await convertTagsToUIFormat(rawTags);
-} 
+  return await convertTagsToUIFormatImpl(rawTags);
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const convertTagsToUIFormat = withLogging(
+  convertTagsToUIFormatImpl,
+  'convertTagsToUIFormat',
+  { logErrors: true }
+);
+
+export const createTags = withLogging(
+  createTagsImpl,
+  'createTags',
+  { logErrors: true }
+);
+
+export const getTagsById = withLogging(
+  getTagsByIdImpl,
+  'getTagsById',
+  { logErrors: true }
+);
+
+export const updateTag = withLogging(
+  updateTagImpl,
+  'updateTag',
+  { logErrors: true }
+);
+
+export const deleteTag = withLogging(
+  deleteTagImpl,
+  'deleteTag',
+  { logErrors: true }
+);
+
+export const searchTagsByName = withLogging(
+  searchTagsByNameImpl,
+  'searchTagsByName',
+  { logErrors: true }
+);
+
+export const getAllTags = withLogging(
+  getAllTagsImpl,
+  'getAllTags',
+  { logErrors: true }
+);
+
+export const getTagsByPresetId = withLogging(
+  getTagsByPresetIdImpl,
+  'getTagsByPresetId',
+  { logErrors: true }
+);
+
+export const getTempTagsForRewriteWithTags = withLogging(
+  getTempTagsForRewriteWithTagsImpl,
+  'getTempTagsForRewriteWithTags',
+  { logErrors: true }
+);

@@ -1,4 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
+/**
+ * LLM service for making OpenAI API calls with structured output support.
+ * Provides call tracking, tracing, and automatic logging.
+ */
 import OpenAI from 'openai';
 import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
@@ -6,6 +10,9 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { type LlmCallTrackingType, llmCallTrackingSchema, allowedLLMModelSchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 import { createLLMSpan } from '../../../instrumentation';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
@@ -49,18 +56,25 @@ async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<v
 
     } catch (error) {
         if (error instanceof z.ZodError) {
-            logger.error('LLM call tracking validation failed', {
-                errors: error.errors,
-                callSource: trackingData.call_source
-            });
-        } else {
-            logger.error('Failed to save LLM call tracking', {
-                error: error instanceof Error ? error.message : String(error),
-                callSource: trackingData.call_source,
-                userId: trackingData.userid
-            });
+            throw new ServiceError(
+                ERROR_CODES.VALIDATION_ERROR,
+                'LLM call tracking validation failed',
+                'saveLlmCallTracking',
+                {
+                    details: { errors: error.errors, callSource: trackingData.call_source },
+                    cause: error
+                }
+            );
         }
-        // Don't throw here to avoid breaking the main LLM call flow
+        throw new ServiceError(
+            ERROR_CODES.DATABASE_ERROR,
+            'Failed to save LLM call tracking',
+            'saveLlmCallTracking',
+            {
+                details: { callSource: trackingData.call_source, userId: trackingData.userid },
+                cause: error instanceof Error ? error : undefined
+            }
+        );
     }
 }
 
@@ -259,4 +273,12 @@ async function callOpenAIModel(
         throw error;
     }
 }
-export { callOpenAIModel };
+
+// Wrap with automatic logging for entry/exit/timing
+const callOpenAIModelWithLogging = withLogging(callOpenAIModel, 'callOpenAIModel', {
+    logInputs: false, // Prompts can be large, avoid logging full input
+    logOutputs: false, // Responses can be large, avoid logging full output
+    logErrors: true
+});
+
+export { callOpenAIModelWithLogging as callOpenAIModel };
