@@ -413,10 +413,19 @@ function ResultsPageContent() {
                         }
 
                         if (data.type === 'complete' && data.result) {
-                            logger.debug('Client received complete', { hasResult: !!data.result }, FILE_DEBUG);
+                            logger.debug('Client received complete', { hasResult: !!data.result, hasSources: !!data.result?.sources }, FILE_DEBUG);
                             if (process.env.NODE_ENV !== 'production') {
                                 console.log('[E2E DEBUG] Complete event received:', JSON.stringify(data.result).substring(0, 200));
                             }
+
+                            // Extract sources from complete event (P0 race condition fix)
+                            // Sources are included directly in the complete event to eliminate
+                            // the race condition where DB query runs before INSERT is visible
+                            if (data.result?.sources && Array.isArray(data.result.sources)) {
+                                setSources(data.result.sources);
+                                logger.debug('Sources set from complete event', { count: data.result.sources.length }, FILE_DEBUG);
+                            }
+
                             finalResult = data.result;
                             setStreamCompleted(true); // Mark stream as completed for E2E testing
                             //setIsStreaming(false);

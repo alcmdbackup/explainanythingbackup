@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MatchMode, UserInputType, type SourceCacheFullType } from '@/lib/schemas/schemas';
+import { MatchMode, UserInputType, type SourceCacheFullType, type SourceChipType } from '@/lib/schemas/schemas';
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 import { getOrCreateCachedSource } from '@/lib/services/sourceCache';
 import { logger } from '@/lib/server_utilities';
@@ -205,10 +205,24 @@ export async function POST(request: NextRequest) {
                     });
                     controller.enqueue(encoder.encode(`data: ${endData}\n\n`));
 
-                    // Send final result (whether match found or generation completed)
+                    // Convert finalSources to SourceChipType[] for client consumption
+                    // This eliminates the race condition where client queries DB before sources are visible
+                    // Strip extracted_text to reduce payload (~100KB -> ~5KB)
+                    const sourceChips: SourceChipType[] = (finalSources || []).map(source => ({
+                        url: source.url,
+                        title: source.title,
+                        favicon_url: source.favicon_url,
+                        domain: source.domain,
+                        status: source.fetch_status === 'success' ? 'success'
+                              : source.fetch_status === 'pending' ? 'loading'
+                              : 'failed',
+                        error_message: source.error_message
+                    }));
+
+                    // Send final result with sources included (whether match found or generation completed)
                     const finalData = JSON.stringify({
                         type: 'complete',
-                        result: result,
+                        result: { ...result, sources: sourceChips },
                         isStreaming: false,
                         isComplete: true
                     });
