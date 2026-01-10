@@ -1,5 +1,9 @@
 /* eslint-disable @typescript-eslint/no-unused-vars */
 'use server'
+/**
+ * Metrics service for tracking user events and aggregate metrics.
+ * Handles view counts, save counts, and save rate calculations.
+ */
 
 import { createSupabaseServerClient, createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
@@ -12,6 +16,9 @@ import {
   type ExplanationMetricsTableType,
   type ExplanationMetricsInsertType
 } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 /**
  * Service for tracking user events related to explanations in Supabase
@@ -38,7 +45,7 @@ import {
  * • Provides detailed error logging for debugging failed insertions
  * • Used by analytics and tracking functions to record user interactions
  */
-export async function createUserExplanationEvent(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
+async function createUserExplanationEventImpl(eventData: UserExplanationEventsType): Promise<UserExplanationEventsType> {
   // Use service client to bypass RLS for metrics tracking
   const supabase = await createSupabaseServiceClient();
   
@@ -67,17 +74,24 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
     throw error;
   }
 
-  // Update aggregate metrics if this is a view event (run in background, don't wait)
-  // Intentional: Fire-and-forget - metrics failures should not block user flow
-  // Errors are logged to Sentry via logger.error
+  // Update aggregate metrics if this is a view event
   if (validationResult.data.event_name === 'explanation_viewed') {
-    incrementExplanationViews(validationResult.data.explanationid).catch(metricsError => {
-      logger.error('Failed to update explanation metrics after view event', {
-        explanationid: validationResult.data.explanationid,
-        event_name: validationResult.data.event_name,
-        error: metricsError instanceof Error ? metricsError.message : String(metricsError)
-      });
-    });
+    try {
+      await incrementExplanationViewsImpl(validationResult.data.explanationid);
+    } catch (metricsError) {
+      throw new ServiceError(
+        ERROR_CODES.DATABASE_ERROR,
+        'Failed to update explanation metrics after view event',
+        'createUserExplanationEvent',
+        {
+          details: {
+            explanationid: validationResult.data.explanationid,
+            event_name: validationResult.data.event_name
+          },
+          cause: metricsError instanceof Error ? metricsError : undefined
+        }
+      );
+    }
   }
 
   return data;
@@ -101,7 +115,7 @@ export async function createUserExplanationEvent(eventData: UserExplanationEvent
  * @param options.refreshAll - If true, refreshes all explanations in the database
  * @returns Object with results array and count of processed explanations
  */
-export async function refreshExplanationMetrics(options: {
+async function refreshExplanationMetricsImpl(options: {
   explanationIds?: number | number[];
   refreshAll?: boolean;
 } = {}): Promise<{
@@ -174,7 +188,7 @@ export async function refreshExplanationMetrics(options: {
  * @param explanationIds - Array of explanation IDs to get metrics for
  * @returns Array of metrics records (null for missing explanations)
  */
-export async function getMultipleExplanationMetrics(explanationIds: number[]): Promise<(ExplanationMetricsTableType | null)[]> {
+async function getMultipleExplanationMetricsImpl(explanationIds: number[]): Promise<(ExplanationMetricsTableType | null)[]> {
   if (explanationIds.length === 0) return [];
 
   const supabase = await createSupabaseServerClient();
@@ -208,7 +222,7 @@ export async function getMultipleExplanationMetrics(explanationIds: number[]): P
  * @param explanationId - The explanation ID to increment views for
  * @returns Updated metrics record
  */
-export async function incrementExplanationViews(explanationId: number): Promise<ExplanationMetricsType> {
+async function incrementExplanationViewsImpl(explanationId: number): Promise<ExplanationMetricsType> {
   // Use service client to bypass RLS for background metrics tracking
   const supabase = await createSupabaseServiceClient();
   
@@ -251,7 +265,7 @@ export async function incrementExplanationViews(explanationId: number): Promise<
  * @param explanationId - The explanation ID to increment saves for
  * @returns Updated metrics record
  */
-export async function incrementExplanationSaves(explanationId: number): Promise<ExplanationMetricsType> {
+async function incrementExplanationSavesImpl(explanationId: number): Promise<ExplanationMetricsType> {
   // Use service client to bypass RLS for background metrics tracking
   const supabase = await createSupabaseServiceClient();
   
@@ -277,4 +291,35 @@ export async function incrementExplanationSaves(explanationId: number): Promise<
   }
 
   return validationResult.data;
-} 
+}
+
+// Wrap all functions with automatic logging for entry/exit/timing
+export const createUserExplanationEvent = withLogging(
+  createUserExplanationEventImpl,
+  'createUserExplanationEvent',
+  { logErrors: true }
+);
+
+export const refreshExplanationMetrics = withLogging(
+  refreshExplanationMetricsImpl,
+  'refreshExplanationMetrics',
+  { logErrors: true }
+);
+
+export const getMultipleExplanationMetrics = withLogging(
+  getMultipleExplanationMetricsImpl,
+  'getMultipleExplanationMetrics',
+  { logErrors: true }
+);
+
+export const incrementExplanationViews = withLogging(
+  incrementExplanationViewsImpl,
+  'incrementExplanationViews',
+  { logErrors: true }
+);
+
+export const incrementExplanationSaves = withLogging(
+  incrementExplanationSavesImpl,
+  'incrementExplanationSaves',
+  { logErrors: true }
+);

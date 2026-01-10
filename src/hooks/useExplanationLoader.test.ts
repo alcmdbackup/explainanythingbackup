@@ -4,10 +4,11 @@ import {
     getExplanationByIdAction,
     isExplanationSavedByUserAction,
     getTagsForExplanationAction,
+    getSourcesForExplanationAction,
     loadFromPineconeUsingExplanationIdAction,
     resolveLinksForDisplayAction
 } from '@/actions/actions';
-import { ExplanationStatus, TagUIType } from '@/lib/schemas/schemas';
+import { ExplanationStatus, TagUIType, SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 
 // Mock all dependencies
@@ -25,6 +26,7 @@ jest.mock('./clientPassRequestId', () => ({
 const mockGetExplanationByIdAction = getExplanationByIdAction as jest.MockedFunction<typeof getExplanationByIdAction>;
 const mockIsExplanationSavedByUserAction = isExplanationSavedByUserAction as jest.MockedFunction<typeof isExplanationSavedByUserAction>;
 const mockGetTagsForExplanationAction = getTagsForExplanationAction as jest.MockedFunction<typeof getTagsForExplanationAction>;
+const mockGetSourcesForExplanationAction = getSourcesForExplanationAction as jest.MockedFunction<typeof getSourcesForExplanationAction>;
 const mockLoadFromPineconeUsingExplanationIdAction = loadFromPineconeUsingExplanationIdAction as jest.MockedFunction<typeof loadFromPineconeUsingExplanationIdAction>;
 const mockResolveLinksForDisplayAction = resolveLinksForDisplayAction as jest.MockedFunction<typeof resolveLinksForDisplayAction>;
 
@@ -64,6 +66,25 @@ describe('useExplanationLoader', () => {
         values: new Array(1536).fill(0.1)
     };
 
+    const mockSources: SourceChipType[] = [
+        {
+            url: 'https://example.com/source1',
+            title: 'Source 1',
+            favicon_url: 'https://example.com/favicon.ico',
+            domain: 'example.com',
+            status: 'success',
+            error_message: null
+        },
+        {
+            url: 'https://test.org/source2',
+            title: 'Source 2',
+            favicon_url: 'https://test.org/favicon.ico',
+            domain: 'test.org',
+            status: 'success',
+            error_message: null
+        }
+    ];
+
     beforeEach(() => {
         jest.clearAllMocks();
 
@@ -82,6 +103,11 @@ describe('useExplanationLoader', () => {
         mockLoadFromPineconeUsingExplanationIdAction.mockResolvedValue({
             success: true,
             data: mockVector,
+            error: null
+        });
+        mockGetSourcesForExplanationAction.mockResolvedValue({
+            success: true,
+            data: mockSources,
             error: null
         });
         // Mock resolveLinksForDisplayAction to return content unchanged
@@ -416,6 +442,91 @@ describe('useExplanationLoader', () => {
         });
     });
 
+    describe('onSourcesLoad callback', () => {
+        it('should call onSourcesLoad with sources when provided', async () => {
+            const onSourcesLoad = jest.fn();
+
+            const { result } = renderHook(() => useExplanationLoader({
+                onSourcesLoad
+            }));
+
+            await act(async () => {
+                await result.current.loadExplanation(123, false, 'user-123');
+            });
+
+            expect(mockGetSourcesForExplanationAction).toHaveBeenCalledWith(
+                expect.objectContaining({ explanationId: 123 })
+            );
+            expect(onSourcesLoad).toHaveBeenCalledWith([
+                {
+                    url: 'https://example.com/source1',
+                    title: 'Source 1',
+                    favicon_url: 'https://example.com/favicon.ico',
+                    domain: 'example.com',
+                    status: 'success',
+                    error_message: null
+                },
+                {
+                    url: 'https://test.org/source2',
+                    title: 'Source 2',
+                    favicon_url: 'https://test.org/favicon.ico',
+                    domain: 'test.org',
+                    status: 'success',
+                    error_message: null
+                }
+            ]);
+        });
+
+        it('should call onSourcesLoad with empty array when sources fetch fails', async () => {
+            const onSourcesLoad = jest.fn();
+            mockGetSourcesForExplanationAction.mockResolvedValue({
+                success: false,
+                data: null,
+                error: { code: 'DATABASE_ERROR', message: 'Failed to fetch sources' }
+            });
+
+            const { result } = renderHook(() => useExplanationLoader({
+                onSourcesLoad
+            }));
+
+            await act(async () => {
+                await result.current.loadExplanation(123, false, 'user-123');
+            });
+
+            expect(onSourcesLoad).toHaveBeenCalledWith([]);
+        });
+
+        it('should call onSourcesLoad with empty array when no sources exist', async () => {
+            const onSourcesLoad = jest.fn();
+            mockGetSourcesForExplanationAction.mockResolvedValue({
+                success: true,
+                data: [],
+                error: null
+            });
+
+            const { result } = renderHook(() => useExplanationLoader({
+                onSourcesLoad
+            }));
+
+            await act(async () => {
+                await result.current.loadExplanation(123, false, 'user-123');
+            });
+
+            expect(onSourcesLoad).toHaveBeenCalledWith([]);
+        });
+
+        it('should not call getSourcesForExplanationAction when onSourcesLoad is not provided', async () => {
+            const { result } = renderHook(() => useExplanationLoader());
+
+            await act(async () => {
+                await result.current.loadExplanation(123, false, 'user-123');
+            });
+
+            // When onSourcesLoad is not provided, we shouldn't fetch sources
+            expect(mockGetSourcesForExplanationAction).not.toHaveBeenCalled();
+        });
+    });
+
     describe('clearSystemSavedId', () => {
         it('should clear systemSavedId to null', () => {
             const { result } = renderHook(() => useExplanationLoader());
@@ -446,6 +557,7 @@ describe('useExplanationLoader', () => {
             const onMatchesLoad = jest.fn();
             const onClearPrompt = jest.fn();
             const onSetOriginalValues = jest.fn();
+            const onSourcesLoad = jest.fn();
 
             const mockMatches = [{
                 explanation_id: 456,
@@ -460,7 +572,8 @@ describe('useExplanationLoader', () => {
                 onTagsLoad,
                 onMatchesLoad,
                 onClearPrompt,
-                onSetOriginalValues
+                onSetOriginalValues,
+                onSourcesLoad
             }));
 
             // Capture function before async operation
@@ -478,6 +591,7 @@ describe('useExplanationLoader', () => {
                 'Test Explanation',
                 ExplanationStatus.Published
             );
+            expect(onSourcesLoad).toHaveBeenCalled();
         });
 
         it('should not throw errors when callbacks are not provided', async () => {

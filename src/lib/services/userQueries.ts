@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { type UserQueryInsertType } from '@/lib/schemas/schemas';
 import { assertUserId } from '@/lib/utils/validation';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for interacting with the user_queries table in Supabase
@@ -24,7 +25,7 @@ import { assertUserId } from '@/lib/utils/validation';
  * @param explanationId (optional) Explanation ID to associate
  * @returns Created user query record
  */
-export async function createUserQuery(query: UserQueryInsertType) {
+async function createUserQueryImpl(query: UserQueryInsertType) {
   assertUserId(query.userid, 'createUserQuery');
   const supabase = await createSupabaseServerClient()
   
@@ -44,7 +45,7 @@ export async function createUserQuery(query: UserQueryInsertType) {
  * @param offset Number of records to skip
  * @returns Array of user query records
  */
-export async function getRecentUserQueries(
+async function getRecentUserQueriesImpl(
   limit: number = 10,
   offset: number = 0
 ) {
@@ -70,7 +71,7 @@ export async function getRecentUserQueries(
  *
  * Uses .limit(1) instead of .single() to handle edge cases gracefully
  */
-export async function getUserQueryById(id: number) {
+async function getUserQueryByIdImpl(id: number) {
   const supabase = await createSupabaseServerClient()
 
   // Use .limit(1) instead of .single() to avoid "Cannot coerce" errors
@@ -85,4 +86,23 @@ export async function getUserQueryById(id: number) {
     throw new Error(`User query not found for ID: ${id}`);
   }
   return results[0];
-} 
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const createUserQuery = withLogging(
+  createUserQueryImpl,
+  'createUserQuery',
+  { logErrors: true }
+);
+
+export const getRecentUserQueries = withLogging(
+  getRecentUserQueriesImpl,
+  'getRecentUserQueries',
+  { logErrors: true }
+);
+
+export const getUserQueryById = withLogging(
+  getUserQueryByIdImpl,
+  'getUserQueryById',
+  { logErrors: true }
+);

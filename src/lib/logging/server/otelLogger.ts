@@ -6,7 +6,8 @@
  * asynchronously for efficiency.
  *
  * Log Level Policy:
- * - Production: Only error/warn levels are sent
+ * - Production (default): Only error/warn levels are sent
+ * - Production (OTEL_SEND_ALL_LOG_LEVELS=true): All levels are sent
  * - Development/Staging: All levels are sent
  */
 
@@ -108,8 +109,9 @@ export function emitLog(
 ): void {
   const upperLevel = level.toUpperCase();
 
-  // In production, only send error/warn
-  if (process.env.NODE_ENV === 'production' && !PROD_LEVELS.has(upperLevel)) {
+  // In production, only send error/warn unless OTEL_SEND_ALL_LOG_LEVELS is enabled
+  const sendAllLevels = process.env.OTEL_SEND_ALL_LOG_LEVELS === 'true';
+  if (process.env.NODE_ENV === 'production' && !sendAllLevels && !PROD_LEVELS.has(upperLevel)) {
     return;
   }
 

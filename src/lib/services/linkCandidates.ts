@@ -6,6 +6,7 @@ import {
   type CandidateOccurrenceFullType,
 } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/server_utilities';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
  * Service for managing link candidates
@@ -44,7 +45,7 @@ export function countTermOccurrences(content: string, term: string): number {
  * • If term_lower exists, returns existing candidate
  * • Otherwise inserts new candidate with first_seen_explanation_id
  */
-export async function upsertCandidate(
+async function upsertCandidateImpl(
   term: string,
   explanationId: number
 ): Promise<LinkCandidateFullType> {
@@ -81,7 +82,7 @@ export async function upsertCandidate(
 /**
  * Get a candidate by ID
  */
-export async function getCandidateById(id: number): Promise<LinkCandidateFullType> {
+async function getCandidateByIdImpl(id: number): Promise<LinkCandidateFullType> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -99,7 +100,7 @@ export async function getCandidateById(id: number): Promise<LinkCandidateFullTyp
 /**
  * Get all candidates, optionally filtered by status
  */
-export async function getAllCandidates(
+async function getAllCandidatesImpl(
   status?: CandidateStatus
 ): Promise<LinkCandidateFullType[]> {
   const supabase = await createSupabaseServerClient();
@@ -124,7 +125,7 @@ export async function getAllCandidates(
  *
  * • Cascades to delete associated occurrences
  */
-export async function deleteCandidate(id: number): Promise<void> {
+async function deleteCandidateImpl(id: number): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase
@@ -142,7 +143,7 @@ export async function deleteCandidate(id: number): Promise<void> {
 /**
  * Insert or update an occurrence record
  */
-export async function upsertOccurrence(
+async function upsertOccurrenceImpl(
   candidateId: number,
   explanationId: number,
   count: number
@@ -173,7 +174,7 @@ export async function upsertOccurrence(
 /**
  * Get occurrences for a specific explanation
  */
-export async function getOccurrencesForExplanation(
+async function getOccurrencesForExplanationImpl(
   explanationId: number
 ): Promise<CandidateOccurrenceFullType[]> {
   const supabase = await createSupabaseServerClient();
@@ -192,7 +193,7 @@ export async function getOccurrencesForExplanation(
  *
  * Updates total_occurrences and article_count based on candidate_occurrences
  */
-export async function recalculateCandidateAggregates(): Promise<void> {
+async function recalculateCandidateAggregatesImpl(): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   // Get all candidates
@@ -233,7 +234,7 @@ export async function recalculateCandidateAggregates(): Promise<void> {
 /**
  * Recalculate aggregates for a specific candidate
  */
-async function recalculateSingleCandidateAggregates(candidateId: number): Promise<void> {
+async function recalculateSingleCandidateAggregatesImpl(candidateId: number): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   const { data: occurrences, error: occError } = await supabase
@@ -273,7 +274,7 @@ async function recalculateSingleCandidateAggregates(candidateId: number): Promis
  * • Creates occurrence records
  * • Recalculates aggregates for affected candidates
  */
-export async function saveCandidatesFromLLM(
+async function saveCandidatesFromLLMImpl(
   explanationId: number,
   content: string,
   candidates: string[],
@@ -295,8 +296,8 @@ export async function saveCandidatesFromLLM(
   for (const term of candidates) {
     try {
       const count = countTermOccurrences(content, term);
-      const candidate = await upsertCandidate(term, explanationId);
-      await upsertOccurrence(candidate.id, explanationId, count);
+      const candidate = await upsertCandidateImpl(term, explanationId);
+      await upsertOccurrenceImpl(candidate.id, explanationId, count);
       affectedCandidateIds.push(candidate.id);
 
       if (debug) {
@@ -311,7 +312,7 @@ export async function saveCandidatesFromLLM(
 
   // Recalculate aggregates for affected candidates
   for (const candidateId of affectedCandidateIds) {
-    await recalculateSingleCandidateAggregates(candidateId);
+    await recalculateSingleCandidateAggregatesImpl(candidateId);
   }
 }
 
@@ -325,12 +326,12 @@ export async function saveCandidatesFromLLM(
  *
  * Note: Does NOT generate new candidates on edit - only updates counts
  */
-export async function updateOccurrencesForArticle(
+async function updateOccurrencesForArticleImpl(
   explanationId: number,
   content: string,
   debug: boolean = false
 ): Promise<void> {
-  const existingOccurrences = await getOccurrencesForExplanation(explanationId);
+  const existingOccurrences = await getOccurrencesForExplanationImpl(explanationId);
 
   if (existingOccurrences.length === 0) {
     if (debug) {
@@ -347,9 +348,9 @@ export async function updateOccurrencesForArticle(
 
   for (const occ of existingOccurrences) {
     try {
-      const candidate = await getCandidateById(occ.candidate_id);
+      const candidate = await getCandidateByIdImpl(occ.candidate_id);
       const newCount = countTermOccurrences(content, candidate.term);
-      await upsertOccurrence(occ.candidate_id, explanationId, newCount);
+      await upsertOccurrenceImpl(occ.candidate_id, explanationId, newCount);
       affectedCandidateIds.push(occ.candidate_id);
 
       if (debug) {
@@ -364,7 +365,7 @@ export async function updateOccurrencesForArticle(
 
   // Recalculate aggregates for affected candidates
   for (const candidateId of affectedCandidateIds) {
-    await recalculateSingleCandidateAggregates(candidateId);
+    await recalculateSingleCandidateAggregatesImpl(candidateId);
   }
 }
 
@@ -378,14 +379,14 @@ export async function updateOccurrencesForArticle(
  * • Creates a whitelist entry with the provided standalone_title
  * • Updates candidate status to 'approved'
  */
-export async function approveCandidate(
+async function approveCandidateImpl(
   id: number,
   standaloneTitle: string
 ): Promise<LinkCandidateFullType> {
   const supabase = await createSupabaseServerClient();
 
   // Get the candidate
-  const candidate = await getCandidateById(id);
+  const candidate = await getCandidateByIdImpl(id);
 
   // Create whitelist entry
   await createWhitelistTerm({
@@ -415,7 +416,7 @@ export async function approveCandidate(
  * • Updates candidate status to 'rejected'
  * • Candidate is kept for deduplication purposes
  */
-export async function rejectCandidate(id: number): Promise<LinkCandidateFullType> {
+async function rejectCandidateImpl(id: number): Promise<LinkCandidateFullType> {
   const supabase = await createSupabaseServerClient();
 
   const { data, error } = await supabase
@@ -431,3 +432,70 @@ export async function rejectCandidate(id: number): Promise<LinkCandidateFullType
   if (error) throw error;
   return data;
 }
+
+// Wrap async functions with automatic logging for entry/exit/timing
+export const upsertCandidate = withLogging(
+  upsertCandidateImpl,
+  'upsertCandidate',
+  { logErrors: true }
+);
+
+export const getCandidateById = withLogging(
+  getCandidateByIdImpl,
+  'getCandidateById',
+  { logErrors: true }
+);
+
+export const getAllCandidates = withLogging(
+  getAllCandidatesImpl,
+  'getAllCandidates',
+  { logErrors: true }
+);
+
+export const deleteCandidate = withLogging(
+  deleteCandidateImpl,
+  'deleteCandidate',
+  { logErrors: true }
+);
+
+export const upsertOccurrence = withLogging(
+  upsertOccurrenceImpl,
+  'upsertOccurrence',
+  { logErrors: true }
+);
+
+export const getOccurrencesForExplanation = withLogging(
+  getOccurrencesForExplanationImpl,
+  'getOccurrencesForExplanation',
+  { logErrors: true }
+);
+
+export const recalculateCandidateAggregates = withLogging(
+  recalculateCandidateAggregatesImpl,
+  'recalculateCandidateAggregates',
+  { logErrors: true }
+);
+
+export const saveCandidatesFromLLM = withLogging(
+  saveCandidatesFromLLMImpl,
+  'saveCandidatesFromLLM',
+  { logErrors: true }
+);
+
+export const updateOccurrencesForArticle = withLogging(
+  updateOccurrencesForArticleImpl,
+  'updateOccurrencesForArticle',
+  { logErrors: true }
+);
+
+export const approveCandidate = withLogging(
+  approveCandidateImpl,
+  'approveCandidate',
+  { logErrors: true }
+);
+
+export const rejectCandidate = withLogging(
+  rejectCandidateImpl,
+  'rejectCandidate',
+  { logErrors: true }
+);

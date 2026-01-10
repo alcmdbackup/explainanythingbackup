@@ -6,6 +6,7 @@ import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, search
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
 import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
+import { ServiceError } from '@/lib/errors/serviceError';
 import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
 import { cleanupAfterEnhancements } from '@/lib/services/links';
@@ -114,6 +115,9 @@ export const extractLinkCandidates = withLogging(
 
             return candidates;
         } catch (error) {
+            // @silent-ok: Link candidates are a non-critical enhancement. If extraction fails
+            // (API rate limits, network issues), we gracefully degrade by returning empty.
+            // The explanation can still be generated and saved without link candidates.
             logger.error('Error extracting link candidates', {
                 articleTitle,
                 error: error instanceof Error ? error.message : String(error)
@@ -384,17 +388,19 @@ export const applyTagsToExplanation = withLogging(
             if (tagsToApply.length > 0) {
                 const tagResult = await addTagsToExplanationAction(explanationId, tagsToApply);
                 if (tagResult.error) {
-                    logger.error('Failed to apply tags to explanation', {
-                        explanationId,
-                        tags: tagsToApply,
-                        error: tagResult.error
-                    });
-                } else {
-                    logger.debug('Successfully applied tags to explanation', {
-                        explanationId,
-                        tags: tagsToApply
-                    });
+                    throw new ServiceError(
+                        ERROR_CODES.DATABASE_ERROR,
+                        'Failed to apply tags to explanation',
+                        'applyTagsToExplanation',
+                        {
+                            details: { explanationId, tags: tagsToApply, error: tagResult.error }
+                        }
+                    );
                 }
+                logger.debug('Successfully applied tags to explanation', {
+                    explanationId,
+                    tags: tagsToApply
+                });
             } else {
                 logger.debug('No tags to apply to explanation', {
                     explanationId,
@@ -402,11 +408,18 @@ export const applyTagsToExplanation = withLogging(
                 });
             }
         } catch (error) {
-            logger.error('Error applying tags to explanation', {
-                explanationId,
-                tags: tagEvaluation,
-                error: error instanceof Error ? error.message : 'Unknown error'
-            });
+            if (error instanceof ServiceError) {
+                throw error;
+            }
+            throw new ServiceError(
+                ERROR_CODES.UNKNOWN_ERROR,
+                'Error applying tags to explanation',
+                'applyTagsToExplanation',
+                {
+                    details: { explanationId, tags: tagEvaluation },
+                    cause: error instanceof Error ? error : undefined
+                }
+            );
         }
     },
     'applyTagsToExplanation',
@@ -647,19 +660,28 @@ export const returnExplanationLogic = withLoggingAndTracing(
                     await saveCandidatesFromLLM(newExplanationId, newExplanationData!.content, linkCandidates, FILE_DEBUG);
                 }
 
-                // Fire-and-forget: Generate AI summary for explore page and SEO
-                // This runs async and doesn't block the publish flow
-                generateAndSaveExplanationSummary(
-                    newExplanationId,
-                    titleResult,
-                    newExplanationData!.content,
-                    userid
-                ).catch(err => {
-                    // Already logged in service, but add context
-                    logger.debug('Summary generation initiated (fire-and-forget)', {
+                // Generate AI summary for explore page and SEO
+                try {
+                    await generateAndSaveExplanationSummary(
+                        newExplanationId,
+                        titleResult,
+                        newExplanationData!.content,
+                        userid
+                    );
+                    logger.debug('Summary generation completed', {
                         explanationId: newExplanationId,
                     });
-                });
+                } catch (summaryError) {
+                    throw new ServiceError(
+                        ERROR_CODES.LLM_API_ERROR,
+                        'Failed to generate explanation summary',
+                        'returnExplanationLogic',
+                        {
+                            details: { explanationId: newExplanationId },
+                            cause: summaryError instanceof Error ? summaryError : undefined
+                        }
+                    );
+                }
 
                 // Link sources to the explanation if provided
                 if (sources && sources.length > 0) {

@@ -15,7 +15,9 @@ describe('returnExplanation', () => {
     jest.mock('@/lib/prompts', () => ({
       createExplanationPrompt: jest.fn(),
       createTitlePrompt: jest.fn(),
-      editExplanationPrompt: jest.fn()
+      editExplanationPrompt: jest.fn(),
+      createLinkCandidatesPrompt: jest.fn().mockReturnValue('extract link candidates prompt'),
+      createExplanationWithSourcesPrompt: jest.fn()
     }));
 
     // Mock schemas
@@ -43,7 +45,8 @@ describe('returnExplanation', () => {
           success: true,
           data: { title1: 'Test Title', title2: 'Alt Title', title3: 'Another Title' }
         })
-      }
+      },
+      linkCandidatesExtractionSchema: {}
     }));
 
     // Mock vectorsim
@@ -96,7 +99,8 @@ describe('returnExplanation', () => {
       logger: {
         debug: jest.fn(),
         error: jest.fn(),
-        info: jest.fn()
+        info: jest.fn(),
+        warn: jest.fn()
       }
     }));
 
@@ -125,6 +129,10 @@ describe('returnExplanation', () => {
   });
 
   describe('Basic functionality tests', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
     it('should successfully run basic test', () => {
       expect(true).toBe(true);
     });
@@ -160,6 +168,7 @@ describe('returnExplanation', () => {
       const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
+      const { callOpenAIModel } = require('@/lib/services/llms');
 
       // Setup mocks
       // Headings are no longer embedded - titles are returned separately
@@ -167,6 +176,8 @@ describe('returnExplanation', () => {
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Test': 'Standalone Test Title' });
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
       cleanupAfterEnhancements.mockImplementation((c: string) => c);
+      // Mock extractLinkCandidates' call to callOpenAIModel
+      callOpenAIModel.mockResolvedValue(JSON.stringify({ candidates: ['keyword'] }));
 
       // Import the function
       const { postprocessNewExplanationContent } = require('./returnExplanation');
@@ -200,7 +211,10 @@ describe('returnExplanation', () => {
 
       // Setup mocks
       createExplanationPrompt.mockReturnValue('explanation prompt');
-      callOpenAIModel.mockResolvedValue('Generated content');
+      // First call: generate explanation content, Second call: extractLinkCandidates
+      callOpenAIModel
+        .mockResolvedValueOnce('Generated content')
+        .mockResolvedValueOnce(JSON.stringify({ candidates: [] }));
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Heading': 'Standalone Heading Title' });
       // Key terms are now resolved at render time via linkResolver
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
@@ -281,9 +295,11 @@ describe('returnExplanation', () => {
 
       // Setup mocks for full flow
       createTitlePrompt.mockReturnValue('title prompt');
+      // First call: title generation, Second call: explanation content, Third call: extractLinkCandidates
       callOpenAIModel
         .mockResolvedValueOnce(JSON.stringify({ title1: 'Generated Title' }))
-        .mockResolvedValueOnce('Generated content');
+        .mockResolvedValueOnce('Generated content')
+        .mockResolvedValueOnce(JSON.stringify({ candidates: [] }));
       findMatchesInVectorDb.mockResolvedValue([]);
       calculateAllowedScores.mockResolvedValue({ allowedTitle: true });
       findBestMatchFromList.mockResolvedValue({

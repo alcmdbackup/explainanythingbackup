@@ -3,6 +3,10 @@
  *
  * This module controls which log levels are persisted to localStorage
  * and which are sent to the remote endpoint.
+ *
+ * In production, set NEXT_PUBLIC_LOG_ALL_LEVELS=true to send all log levels
+ * to the server for debugging. Note: This is a build-time variable - changing
+ * it requires a new deployment.
  */
 
 export type LogLevel = 'debug' | 'log' | 'info' | 'warn' | 'error';
@@ -33,9 +37,12 @@ const DEFAULT_DEV_CONFIG: ClientLogConfig = {
   maxLocalLogs: 500,
 };
 
+// Check if all log levels should be sent to remote (build-time env var)
+const sendAllLevels = process.env.NEXT_PUBLIC_LOG_ALL_LEVELS === 'true';
+
 const DEFAULT_PROD_CONFIG: ClientLogConfig = {
-  minPersistLevel: 'warn', // Filter out debug noise in prod
-  minRemoteLevel: 'error',
+  minPersistLevel: 'warn', // Keep localStorage conservative to avoid quota issues
+  minRemoteLevel: sendAllLevels ? 'debug' : 'error',
   remoteEnabled: true,
   maxLocalLogs: 200,
 };

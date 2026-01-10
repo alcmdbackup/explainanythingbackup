@@ -126,7 +126,8 @@ function ResultsPageContent() {
                 title,
                 status
             });
-        }
+        },
+        onSourcesLoad: setSources
     });
 
     // Text reveal animation settings
@@ -1138,16 +1139,18 @@ function ResultsPageContent() {
                                         )}
                                         <button
                                             onClick={() => setIsMarkdownMode(!isMarkdownMode)}
-                                            disabled={isStreaming}
+                                            disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
+                                            title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
                                         <button
                                             onClick={handleEditModeToggle}
-                                            disabled={isStreaming}
+                                            disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="edit-button"
+                                            title={hasPendingSuggestions ? "Accept or reject AI suggestions before exiting edit mode" : undefined}
                                             className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isEditMode ? 'Done' : 'Edit'}

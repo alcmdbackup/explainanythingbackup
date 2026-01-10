@@ -1,7 +1,14 @@
+/**
+ * Links service for creating standalone subsection titles and enhancing content with links.
+ * Provides utilities for heading-to-link mappings and inline link enhancement.
+ */
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } from '@/lib/schemas/schemas';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 /**
  * Encodes a URL parameter for use in standalone title links
@@ -47,7 +54,7 @@ export function encodeStandaloneTitleParam(title: string): string {
  * Used by: returnExplanation (to enhance content before saving to database)
  * Calls: createStandaloneTitlePrompt, callOpenAIModel, logger.debug, logger.error
  */
-export async function createMappingsHeadingsToLinks(
+async function createMappingsHeadingsToLinksImpl(
   content: string, 
   articleTitle: string,
   userid: string, 
@@ -146,13 +153,15 @@ export async function createMappingsHeadingsToLinks(
     return headingMappings;
     
   } catch (error) {
-    if (debug) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Error enhancing content with heading links: ${errorMessage}`);
-    }
-    
-    // Fallback: return empty mappings if processing fails
-    return {};
+    throw new ServiceError(
+      ERROR_CODES.LLM_API_ERROR,
+      'Error enhancing content with heading links',
+      'createMappingsHeadingsToLinks',
+      {
+        details: { articleTitle, headingCount: headingData?.length ?? 0 },
+        cause: error instanceof Error ? error : undefined
+      }
+    );
   }
 }
 
@@ -212,7 +221,7 @@ Return the enhanced content with inline links added. Do not include any explanat
  * Used by: content processing workflows requiring automated link enhancement
  * Calls: createLinksInContentPrompt, callOpenAIModel, logger.debug, logger.error
  */
-export async function enhanceContentWithInlineLinks(
+async function enhanceContentWithInlineLinksImpl(
   content: string,
   userid: string,
   debug: boolean = false
@@ -244,13 +253,15 @@ export async function enhanceContentWithInlineLinks(
     return enhancedContent.trim();
 
   } catch (error) {
-    if (debug) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      logger.error(`Error enhancing content with inline links: ${errorMessage}`);
-    }
-    
-    // Fallback: return original content if AI enhancement fails
-    return content;
+    throw new ServiceError(
+      ERROR_CODES.LLM_API_ERROR,
+      'Error enhancing content with inline links',
+      'enhanceContentWithInlineLinks',
+      {
+        details: { contentLength: content.length },
+        cause: error instanceof Error ? error : undefined
+      }
+    );
   }
 } 
 
@@ -265,10 +276,26 @@ export async function enhanceContentWithInlineLinks(
  * @param content - The content to clean up
  * @returns Content with **term** patterns replaced by just the term
  */
-export function cleanupAfterEnhancements(content: string): string {
+function cleanupAfterEnhancementsImpl(content: string): string {
     // Regex to match **term** pattern and capture the term
     const keyTermPattern = /\*\*([^*]+)\*\*/g;
-    
+
     // Replace all **term** with just the term
     return content.replace(keyTermPattern, '$1');
-} 
+}
+
+// Wrap all async functions with automatic logging for entry/exit/timing
+export const createMappingsHeadingsToLinks = withLogging(
+  createMappingsHeadingsToLinksImpl,
+  'createMappingsHeadingsToLinks',
+  { logErrors: true }
+);
+
+export const enhanceContentWithInlineLinks = withLogging(
+  enhanceContentWithInlineLinksImpl,
+  'enhanceContentWithInlineLinks',
+  { logErrors: true }
+);
+
+// Sync functions don't need withLogging (no timing benefit)
+export { cleanupAfterEnhancementsImpl as cleanupAfterEnhancements };

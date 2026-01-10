@@ -19,6 +19,11 @@ jest.mock('@/lib/services/tags', () => ({
   getTempTagsForRewriteWithTags: jest.fn()
 }));
 
+// Mock the source cache service functions
+jest.mock('@/lib/services/sourceCache', () => ({
+  getSourcesByExplanationId: jest.fn()
+}));
+
 import {
   createTagsAction,
   getTagByIdAction,
@@ -26,7 +31,8 @@ import {
   deleteTagAction,
   getTagsByPresetIdAction,
   getAllTagsAction,
-  getTempTagsForRewriteWithTagsAction
+  getTempTagsForRewriteWithTagsAction,
+  getSourcesForExplanationAction
 } from './actions';
 import {
   createTags,
@@ -37,7 +43,8 @@ import {
   getAllTags,
   getTempTagsForRewriteWithTags
 } from '@/lib/services/tags';
-import { TagFullDbType, TagInsertType } from '@/lib/schemas/schemas';
+import { TagFullDbType, TagInsertType, SourceCacheFullType, FetchStatus } from '@/lib/schemas/schemas';
+import { getSourcesByExplanationId } from '@/lib/services/sourceCache';
 
 describe('Tag Server Actions', () => {
   beforeEach(() => {
@@ -393,6 +400,144 @@ describe('Tag Server Actions', () => {
       expect(result.success).toBe(false);
       expect(result.data).toBeNull();
       expect(result.error).toBeDefined();
+    });
+  });
+});
+
+describe('Source Server Actions', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('getSourcesForExplanationAction', () => {
+    it('should return success response with mapped source chips', async () => {
+      // Arrange
+      const explanationId = 123;
+      const mockSources: SourceCacheFullType[] = [
+        {
+          id: 1,
+          url: 'https://example.com/article1',
+          domain: 'example.com',
+          title: 'Example Article 1',
+          favicon_url: 'https://example.com/favicon.ico',
+          fetch_status: FetchStatus.Success,
+          extracted_text: 'Some content here',
+          is_summarized: false,
+          original_length: 100,
+          error_message: null,
+          expires_at: null,
+          url_hash: 'hash1',
+          fetched_at: '2024-01-01T00:00:00Z',
+          created_at: '2024-01-01T00:00:00Z'
+        },
+        {
+          id: 2,
+          url: 'https://test.org/article2',
+          domain: 'test.org',
+          title: 'Test Article 2',
+          favicon_url: 'https://test.org/favicon.ico',
+          fetch_status: FetchStatus.Pending,
+          extracted_text: null,
+          is_summarized: false,
+          original_length: null,
+          error_message: null,
+          expires_at: null,
+          url_hash: 'hash2',
+          fetched_at: null,
+          created_at: '2024-01-02T00:00:00Z'
+        },
+        {
+          id: 3,
+          url: 'https://failed.com/article3',
+          domain: 'failed.com',
+          title: 'Failed Article',
+          favicon_url: null,
+          fetch_status: FetchStatus.Failed,
+          extracted_text: null,
+          is_summarized: false,
+          original_length: null,
+          error_message: 'Connection timeout',
+          expires_at: null,
+          url_hash: 'hash3',
+          fetched_at: null,
+          created_at: '2024-01-03T00:00:00Z'
+        }
+      ];
+
+      (getSourcesByExplanationId as jest.Mock).mockResolvedValue(mockSources);
+
+      // Act
+      const result = await getSourcesForExplanationAction({ explanationId });
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.error).toBeNull();
+      expect(result.data).toHaveLength(3);
+
+      // Verify status mapping: success → success, pending → loading, failed → failed
+      expect(result.data?.[0]).toEqual({
+        url: 'https://example.com/article1',
+        title: 'Example Article 1',
+        favicon_url: 'https://example.com/favicon.ico',
+        domain: 'example.com',
+        status: 'success',
+        error_message: null
+      });
+      expect(result.data?.[1]?.status).toBe('loading');
+      expect(result.data?.[2]?.status).toBe('failed');
+      expect(result.data?.[2]?.error_message).toBe('Connection timeout');
+
+      expect(getSourcesByExplanationId).toHaveBeenCalledWith(explanationId);
+    });
+
+    it('should return empty array when no sources exist', async () => {
+      // Arrange
+      const explanationId = 456;
+      (getSourcesByExplanationId as jest.Mock).mockResolvedValue([]);
+
+      // Act
+      const result = await getSourcesForExplanationAction({ explanationId });
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+      expect(result.error).toBeNull();
+    });
+
+    it('should return empty array for E2E test mode mock IDs', async () => {
+      // Arrange
+      const originalEnv = process.env.E2E_TEST_MODE;
+      process.env.E2E_TEST_MODE = 'true';
+      const mockExplanationId = 90001; // >= 90000 triggers E2E mode
+
+      // Act
+      const result = await getSourcesForExplanationAction({ explanationId: mockExplanationId });
+
+      // Assert
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual([]);
+      expect(result.error).toBeNull();
+      // getSourcesByExplanationId should NOT be called in E2E mode
+      expect(getSourcesByExplanationId).not.toHaveBeenCalled();
+
+      // Cleanup
+      process.env.E2E_TEST_MODE = originalEnv;
+    });
+
+    it('should return error response when query fails', async () => {
+      // Arrange
+      const explanationId = 789;
+      const mockError = new Error('Database connection failed');
+      (getSourcesByExplanationId as jest.Mock).mockRejectedValue(mockError);
+
+      // Act
+      const result = await getSourcesForExplanationAction({ explanationId });
+
+      // Assert
+      expect(result.success).toBe(false);
+      expect(result.data).toBeNull();
+      expect(result.error).toBeDefined();
+      expect(result.error?.message).toBeDefined();
     });
   });
 });

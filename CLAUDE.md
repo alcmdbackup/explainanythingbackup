@@ -44,3 +44,36 @@ For full debugging workflow, see: `docs/planning/tmux_usage/using_tmux_recommend
 Servers are managed by the tmux infrastructure and will auto-shutdown after 5 minutes idle.
 See: `docs/planning/tmux_usage/using_tmux_recommendations.md`
 
+## Project Planning Rules
+
+### Workflow Enforcement
+
+Before editing code files, you must:
+1. Read `/docs/docs_overall/getting_started.md`
+2. Read `/docs/docs_overall/project_workflow.md`
+3. Create todos using TodoWrite
+
+These prerequisites are tracked automatically. Code edits will be blocked until completed.
+
+### Active Project Detection
+
+Your active project is determined by the current git branch. If the branch is `fix_bug_20260108`, your project folder is `/docs/planning/fix_bug_20260108/`.
+
+### Planning Files
+
+1. **Never use internal plan files** - Do not write to `.claude/plans/`. All planning content goes in the project's `_planning.md` file.
+
+2. **Project folder structure:**
+   - `_status.json` - Workflow state (auto-managed)
+   - `_research.md` - Research findings
+   - `_planning.md` - Brainstorm + implementation plan
+   - `_progress.md` - Execution tracking
+
+### Bypassing Enforcement
+
+For quick fixes or emergencies:
+
+1. **Branch prefix bypass** - Use `hotfix/`, `fix/`, `docs/`, or `chore/` prefix
+2. **Environment variable** - `WORKFLOW_BYPASS=true claude`
+
+Main/master branches and legacy projects (without `_status.json`) are automatically exempt.

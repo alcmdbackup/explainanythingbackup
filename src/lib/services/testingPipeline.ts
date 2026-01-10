@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { createSupabaseServerClient } from '../utils/supabase/server';
 import { logger } from '../client_utilities';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 export interface TestingPipelineRecord {
   id?: number;
@@ -45,7 +46,7 @@ export interface SessionData {
  * • Returns true if an exact match is found, false otherwise
  * • Used to avoid duplicate entries in the testing pipeline
  */
-export async function checkTestingPipelineExists(
+async function checkTestingPipelineExistsImpl(
   setName: string,
   step: string,
   content: string
@@ -98,7 +99,7 @@ export async function checkTestingPipelineExists(
  * • Returns the created record with database-generated fields
  * • Used to track pipeline results at each step
  */
-export async function saveTestingPipelineRecord(
+async function saveTestingPipelineRecordImpl(
   record: TestingPipelineInsert
 ): Promise<TestingPipelineRecord> {
   try {
@@ -175,7 +176,7 @@ export async function saveTestingPipelineRecord(
  * • Returns boolean indicating if a save was performed
  * • Used by the main pipeline function to avoid duplicates
  */
-export async function checkAndSaveTestingPipelineRecord(
+async function checkAndSaveTestingPipelineRecordImpl(
   setName: string,
   step: string,
   content: string,
@@ -191,7 +192,7 @@ export async function checkAndSaveTestingPipelineRecord(
 
   try {
     // Check if exact match already exists
-    const exists = await checkTestingPipelineExists(setName, step, content);
+    const exists = await checkTestingPipelineExistsImpl(setName, step, content);
     logger.debug('Record exists check result', { exists, setName, step });
 
     if (exists) {
@@ -222,7 +223,7 @@ export async function checkAndSaveTestingPipelineRecord(
     }
 
     // Save new record
-    const record = await saveTestingPipelineRecord(recordData);
+    const record = await saveTestingPipelineRecordImpl(recordData);
 
     logger.debug('New testing pipeline record saved', {
       id: record.id,
@@ -252,7 +253,7 @@ export async function checkAndSaveTestingPipelineRecord(
  * • Returns the updated record with new name
  * • Used for renaming test sets from the UI
  */
-export async function updateTestingPipelineRecordSetName(
+async function updateTestingPipelineRecordSetNameImpl(
   recordId: number,
   newSetName: string
 ): Promise<TestingPipelineRecord> {
@@ -306,7 +307,7 @@ export async function updateTestingPipelineRecordSetName(
  * • Orders by created_at to show progression through pipeline steps
  * • Used for debugging and analyzing pipeline results
  */
-export async function getTestingPipelineRecords(
+async function getTestingPipelineRecordsImpl(
   setName: string
 ): Promise<TestingPipelineRecord[]> {
   try {
@@ -334,3 +335,34 @@ export async function getTestingPipelineRecords(
     throw error;
   }
 }
+
+// Wrap async functions with automatic logging for entry/exit/timing
+export const checkTestingPipelineExists = withLogging(
+  checkTestingPipelineExistsImpl,
+  'checkTestingPipelineExists',
+  { logErrors: true }
+);
+
+export const saveTestingPipelineRecord = withLogging(
+  saveTestingPipelineRecordImpl,
+  'saveTestingPipelineRecord',
+  { logErrors: true }
+);
+
+export const checkAndSaveTestingPipelineRecord = withLogging(
+  checkAndSaveTestingPipelineRecordImpl,
+  'checkAndSaveTestingPipelineRecord',
+  { logErrors: true }
+);
+
+export const updateTestingPipelineRecordSetName = withLogging(
+  updateTestingPipelineRecordSetNameImpl,
+  'updateTestingPipelineRecordSetName',
+  { logErrors: true }
+);
+
+export const getTestingPipelineRecords = withLogging(
+  getTestingPipelineRecordsImpl,
+  'getTestingPipelineRecords',
+  { logErrors: true }
+);

@@ -1,10 +1,17 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+/**
+ * User library service for managing saved explanations.
+ * Handles saving, retrieving, and checking user's saved explanations.
+ */
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { userLibraryType } from '@/lib/schemas/schemas';
 import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
 import { assertUserId } from '@/lib/utils/validation';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
+import { ServiceError } from '@/lib/errors/serviceError';
+import { ERROR_CODES } from '@/lib/errorHandling';
 
 //const supabase = await createClient()
 
@@ -19,7 +26,7 @@ import { assertUserId } from '@/lib/utils/validation';
  * This function is used by features that allow users to save explanations to their personal library.
  * It calls Supabase directly and incrementExplanationSaves for metrics updates.
  */
-export async function saveExplanationToLibrary(
+async function saveExplanationToLibraryImpl(
   explanationid: number,
   userid: string
 ): Promise<userLibraryType> {
@@ -37,15 +44,20 @@ export async function saveExplanationToLibrary(
     throw error;
   }
 
-  // Update aggregate metrics (run in background, don't wait)
-  // Intentional: Fire-and-forget - metrics failures should not block user flow
-  // Errors are logged to Sentry via logger.error
-  incrementExplanationSaves(explanationid).catch(metricsError => {
-    logger.error('Failed to update explanation metrics after save', {
-      explanationid,
-      error: metricsError instanceof Error ? metricsError.message : String(metricsError)
-    });
-  });
+  // Update aggregate metrics
+  try {
+    await incrementExplanationSaves(explanationid);
+  } catch (metricsError) {
+    throw new ServiceError(
+      ERROR_CODES.DATABASE_ERROR,
+      'Failed to update explanation metrics after save',
+      'saveExplanationToLibrary',
+      {
+        details: { explanationid },
+        cause: metricsError instanceof Error ? metricsError : undefined
+      }
+    );
+  }
 
   return data;
 }
@@ -63,7 +75,7 @@ export async function saveExplanationToLibrary(
  *
  * Used by: getUserLibraryExplanations (with getCreateDate=true)
  */
-export async function getExplanationIdsForUser(
+async function getExplanationIdsForUserImpl(
   userid: string,
   getCreateDate: boolean = false
 ): Promise<number[] | { explanationid: number; created: string }[]> {
@@ -123,9 +135,9 @@ export async function getExplanationIdsForUser(
  * This function is used by features that need to display all explanations a user has saved in their library.
  * It calls getExplanationIdsForUser and getExplanationsByIds.
  */
-export async function getUserLibraryExplanations(userid: string) {
+async function getUserLibraryExplanationsImpl(userid: string) {
   assertUserId(userid, 'getUserLibraryExplanations');
-  const idCreatedArr = await getExplanationIdsForUser(userid, true) as { explanationid: number; created: string }[];
+  const idCreatedArr = await getExplanationIdsForUserImpl(userid, true) as { explanationid: number; created: string }[];
   if (!idCreatedArr.length) return [];
   const explanations = await getExplanationsByIds(idCreatedArr.map(x => x.explanationid));
   // Map explanationid to explanation for fast lookup
@@ -154,7 +166,7 @@ export async function getUserLibraryExplanations(userid: string) {
  *
  * Used by: UI components to determine if the Save button should be enabled/disabled
  */
-export async function isExplanationSavedByUser(
+async function isExplanationSavedByUserImpl(
   explanationid: number,
   userid: string
 ): Promise<boolean> {
@@ -174,4 +186,29 @@ export async function isExplanationSavedByUser(
   }
 
   return !!data;
-} 
+}
+
+// Wrap all functions with automatic logging for entry/exit/timing
+export const saveExplanationToLibrary = withLogging(
+  saveExplanationToLibraryImpl,
+  'saveExplanationToLibrary',
+  { logErrors: true }
+);
+
+export const getExplanationIdsForUser = withLogging(
+  getExplanationIdsForUserImpl,
+  'getExplanationIdsForUser',
+  { logErrors: true }
+);
+
+export const getUserLibraryExplanations = withLogging(
+  getUserLibraryExplanationsImpl,
+  'getUserLibraryExplanations',
+  { logErrors: true }
+);
+
+export const isExplanationSavedByUser = withLogging(
+  isExplanationSavedByUserImpl,
+  'isExplanationSavedByUser',
+  { logErrors: true }
+);
