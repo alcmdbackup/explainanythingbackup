@@ -16,8 +16,8 @@ When invoked, you MUST follow this exact process:
 
 ```bash
 PROJECT_NAME="$ARGUMENTS"
-DATE_SUFFIX=$(date +%Y%m%d)
-PROJECT_PATH="docs/planning/${PROJECT_NAME}_${DATE_SUFFIX}"
+PROJECT_PATH="docs/planning/${PROJECT_NAME}"
+BRANCH_NAME="fix/${PROJECT_NAME}"
 ```
 
 **Validation:**
@@ -30,13 +30,29 @@ PROJECT_PATH="docs/planning/${PROJECT_NAME}_${DATE_SUFFIX}"
   fi
   ```
 
-### 2. Create Folder Structure
+### 2. Create Branch from Remote Main
+
+Fetch the latest from remote and create a new branch based exactly off `origin/main`:
+
+```bash
+# Fetch latest from remote
+git fetch origin main
+
+# Create and switch to new branch based on origin/main
+git checkout -b "$BRANCH_NAME" origin/main
+```
+
+**Error Handling:**
+- If branch already exists, abort with: "Error: Branch $BRANCH_NAME already exists. Choose a different project name or delete the existing branch."
+- If fetch fails, warn user but continue (they may be offline)
+
+### 3. Create Folder Structure
 
 ```bash
 mkdir -p "$PROJECT_PATH"
 ```
 
-### 3. Create Research Document
+### 4. Create Research Document
 
 Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` with this template:
 
@@ -58,7 +74,7 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` with this template:
 
 Replace `[Project Name]` with the actual project name in title case.
 
-### 4. Create Planning Document
+### 5. Create Planning Document
 
 Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` with this template:
 
@@ -84,7 +100,7 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` with this template:
 [Files in docs/docs_overall and docs/feature_deep_dives to update]
 ```
 
-### 5. Create Progress Document
+### 6. Create Progress Document
 
 Create `$PROJECT_PATH/${PROJECT_NAME}_progress.md` with this template:
 
@@ -105,17 +121,17 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_progress.md` with this template:
 ...
 ```
 
-### 6. Ask for GitHub Issue Summary
+### 7. Ask for GitHub Issue Summary
 
 **YOU MUST use AskUserQuestion** to get the issue summary:
 
 Prompt: "Please provide a 3-5 sentence summary for the GitHub issue describing what this project will accomplish:"
 
-Wait for the user's response before proceeding to step 7.
+Wait for the user's response before proceeding to step 8.
 
-### 7. Create GitHub Issue
+### 8. Create GitHub Issue
 
-Using the summary from step 6, create a GitHub issue:
+Using the summary from step 7, create a GitHub issue:
 
 ```bash
 gh issue create \
@@ -125,7 +141,7 @@ gh issue create \
 [Insert user's provided summary here]
 
 ## Project Folder
-\`docs/planning/${PROJECT_NAME}_${DATE_SUFFIX}/\`
+\`docs/planning/${PROJECT_NAME}/\`
 
 ## Documents
 - Research: \`${PROJECT_NAME}_research.md\`
@@ -140,14 +156,15 @@ EOF
 
 Capture the issue URL from the output.
 
-### 8. Output Summary
+### 9. Output Summary
 
 Display this completion message:
 
 ```
 Project initialized successfully!
 
-Folder: docs/planning/${PROJECT_NAME}_${DATE_SUFFIX}/
+Branch: fix/${PROJECT_NAME} (based on origin/main)
+Folder: docs/planning/${PROJECT_NAME}/
 Documents created:
    - ${PROJECT_NAME}_research.md
    - ${PROJECT_NAME}_planning.md
@@ -164,6 +181,8 @@ Next steps:
 | Error | Action |
 |-------|--------|
 | No project name | Abort with usage message |
+| Branch exists | Abort with error message |
 | Folder exists | Abort with error message |
+| git fetch fails | Warn user but continue (may be offline) |
 | gh not authenticated | Warn user, skip issue creation, continue with folder setup |
 | mkdir fails | Abort with file system error |
