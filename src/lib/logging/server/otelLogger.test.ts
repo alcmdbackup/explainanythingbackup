@@ -33,6 +33,7 @@ jest.mock('@opentelemetry/sdk-logs', () => ({
       emit: jest.fn(),
     }),
   })),
+  SimpleLogRecordProcessor: jest.fn(),
   BatchLogRecordProcessor: jest.fn(),
 }));
 

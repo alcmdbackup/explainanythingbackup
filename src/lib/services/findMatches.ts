@@ -8,6 +8,30 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 const FILE_DEBUG = true;
 
+/**
+ * Prefixes used to identify test content that should be excluded from discovery.
+ */
+const TEST_CONTENT_PREFIX = '[TEST]';
+const LEGACY_TEST_PREFIX = 'test-';
+
+/**
+ * Filters out test content from match results.
+ * Test content is identified by titles starting with '[TEST]' or 'test-' prefixes.
+ * Used to prevent test data from appearing in related content recommendations.
+ *
+ * @param matches Array of matches with current_title field
+ * @returns Filtered array excluding test content
+ */
+export function filterTestContent<T extends { current_title?: string }>(
+  matches: T[]
+): T[] {
+  return matches.filter(m => {
+    const title = m.current_title;
+    if (!title) return true;
+    return !title.startsWith(TEST_CONTENT_PREFIX) && !title.startsWith(LEGACY_TEST_PREFIX);
+  });
+}
+
 // Custom error types for better error handling
 type ErrorResponse = {
     code: string;

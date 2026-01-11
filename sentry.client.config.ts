@@ -4,8 +4,22 @@
 
 import * as Sentry from "@sentry/nextjs";
 
+const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
+
+// Debug logging for Sentry initialization
+console.log('[Sentry Client] Initializing...', {
+  dsnConfigured: !!dsn,
+  dsnPrefix: dsn ? dsn.substring(0, 20) + '...' : 'NOT SET',
+  environment: process.env.NODE_ENV,
+});
+
+if (!dsn) {
+  console.warn('[Sentry Client] NEXT_PUBLIC_SENTRY_DSN not configured - Sentry will not capture errors');
+}
+
 Sentry.init({
-  dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
+  dsn,
+  environment: process.env.NODE_ENV,
 
   // Route through our tunnel endpoint to bypass ad blockers
   tunnel: '/api/monitoring',

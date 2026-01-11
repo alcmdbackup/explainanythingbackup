@@ -61,8 +61,10 @@ export function CitationPlugin({ sources, enabled = true }: CitationPluginProps)
   }, []);
 
   // Process DOM to add citation interactivity
+  // Note: We don't early-return when sources.length === 0 to support self-healing
+  // When sources arrive later (from complete event or DB), we rescan and add interactivity
   const processCitations = useCallback(() => {
-    if (!enabled || sources.length === 0) return;
+    if (!enabled) return;
 
     const citationPattern = /\[(\d+)\]/g;
 
@@ -175,11 +177,13 @@ export function CitationPlugin({ sources, enabled = true }: CitationPluginProps)
       // Replace text node with processed content
       parent.replaceChild(fragment, textNode);
     });
-  }, [editor, sources, enabled, getSourceByIndex, handleCitationClick]);
+  }, [editor, enabled, getSourceByIndex, handleCitationClick]);
 
   // Process citations when content changes
+  // Note: We process even when sources.length === 0 to support self-healing pattern
+  // The useEffect re-runs when sources changes, allowing late-arriving sources to work
   useEffect(() => {
-    if (!enabled || sources.length === 0) return;
+    if (!enabled) return;
 
     // Process on mount and after updates
     const timeoutId = setTimeout(processCitations, 100);

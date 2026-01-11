@@ -18,6 +18,60 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
 
 ---
 
+## Test Data Management
+
+### The `[TEST]` Prefix Convention
+
+All test content uses the `[TEST]` prefix at the start of titles to:
+1. **Enable discovery filtering** - Test content is excluded from Explore page, vector search, related content, and user query matching
+2. **Support cleanup** - Pattern matching on `[TEST]%` identifies content for deletion
+3. **Prevent pollution** - Real users never see test content in production
+
+### Title Format
+
+| Content Type | Format Example |
+|--------------|----------------|
+| Explanations | `[TEST] Quantum Physics - 1704067200000` |
+| Topics | `[TEST] Topic - 1704067200000` |
+| Tags | `[TEST] basic - 1704067200000` |
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/__tests__/e2e/helpers/test-data-factory.ts` | E2E test content creation with `TEST_CONTENT_PREFIX` |
+| `src/testing/utils/integration-helpers.ts` | Integration test content with `TEST_PREFIX` |
+| `src/__tests__/e2e/setup/global-teardown.ts` | E2E cleanup including Pinecone vectors |
+| `scripts/cleanup-test-content.ts` | One-time cleanup script for existing test data |
+
+### Discovery Path Filtering
+
+Test content is filtered from 4 discovery paths:
+
+| Path | File | Filter Method |
+|------|------|---------------|
+| Explore page | `explanations.ts` | `.not('explanation_title', 'ilike', '[TEST]%')` |
+| Vector search | `returnExplanation.ts` | `filterTestContent()` post-query |
+| Related content | `findMatches.ts` | `filterTestContent()` helper |
+| User query matching | `returnExplanation.ts` | `filterTestContent()` before best match |
+
+### Cleanup Script
+
+For one-time cleanup of existing test content:
+
+```bash
+# Preview what would be deleted
+npx tsx scripts/cleanup-test-content.ts --dry-run
+
+# Run on dev database
+npx tsx scripts/cleanup-test-content.ts
+
+# Run on production (10-second confirmation delay)
+npx tsx scripts/cleanup-test-content.ts --prod
+```
+
+---
+
 ## Testing Tiers
 
 | Tier | Tool | Environment | Purpose |

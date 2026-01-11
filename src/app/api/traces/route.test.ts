@@ -49,7 +49,7 @@ describe('/api/traces', () => {
       expect(mockFetch).not.toHaveBeenCalled();
     });
 
-    it('should forward traces to Grafana endpoint', async () => {
+    it('should forward traces to OTLP endpoint', async () => {
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://otlp.example.com';
       process.env.OTEL_EXPORTER_OTLP_HEADERS = 'Authorization=Basic abc123';
 
@@ -195,7 +195,7 @@ describe('/api/traces', () => {
       );
     });
 
-    it('should return error when Grafana rejects the request', async () => {
+    it('should return error when OTLP backend rejects the request', async () => {
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://otlp.example.com';
 
       mockFetch.mockResolvedValueOnce({
@@ -229,7 +229,30 @@ describe('/api/traces', () => {
       expect(json).toEqual({ error: 'Internal error forwarding traces' });
     });
 
-    it('should handle different HTTP error statuses from Grafana', async () => {
+    it('should handle Honeycomb header format (x-honeycomb-team)', async () => {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-honeycomb-team=abc123xyz';
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+      });
+
+      const request = createMockRequest(new Uint8Array([1, 2, 3]));
+      const response = await POST(request);
+
+      expect(response.status).toBe(200);
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.honeycomb.io/v1/traces',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'x-honeycomb-team': 'abc123xyz',
+          }),
+        })
+      );
+    });
+
+    it('should handle different HTTP error statuses from OTLP backend', async () => {
       process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://otlp.example.com';
 
       const testCases = [

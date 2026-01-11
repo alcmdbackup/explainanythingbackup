@@ -2,7 +2,7 @@
  * Browser Tracing - OpenTelemetry setup for client-side tracing
  *
  * This module provides browser-side distributed tracing using OpenTelemetry.
- * It enables client traces to be visible in Grafana, correlated with server traces.
+ * It enables client traces to be visible in Honeycomb, correlated with server traces.
  *
  * Features:
  * - Lazy loading via dynamic imports (reduces bundle impact)
@@ -57,7 +57,7 @@ export function initBrowserTracing(): Promise<void> {
       diag.setLogger(new DiagConsoleLogger(), DiagLogLevel.WARN);
 
       // Use local proxy to bypass CORS restrictions
-      // The proxy at /api/traces forwards to Grafana with server-side auth
+      // The proxy at /api/traces forwards to the OTLP backend with server-side auth
       const exporter = new OTLPTraceExporter({
         url: '/api/traces',
         headers: {},

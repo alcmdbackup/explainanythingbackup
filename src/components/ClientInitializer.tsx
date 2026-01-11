@@ -11,7 +11,7 @@ import { useEffect, useRef } from 'react';
  * Initialization order:
  * 1. Console interceptor (synchronous, immediate)
  * 2. Error handlers (synchronous, immediate)
- * 3. Remote flusher (all environments, flushes to /api/client-logs -> Grafana)
+ * 3. Remote flusher (all environments, flushes to /api/client-logs -> Honeycomb)
  * 4. Browser tracing (deferred via requestIdleCallback)
  */
 export function ClientInitializer() {
@@ -32,7 +32,7 @@ export function ClientInitializer() {
       console.error('Failed to load console interceptor:', err);
     });
 
-    // Remote flusher - flushes logs to /api/client-logs (which forwards to Grafana)
+    // Remote flusher - flushes logs to /api/client-logs (which forwards to Honeycomb)
     // In production: only error/warn levels are sent (controlled by logConfig.ts)
     // In development: all levels are sent
     import('@/lib/logging/client/remoteFlusher').then(({ initRemoteFlusher }) => {

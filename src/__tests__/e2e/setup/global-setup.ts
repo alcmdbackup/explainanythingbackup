@@ -3,6 +3,7 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { readdirSync, readFileSync } from 'fs';
 import { setupVercelBypass } from './vercel-bypass';
+import { TEST_CONTENT_PREFIX } from '../helpers/test-data-factory';
 
 /**
  * Discovers the frontend URL from Claude Code instance files.
@@ -298,12 +299,13 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   }
 
   // Check if test explanation already exists via userLibrary join
+  // Look for both legacy 'e2e-test-%' and new '[TEST]%' patterns
 
   const { data: existing, error: existingError } = await supabase
     .from('userLibrary')
     .select('explanationid, explanations!inner(explanation_title)')
     .eq('userid', testUserId)
-    .ilike('explanations.explanation_title', 'e2e-test-%')
+    .or(`explanation_title.ilike.${TEST_CONTENT_PREFIX}%,explanation_title.ilike.e2e-test-%`, { referencedTable: 'explanations' })
     .limit(1);
 
   console.log('   [DEBUG] Existing check result:', { existing, error: existingError?.message });
@@ -337,7 +339,7 @@ async function seedTestExplanation(supabase: SupabaseClient, topicId?: number) {
   const { data: explanation, error } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: 'e2e-test-quantum-physics',
+      explanation_title: `${TEST_CONTENT_PREFIX} Quantum Physics - e2e-seed`,
       content:
         '<h2>Quantum Physics</h2><p>This is test content for E2E testing about quantum physics. It contains enough text to test various UI elements like tags, save buttons, and content display.</p><p>Quantum mechanics describes the behavior of matter and energy at the molecular, atomic, nuclear, and even smaller microscopic levels.</p>',
       status: 'published',
@@ -408,7 +410,7 @@ async function seedProductionTestExplanation(supabase: SupabaseClient, testUserI
   const { data: explanation, error } = await supabase
     .from('explanations')
     .insert({
-      explanation_title: `test-${timestamp}-Understanding Quantum Entanglement`,
+      explanation_title: `${TEST_CONTENT_PREFIX} Understanding Quantum Entanglement - ${timestamp}`,
       content: `# Understanding Quantum Entanglement
 
 Quantum entanglement is a phenomenon in quantum physics where two or more particles become interconnected.

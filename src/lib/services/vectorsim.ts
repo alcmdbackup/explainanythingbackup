@@ -671,11 +671,86 @@ const searchForSimilarVectors = withLogging(
   { logErrors: true }
 );
 
+/**
+ * Deletes all vectors associated with an explanation from Pinecone.
+ * Uses serverless-compatible approach: query by metadata first, then delete by ID.
+ *
+ * @param explanationId - The explanation ID to delete vectors for
+ * @param namespace - Optional namespace (default: 'default')
+ * @returns Number of vectors deleted
+ */
+async function deleteVectorsByExplanationIdImpl(
+  explanationId: number,
+  namespace: string = 'default'
+): Promise<number> {
+  if (typeof explanationId !== 'number') {
+    throw new Error('explanationId must be a number');
+  }
+
+  const indexName = getRequiredEnvVar('PINECONE_INDEX_NAME_ALL');
+  const index = pc.Index(indexName);
+
+  logger.debug('Deleting vectors for explanation:', {
+    explanationId,
+    namespace
+  }, FILE_DEBUG);
+
+  // Create a zero vector for metadata-only query (text-embedding-3-large = 3072 dimensions)
+  const dummyVector = new Array(3072).fill(0);
+
+  // Query for all vectors with this explanation_id
+  const queryResponse = await index.namespace(namespace).query({
+    vector: dummyVector as RecordValues,
+    topK: 10000, // Get all vectors for this explanation
+    includeMetadata: false,
+    filter: {
+      explanation_id: { "$eq": explanationId }
+    }
+  });
+
+  if (!queryResponse.matches || queryResponse.matches.length === 0) {
+    logger.debug('No vectors found to delete for explanation:', {
+      explanationId
+    }, FILE_DEBUG);
+    return 0;
+  }
+
+  const vectorIds = queryResponse.matches.map(m => m.id);
+  logger.debug('Found vectors to delete:', {
+    explanationId,
+    count: vectorIds.length
+  }, FILE_DEBUG);
+
+  // Delete in batches of 1000 (Pinecone limit)
+  for (let i = 0; i < vectorIds.length; i += 1000) {
+    const batch = vectorIds.slice(i, i + 1000);
+    await index.namespace(namespace).deleteMany(batch);
+    logger.debug('Deleted batch of vectors:', {
+      batchStart: i,
+      batchSize: batch.length
+    }, FILE_DEBUG);
+  }
+
+  logger.debug('Vector deletion complete:', {
+    explanationId,
+    totalDeleted: vectorIds.length
+  }, FILE_DEBUG);
+
+  return vectorIds.length;
+}
+
+const deleteVectorsByExplanationId = withLogging(
+  deleteVectorsByExplanationIdImpl,
+  'deleteVectorsByExplanationId',
+  { logErrors: true }
+);
+
 export {
   findMatchesInVectorDb,
   processContentToStoreEmbedding,
   maxNumberAnchors,
   calculateAllowedScores,
   loadFromPineconeUsingExplanationId,
-  searchForSimilarVectors
+  searchForSimilarVectors,
+  deleteVectorsByExplanationId
 };

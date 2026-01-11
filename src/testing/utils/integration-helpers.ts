@@ -9,9 +9,10 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { createMockExplanation, createMockTopic, createMockTag } from './test-helpers';
 
 /**
- * Test data prefix for easy cleanup
+ * Test data prefix for easy cleanup.
+ * Uses [TEST] prefix at start of titles to enable filtering in discovery paths.
  */
-export const TEST_PREFIX = 'test-';
+export const TEST_PREFIX = '[TEST] ';
 
 /**
  * Interface for test context that can be passed between tests
@@ -126,11 +127,11 @@ export async function seedTestData(supabase: SupabaseClient): Promise<{
   explanationId: number;
   tagIds: number[];
 }> {
-  const testId = `${TEST_PREFIX}${Date.now()}`;
+  const timestamp = Date.now();
 
-  // Create test topic
+  // Create test topic - title starts with [TEST] for discovery filtering
   const mockTopic = {
-    topic_title: `Test Topic ${testId}`,
+    topic_title: `${TEST_PREFIX}Topic - ${timestamp}`,
     topic_description: 'Test topic for integration testing',
   };
 
@@ -144,9 +145,9 @@ export async function seedTestData(supabase: SupabaseClient): Promise<{
     throw new Error(`Failed to seed test topic: ${topicError.message}`);
   }
 
-  // Create test explanation
+  // Create test explanation - title starts with [TEST] for discovery filtering
   const mockExplanation = {
-    explanation_title: `Test Explanation ${testId}`,
+    explanation_title: `${TEST_PREFIX}Explanation - ${timestamp}`,
     primary_topic_id: topic.id,
     content: 'This is a test explanation for integration testing.',
     status: 'published',
@@ -162,14 +163,14 @@ export async function seedTestData(supabase: SupabaseClient): Promise<{
     throw new Error(`Failed to seed test explanation: ${explanationError.message}`);
   }
 
-  // Create test tags
+  // Create test tags - names start with [TEST] for discovery filtering
   const mockTags = [
     {
-      tag_name: `basic-${testId}`,
+      tag_name: `${TEST_PREFIX}basic - ${timestamp}`,
       tag_description: 'Basic level tag for testing',
     },
     {
-      tag_name: `technical-${testId}`,
+      tag_name: `${TEST_PREFIX}technical - ${timestamp}`,
       tag_description: 'Technical tag for testing',
     },
   ];
@@ -256,7 +257,7 @@ function generateTestUUID(): string {
  */
 export async function createTestContext(): Promise<TestContext> {
   const supabase = createTestSupabaseClient();
-  const testId = `${TEST_PREFIX}${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const testId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
   // Use valid UUID for userId to satisfy database constraints
   const userId = generateTestUUID();
 
@@ -300,11 +301,16 @@ export async function waitForDatabaseOperation<T>(
 }
 
 /**
+ * Simple prefix for IDs (not titles). Titles use TEST_PREFIX which starts with [TEST].
+ */
+const TEST_ID_PREFIX = 'test-';
+
+/**
  * Helper to create test user ID with prefix
  */
 export function createTestUserId(suffix?: string): string {
   const baseSuffix = suffix || Math.random().toString(36).substr(2, 9);
-  return `${process.env.TEST_USER_ID_PREFIX || TEST_PREFIX}${baseSuffix}`;
+  return `${process.env.TEST_USER_ID_PREFIX || TEST_ID_PREFIX}${baseSuffix}`;
 }
 
 /**
@@ -312,5 +318,5 @@ export function createTestUserId(suffix?: string): string {
  */
 export function createTestDataId(type: string, suffix?: string): string {
   const baseSuffix = suffix || Math.random().toString(36).substr(2, 9);
-  return `${process.env.TEST_DATA_PREFIX || TEST_PREFIX}${type}-${baseSuffix}`;
+  return `${process.env.TEST_DATA_PREFIX || TEST_ID_PREFIX}${type}-${baseSuffix}`;
 }

@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
           appendFileSync(clientLogFile, logLine);
         }
 
-        // In all environments: send to Grafana via OTLP
+        // In all environments: send to Honeycomb via OTLP
         // (otelLogger respects log level policy: prod=error/warn only, dev=all)
         try {
           emitLog(

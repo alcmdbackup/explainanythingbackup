@@ -4,7 +4,7 @@ import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, crea
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema, type SourceCacheFullType, type SourceForPromptType } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
-import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
+import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity, filterTestContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
@@ -564,13 +564,18 @@ export const returnExplanationLogic = withLoggingAndTracing(
             
             // Chain dependent operations
             const matches = await enhanceMatchesWithCurrentContentAndDiversity(similarTexts, diversityComparison);
-            const bestSourceResult = await findBestMatchFromList(titleResult, matches, matchMode, savedId, userid);
+            // Filter out test content from vector search results
+            const filteredMatches = filterTestContent(matches);
+            const bestSourceResult = await findBestMatchFromList(titleResult, filteredMatches, matchMode, savedId, userid);
 
-            const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) && 
-                bestSourceResult.selectedIndex && 
-                bestSourceResult.selectedIndex > MIN_SIMILARITY_INDEX && 
-                bestSourceResult.explanationId !== null && 
-                bestSourceResult.topicId !== null;
+            // Don't return a match when user provided sources - they expect fresh content using those sources
+            const hasSources = sources && sources.length > 0;
+            const shouldReturnMatch = (matchMode === MatchMode.Normal || matchMode === MatchMode.ForceMatch) &&
+                bestSourceResult.selectedIndex &&
+                bestSourceResult.selectedIndex > MIN_SIMILARITY_INDEX &&
+                bestSourceResult.explanationId !== null &&
+                bestSourceResult.topicId !== null &&
+                !hasSources;
 
             let finalExplanationId: number | null = null;
             let explanationData: explanationBaseType | null = null;
@@ -683,11 +688,12 @@ export const returnExplanationLogic = withLoggingAndTracing(
                     );
                 }
 
-                // Link sources to the explanation if provided
+                // Link sources to the new explanation (only for new, not matched)
+                // Sources are only linked when they were actually used in generation
                 if (sources && sources.length > 0) {
                     const sourceIds = sources.map(s => s.id);
                     await linkSourcesToExplanation(newExplanationId, sourceIds);
-                    logger.debug('Linked sources to explanation', {
+                    logger.debug('Linked sources to new explanation', {
                         explanationId: newExplanationId,
                         sourceCount: sources.length,
                         sourceIds

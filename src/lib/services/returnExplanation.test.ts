@@ -64,7 +64,9 @@ describe('returnExplanation', () => {
         explanationId: null,
         topicId: null
       }),
-      enhanceMatchesWithCurrentContentAndDiversity: jest.fn().mockResolvedValue([])
+      enhanceMatchesWithCurrentContentAndDiversity: jest.fn().mockResolvedValue([]),
+      // filterTestContent is a pure function that filters test content from matches
+      filterTestContent: jest.fn().mockImplementation((matches) => matches)
     }));
 
     // Mock error handling

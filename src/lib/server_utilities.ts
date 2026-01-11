@@ -62,7 +62,7 @@ function writeToFile(level: string, message: string, data: LoggerData | null) {
         // Silently fail if file write fails to avoid recursive logging
     }
 
-    // Send to Grafana via OTLP (respects log level policy per environment)
+    // Send to Honeycomb via OTLP (respects log level policy per environment)
     try {
         emitLog(level, message, {
             requestId,

@@ -294,28 +294,39 @@ async function linkSourcesToExplanationImpl(
  * Get all sources for an explanation
  *
  * • Returns sources in position order
- * • Joins source_cache data
+ * • Uses two-step query to work around PostgREST relationship detection issues
+ * • First fetches source_cache_ids from article_sources, then fetches full records
  */
 async function getSourcesByExplanationIdImpl(
   explanationId: number
 ): Promise<SourceCacheFullType[]> {
   const supabase = await createSupabaseServerClient();
 
-  const { data, error } = await supabase
+  // Step 1: Get source_cache_ids from article_sources (ordered by position)
+  const { data: linkData, error: linkError } = await supabase
     .from('article_sources')
-    .select(`
-      position,
-      source_cache (*)
-    `)
+    .select('source_cache_id, position')
     .eq('explanation_id', explanationId)
     .order('position');
 
-  if (error) throw error;
+  if (linkError) throw linkError;
+  if (!linkData || linkData.length === 0) return [];
 
-  // Extract and return source_cache data in order
-  return (data || [])
-    .map(record => record.source_cache as unknown as SourceCacheFullType)
-    .filter(Boolean);
+  // Step 2: Fetch full source_cache records
+  const sourceIds = linkData.map(link => link.source_cache_id);
+  const { data: sourceData, error: sourceError } = await supabase
+    .from('source_cache')
+    .select('*')
+    .in('id', sourceIds);
+
+  if (sourceError) throw sourceError;
+  if (!sourceData) return [];
+
+  // Step 3: Order sources by their position in article_sources
+  const sourceMap = new Map(sourceData.map(s => [s.id, s]));
+  return linkData
+    .map(link => sourceMap.get(link.source_cache_id))
+    .filter(Boolean) as SourceCacheFullType[];
 }
 
 /**

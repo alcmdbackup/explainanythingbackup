@@ -29,6 +29,7 @@ type MockSupabaseClient = {
   order: jest.Mock;
   range: jest.Mock;
   gte: jest.Mock;
+  not: jest.Mock;
 };
 
 describe('Explanations Service', () => {
@@ -53,6 +54,7 @@ describe('Explanations Service', () => {
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockReturnThis(),
       gte: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
     };
 
     // Setup the mock to return our mockSupabase
@@ -329,9 +331,14 @@ describe('Explanations Service', () => {
 
       mockSupabase.eq.mockImplementation(() => {
         if (queryState === 'explanations') {
+          // Return object with chained not() calls for [TEST] and test- filters
           return {
-            data: mockExplanations,
-            error: null
+            not: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: mockExplanations,
+                error: null
+              })
+            })
           };
         }
         return mockSupabase;
@@ -360,10 +367,14 @@ describe('Explanations Service', () => {
           // First eq call is for event_name filter - return chain
           return mockSupabase;
         }
-        // Second eq call is for explanations status filter
+        // Second eq call is for explanations status filter - needs chained not() methods
         return {
-          data: [],
-          error: null
+          not: jest.fn().mockReturnValue({
+            not: jest.fn().mockResolvedValue({
+              data: [],
+              error: null
+            })
+          })
         };
       });
 
@@ -378,9 +389,14 @@ describe('Explanations Service', () => {
       // Arrange
       // For 'all' period, gte should not be called
       mockSupabase.eq.mockImplementation(() => {
+        // Explanations query needs chained not() methods
         return {
-          data: [],
-          error: null
+          not: jest.fn().mockReturnValue({
+            not: jest.fn().mockResolvedValue({
+              data: [],
+              error: null
+            })
+          })
         };
       });
 
