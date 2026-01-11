@@ -1,8 +1,8 @@
 /**
- * OTLP Logger - Sends logs to Grafana Loki via OpenTelemetry
+ * OTLP Logger - Sends logs to the OTLP backend (Honeycomb) via OpenTelemetry
  *
- * This module provides a function to emit logs to Grafana Cloud using the same
- * OTLP endpoint and authentication as traces. Logs are batched and sent
+ * This module provides a function to emit logs to the configured OTLP backend
+ * using the same endpoint and authentication as traces. Logs are batched and sent
  * asynchronously for efficiency.
  *
  * Log Level Policy:
@@ -12,7 +12,7 @@
  */
 
 import { SeverityNumber, Logger } from '@opentelemetry/api-logs';
-import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import { LoggerProvider, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { trace } from '@opentelemetry/api';
@@ -64,9 +64,13 @@ function initializeOTLPLogger(): Logger | null {
   }
 
   try {
+    const headers = parseOTELHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS);
+    console.log('[otelLogger] Parsed headers:', JSON.stringify(headers));
+    console.log('[otelLogger] Creating exporter for:', `${endpoint}/v1/logs`);
+
     const exporter = new OTLPLogExporter({
       url: `${endpoint}/v1/logs`,
-      headers: parseOTELHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS),
+      headers,
     });
 
     // Create resource with service attributes using v2.x API
@@ -76,9 +80,11 @@ function initializeOTLPLogger(): Logger | null {
       'deployment.environment': process.env.NODE_ENV || 'development',
     });
 
+    // Use SimpleLogRecordProcessor for immediate sends (debugging)
+    // Switch to BatchLogRecordProcessor for production efficiency
     const provider = new LoggerProvider({
       resource,
-      processors: [new BatchLogRecordProcessor(exporter)],
+      processors: [new SimpleLogRecordProcessor(exporter)],
     });
 
     otelLogger = provider.getLogger('explainanything');
@@ -91,7 +97,7 @@ function initializeOTLPLogger(): Logger | null {
 }
 
 /**
- * Emit a log to Grafana via OTLP.
+ * Emit a log to the OTLP backend (Honeycomb).
  *
  * In production, only ERROR and WARN levels are sent.
  * In other environments, all levels are sent.
@@ -109,14 +115,21 @@ export function emitLog(
 ): void {
   const upperLevel = level.toUpperCase();
 
+  // Debug: Log what we're trying to send
+  console.log(`[otelLogger] emitLog called: level=${upperLevel}, message="${message}", source=${source}`);
+
   // In production, only send error/warn unless OTEL_SEND_ALL_LOG_LEVELS is enabled
   const sendAllLevels = process.env.OTEL_SEND_ALL_LOG_LEVELS === 'true';
   if (process.env.NODE_ENV === 'production' && !sendAllLevels && !PROD_LEVELS.has(upperLevel)) {
+    console.log(`[otelLogger] Skipping log (production mode, level=${upperLevel})`);
     return;
   }
 
   const logger = initializeOTLPLogger();
-  if (!logger) return;
+  if (!logger) {
+    console.log('[otelLogger] Logger not initialized, skipping');
+    return;
+  }
 
   // Get current trace context for correlation
   const span = trace.getActiveSpan();
@@ -140,6 +153,8 @@ export function emitLog(
     attributes,
     timestamp: Date.now() * 1_000_000, // Convert to nanoseconds
   });
+
+  console.log(`[otelLogger] Log emitted successfully: ${upperLevel} - "${message}"`);
 }
 
 /**

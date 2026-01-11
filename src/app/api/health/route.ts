@@ -12,6 +12,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { logger } from '@/lib/server_utilities';
 
 // Required tag IDs for "Rewrite with tags" functionality
 const REQUIRED_TAG_IDS = [2, 5];
@@ -41,6 +42,8 @@ interface HealthResponse {
 }
 
 export async function GET(): Promise<NextResponse<HealthResponse>> {
+  logger.info('Health check started', { endpoint: '/api/health' });
+
   const checks: HealthResponse['checks'] = {
     database: { status: 'fail' },
     requiredTags: { status: 'fail' },

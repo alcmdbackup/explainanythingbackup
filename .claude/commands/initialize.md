@@ -16,18 +16,29 @@ When invoked, you MUST follow this exact process:
 
 ```bash
 PROJECT_NAME="$ARGUMENTS"
-PROJECT_PATH="docs/planning/${PROJECT_NAME}"
+```
+
+**Date Suffix Logic:**
+- Check if PROJECT_NAME already ends with an 8-digit date pattern (YYYYMMDD)
+- If YES: Use PROJECT_NAME as-is (e.g., `my_project_20260115` → `my_project_20260115`)
+- If NO: Append today's date (e.g., `my_project` → `my_project_20260110`)
+
+```bash
+# Check if project name already has date suffix
+if [[ "$PROJECT_NAME" =~ _[0-9]{8}$ ]]; then
+  PROJECT_PATH="docs/planning/${PROJECT_NAME}"
+else
+  DATE_SUFFIX=$(date +%Y%m%d)
+  PROJECT_PATH="docs/planning/${PROJECT_NAME}_${DATE_SUFFIX}"
+fi
 BRANCH_NAME="fix/${PROJECT_NAME}"
 ```
 
 **Validation:**
 - If `$ARGUMENTS` is empty, abort with: "Error: Project name required. Usage: /initialize <project-name>"
-- Check if folder exists:
+- Check if folder exists using this exact command format:
   ```bash
-  if [ -d "$PROJECT_PATH" ]; then
-    echo "Error: Project folder already exists at $PROJECT_PATH. Choose a different name."
-    exit 1
-  fi
+  [ -d docs/planning/PROJECT_NAME_DATE ] && echo EXISTS || echo NOT_EXISTS
   ```
 
 ### 2. Create Branch from Remote Main
@@ -58,13 +69,14 @@ These provide essential context for the project initialization.
 
 ### 3. Create Folder Structure
 
+Use this exact command format:
 ```bash
-mkdir -p "$PROJECT_PATH"
+mkdir -p docs/planning/PROJECT_NAME_DATE
 ```
 
 ### 4. Create Research Document
 
-Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` with this template:
+Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with this template:
 
 ```markdown
 # [Project Name] Research
@@ -86,7 +98,7 @@ Replace `[Project Name]` with the actual project name in title case.
 
 ### 5. Create Planning Document
 
-Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` with this template:
+Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with this template:
 
 ```markdown
 # [Project Name] Plan
@@ -112,7 +124,7 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` with this template:
 
 ### 6. Create Progress Document
 
-Create `$PROJECT_PATH/${PROJECT_NAME}_progress.md` with this template:
+Create `$PROJECT_PATH/${PROJECT_NAME}_progress.md` using the **Write tool** with this template:
 
 ```markdown
 # [Project Name] Progress
@@ -151,7 +163,7 @@ gh issue create \
 [Insert user's provided summary here]
 
 ## Project Folder
-\`docs/planning/${PROJECT_NAME}/\`
+\`${PROJECT_PATH}/\`
 
 ## Documents
 - Research: \`${PROJECT_NAME}_research.md\`
@@ -174,7 +186,7 @@ Display this completion message:
 Project initialized successfully!
 
 Branch: fix/${PROJECT_NAME} (based on origin/main)
-Folder: docs/planning/${PROJECT_NAME}/
+Folder: ${PROJECT_PATH}/
 Documents created:
    - ${PROJECT_NAME}_research.md
    - ${PROJECT_NAME}_planning.md

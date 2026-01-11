@@ -11,8 +11,8 @@
 | **Integration Tests (Local)** | `.env.test` | Dev | Mocked (ns: `test`) | ❌ |
 | **E2E Tests (Local)** | `playwright.config.ts` (app uses `.env.local`) | Dev | `explainanythingdevlarge` | ❌ |
 | **GitHub CI** | GitHub Secrets | Dev | Dev (ns: `test`) | ❌ |
-| **Vercel Preview** | Vercel Env Vars | Dev | `explainanythingdevlarge` | ✅ Grafana + Sentry |
-| **Vercel Production** | Vercel Env Vars | Prod | `explainanythingprodlarge` | ✅ Grafana + Sentry |
+| **Vercel Preview** | Vercel Env Vars | Dev | `explainanythingdevlarge` | ✅ Honeycomb + Sentry |
+| **Vercel Production** | Vercel Env Vars | Prod | `explainanythingprodlarge` | ✅ Honeycomb + Sentry |
 
 ---
 
@@ -206,7 +206,7 @@ Used by `post-deploy-smoke.yml` with `environment: Production`:
 - **Project**: explainanything
 - **Production URL**: https://explainanything.vercel.app
 
-Vercel has separate env var sets for Production and Preview. Both have Grafana OTLP and Sentry configured.
+Vercel has separate env var sets for Production and Preview. Both have Honeycomb (OTLP) and Sentry configured.
 
 ---
 
@@ -216,41 +216,31 @@ Only deployed environments (Vercel) have observability configured.
 
 | Tool | Purpose | Config |
 |------|---------|--------|
-| **Grafana OTLP** | Distributed tracing | `OTEL_EXPORTER_OTLP_ENDPOINT` |
-| **Grafana Loki** | Log aggregation | Same OTLP endpoint |
+| **Honeycomb** | Distributed tracing & logs | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 | **Sentry** | Error tracking | Tunnel: `/api/monitoring` |
 
 ### Log Levels
 
-By default, production only sends ERROR/WARN logs to Grafana Loki. Enable all log levels for debugging:
+By default, production only sends ERROR/WARN logs to Honeycomb. Enable all log levels for debugging:
 
 | Variable | Type | Purpose | Default |
 |----------|------|---------|---------|
-| `OTEL_SEND_ALL_LOG_LEVELS` | Runtime | Server sends debug/info logs to Grafana | `false` |
+| `OTEL_SEND_ALL_LOG_LEVELS` | Runtime | Server sends debug/info logs to Honeycomb | `false` |
 | `NEXT_PUBLIC_LOG_ALL_LEVELS` | Build-time | Client sends debug logs to server | `false` |
 
 **Important**: `NEXT_PUBLIC_*` variables are baked into the JavaScript bundle at build time. Changing them requires a new deployment, not just an env var update.
 
-### LogCLI (Query Logs Locally)
+**Warning**: Enabling `OTEL_SEND_ALL_LOG_LEVELS=true` can consume significant event budget. Honeycomb free tier is 20M events/month. Start with `false` and monitor usage.
 
-Install LogCLI to query production logs from your terminal:
+### Querying Logs in Honeycomb
 
-```bash
-brew install grafana/tap/logcli
-```
+See `scripts/query-honeycomb.md` for detailed instructions on querying logs and traces.
 
-Add credentials to `.env.local`:
-```bash
-LOKI_ADDR=https://logs-prod-us-central-0.grafana.net
-LOKI_USERNAME=<from-grafana-cloud>
-LOKI_PASSWORD=<from-grafana-cloud>
-```
-
-Query logs by request ID:
-```bash
-./scripts/query-logs.sh <request-id> [time-range]
-./scripts/query-logs.sh abc123 1h
-```
+**Quick start:**
+1. Go to [ui.honeycomb.io](https://ui.honeycomb.io)
+2. Select the `explainanything` dataset
+3. Filter by `requestId = <your-request-id>`
+4. Use **BubbleUp** to identify what's different about slow/failing requests
 
 ---
 
@@ -271,11 +261,11 @@ Query logs by request ID:
 
 | Variable | Description |
 |----------|-------------|
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Grafana OTLP endpoint |
-| `OTEL_EXPORTER_OTLP_HEADERS` | OTLP auth header |
-| `OTEL_SEND_ALL_LOG_LEVELS` | Send debug/info logs to Grafana (runtime) |
-| `NEXT_PUBLIC_GRAFANA_OTLP_ENDPOINT` | Browser OTLP endpoint |
-| `NEXT_PUBLIC_GRAFANA_OTLP_TOKEN` | Browser OTLP token (intentionally public) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Honeycomb OTLP endpoint (`https://api.honeycomb.io`) |
+| `OTEL_EXPORTER_OTLP_HEADERS` | Honeycomb auth header (`x-honeycomb-team=YOUR_KEY`) |
+| `OTEL_SERVICE_NAME` | Service/dataset name in Honeycomb |
+| `OTEL_SEND_ALL_LOG_LEVELS` | Send debug/info logs to Honeycomb (runtime) |
+| `NEXT_PUBLIC_ENABLE_BROWSER_TRACING` | Enable browser tracing via `/api/traces` proxy |
 | `NEXT_PUBLIC_LOG_ALL_LEVELS` | Client sends all log levels (build-time) |
 | `SENTRY_DSN` | Sentry DSN |
 

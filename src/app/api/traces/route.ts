@@ -1,7 +1,7 @@
 /**
- * OTLP Traces Proxy - Forwards browser traces to Grafana Cloud
+ * OTLP Traces Proxy - Forwards browser traces to the OTLP backend (Honeycomb)
  *
- * This endpoint proxies OpenTelemetry trace data from the browser to Grafana's
+ * This endpoint proxies OpenTelemetry trace data from the browser to the configured
  * OTLP endpoint, bypassing CORS restrictions that block direct browser requests.
  *
  * The browser sends traces here, and we forward them server-side with auth headers.
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       });
     }
 
-    // Forward to Grafana OTLP endpoint
+    // Forward to OTLP backend (Honeycomb)
     const response = await fetch(`${endpoint}/v1/traces`, {
       method: 'POST',
       headers: forwardHeaders,
@@ -49,7 +49,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('[traces-proxy] Grafana rejected traces:', {
+      console.error('[traces-proxy] OTLP backend rejected traces:', {
         status: response.status,
         statusText: response.statusText,
         error: errorText,
