@@ -2,6 +2,49 @@ import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { cleanupBypassCookieFile } from './vercel-bypass';
+import { TEST_CONTENT_PREFIX } from '../helpers/test-data-factory';
+import { Pinecone } from '@pinecone-database/pinecone';
+
+/**
+ * Deletes vectors for an explanation from Pinecone.
+ * Returns silently if Pinecone is not configured.
+ */
+async function deleteVectorsForExplanation(explanationId: number): Promise<void> {
+  const pineconeApiKey = process.env.PINECONE_API_KEY;
+  const pineconeIndexName = process.env.PINECONE_INDEX_NAME_ALL;
+
+  if (!pineconeApiKey || !pineconeIndexName) {
+    // Pinecone not configured, skip silently
+    return;
+  }
+
+  try {
+    const pc = new Pinecone({ apiKey: pineconeApiKey });
+    const index = pc.index(pineconeIndexName);
+
+    // Query for vectors with this explanation_id
+    const dummyVector = new Array(3072).fill(0); // text-embedding-3-large dimension
+    const queryResponse = await index.namespace('default').query({
+      vector: dummyVector,
+      topK: 10000,
+      includeMetadata: false,
+      filter: { explanation_id: { "$eq": explanationId } }
+    });
+
+    if (queryResponse.matches && queryResponse.matches.length > 0) {
+      const vectorIds = queryResponse.matches.map(m => m.id);
+      // Delete in batches of 1000
+      for (let i = 0; i < vectorIds.length; i += 1000) {
+        const batch = vectorIds.slice(i, i + 1000);
+        await index.namespace('default').deleteMany(batch);
+      }
+      console.log(`   Deleted ${vectorIds.length} vectors for explanation ${explanationId}`);
+    }
+  } catch (error) {
+    // Non-critical - log and continue
+    console.warn(`   ⚠️  Failed to delete vectors for explanation ${explanationId}:`, error);
+  }
+}
 
 async function globalTeardown() {
   console.log('🧹 E2E Global Teardown: Starting...');
@@ -73,6 +116,9 @@ async function globalTeardown() {
       if (testData.explanationId) {
         console.log(`   Cleaning up production test explanation ${testData.explanationId}...`);
 
+        // Delete vectors from Pinecone first
+        await deleteVectorsForExplanation(testData.explanationId);
+
         // Delete from userLibrary first (FK constraint)
         await supabase.from('userLibrary').delete()
           .eq('explanationid', testData.explanationId)
@@ -110,6 +156,10 @@ async function globalTeardown() {
       const ids = libraryEntries.map((e) => e.explanationid);
       console.log(`   Cleaning ${ids.length} explanations and related data...`);
 
+      // Delete vectors from Pinecone for each explanation
+      console.log('   Cleaning Pinecone vectors...');
+      await Promise.all(ids.map(id => deleteVectorsForExplanation(id)));
+
       // Delete non-cascading tables in parallel
       await Promise.all([
         supabase.from('explanationMetrics').delete().in('explanationid', ids),
@@ -128,10 +178,16 @@ async function globalTeardown() {
     }
 
     // Step 5: Clean pattern-matched independent tables
+    // Include both legacy 'test-%' and new '[TEST]%' patterns
     console.log('   Cleaning test-prefixed tables...');
     await Promise.all([
+      // Topics: clean legacy and new patterns
       supabase.from('topics').delete().ilike('topic_title', 'test-%'),
+      supabase.from('topics').delete().ilike('topic_title', `${TEST_CONTENT_PREFIX}%`),
+      // Tags: clean legacy and new patterns
       supabase.from('tags').delete().ilike('tag_name', 'test-%'),
+      supabase.from('tags').delete().ilike('tag_name', `${TEST_CONTENT_PREFIX}%`),
+      // Testing pipeline: legacy pattern
       supabase.from('testing_edits_pipeline').delete().ilike('set_name', 'test-%'),
     ]);
 

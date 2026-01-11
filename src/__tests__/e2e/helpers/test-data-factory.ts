@@ -1,5 +1,11 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
+/**
+ * Prefix for all test content to enable filtering in discovery paths.
+ * Used to exclude test content from Explore page, vector search, and related content.
+ */
+export const TEST_CONTENT_PREFIX = '[TEST]';
+
 let supabaseInstance: SupabaseClient | null = null;
 
 /**
@@ -20,10 +26,11 @@ function getSupabase(): SupabaseClient {
 }
 
 /**
- * Generates a unique test ID prefix for isolation.
+ * Generates a unique timestamp suffix for test content isolation.
+ * Used with TEST_CONTENT_PREFIX to create unique test titles.
  */
-function generateTestPrefix(): string {
-  return `test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+function generateTestSuffix(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export interface CreateTestExplanationOptions {
@@ -81,7 +88,7 @@ export async function createTestExplanation(
   options: CreateTestExplanationOptions
 ): Promise<TestExplanation> {
   const supabase = getSupabase();
-  const prefix = generateTestPrefix();
+  const suffix = generateTestSuffix();
   const testUserId = process.env.TEST_USER_ID;
 
   if (!testUserId) {
@@ -96,7 +103,8 @@ export async function createTestExplanation(
     .insert({
       // Note: explanations table has no user_id column
       // User association is via userLibrary junction table
-      explanation_title: `${prefix}-${options.title}`,
+      // Format: [TEST] Title - timestamp for easy filtering
+      explanation_title: `${TEST_CONTENT_PREFIX} ${options.title} - ${suffix}`,
       content: options.content ?? '<p>Test content for E2E testing.</p>',
       status: options.status ?? 'published',
       primary_topic_id: topicId,
@@ -156,12 +164,12 @@ export interface TestTag {
  */
 export async function createTestTag(options: CreateTestTagOptions): Promise<TestTag> {
   const supabase = getSupabase();
-  const prefix = generateTestPrefix();
+  const suffix = generateTestSuffix();
 
   const { data, error } = await supabase
     .from('tags')
     .insert({
-      tag_name: `${prefix}-${options.name}`,
+      tag_name: `${TEST_CONTENT_PREFIX} ${options.name} - ${suffix}`,
       tag_description: options.description ?? 'Test tag for E2E testing',
     })
     .select()

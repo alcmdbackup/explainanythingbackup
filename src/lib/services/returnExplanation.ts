@@ -4,7 +4,7 @@ import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, crea
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema, type SourceCacheFullType, type SourceForPromptType } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
 import { matchWithCurrentContentType } from '@/lib/schemas/schemas';
-import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity } from '@/lib/services/findMatches';
+import { findBestMatchFromList, enhanceMatchesWithCurrentContentAndDiversity, filterTestContent } from '@/lib/services/findMatches';
 import { handleError, createError, createInputError, createValidationError, ERROR_CODES, type ErrorResponse } from '@/lib/errorHandling';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { withLoggingAndTracing, withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
@@ -564,7 +564,9 @@ export const returnExplanationLogic = withLoggingAndTracing(
             
             // Chain dependent operations
             const matches = await enhanceMatchesWithCurrentContentAndDiversity(similarTexts, diversityComparison);
-            const bestSourceResult = await findBestMatchFromList(titleResult, matches, matchMode, savedId, userid);
+            // Filter out test content from vector search results
+            const filteredMatches = filterTestContent(matches);
+            const bestSourceResult = await findBestMatchFromList(titleResult, filteredMatches, matchMode, savedId, userid);
 
             // Don't return a match when user provided sources - they expect fresh content using those sources
             const hasSources = sources && sources.length > 0;

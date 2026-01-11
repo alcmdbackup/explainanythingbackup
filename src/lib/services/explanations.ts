@@ -10,6 +10,14 @@ import { type ExplanationFullDbType, type ExplanationInsertType, type Explanatio
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
+ * Prefixes used to identify test content that should be excluded from discovery.
+ * Test content is created with these prefixes to prevent it from appearing in
+ * Explore page, search results, and related content recommendations.
+ */
+const TEST_CONTENT_PREFIX = '[TEST]';
+const LEGACY_TEST_PREFIX = 'test-';
+
+/**
  * Service for interacting with the explanations table in Supabase
  * 
  * Example usage:
@@ -128,6 +136,8 @@ async function getRecentExplanationsImpl(
       .from('explanations')
       .select()
       .eq('status', 'published')
+      .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
+      .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`)
       .order('timestamp', { ascending: false })
       .range(offset, offset + limit - 1);
 
@@ -177,11 +187,13 @@ async function getRecentExplanationsImpl(
 
   logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size, totalEvents: viewEvents?.length });
 
-  // Step 2: Get all published explanations
+  // Step 2: Get all published explanations (excluding test content)
   const { data: explanations, error: expError } = await supabase
     .from('explanations')
     .select()
-    .eq('status', 'published');
+    .eq('status', 'published')
+    .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
+    .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`);
 
   if (expError) throw expError;
 

@@ -46,6 +46,16 @@ git checkout -b "$BRANCH_NAME" origin/main
 - If branch already exists, abort with: "Error: Branch $BRANCH_NAME already exists. Choose a different project name or delete the existing branch."
 - If fetch fails, warn user but continue (they may be offline)
 
+### 2.5. Read Core Documentation
+
+Before creating project files, read these three core documents to understand the codebase context:
+
+1. **Read** `docs/docs_overall/getting_started.md` - Documentation structure and reading order
+2. **Read** `docs/docs_overall/architecture.md` - System design, data flow, and tech stack
+3. **Read** `docs/docs_overall/project_workflow.md` - Complete workflow for projects
+
+These provide essential context for the project initialization.
+
 ### 3. Create Folder Structure
 
 ```bash
@@ -172,7 +182,7 @@ Documents created:
 GitHub Issue: [issue URL]
 
 Next steps:
-1. Start research by populating the research doc
+1. Run /research to conduct research and populate the research doc
 2. Use /plan-review after completing the planning doc
 ```
 
