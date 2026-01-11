@@ -7,6 +7,19 @@ import MasonryGrid from './MasonryGrid';
 import ExplanationCard from './ExplanationCard';
 import FilterPills from './FilterPills';
 
+/**
+ * Formats a timestamp string for display
+ */
+function formatTimestamp(timestamp: string | undefined | null): string {
+  if (!timestamp) return '';
+  try {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 interface ExploreGalleryPageProps {
   explanations: ExplanationWithViewCount[];
   error: string | null;
@@ -95,8 +108,20 @@ export default function ExploreGalleryPage({
               <ExplanationCard
                 key={explanation.id}
                 explanation={explanation}
+                href={`/results?${new URLSearchParams({ explanation_id: explanation.id.toString() })}`}
                 index={index}
-                showViews={showViews}
+                footer={
+                  <>
+                    <time className="text-[var(--text-muted)]">
+                      {formatTimestamp(explanation.timestamp)}
+                    </time>
+                    {showViews && explanation.viewCount !== undefined && (
+                      <span className="text-[var(--text-muted)]">
+                        {explanation.viewCount.toLocaleString()} view{explanation.viewCount !== 1 ? 's' : ''}
+                      </span>
+                    )}
+                  </>
+                }
               />
             ))}
           </MasonryGrid>

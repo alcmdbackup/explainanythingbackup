@@ -277,6 +277,8 @@ async function enhanceMatchesWithCurrentContentAndDiversityImpl(similarTexts: Ve
             topic_id: result.metadata.topic_id,
             current_title: explanation?.explanation_title || '',
             current_content: explanation?.content || '',
+            summary_teaser: explanation?.summary_teaser ?? null,  // For card preview display
+            timestamp: explanation?.timestamp ?? '',               // For card metadata display
             ranking: {
                 similarity: result.score ?? 0, // score is always present in query results
                 diversity_score: diversityScore
