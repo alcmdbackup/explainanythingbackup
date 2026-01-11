@@ -260,6 +260,7 @@ export function useExplanationLoader(
                     withRequestId({ explanationId: explanation.id })
                 );
                 if (sourcesResult.success && sourcesResult.data) {
+                    // getSourcesForExplanationAction already converts to SourceChipType[]
                     onSourcesLoad(sourcesResult.data);
                 } else {
                     logger.debug('No sources found for explanation or fetch failed:', {

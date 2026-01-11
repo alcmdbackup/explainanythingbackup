@@ -658,20 +658,8 @@ function ResultsPageContent() {
         fetchUserid();
     }, [fetchUserid]);
 
-    // Load sources from sessionStorage on mount (passed from home page)
-    useEffect(() => {
-        try {
-            const pendingSourcesStr = sessionStorage.getItem('pendingSources');
-            if (pendingSourcesStr) {
-                const pendingSources = JSON.parse(pendingSourcesStr) as SourceChipType[];
-                setSources(pendingSources);
-                // Clear after loading
-                sessionStorage.removeItem('pendingSources');
-            }
-        } catch (error) {
-            logger.error('Failed to load pending sources from sessionStorage:', { error });
-        }
-    }, []);
+    // NOTE: Sources from sessionStorage are loaded inside processParams to avoid race condition
+    // The sources state would be stale when processParams runs if loaded in separate useEffect
 
     // NOTE: Auto-loading useEffect removed - lifecycle reducer handles phase transitions explicitly
 
@@ -729,15 +717,30 @@ function ResultsPageContent() {
             if (query) {
                 setPrompt(query);
             }
-            
+
+            // Load sources from sessionStorage (passed from home page)
+            // Must be done here to avoid race condition with sources state
+            let sourcesFromStorage: SourceChipType[] = [];
+            try {
+                const pendingSourcesStr = sessionStorage.getItem('pendingSources');
+                if (pendingSourcesStr) {
+                    sourcesFromStorage = JSON.parse(pendingSourcesStr) as SourceChipType[];
+                    setSources(sourcesFromStorage);
+                    sessionStorage.removeItem('pendingSources');
+                    logger.debug('Loaded sources from sessionStorage', { count: sourcesFromStorage.length }, FILE_DEBUG);
+                }
+            } catch (error) {
+                logger.error('Failed to load pending sources from sessionStorage:', { error });
+            }
+
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sources);
+                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
-                logger.debug('useEffect: handleUserAction called with query', { query }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sources);
+                logger.debug('useEffect: handleUserAction called with query', { query, sourcesCount: sourcesFromStorage.length }, FILE_DEBUG);
+                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
