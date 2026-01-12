@@ -22,6 +22,9 @@ const FILE_DEBUG = false;
 export const default_model: AllowedLLMModelType = 'gpt-4.1-mini';
 export const lighter_model: AllowedLLMModelType = 'gpt-4.1-nano';
 
+// Nil UUID for anonymous/unauthenticated users (RFC 4122 standard)
+export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
+
 /**
  * Saves LLM call tracking data to Supabase database
  * • Validates input data against llmCallTrackingSchema before saving
