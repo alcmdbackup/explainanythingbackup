@@ -50,7 +50,8 @@ export async function POST(request: NextRequest) {
       currentContent,
       null, // editorRef not needed for API route
       undefined, // onProgress callback not supported
-      sessionRequestData
+      sessionRequestData,
+      authResult.data?.userId // Pass userId for LLM tracking
     );
 
     return NextResponse.json(result);

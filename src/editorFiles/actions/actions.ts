@@ -382,7 +382,8 @@ export const runAISuggestionsPipelineAction = withLogging(
                 currentContent,
                 null, // editorRef not needed for server action
                 undefined, // onProgress callback not supported
-                sessionRequestData
+                sessionRequestData,
+                sessionData?.userId // Pass userId for LLM tracking
             );
 
             logger.debug('🎭 runAISuggestionsPipelineAction: Pipeline result', {
@@ -529,6 +530,7 @@ export const getAndApplyAISuggestionsAction = withLogging(
             explanation_id: number;
             explanation_title: string;
             user_prompt: string;
+            userId?: string;
         }
     ): Promise<{
         success: boolean;
@@ -557,7 +559,8 @@ export const getAndApplyAISuggestionsAction = withLogging(
                 currentContent,
                 null, // editorRef not needed for server action
                 onProgress,
-                sessionData
+                sessionData,
+                sessionData?.userId // Pass userId for LLM tracking
             );
 
             logger.debug('🎭 getAndApplyAISuggestionsAction: Pipeline result', {

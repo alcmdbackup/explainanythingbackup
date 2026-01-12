@@ -1345,6 +1345,8 @@ function ResultsPageContent() {
                             setModalInitialPrompt(prompt);
                             setShowAdvancedModal(true);
                         }}
+                        tagState={tagState}
+                        dispatchTagAction={dispatchTagAction}
                         />
                     </div>
 

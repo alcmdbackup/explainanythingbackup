@@ -136,13 +136,20 @@ export default function AdvancedAIEditorModal({
       <div className="relative w-full max-w-lg mx-4 bg-[var(--surface-primary)] rounded-xl shadow-2xl border border-[var(--border-default)] max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)]">
-          <h2 className="text-lg font-serif font-semibold text-[var(--text-primary)]">
-            Advanced AI Editor
-          </h2>
+          <div className="flex flex-col gap-2">
+            <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">
+              {outputMode === 'rewrite' ? 'Rewrite article' : 'Suggest edits'}
+            </h2>
+            <OutputModeToggle
+              value={outputMode}
+              onChange={setOutputMode}
+              disabled={isLoading}
+            />
+          </div>
           <button
             type="button"
             onClick={handleCancel}
-            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+            className="self-start text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
             data-testid="modal-cancel-button"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -199,13 +206,6 @@ export default function AdvancedAIEditorModal({
               disabled={isLoading}
             />
           </div>
-
-          {/* Output Mode */}
-          <OutputModeToggle
-            value={outputMode}
-            onChange={setOutputMode}
-            disabled={isLoading}
-          />
 
           {/* Tags */}
           {explanationId && (

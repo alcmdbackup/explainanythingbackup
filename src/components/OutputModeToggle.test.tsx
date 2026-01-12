@@ -86,17 +86,19 @@ describe('OutputModeToggle', () => {
     });
   });
 
-  describe('Description text', () => {
-    it('should show inline-diff description when inline-diff is selected', () => {
+  describe('Tooltip descriptions', () => {
+    it('should have inline-diff description in title attribute', () => {
       render(<OutputModeToggle value="inline-diff" onChange={mockOnChange} />);
 
-      expect(screen.getByText(/tracked changes you can accept\/reject/i)).toBeInTheDocument();
+      const inlineDiffButton = screen.getByTestId('output-mode-inline-diff');
+      expect(inlineDiffButton).toHaveAttribute('title', expect.stringMatching(/tracked changes you can accept/i));
     });
 
-    it('should show rewrite description when rewrite is selected', () => {
+    it('should have rewrite description in title attribute', () => {
       render(<OutputModeToggle value="rewrite" onChange={mockOnChange} />);
 
-      expect(screen.getByText(/generates a completely new version/i)).toBeInTheDocument();
+      const rewriteButton = screen.getByTestId('output-mode-rewrite');
+      expect(rewriteButton).toHaveAttribute('title', expect.stringMatching(/generates a completely new version/i));
     });
   });
 

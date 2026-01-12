@@ -608,7 +608,8 @@ export async function getAndApplyAISuggestions(
     explanation_title: string;
     user_prompt: string;
     sources?: SourceForPromptType[];
-  }
+  },
+  userId?: string
 ): Promise<{ success: boolean; content?: string; error?: string; session_id?: string; validationResults?: PipelineValidationResults }> {
   console.log('🎯 getAndApplyAISuggestions CALLED:', {
     contentLength: currentContent.length,
@@ -646,8 +647,10 @@ export async function getAndApplyAISuggestions(
     }
 
     // Run the entire pipeline - original content stays untouched until success
-    console.log('🚀 Calling runAISuggestionsPipeline with sessionData:', sessionDataWithId);
-    const result = await runAISuggestionsPipeline(currentContent, 'test-user', onProgress, sessionDataWithId);
+    // userId defaults to 'anonymous' if not provided (for backward compatibility)
+    const effectiveUserId = userId || 'anonymous';
+    console.log('🚀 Calling runAISuggestionsPipeline with sessionData:', sessionDataWithId, 'userId:', effectiveUserId);
+    const result = await runAISuggestionsPipeline(currentContent, effectiveUserId, onProgress, sessionDataWithId);
 
     return {
       success: true,
@@ -673,17 +676,19 @@ export async function getAndApplyAISuggestions(
  * @param userPrompt - The user's edit instruction
  * @param callOpenAIModel - Function to call the OpenAI model
  * @param logger - Logger utility for debugging
+ * @param userId - User ID for LLM tracking (optional, defaults to 'anonymous')
  * @returns Promise that resolves to the AI suggestion response
  */
 export async function getAISuggestions(
     currentText: string,
     userPrompt: string,
     callOpenAIModel: (prompt: string, call_source: string, userid: string, model: string, streaming: boolean, setText: ((text: string) => void) | null) => Promise<string>,
-    logger: any
+    logger: any,
+    userId: string = 'anonymous'
 ): Promise<string> {
     try {
         const prompt = createAISuggestionPrompt(currentText, userPrompt);
-        
+
         logger.debug('AI Suggestion Request', {
             textLength: currentText.length,
             promptLength: prompt.length
@@ -692,7 +697,7 @@ export async function getAISuggestions(
         const response = await callOpenAIModel(
             prompt,
             'editor_ai_suggestions',
-            'test-user',
+            userId,
             default_model,
             false,
             null
