@@ -12,10 +12,19 @@
  */
 
 import { SeverityNumber, Logger } from '@opentelemetry/api-logs';
-import { LoggerProvider, SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
-import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import {
+  LoggerProvider,
+  SimpleLogRecordProcessor,
+  BatchLogRecordProcessor,
+  LogRecordProcessor,
+  ReadableLogRecord,
+  SdkLogRecord,
+} from '@opentelemetry/sdk-logs';
+import { Context } from '@opentelemetry/api';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { trace } from '@opentelemetry/api';
+import { ExportResult, ExportResultCode } from '@opentelemetry/core';
 
 // Singleton logger instance
 let otelLogger: Logger | null = null;
@@ -31,6 +40,52 @@ const SEVERITY_MAP: Record<string, SeverityNumber> = {
 
 // Levels allowed in production (error and warn only)
 const PROD_LEVELS = new Set(['ERROR', 'WARN']);
+
+/**
+ * Debug wrapper for LogRecordProcessor that logs export results.
+ * Helps diagnose if Honeycomb is accepting or rejecting our logs.
+ */
+class DebugLogRecordProcessor implements LogRecordProcessor {
+  private inner: LogRecordProcessor;
+  private exporter: OTLPLogExporter;
+
+  constructor(exporter: OTLPLogExporter, useSimple: boolean) {
+    this.exporter = exporter;
+    this.inner = useSimple
+      ? new SimpleLogRecordProcessor(exporter)
+      : new BatchLogRecordProcessor(exporter, {
+          maxQueueSize: 100,
+          maxExportBatchSize: 50,
+          scheduledDelayMillis: 5000,
+        });
+
+    // Wrap the exporter's export method to log results
+    const originalExport = exporter.export.bind(exporter);
+    exporter.export = (logs: ReadableLogRecord[], resultCallback: (result: ExportResult) => void) => {
+      console.log(`[otelLogger] Exporting ${logs.length} log(s) to Honeycomb...`);
+      return originalExport(logs, (result: ExportResult) => {
+        if (result.code === ExportResultCode.SUCCESS) {
+          console.log(`[otelLogger] ✅ Export SUCCESS - ${logs.length} log(s) sent to Honeycomb`);
+        } else {
+          console.error(`[otelLogger] ❌ Export FAILED - code: ${result.code}, error:`, result.error);
+        }
+        resultCallback(result);
+      });
+    };
+  }
+
+  onEmit(logRecord: SdkLogRecord, context?: Context): void {
+    this.inner.onEmit(logRecord, context);
+  }
+
+  async shutdown(): Promise<void> {
+    return this.inner.shutdown();
+  }
+
+  async forceFlush(): Promise<void> {
+    return this.inner.forceFlush();
+  }
+}
 
 /**
  * Parse OTEL headers from environment variable format
@@ -65,7 +120,9 @@ function initializeOTLPLogger(): Logger | null {
 
   try {
     const headers = parseOTELHeaders(process.env.OTEL_EXPORTER_OTLP_HEADERS);
-    console.log('[otelLogger] Parsed headers:', JSON.stringify(headers));
+    // Mask header values to prevent API key exposure in logs
+    const maskedHeaders = Object.fromEntries(Object.entries(headers).map(([k]) => [k, '[MASKED]']));
+    console.log('[otelLogger] Parsed headers:', JSON.stringify(maskedHeaders));
     console.log('[otelLogger] Creating exporter for:', `${endpoint}/v1/logs`);
 
     const exporter = new OTLPLogExporter({
@@ -80,11 +137,15 @@ function initializeOTLPLogger(): Logger | null {
       'deployment.environment': process.env.NODE_ENV || 'development',
     });
 
-    // Use SimpleLogRecordProcessor for immediate sends (debugging)
-    // Switch to BatchLogRecordProcessor for production efficiency
+    // Use DebugLogRecordProcessor to monitor export success/failure
+    // In production: uses BatchLogRecordProcessor internally for efficiency
+    // In development: uses SimpleLogRecordProcessor for immediate sends
+    const useSimple = process.env.NODE_ENV !== 'production';
+    const processor = new DebugLogRecordProcessor(exporter, useSimple);
+
     const provider = new LoggerProvider({
       resource,
-      processors: [new SimpleLogRecordProcessor(exporter)],
+      processors: [processor],
     });
 
     otelLogger = provider.getLogger('explainanything');

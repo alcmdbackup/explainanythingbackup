@@ -1,3 +1,8 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "honeycomb": {
+      "url": "https://mcp.honeycomb.io/mcp",
+      "transport": "http"
+    }
+  }
 }

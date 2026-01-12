@@ -98,4 +98,45 @@ describe('OTLP Integration', () => {
       }).not.toThrow();
     });
   });
+
+  describe('security - API key protection', () => {
+    it('should not expose API key in logs during initialization', () => {
+      // Set up environment BEFORE resetting modules
+      setNodeEnv('production');
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-honeycomb-team=e6BHBGspbuTr8f7vQnTLXG';
+
+      jest.resetModules();
+
+      // Now capture console.log
+      const logOutput: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => logOutput.push(args.join(' '));
+
+      // Import fresh module and call emitLog to trigger initialization
+      const { emitLog } = require('../../../src/lib/logging/server/otelLogger');
+      emitLog('ERROR', 'test message');
+
+      console.log = originalLog;
+
+      const allLogs = logOutput.join('\n');
+      expect(allLogs).not.toContain('e6BHBGspbuTr8f7vQnTLXG');
+      expect(allLogs).toContain('[MASKED]');
+    });
+  });
+
+  describe('batch processor in production', () => {
+    it('should initialize without error in production mode', () => {
+      setNodeEnv('production');
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-honeycomb-team=test';
+
+      jest.resetModules();
+
+      expect(() => {
+        const { emitLog } = require('../../../src/lib/logging/server/otelLogger');
+        emitLog('ERROR', 'test error in production');
+      }).not.toThrow();
+    });
+  });
 });

@@ -164,3 +164,17 @@ test.describe('Client Logging Infrastructure', () => {
     expect(timestampLog.timestamp <= afterTime).toBe(true);
   });
 });
+
+test.describe('Browser Tracing Endpoint', () => {
+  test('traces endpoint exists and responds correctly', async ({ request }) => {
+    const response = await request.post('/api/traces', {
+      data: { resourceSpans: [] },
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    // 200 = configured and working
+    // 503 = endpoint exists but OTEL not configured
+    // Both indicate endpoint is deployed correctly
+    expect([200, 503]).toContain(response.status());
+  });
+});
