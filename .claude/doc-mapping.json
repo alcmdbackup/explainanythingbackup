@@ -1,0 +1,212 @@
+{
+  "version": "1.0",
+  "description": "Maps code file patterns to documentation files for automatic updates during /finalize",
+  "mappings": [
+    {
+      "pattern": "src/lib/services/tags*.ts",
+      "docs": ["docs/feature_deep_dives/tag_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/tagEvaluation.ts",
+      "docs": ["docs/feature_deep_dives/tag_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/vectorsim.ts",
+      "docs": ["docs/feature_deep_dives/vector_search_embedding.md"]
+    },
+    {
+      "pattern": "src/lib/services/links*.ts",
+      "docs": ["docs/feature_deep_dives/link_whitelist_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/linkWhitelist.ts",
+      "docs": ["docs/feature_deep_dives/link_whitelist_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/linkResolver.ts",
+      "docs": ["docs/feature_deep_dives/link_whitelist_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/linkCandidates.ts",
+      "docs": ["docs/feature_deep_dives/link_whitelist_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/metrics.ts",
+      "docs": ["docs/feature_deep_dives/metrics_analytics.md"]
+    },
+    {
+      "pattern": "src/lib/services/explanations.ts",
+      "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "src/lib/services/returnExplanation.ts",
+      "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "src/lib/services/findMatches.ts",
+      "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "src/lib/services/explanationSummarizer.ts",
+      "docs": ["docs/feature_deep_dives/explanation_summaries.md"]
+    },
+    {
+      "pattern": "src/actions/actions.ts",
+      "docs": ["docs/feature_deep_dives/server_action_patterns.md"]
+    },
+    {
+      "pattern": "src/editorFiles/**",
+      "docs": [
+        "docs/feature_deep_dives/lexical_editor_plugins.md",
+        "docs/feature_deep_dives/ai_suggestions_overview.md"
+      ]
+    },
+    {
+      "pattern": "src/lib/services/llms.ts",
+      "docs": ["docs/feature_deep_dives/ai_suggestions_overview.md"]
+    },
+    {
+      "pattern": "{tests,e2e}/**",
+      "docs": ["docs/docs_overall/testing_overview.md"]
+    },
+    {
+      "pattern": "src/testing/**",
+      "docs": ["docs/feature_deep_dives/testing_setup.md"]
+    },
+    {
+      "pattern": ".github/workflows/**",
+      "docs": ["docs/docs_overall/environments.md"]
+    },
+    {
+      "pattern": ".claude/**",
+      "docs": ["docs/docs_overall/managing_claude_settings.md"]
+    },
+    {
+      "pattern": "src/lib/utils/supabase/**",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
+      "pattern": "src/middleware.ts",
+      "docs": ["docs/feature_deep_dives/authentication_rls.md"]
+    },
+    {
+      "pattern": "src/lib/services/*Tracing*.ts",
+      "docs": ["docs/feature_deep_dives/request_tracing_observability.md"]
+    },
+    {
+      "pattern": "src/lib/utils/logging/**",
+      "docs": ["docs/feature_deep_dives/request_tracing_observability.md"]
+    },
+    {
+      "pattern": "src/reducers/**",
+      "docs": ["docs/feature_deep_dives/state_management.md"]
+    },
+    {
+      "pattern": "src/hooks/**",
+      "docs": ["docs/feature_deep_dives/state_management.md"]
+    },
+    {
+      "pattern": "src/lib/services/sourceFetcher.ts",
+      "docs": ["docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/lib/services/sourceSummarizer.ts",
+      "docs": ["docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/lib/services/sourceCache.ts",
+      "docs": ["docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/components/sources/**",
+      "docs": ["docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/editorFiles/lexicalEditor/CitationPlugin.tsx",
+      "docs": ["docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/app/api/fetchSourceMetadata/**",
+      "docs": ["docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/components/**",
+      "docs": ["docs/docs_overall/design_style_guide.md"]
+    },
+    {
+      "pattern": "src/lib/services/importArticle.ts",
+      "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "src/lib/services/userLibrary.ts",
+      "docs": ["docs/feature_deep_dives/state_management.md"]
+    },
+    {
+      "pattern": "src/lib/services/userQueries.ts",
+      "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "src/lib/services/topics.ts",
+      "docs": ["docs/feature_deep_dives/tag_system.md"]
+    },
+    {
+      "pattern": "src/editorFiles/markdownASTdiff/**",
+      "docs": ["docs/feature_deep_dives/markdown_ast_diffing.md"]
+    },
+    {
+      "pattern": "src/lib/errorHandling.ts",
+      "docs": ["docs/feature_deep_dives/error_handling.md"]
+    },
+    {
+      "pattern": "src/lib/errors/**",
+      "docs": ["docs/feature_deep_dives/error_handling.md"]
+    },
+    {
+      "pattern": "src/app/api/stream-chat/**",
+      "docs": ["docs/feature_deep_dives/realtime_streaming.md"]
+    },
+    {
+      "pattern": "src/lib/services/explanationTags.ts",
+      "docs": ["docs/feature_deep_dives/tag_system.md"]
+    },
+    {
+      "pattern": "src/lib/services/testingPipeline.ts",
+      "docs": ["docs/feature_deep_dives/testing_pipeline.md"]
+    },
+    {
+      "pattern": "src/app/api/monitoring/**",
+      "docs": ["docs/feature_deep_dives/request_tracing_observability.md"]
+    },
+    {
+      "pattern": "src/app/api/returnExplanation/**",
+      "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "src/app/api/runAISuggestionsPipeline/**",
+      "docs": ["docs/feature_deep_dives/ai_suggestions_overview.md"]
+    },
+    {
+      "pattern": "src/app/api/traces/**",
+      "docs": ["docs/feature_deep_dives/request_tracing_observability.md"]
+    },
+    {
+      "pattern": "src/app/api/client-logs/**",
+      "docs": ["docs/feature_deep_dives/request_tracing_observability.md"]
+    },
+    {
+      "pattern": "src/app/api/health/**",
+      "docs": ["docs/docs_overall/environments.md"]
+    },
+    {
+      "pattern": "src/app/api/test-cases/**",
+      "docs": ["docs/feature_deep_dives/markdown_ast_diffing.md"]
+    },
+    {
+      "pattern": "src/app/api/test-responses/**",
+      "docs": ["docs/feature_deep_dives/markdown_ast_diffing.md"]
+    }
+  ],
+  "alwaysConsider": [
+    "docs/docs_overall/architecture.md"
+  ]
+}
