@@ -48,8 +48,9 @@ const sentryWebpackPluginOptions = {
   // Hides source maps from generated client bundles
   hideSourceMaps: true,
 
-  // Automatically tree-shake Sentry logger statements to reduce bundle size
-  disableLogger: true,
+  // Keep Sentry.logger enabled for Sentry Logs feature
+  // Note: disableLogger: true would tree-shake Sentry.logger calls
+  disableLogger: false,
 
   // Enables automatic instrumentation of Vercel Cron Monitors.
   automaticVercelMonitors: true,

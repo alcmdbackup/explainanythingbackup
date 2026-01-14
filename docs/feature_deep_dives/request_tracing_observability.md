@@ -174,6 +174,40 @@ AsyncLocalStorage preserves context across await
 
 ---
 
+## Sentry Logs Integration
+
+### Overview
+In addition to Honeycomb (primary observability backend), logs are sent to Sentry's Logs product for correlation with error tracking and distributed tracing.
+
+### Configuration
+
+**Sentry Configs** (client, server, edge):
+- `enableLogs: true` at top-level (SDK v10+ requirement)
+- `beforeSendLog` filters only trace level (too verbose)
+- All other levels (debug, info, warn, error, fatal) are sent
+
+**Webpack Config** (`next.config.ts`):
+- `disableLogger: false` - Required to keep `Sentry.logger.*` calls in bundle
+- Note: `disableLogger: true` would tree-shake logger calls at build time
+
+### Sanitization
+The `createBeforeSendLog()` function in `src/lib/sentrySanitization.ts` handles PII redaction. Extended sensitive fields list includes `email`, `authorization`, `cookie`, `jwt`, `bearer`, `refresh_token`, `access_token`, `apiKey`, and `pass`.
+
+### Log Routing
+```
+Logger calls → Console + server.log + Sentry breadcrumbs + Honeycomb OTLP
+                                    ↓
+                              Sentry.logger.* (all levels except trace)
+                                    ↓
+                              Sentry Logs Product (correlated with traces)
+```
+
+### Verification
+Logs can be viewed at: `https://<org>.sentry.io/explore/logs/`
+Each log includes `trace_id` for correlation with distributed traces.
+
+---
+
 ## Related Documentation
 
 - **[Improve Client Logging Visibility](../planning/automated_bug_detection_and_fixing/improve_client_logging_visibility_plan.md)** - Browser-side logging and tracing (`fetchWithTracing`, `browserTracing.ts`, localStorage buffer)

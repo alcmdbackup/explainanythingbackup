@@ -3,10 +3,15 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { createBeforeSendLog } from "@/lib/sentrySanitization";
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.NODE_ENV,
+
+  // Enable Sentry Logs for error correlation (SDK v10+ uses top-level option)
+  enableLogs: true,
+  beforeSendLog: createBeforeSendLog(),
 
   // Adjust this value in production, or use tracesSampler for greater control
   tracesSampleRate: parseFloat(

@@ -4,6 +4,7 @@ import { join } from 'path';
 import { RequestIdContext } from './requestIdContext';
 import * as Sentry from '@sentry/nextjs';
 import { emitLog } from './logging/server/otelLogger';
+import { sanitizeForSentry } from './sentrySanitization';
 
 /**
  * Logger utility for consistent logging across the application
@@ -113,24 +114,52 @@ const logger = {
         console.log(`[DEBUG] ${message}`, addRequestId(data));
         writeToFile('DEBUG', message, data);
         sendToSentry('DEBUG', message, data);
+        // Send to Sentry Logs for dedicated log view
+        try {
+            Sentry.logger.debug(message, sanitizeForSentry(addRequestId(data)));
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     },
 
     error: (message: string, data: LoggerData | null = null) => {
         console.error(`[ERROR] ${message}`, addRequestId(data));
         writeToFile('ERROR', message, data);
         sendToSentry('ERROR', message, data);
+        // Send to Sentry Logs for dedicated log view (in addition to breadcrumbs)
+        try {
+            Sentry.logger.error(message, sanitizeForSentry(addRequestId(data)));
+            // Flush to ensure logs are sent in serverless/edge environments
+            Sentry.flush(2000).catch(() => {});
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     },
 
     info: (message: string, data: LoggerData | null = null) => {
         console.log(`[INFO] ${message}`, addRequestId(data));
         writeToFile('INFO', message, data);
         sendToSentry('INFO', message, data);
+        // Send to Sentry Logs for dedicated log view
+        try {
+            Sentry.logger.info(message, sanitizeForSentry(addRequestId(data)));
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     },
 
     warn: (message: string, data: LoggerData | null = null) => {
         console.warn(`[WARN] ${message}`, addRequestId(data));
         writeToFile('WARN', message, data);
         sendToSentry('WARN', message, data);
+        // Send to Sentry Logs for dedicated log view (in addition to breadcrumbs)
+        try {
+            Sentry.logger.warn(message, sanitizeForSentry(addRequestId(data)));
+            // Flush to ensure logs are sent in serverless/edge environments
+            Sentry.flush(2000).catch(() => {});
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     }
 };
 

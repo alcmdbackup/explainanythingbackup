@@ -46,7 +46,11 @@ describe('returnExplanation', () => {
           data: { title1: 'Test Title', title2: 'Alt Title', title3: 'Another Title' }
         })
       },
-      linkCandidatesExtractionSchema: {}
+      linkCandidatesExtractionSchema: {},
+      // Required for sentrySanitization.ts
+      defaultLogConfig: {
+        sensitiveFields: ['password', 'apiKey', 'token', 'secret', 'pass']
+      }
     }));
 
     // Mock vectorsim

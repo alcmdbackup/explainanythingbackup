@@ -2,6 +2,7 @@
 
 import { callOpenAIModel, default_model } from '@/lib/services/llms';
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { randomUUID } from 'crypto';
 import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
@@ -97,7 +98,12 @@ export async function POST(request: NextRequest) {
       },
     });
     }); // Close RequestIdContext.run()
-  } catch {
+  } catch (error) {
+    logger.error('Error in stream-chat API', { error: error instanceof Error ? error.message : String(error) });
+    Sentry.captureException(error, {
+      tags: { endpoint: '/api/stream-chat', method: 'POST' },
+      extra: { requestId: RequestIdContext.getRequestId() },
+    });
     return new Response('Internal Server Error', { status: 500 });
   }
 }
