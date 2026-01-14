@@ -314,7 +314,7 @@ describe('Explanation Generation Integration Tests', () => {
         if (hasResponseFormat && prompt.includes('Guess the title')) {
           titleGenerated = true;
           return {
-            choices: [{ message: { content: JSON.stringify({ title1: 'Test Title', title2: 'Test Title 2', title3: 'Test Title 3' }) } }],
+            choices: [{ message: { content: JSON.stringify({ title1: '[TEST] Title', title2: '[TEST] Title 2', title3: '[TEST] Title 3' }) } }],
           };
         }
 
@@ -461,7 +461,7 @@ describe('Explanation Generation Integration Tests', () => {
         // Title generation - prompt contains "Guess the title" and has response_format
         if (hasResponseFormat && prompt.includes('Guess the title')) {
           return {
-            choices: [{ message: { content: JSON.stringify({ title1: 'Test Title', title2: 'Test Title 2', title3: 'Test Title 3' }) } }],
+            choices: [{ message: { content: JSON.stringify({ title1: '[TEST] Title', title2: '[TEST] Title 2', title3: '[TEST] Title 3' }) } }],
           };
         }
 
