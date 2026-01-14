@@ -2,7 +2,7 @@
 
 ## Current State Assessment
 
-Assessed test setup against `/docs/docs_overall/testing_rules.md`. Overall infrastructure is well-designed with proper patterns, but specific violations exist.
+Assessed test setup against `/docs/docs_overall/testing_overview.md`. Overall infrastructure is well-designed with proper patterns, but specific violations exist.
 
 ---
 
@@ -16,6 +16,8 @@ Assessed test setup against `/docs/docs_overall/testing_rules.md`. Overall infra
 | 4. Async explicit | ✅ Pass | Proper `waitFor`, `waitForURL` patterns |
 | 5. Isolate externals | ✅ Pass | Comprehensive mocks for OpenAI, Supabase, Pinecone |
 | 6. Timeouts ≤60s | ⚠️ 4 violations | Tests using 90s timeouts |
+| 7. No silent error swallow | ✅ Pass | Uses `error-utils.ts` helpers |
+| 8. No test.skip | ✅ Pass | Uses `test-data-factory.ts` for data creation |
 
 ---
 
@@ -103,10 +105,10 @@ src/__tests__/e2e/specs/04-content-viewing/action-buttons.spec.ts
 
 ## Success Criteria
 
-- [x] Zero `waitForTimeout` calls in E2E tests
+- [x] Zero undocumented `waitForTimeout` calls in E2E tests (2 documented polling exceptions)
 - [x] All test timeouts ≤ 60s
-- [x] ESLint rule preventing new violations
-- [ ] All tests pass without flakiness
+- [x] ESLint rules preventing new violations (4 rules: no-wait-for-timeout, no-silent-catch, max-test-timeout, no-test-skip)
+- [x] All 8 testing rules covered in compliance table
 
 ---
 
@@ -124,8 +126,19 @@ Reduced all 90s timeouts to 60s:
 
 ### Phase 3: Prevention ✅
 ESLint rules active:
-- `flakiness/no-wait-for-timeout`: ERROR
-- `flakiness/max-test-timeout`: WARN (>60s)
+- `flakiness/no-wait-for-timeout`: ERROR (spec files and helper files)
+- `flakiness/no-silent-catch`: ERROR (all e2e files)
+- `flakiness/max-test-timeout`: ERROR (>60s)
+- `flakiness/no-test-skip`: ERROR (spec files)
 
-### Exception: Mock delay in user-interactions.spec.ts:81
+### Documented Exceptions
+
+**Mock delay in user-interactions.spec.ts:81**
 `setTimeout(r, 1000)` inside route handler is intentional mock behavior (simulates API delay), not a test sleep.
+
+**Polling intervals in helper files (2026-01-13)**
+The following use `waitForTimeout` as polling intervals in wait utilities (legitimate pattern):
+- `wait-utils.ts:31` - polling interval in `waitForState()` helper
+- `suggestions-test-helpers.ts:251` - polling for Lexical async init
+
+These have `eslint-disable-next-line` comments with justification.

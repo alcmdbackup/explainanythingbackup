@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import { cleanupBypassCookieFile } from './vercel-bypass';
-import { TEST_CONTENT_PREFIX } from '../helpers/test-data-factory';
+import { TEST_CONTENT_PREFIX, cleanupAllTrackedExplanations } from '../helpers/test-data-factory';
 import { Pinecone } from '@pinecone-database/pinecone';
 
 /**
@@ -190,6 +190,14 @@ async function globalTeardown() {
       // Testing pipeline: legacy pattern
       supabase.from('testing_edits_pipeline').delete().ilike('set_name', 'test-%'),
     ]);
+
+    // Step 6: Defense-in-depth - clean any tracked explanations from the temp file
+    // This catches explanations created outside the factory (e.g., import tests with LLM)
+    console.log('   Cleaning tracked explanations (defense-in-depth)...');
+    const trackedCleanedCount = await cleanupAllTrackedExplanations();
+    if (trackedCleanedCount > 0) {
+      console.log(`   ✓ Cleaned ${trackedCleanedCount} tracked explanations`);
+    }
 
     console.log('✅ E2E Global Teardown: Complete');
   } catch (error) {

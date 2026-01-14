@@ -45,7 +45,7 @@ describe('Tag Management Integration Tests', () => {
 
   const createTopicInDb = async () => {
     const mockTopic = {
-      topic_title: `Test Topic ${testId}-${Date.now()}`,
+      topic_title: `[TEST] Topic ${testId}-${Date.now()}`,
       topic_description: 'Test topic description',
     };
     const { data, error } = await supabase.from('topics').insert(mockTopic).select().single();
@@ -55,7 +55,7 @@ describe('Tag Management Integration Tests', () => {
 
   const createExplanationInDb = async (topicId: number) => {
     const mockExplanation = {
-      explanation_title: `Test Explanation ${testId}-${Date.now()}`,
+      explanation_title: `[TEST] Explanation ${testId}-${Date.now()}`,
       primary_topic_id: topicId,
       content: 'Test explanation content for tag management tests',
       status: 'published',
@@ -67,7 +67,7 @@ describe('Tag Management Integration Tests', () => {
 
   const createTagInDb = async (tagName: string, presetTagId: number | null = null) => {
     const mockTag = {
-      tag_name: `${tagName}-${testId}-${Date.now()}`,
+      tag_name: `[TEST] ${tagName}-${testId}-${Date.now()}`,
       tag_description: `Description for ${tagName}`,
       presetTagId,
     };

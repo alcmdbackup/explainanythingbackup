@@ -110,7 +110,7 @@ describe('Explanation Update Integration Tests', () => {
     const { data: topic, error: topicError } = await supabase
       .from('topics')
       .insert({
-        topic_title: `test-topic-${testId}`,
+        topic_title: `[TEST] topic-${testId}`,
         topic_description: 'Test topic for update integration',
       })
       .select()
@@ -122,7 +122,7 @@ describe('Explanation Update Integration Tests', () => {
     const { data: explanation, error: explanationError } = await supabase
       .from('explanations')
       .insert({
-        explanation_title: `test-explanation-${testId}`,
+        explanation_title: `[TEST] explanation-${testId}`,
         content: '# Original Content\n\nThis is the original content.',
         primary_topic_id: testTopicId,
         status: 'published',

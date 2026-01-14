@@ -41,25 +41,25 @@ const eslintConfig = [
       "@typescript-eslint/no-require-imports": "off",
     },
   },
-  // Flakiness prevention rules for E2E tests
+  // Flakiness prevention rules for E2E spec files
   {
     files: ["**/*.spec.ts", "**/*.spec.tsx"],
     plugins: {
       flakiness: flakinessRules,
     },
     rules: {
-      "flakiness/no-wait-for-timeout": "error",
-      "flakiness/max-test-timeout": "warn",
+      "flakiness/max-test-timeout": "error",
       "flakiness/no-test-skip": "error",
     },
   },
-  // Silent error swallowing prevention for E2E helpers and specs
+  // Flakiness prevention for all E2E files (specs + helpers)
   {
     files: ["**/e2e/**/*.ts", "**/e2e/**/*.tsx"],
     plugins: {
       flakiness: flakinessRules,
     },
     rules: {
+      "flakiness/no-wait-for-timeout": "error",
       "flakiness/no-silent-catch": "error",
     },
   },

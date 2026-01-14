@@ -4,7 +4,7 @@
  * Tests should never be skipped due to missing data - use test-data-factory.ts
  * to create required test data in beforeAll instead.
  *
- * See docs/docs_overall/testing_rules.md for acceptable exceptions (Rule 8).
+ * See docs/docs_overall/testing_overview.md for acceptable exceptions (Rule 8).
  */
 module.exports = {
   meta: {
@@ -16,7 +16,7 @@ module.exports = {
     messages: {
       noTestSkip:
         'Avoid test.skip() - use test-data-factory.ts to create required data. ' +
-        'See docs/docs_overall/testing_rules.md Rule 8 for acceptable exceptions.',
+        'See docs/docs_overall/testing_overview.md Rule 8 for acceptable exceptions.',
     },
     schema: [],
   },

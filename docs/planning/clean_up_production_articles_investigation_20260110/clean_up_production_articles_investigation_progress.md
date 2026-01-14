@@ -154,3 +154,36 @@ All phases complete. Test content cleanup infrastructure is now in place:
 1. Automatically filtered from user-facing discovery
 2. Cleaned up by E2E global teardown
 3. Can be manually cleaned with `scripts/cleanup-test-content.ts`
+
+---
+
+## Subsequent Improvements (2026-01-12/13)
+
+> See: `docs/planning/clean_up_junk_articles_in_production_20260112/` for full details
+
+### Additional Junk Sources Fixed
+
+| Source | Issue | Fix |
+|--------|-------|-----|
+| 6 integration tests | Used wrong prefix pattern (`Test Topic`, `test-`) | Changed to `[TEST]` prefix |
+| `import-articles.spec.ts` | LLM-generated titles, no cleanup | Added auto-tracking cleanup |
+
+### Defense-in-Depth: Auto-Tracking System
+
+Added a second layer of protection beyond prefix filtering:
+
+**How it works:**
+1. Factory functions auto-register created explanation IDs to `/tmp/e2e-tracked-explanation-ids.json`
+2. Tests can manually track IDs via `trackExplanationForCleanup(id)`
+3. Global teardown calls `cleanupAllTrackedExplanations()` to delete all tracked IDs
+
+**New exports in `test-data-factory.ts`:**
+- `trackExplanationForCleanup(id)` - Register ID for cleanup
+- `cleanupAllTrackedExplanations()` - Delete all tracked IDs
+- `getTrackedExplanationIds()` - Read tracked IDs
+- `clearTrackedExplanationIds()` - Clear tracking file
+
+This catches explanations that:
+- Are created without `[TEST]` prefix (e.g., LLM-generated import titles)
+- Aren't added to `userLibrary` (global teardown can't find them)
+- Escape pattern-based cleanup for any reason

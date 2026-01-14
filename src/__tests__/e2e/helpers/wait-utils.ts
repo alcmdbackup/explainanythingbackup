@@ -28,6 +28,7 @@ export async function waitForState<T extends string>(
       }
     }
     // Intentional polling interval - this is a wait utility, not a fixed sleep
+    // eslint-disable-next-line flakiness/no-wait-for-timeout -- polling interval in wait utility
     await page.waitForTimeout(pollInterval);
   }
   return 'timeout';
