@@ -738,11 +738,21 @@ function ResultsPageContent() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                try {
+                    await handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                } catch (error) {
+                    logger.error('Failed to handle title action', { error, title });
+                    dispatchLifecycle({ type: 'ERROR', error: error instanceof Error ? error.message : 'Failed to load explanation' });
+                }
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query, sourcesCount: sourcesFromStorage.length }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                try {
+                    await handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                } catch (error) {
+                    logger.error('Failed to handle query action', { error, query });
+                    dispatchLifecycle({ type: 'ERROR', error: error instanceof Error ? error.message : 'Failed to generate explanation' });
+                }
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
