@@ -1,6 +1,6 @@
 #!/bin/bash
 # Hook to check for problematic test patterns in E2E files
-# See docs/docs_overall/testing_rules.md for acceptable exceptions
+# See docs/docs_overall/testing_overview.md for acceptable exceptions
 #
 # This hook runs on Edit/Write to E2E test files and warns about:
 # - test.skip() patterns (Rule 8)
@@ -19,14 +19,14 @@ ERRORS=""
 if grep -n "test\.skip" "$FILE_PATH" 2>/dev/null | grep -v "eslint-disable"; then
   ERRORS="${ERRORS}
 ⚠️  Found test.skip() - use test-data-factory.ts instead (Rule 8)
-    See docs/docs_overall/testing_rules.md for acceptable exceptions"
+    See docs/docs_overall/testing_overview.md for acceptable exceptions"
 fi
 
 # Check for silent catch patterns: .catch(() => false) or .catch(() => {})
 if grep -nE "\.catch\(\(\)\s*=>\s*(false|\{\s*\}|\(\s*\))" "$FILE_PATH" 2>/dev/null | grep -v "eslint-disable"; then
   ERRORS="${ERRORS}
 ⚠️  Found .catch(() => ...) - use safeIsVisible/safeWaitFor instead (Rule 7)
-    See docs/docs_overall/testing_rules.md for acceptable exceptions"
+    See docs/docs_overall/testing_overview.md for acceptable exceptions"
 fi
 
 if [ -n "$ERRORS" ]; then

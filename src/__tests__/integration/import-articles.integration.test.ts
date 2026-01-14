@@ -89,7 +89,7 @@ describe('Import Articles Integration Tests', () => {
     describe('publishImportedArticle - Topic and Explanation Creation', () => {
         it('should create topic and explanation with correct data', async () => {
             // Arrange
-            const title = `${testId}-import-test-title`;
+            const title = `${TEST_PREFIX}${testId}-import-test-title`;
             const content = 'This is test content for the imported article. It should be long enough to pass validation and contain meaningful information about the topic.';
             const source = 'chatgpt' as const;
 
@@ -132,7 +132,7 @@ describe('Import Articles Integration Tests', () => {
             const sources = ['chatgpt', 'claude', 'gemini', 'other'] as const;
 
             for (const source of sources) {
-                const title = `${testId}-source-test-${source}`;
+                const title = `${TEST_PREFIX}${testId}-source-test-${source}`;
                 const content = `Test content for ${source} source detection test.`;
 
                 const result = await publishImportedArticle(title, content, source, userId);
@@ -151,7 +151,7 @@ describe('Import Articles Integration Tests', () => {
 
         it('should link explanation to topic via primary_topic_id', async () => {
             // Arrange
-            const title = `${testId}-link-test`;
+            const title = `${TEST_PREFIX}${testId}-link-test`;
             const content = 'Content for testing topic-explanation linking.';
 
             // Act
@@ -176,7 +176,7 @@ describe('Import Articles Integration Tests', () => {
     describe('publishImportedArticle - Embedding Generation', () => {
         it('should complete successfully with embedding pipeline', async () => {
             // Arrange
-            const title = `${testId}-embedding-test`;
+            const title = `${TEST_PREFIX}${testId}-embedding-test`;
             const content = 'Content for embedding generation test with enough length to pass validation.';
 
             // Act
@@ -198,7 +198,7 @@ describe('Import Articles Integration Tests', () => {
 
         it('should process content for vector search indexing', async () => {
             // Arrange
-            const title = `${testId}-vector-test`;
+            const title = `${TEST_PREFIX}${testId}-vector-test`;
             const content = 'Test content for vector search indexing verification.';
 
             // Act
@@ -223,7 +223,7 @@ describe('Import Articles Integration Tests', () => {
     describe('publishImportedArticle - Tag Evaluation', () => {
         it('should evaluate and apply tags (non-blocking)', async () => {
             // Arrange
-            const title = `${testId}-tag-test`;
+            const title = `${TEST_PREFIX}${testId}-tag-test`;
             const content = 'Technical content about programming concepts and software development.';
 
             // Act
@@ -238,7 +238,7 @@ describe('Import Articles Integration Tests', () => {
             // Arrange
             mockOpenAIChatCreate.mockRejectedValue(new Error('Tag evaluation failed'));
 
-            const title = `${testId}-tag-error-test`;
+            const title = `${TEST_PREFIX}${testId}-tag-error-test`;
             const content = 'Content for testing tag error handling.';
 
             // Act
@@ -254,7 +254,7 @@ describe('Import Articles Integration Tests', () => {
         it('should succeed with valid data even for short content', async () => {
             // Note: The publishImportedArticle action doesn't validate content length
             // Content validation happens in processImport action before this
-            const title = `${testId}-short-content-test`;
+            const title = `${TEST_PREFIX}${testId}-short-content-test`;
             const content = 'Short content.';
 
             // Act
@@ -267,7 +267,7 @@ describe('Import Articles Integration Tests', () => {
 
         it('should succeed with minimal valid data', async () => {
             // Note: Empty strings are valid for topics - they become untitled
-            const title = `${testId}-minimal-test`;
+            const title = `${TEST_PREFIX}${testId}-minimal-test`;
             const content = 'Minimal content for test.';
 
             // Act
@@ -281,7 +281,7 @@ describe('Import Articles Integration Tests', () => {
         it('should handle non-blocking embedding errors', async () => {
             // Note: The embedding process is mocked at the module level
             // We verify that the system handles the happy path correctly
-            const title = `${testId}-embed-test`;
+            const title = `${TEST_PREFIX}${testId}-embed-test`;
             const content = 'Content for embedding test scenario.';
 
             // Act
@@ -296,7 +296,7 @@ describe('Import Articles Integration Tests', () => {
     describe('publishImportedArticle - Data Integrity', () => {
         it('should create published status by default', async () => {
             // Arrange
-            const title = `${testId}-status-test`;
+            const title = `${TEST_PREFIX}${testId}-status-test`;
             const content = 'Content for status verification.';
 
             // Act
@@ -316,7 +316,7 @@ describe('Import Articles Integration Tests', () => {
 
         it('should handle duplicate topic titles by reusing existing topic', async () => {
             // Arrange - Create first article
-            const title = `${testId}-duplicate-topic`;
+            const title = `${TEST_PREFIX}${testId}-duplicate-topic`;
             const content1 = 'First article content.';
             const content2 = 'Second article content.';
 
@@ -344,7 +344,7 @@ describe('Import Articles Integration Tests', () => {
 
         it('should store content without modification', async () => {
             // Arrange
-            const title = `${testId}-content-integrity`;
+            const title = `${TEST_PREFIX}${testId}-content-integrity`;
             const content = `# Heading
 
 This is markdown content with **bold** and *italic* text.
@@ -375,8 +375,8 @@ const code = 'example';
     describe('publishImportedArticle - Query Verification', () => {
         it('should allow querying imported articles by source', async () => {
             // Arrange - Create articles with different sources
-            const chatgptTitle = `${testId}-query-chatgpt`;
-            const claudeTitle = `${testId}-query-claude`;
+            const chatgptTitle = `${TEST_PREFIX}${testId}-query-chatgpt`;
+            const claudeTitle = `${TEST_PREFIX}${testId}-query-claude`;
 
             await publishImportedArticle(chatgptTitle, 'ChatGPT content', 'chatgpt', userId);
             setupSuccessfulMocks();

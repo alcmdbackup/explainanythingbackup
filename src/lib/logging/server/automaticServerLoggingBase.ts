@@ -69,7 +69,7 @@ export function shouldSkipAutoLogging(fn: Function, name: string, context: 'modu
 /**
  * Sanitizes data by removing sensitive fields and truncating long values
  */
-function sanitizeData(data: any, config: LogConfig): any {
+export function sanitizeData(data: any, config: LogConfig): any {
   if (!data || typeof data !== 'object') {
     // Handle BigInt serialization
     if (typeof data === 'bigint') {

@@ -1,6 +1,7 @@
 import { test, expect } from '../../fixtures/auth';
 import { ImportPage } from '../../helpers/pages/ImportPage';
 import { safeWaitFor } from '../../helpers/error-utils';
+import { trackExplanationForCleanup } from '../../helpers/test-data-factory';
 
 // Add retries for flaky LLM API conditions
 test.describe.configure({ retries: 1 });
@@ -123,6 +124,13 @@ test.describe('Import Articles Feature', () => {
             // Should redirect to results page
             await authenticatedPage.waitForURL(/\/results\?explanation_id=\d+/, { timeout: 10000 });
             expect(authenticatedPage.url()).toContain('/results');
+
+            // Track explanation ID for cleanup by global teardown
+            const url = new URL(authenticatedPage.url());
+            const explanationId = url.searchParams.get('explanation_id');
+            if (explanationId) {
+                trackExplanationForCleanup(explanationId);
+            }
         });
 
         test('should import with manual source selection', async ({ authenticatedPage }) => {

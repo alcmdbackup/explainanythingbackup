@@ -247,6 +247,7 @@ export async function getEditorTextContent(page: Page, timeout = 30000): Promise
     if (content.trim().length > 0) {
       return content;
     }
+    // eslint-disable-next-line flakiness/no-wait-for-timeout -- polling interval waiting for Lexical async init
     await page.waitForTimeout(100);
   }
 

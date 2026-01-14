@@ -9,6 +9,8 @@ import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
+import ExplanationCard from '@/components/explore/ExplanationCard';
+import ScoreBadges from '@/components/ui/ScoreBadges';
 import TagBar from '@/components/TagBar';
 import { SEOHead } from '@/components/SEOHead';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
@@ -736,11 +738,21 @@ function ResultsPageContent() {
             // Handle title parameter first
             if (title) {
                 logger.debug('useEffect: handleUserAction called with title', { title }, FILE_DEBUG);
-                handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                try {
+                    await handleUserAction(title, UserInputType.TitleFromLink, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                } catch (error) {
+                    logger.error('Failed to handle title action', { error, title });
+                    dispatchLifecycle({ type: 'ERROR', error: error instanceof Error ? error.message : 'Failed to load explanation' });
+                }
                 // Loading state will be managed automatically by content-watching useEffect
             } else if (query) {
                 logger.debug('useEffect: handleUserAction called with query', { query, sourcesCount: sourcesFromStorage.length }, FILE_DEBUG);
-                handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                try {
+                    await handleUserAction(query, UserInputType.Query, initialMode, effectiveUserid, [], null, null, sourcesFromStorage);
+                } catch (error) {
+                    logger.error('Failed to handle query action', { error, query });
+                    dispatchLifecycle({ type: 'ERROR', error: error instanceof Error ? error.message : 'Failed to generate explanation' });
+                }
                 // Loading state will be managed automatically by content-watching useEffect
             } else {
                 // Handle userQueryId parameter
@@ -988,33 +1000,24 @@ function ResultsPageContent() {
                                     <div className="space-y-4 border border-[var(--border-default)] rounded-book p-4 bg-[var(--surface-secondary)] shadow-warm">
                                         {matches && matches.length > 0 ? (
                                             matches.map((match, index) => (
-                                                <div
-                                                    key={index}
-                                                    className="p-4 bg-[var(--surface-elevated)] rounded-page shadow-page hover:shadow-warm transition-all duration-200 border border-[var(--border-default)] hover:-translate-y-0.5 cursor-pointer"
+                                                <ExplanationCard
+                                                    key={match.explanation_id}
+                                                    explanation={{
+                                                        id: match.explanation_id,
+                                                        explanation_title: match.current_title || match.text,
+                                                        content: match.current_content || match.text,
+                                                        summary_teaser: match.summary_teaser
+                                                    }}
                                                     onClick={() => loadExplanation(match.explanation_id, false, userid)}
-                                                >
-                                                    <div className="mb-2 flex items-center justify-between">
-                                                        <div className="flex items-center gap-4">
-                                                            <span className="text-xs font-sans font-medium px-2 py-1 bg-[var(--accent-gold)]/10 text-[var(--accent-gold)] rounded-page">
-                                                                {(match.ranking.similarity * 100).toFixed(0)}% match
-                                                            </span>
-                                                            {match.ranking.diversity_score !== null && (
-                                                                <span className="text-xs font-sans font-medium px-2 py-1 bg-[var(--accent-copper)]/10 text-[var(--accent-copper)] rounded-page">
-                                                                    {(match.ranking.diversity_score * 100).toFixed(0)}% unique
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <span className="text-xs font-sans text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors">
-                                                            View →
-                                                        </span>
-                                                    </div>
-                                                    <h3 className="font-display font-semibold text-[var(--text-primary)] mb-2">
-                                                        {match.current_title || match.text}
-                                                    </h3>
-                                                    <p className="font-serif text-[var(--text-secondary)] text-sm line-clamp-3">
-                                                        {match.current_content || match.text}
-                                                    </p>
-                                                </div>
+                                                    index={index}
+                                                    disableEntrance
+                                                    footer={
+                                                        <ScoreBadges
+                                                            similarity={match.ranking.similarity}
+                                                            diversity={match.ranking.diversity_score}
+                                                        />
+                                                    }
+                                                />
                                             ))
                                         ) : (
                                             <p className="font-serif text-[var(--text-muted)] text-center py-8">
@@ -1352,6 +1355,8 @@ function ResultsPageContent() {
                             setModalInitialPrompt(prompt);
                             setShowAdvancedModal(true);
                         }}
+                        tagState={tagState}
+                        dispatchTagAction={dispatchTagAction}
                         />
                     </div>
 

@@ -41,7 +41,7 @@ describe('AIEditorPanel', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
       render(<AIEditorPanel {...props} />);
 
-      expect(screen.getByText('Edit article')).toBeInTheDocument();
+      expect(screen.getByText('Suggest edits')).toBeInTheDocument();
     });
 
     it('should render collapsed panel when isOpen is false', () => {
@@ -57,7 +57,14 @@ describe('AIEditorPanel', () => {
       const props = createMockAISuggestionsPanelProps({ isOpen: true });
       render(<AIEditorPanel {...props} />);
 
-      expect(screen.getByText('Edit article')).toBeInTheDocument();
+      expect(screen.getByText('Suggest edits')).toBeInTheDocument();
+    });
+
+    it('should show "Rewrite article" header when outputMode is rewrite', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, outputMode: 'rewrite' });
+      render(<AIEditorPanel {...props} />);
+
+      expect(screen.getByText('Rewrite article')).toBeInTheDocument();
     });
 
     it('should render collapse/expand toggle button', () => {

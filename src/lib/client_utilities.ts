@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { RequestIdContext } from './requestIdContext';
 import * as Sentry from '@sentry/nextjs';
+import { sanitizeForSentry } from './sentrySanitization';
 
 /**
  * Logger utility for consistent logging across the application
@@ -52,21 +53,45 @@ const logger = {
         if (!debug) return;
         console.log(`[DEBUG] ${message}`, addRequestId(data));
         sendToSentry('DEBUG', message, data);
+        // Send to Sentry Logs for dedicated log view
+        try {
+            Sentry.logger.debug(message, sanitizeForSentry(addRequestId(data)));
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     },
 
     error: (message: string, data: LoggerData | null = null) => {
         console.error(`[ERROR] ${message}`, addRequestId(data));
         sendToSentry('ERROR', message, data);
+        // Send to Sentry Logs for dedicated log view (in addition to breadcrumbs)
+        try {
+            Sentry.logger.error(message, sanitizeForSentry(addRequestId(data)));
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     },
 
     info: (message: string, data: LoggerData | null = null) => {
         console.log(`[INFO] ${message}`, addRequestId(data));
         sendToSentry('INFO', message, data);
+        // Send to Sentry Logs for dedicated log view
+        try {
+            Sentry.logger.info(message, sanitizeForSentry(addRequestId(data)));
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     },
 
     warn: (message: string, data: LoggerData | null = null) => {
         console.warn(`[WARN] ${message}`, addRequestId(data));
         sendToSentry('WARN', message, data);
+        // Send to Sentry Logs for dedicated log view (in addition to breadcrumbs)
+        try {
+            Sentry.logger.warn(message, sanitizeForSentry(addRequestId(data)));
+        } catch {
+            // Silently fail if Sentry.logger fails
+        }
     }
 };
 

@@ -15,6 +15,9 @@ jest.mock('@/lib/services/llms', () => ({
 jest.mock('@/lib/requestIdContext', () => ({
   RequestIdContext: {
     run: jest.fn((data, callback) => callback()),
+    getRequestId: jest.fn(() => 'test-request-id'),
+    getUserId: jest.fn(() => 'test-user-id'),
+    getSessionId: jest.fn(() => 'test-session-id'),
   },
 }));
 

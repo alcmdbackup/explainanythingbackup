@@ -40,7 +40,7 @@ describe('Metrics Aggregation Integration Tests', () => {
     const { data: topic } = await supabase
       .from('topics')
       .insert({
-        topic_title: `test-topic-${testId}`,
+        topic_title: `[TEST] topic-${testId}`,
         topic_description: 'Test topic for metrics',
       })
       .select()
@@ -51,7 +51,7 @@ describe('Metrics Aggregation Integration Tests', () => {
     const { data: explanation } = await supabase
       .from('explanations')
       .insert({
-        explanation_title: `test-explanation-${testId}`,
+        explanation_title: `[TEST] explanation-${testId}`,
         content: 'Test content for metrics testing',
         primary_topic_id: testTopicId,
         status: 'published',

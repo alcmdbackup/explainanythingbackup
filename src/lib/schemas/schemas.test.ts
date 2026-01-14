@@ -191,6 +191,8 @@ describe('schemas', () => {
         },
         current_title: 'Current Title',
         current_content: 'Current content',
+        summary_teaser: 'A preview of the match',
+        timestamp: '2025-01-11T00:00:00Z',
       };
 
       const result = matchWithCurrentContentSchema.parse(validData);
@@ -211,6 +213,47 @@ describe('schemas', () => {
       };
 
       expect(() => matchWithCurrentContentSchema.parse(invalidData)).toThrow();
+    });
+
+    it('should require summary_teaser and timestamp fields', () => {
+      const missingFieldsMatch = {
+        text: 'test text',
+        explanation_id: 1,
+        topic_id: 2,
+        current_title: 'Test Title',
+        current_content: 'Test content',
+        ranking: { similarity: 0.95, diversity_score: 0.8 },
+      };
+      // These fields are now required, so parsing should throw
+      expect(() => matchWithCurrentContentSchema.parse(missingFieldsMatch)).toThrow();
+    });
+
+    it('should accept complete match with summary_teaser and timestamp', () => {
+      const completeMatch = {
+        text: 'test text',
+        explanation_id: 1,
+        topic_id: 2,
+        current_title: 'Test Title',
+        current_content: 'Test content',
+        summary_teaser: 'AI-generated preview',
+        timestamp: '2025-01-11T12:00:00Z',
+        ranking: { similarity: 0.95, diversity_score: null },
+      };
+      expect(() => matchWithCurrentContentSchema.parse(completeMatch)).not.toThrow();
+    });
+
+    it('should accept null summary_teaser (for older explanations without AI preview)', () => {
+      const matchWithNullTeaser = {
+        text: 'test text',
+        explanation_id: 1,
+        topic_id: 2,
+        current_title: 'Test Title',
+        current_content: 'Test content',
+        summary_teaser: null,
+        timestamp: '2025-01-11T12:00:00Z',
+        ranking: { similarity: 0.95, diversity_score: 0.5 },
+      };
+      expect(() => matchWithCurrentContentSchema.parse(matchWithNullTeaser)).not.toThrow();
     });
   });
 

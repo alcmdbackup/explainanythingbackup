@@ -504,7 +504,8 @@ describe('runAISuggestionsPipelineAction', () => {
         explanation_id: 456,
         explanation_title: 'Test Explanation',
         user_prompt: 'Make it better',
-      }
+      },
+      undefined // userId
     );
     expect(result).toEqual(mockResult);
   });
@@ -522,7 +523,8 @@ describe('runAISuggestionsPipelineAction', () => {
       'Content',
       null,
       undefined,
-      undefined
+      undefined,
+      undefined // userId
     );
     expect(result).toEqual(mockResult);
   });
@@ -555,7 +557,8 @@ describe('runAISuggestionsPipelineAction', () => {
       'Content',
       null,
       undefined,
-      undefined
+      undefined,
+      undefined // userId
     );
     expect(logger.debug).toHaveBeenCalledWith(
       expect.stringContaining('runAISuggestionsPipelineAction'),
@@ -725,7 +728,8 @@ describe('getAndApplyAISuggestionsAction', () => {
         explanation_id: 1,
         explanation_title: 'Test',
         user_prompt: 'Improve this',
-      }
+      },
+      undefined // userId
     );
     expect(result).toEqual(mockResult);
   });
@@ -743,7 +747,8 @@ describe('getAndApplyAISuggestionsAction', () => {
       'Content',
       null,
       undefined,
-      undefined
+      undefined,
+      undefined // userId
     );
     expect(result).toEqual(mockResult);
   });

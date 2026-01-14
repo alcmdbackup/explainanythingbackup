@@ -6,6 +6,7 @@
 import { test } from '../fixtures/auth';
 import { SearchPage } from '../helpers/pages/SearchPage';
 import { ResultsPage } from '../helpers/pages/ResultsPage';
+import { TEST_CONTENT_PREFIX, trackExplanationForCleanup } from '../helpers/test-data-factory';
 
 test.describe('Publish Bug After Streaming', () => {
   // Extended timeout needed: streaming generation alone can take up to 90s in real scenarios.
@@ -22,7 +23,8 @@ test.describe('Publish Bug After Streaming', () => {
     // Generate a new explanation
     await searchPage.navigate();
 
-    const uniqueQuery = `publish bug test ${Date.now()}`;
+    // Use [TEST] prefix for easier detection and cleanup
+    const uniqueQuery = `${TEST_CONTENT_PREFIX} publish bug test ${Date.now()}`;
     console.log('Searching for:', uniqueQuery);
     await searchPage.search(uniqueQuery);
 
@@ -41,6 +43,14 @@ test.describe('Publish Bug After Streaming', () => {
     // Wait for URL to have explanation_id (page redirects after streaming)
     await authenticatedPage.waitForURL(/explanation_id=/, { timeout: 30000 });
     console.log('Page redirected with explanation_id');
+
+    // Track explanation for cleanup (defense-in-depth)
+    const url = new URL(authenticatedPage.url());
+    const explanationId = url.searchParams.get('explanation_id');
+    if (explanationId) {
+      trackExplanationForCleanup(explanationId);
+      console.log('Tracked explanation for cleanup:', explanationId);
+    }
 
     // Wait for content to load after redirect
     await resultsPage.waitForAnyContent(30000);

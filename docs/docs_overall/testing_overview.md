@@ -15,6 +15,10 @@ Consolidated guide covering testing rules, tiers, and CI/CD workflows.
    - `safeIsVisible()` - Visibility check with error logging
    - `safeTextContent()` - Text extraction with error logging
    - `safeScreenshot()` - Screenshot with failure logging
+8. **Avoid test.skip() - create test data instead.** Tests should use `test-data-factory.ts` to create required data in `beforeAll`, not skip when data isn't available. Acceptable exceptions (require `eslint-disable` comment):
+   - Feature not yet implemented
+   - Infrastructure limitation (e.g., Supabase SSR cookies)
+   - Known bug being tracked separately
 
 ---
 
@@ -39,10 +43,11 @@ All test content uses the `[TEST]` prefix at the start of titles to:
 
 | File | Purpose |
 |------|---------|
-| `src/__tests__/e2e/helpers/test-data-factory.ts` | E2E test content creation with `TEST_CONTENT_PREFIX` |
+| `src/__tests__/e2e/helpers/test-data-factory.ts` | E2E test content creation, auto-tracking, cleanup functions |
 | `src/testing/utils/integration-helpers.ts` | Integration test content with `TEST_PREFIX` |
-| `src/__tests__/e2e/setup/global-teardown.ts` | E2E cleanup including Pinecone vectors |
+| `src/__tests__/e2e/setup/global-teardown.ts` | E2E cleanup including Pinecone vectors and tracked IDs |
 | `scripts/cleanup-test-content.ts` | One-time cleanup script for existing test data |
+| `scripts/cleanup-specific-junk.ts` | Pattern-based cleanup for specific junk content |
 
 ### Discovery Path Filtering
 
@@ -69,6 +74,52 @@ npx tsx scripts/cleanup-test-content.ts
 # Run on production (10-second confirmation delay)
 npx tsx scripts/cleanup-test-content.ts --prod
 ```
+
+### Defense-in-Depth: Auto-Tracking Cleanup
+
+Beyond prefix filtering, a second layer tracks and cleans explanations automatically:
+
+**How it works:**
+```
+Test creates explanation → trackExplanationForCleanup(id) → writes to /tmp/e2e-tracked-*.json
+                                                                      ↓
+Global teardown → cleanupAllTrackedExplanations() → reads file → deletes each ID → clears file
+```
+
+**Key functions (from `test-data-factory.ts`):**
+
+| Function | Purpose |
+|----------|---------|
+| `trackExplanationForCleanup(id)` | Register an ID for cleanup (called automatically by factory) |
+| `cleanupAllTrackedExplanations()` | Delete all tracked IDs and clear file |
+| `deleteExplanationById(id)` | Delete single explanation with Pinecone vectors |
+
+**When to use manual tracking:**
+- Tests that create explanations via API (not factory) - e.g., import tests with LLM-generated titles
+- Any content that bypasses the factory's automatic tracking
+
+**Example:**
+```typescript
+import { trackExplanationForCleanup } from '../../helpers/test-data-factory';
+
+test('import creates explanation', async ({ page }) => {
+  // ... test actions that create an explanation ...
+
+  // Capture ID from redirect URL and track for cleanup
+  const url = new URL(page.url());
+  const explanationId = url.searchParams.get('explanation_id');
+  if (explanationId) {
+    trackExplanationForCleanup(explanationId);
+  }
+});
+```
+
+### Two Layers of Protection
+
+| Layer | Mechanism | Catches |
+|-------|-----------|---------|
+| **Prefix filtering** | `[TEST]` prefix excluded from discovery | Factory-created content |
+| **Auto-tracking** | ID-based cleanup via temp file | LLM-generated content, orphaned records |
 
 ---
 
@@ -159,7 +210,7 @@ typecheck → lint → unit tests → integration tests → E2E tests
 - Runs on `main` branch
 - Full E2E test suite (no sharding)
 - **Browser matrix:** Chromium + Firefox
-- `E2E_TEST_MODE=true` for SSE streaming compatibility
+- **No E2E_TEST_MODE** - uses real AI, tests create real content (hence [TEST] prefix is critical)
 - **Fail strategy:** Continues on failure (tests all browsers)
 
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
@@ -180,11 +231,12 @@ typecheck → lint → unit tests → integration tests → E2E tests
 | **Trigger** | PR to main/production | Daily 6 AM UTC | Vercel deploy success |
 | **Branch** | PR branch | main | production |
 | **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
-| **Target** | Local build | Local build | Live production URL |
-| **Secrets** | Repository (dev) | Repository (dev) | Production environment |
+| **Target** | Local build | Live production URL | Live production URL |
+| **Secrets** | Development environment | Production environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
+| **E2E_TEST_MODE** | Yes (mocked SSE) | No (real AI) | No (real AI) |
 
-> **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.
+> **Note:** CI workflow builds and runs the app locally on the GitHub runner (`npm run build && npm start`). Nightly and Post-Deploy Smoke workflows test against the live production deployment (no local build).
 
 ### Supabase Migrations Workflow (`supabase-migrations.yml`)
 

@@ -10,6 +10,8 @@ import { SearchPage } from '../../helpers/pages/SearchPage';
 import {
   createTestExplanationInLibrary,
   type TestExplanation,
+  TEST_CONTENT_PREFIX,
+  trackExplanationForCleanup,
 } from '../../helpers/test-data-factory';
 
 test.describe('Action Buttons', () => {
@@ -44,12 +46,21 @@ test.describe('Action Buttons', () => {
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();
 
-      const uniqueQuery = `test query for save ${Date.now()}`;
+      // Use [TEST] prefix for easier detection and cleanup
+      const uniqueQuery = `${TEST_CONTENT_PREFIX} query for save ${Date.now()}`;
       await searchPage.search(uniqueQuery);
 
       // Wait for navigation to results and streaming to complete
       await authenticatedPage.waitForURL(/\/results/, { timeout: 30000 });
       await resultsPage.waitForStreamingComplete(60000);
+
+      // Track explanation for cleanup (defense-in-depth)
+      await authenticatedPage.waitForURL(/explanation_id=/, { timeout: 30000 });
+      const url = new URL(authenticatedPage.url());
+      const explanationId = url.searchParams.get('explanation_id');
+      if (explanationId) {
+        trackExplanationForCleanup(explanationId);
+      }
 
       // Verify save button is visible and enabled
       const saveVisible = await resultsPage.isSaveToLibraryVisible();
@@ -80,11 +91,20 @@ test.describe('Action Buttons', () => {
       const searchPage = new SearchPage(authenticatedPage);
       await searchPage.navigate();
 
-      const uniqueQuery = `test disable save ${Date.now()}`;
+      // Use [TEST] prefix for easier detection and cleanup
+      const uniqueQuery = `${TEST_CONTENT_PREFIX} disable save ${Date.now()}`;
       await searchPage.search(uniqueQuery);
 
       await authenticatedPage.waitForURL(/\/results/, { timeout: 30000 });
       await resultsPage.waitForStreamingComplete(60000);
+
+      // Track explanation for cleanup (defense-in-depth)
+      await authenticatedPage.waitForURL(/explanation_id=/, { timeout: 30000 });
+      const url = new URL(authenticatedPage.url());
+      const explanationId = url.searchParams.get('explanation_id');
+      if (explanationId) {
+        trackExplanationForCleanup(explanationId);
+      }
 
       // Save the explanation
       await resultsPage.clickSaveToLibrary();

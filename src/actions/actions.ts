@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callOpenAIModel, default_model, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, type ExplanationMetricsTableType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
@@ -590,7 +590,7 @@ const _getUserQueryByIdAction = async function(params: { id: number }) {
             user_query: 'test query',
             matches: [],
             explanation_id: params.id - 1000, // Reverse the +1000 offset
-            userid: 'test-user',
+            userid: ANONYMOUS_USER_UUID,  // Use nil UUID for test data (database requires valid UUID)
             newExplanation: true,
             userInputType: 'query',
             allowedQuery: true,

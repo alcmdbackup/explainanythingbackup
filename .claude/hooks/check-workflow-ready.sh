@@ -177,5 +177,44 @@ EOF
   exit 0
 fi
 
+# --- Test File Prerequisite Check ---
+# Only enforce testing_overview.md for test files
+
+is_test_file() {
+  local path="$1"
+  # Test directories
+  [[ "$path" == *"/__tests__/"* ]] && return 0
+  [[ "$path" == *"/testing/"* ]] && return 0
+  # Test file suffixes
+  [[ "$path" == *.test.ts ]] && return 0
+  [[ "$path" == *.test.tsx ]] && return 0
+  [[ "$path" == *.spec.ts ]] && return 0
+  [[ "$path" == *.spec.tsx ]] && return 0
+  [[ "$path" == *.integration.test.ts ]] && return 0
+  [[ "$path" == *.esm.test.ts ]] && return 0
+  # Test config files
+  [[ "$path" == *"jest.config"* ]] && return 0
+  [[ "$path" == *"jest.setup"* ]] && return 0
+  [[ "$path" == *"playwright.config"* ]] && return 0
+  return 1
+}
+
+if is_test_file "$FILE_PATH"; then
+  TESTING_OVERVIEW_READ=$(jq -r '.prerequisites.testing_overview_read // empty' "$STATUS_FILE" 2>/dev/null)
+
+  if [ -z "$TESTING_OVERVIEW_READ" ]; then
+    cat << 'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Test file prerequisite not met.\n\nBefore editing test files, read:\n  /docs/docs_overall/testing_overview.md\n\nThis ensures familiarity with:\n- [TEST] prefix convention\n- Auto-tracking cleanup system\n- Testing tiers and commands\n- CI/CD workflow behavior"
+  }
+}
+EOF
+    exit 0
+  fi
+fi
+
 # All checks passed - allow the operation
 exit 0

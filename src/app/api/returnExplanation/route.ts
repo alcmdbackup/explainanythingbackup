@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { MatchMode, UserInputType, type SourceCacheFullType, type SourceChipType } from '@/lib/schemas/schemas';
 import { returnExplanationLogic } from '@/lib/services/returnExplanation';
 import { getOrCreateCachedSource } from '@/lib/services/sourceCache';
@@ -253,6 +254,10 @@ export async function POST(request: NextRequest) {
 
     } catch (error) {
         logger.error('Error in returnExplanation API', { error: error instanceof Error ? error.message : String(error) });
+        Sentry.captureException(error, {
+            tags: { endpoint: '/api/returnExplanation', method: 'POST' },
+            extra: { requestId: RequestIdContext.getRequestId() },
+        });
         return Response.json(
             { error: 'Internal server error' },
             { status: 500 }

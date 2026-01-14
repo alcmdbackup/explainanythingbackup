@@ -37,8 +37,11 @@ jest.mock('@opentelemetry/sdk-logs', () => ({
   BatchLogRecordProcessor: jest.fn(),
 }));
 
-jest.mock('@opentelemetry/exporter-logs-otlp-http', () => ({
-  OTLPLogExporter: jest.fn(),
+jest.mock('@opentelemetry/exporter-logs-otlp-proto', () => ({
+  OTLPLogExporter: jest.fn().mockImplementation(() => ({
+    export: jest.fn((logs, callback) => callback({ code: 0 })),
+    shutdown: jest.fn(),
+  })),
 }));
 
 jest.mock('@opentelemetry/resources', () => ({
@@ -48,6 +51,14 @@ jest.mock('@opentelemetry/resources', () => ({
 jest.mock('@opentelemetry/api', () => ({
   trace: {
     getActiveSpan: jest.fn().mockReturnValue(null),
+  },
+}));
+
+jest.mock('@opentelemetry/core', () => ({
+  ExportResult: {},
+  ExportResultCode: {
+    SUCCESS: 0,
+    FAILED: 1,
   },
 }));
 
@@ -262,6 +273,92 @@ describe('otelLogger', () => {
           }),
         })
       );
+    });
+  });
+
+  describe('header masking (security)', () => {
+    let consoleSpy: jest.SpyInstance;
+
+    beforeEach(() => {
+      jest.resetModules();
+      consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    });
+
+    afterEach(() => {
+      consoleSpy.mockRestore();
+    });
+
+    it('should mask header values with [MASKED] before logging', () => {
+      setNodeEnv('production');
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-honeycomb-team=secretkey123456';
+
+      // Import fresh module and call emitLog to trigger initialization
+      const { emitLog } = require('./otelLogger');
+      emitLog('ERROR', 'test message');
+
+      // Find the log call that contains "Parsed headers"
+      const headerLogCall = consoleSpy.mock.calls.find((call) => call[0]?.includes?.('Parsed headers'));
+
+      expect(headerLogCall).toBeDefined();
+      // console.log is called with two arguments: prefix and JSON string
+      const fullLogOutput = headerLogCall.join(' ');
+      expect(fullLogOutput).toContain('[MASKED]');
+      expect(fullLogOutput).not.toContain('secretkey123456');
+    });
+
+    it('should not expose API key anywhere in initialization logs', () => {
+      const secretKey = 'e6BHBGspbuTr8f7vQnTLXG';
+      setNodeEnv('production');
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = `x-honeycomb-team=${secretKey}`;
+
+      const { emitLog } = require('./otelLogger');
+      emitLog('ERROR', 'test message');
+
+      const allLogOutput = consoleSpy.mock.calls.map((call) => call.join(' ')).join('\n');
+
+      expect(allLogOutput).not.toContain(secretKey);
+    });
+  });
+
+  describe('processor selection by environment', () => {
+    beforeEach(() => {
+      jest.resetModules();
+    });
+
+    it('should use BatchLogRecordProcessor in production', () => {
+      const { BatchLogRecordProcessor, SimpleLogRecordProcessor } = require('@opentelemetry/sdk-logs');
+      BatchLogRecordProcessor.mockClear();
+      SimpleLogRecordProcessor.mockClear();
+
+      setNodeEnv('production');
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-honeycomb-team=test';
+
+      // Call emitLog to trigger initialization
+      const { emitLog } = require('./otelLogger');
+      emitLog('ERROR', 'test');
+
+      expect(BatchLogRecordProcessor).toHaveBeenCalled();
+      expect(SimpleLogRecordProcessor).not.toHaveBeenCalled();
+    });
+
+    it('should use SimpleLogRecordProcessor in development', () => {
+      const { BatchLogRecordProcessor, SimpleLogRecordProcessor } = require('@opentelemetry/sdk-logs');
+      BatchLogRecordProcessor.mockClear();
+      SimpleLogRecordProcessor.mockClear();
+
+      setNodeEnv('development');
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = 'https://api.honeycomb.io';
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = 'x-honeycomb-team=test';
+
+      // Call emitLog to trigger initialization
+      const { emitLog } = require('./otelLogger');
+      emitLog('DEBUG', 'test');
+
+      expect(SimpleLogRecordProcessor).toHaveBeenCalled();
+      expect(BatchLogRecordProcessor).not.toHaveBeenCalled();
     });
   });
 });

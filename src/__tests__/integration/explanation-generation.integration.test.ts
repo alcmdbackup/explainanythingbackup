@@ -186,7 +186,7 @@ describe('Explanation Generation Integration Tests', () => {
   describe('Match Found - Return Existing Explanation', () => {
     it('should return existing explanation when high similarity match found', async () => {
       // Arrange - Create existing explanation in database
-      const existingTopicTitle = `${testId}-existing-topic`;
+      const existingTopicTitle = `[TEST] ${testId}-existing-topic`;
       const topicResult = await supabase
         .from('topics')
         .insert({
@@ -199,7 +199,7 @@ describe('Explanation Generation Integration Tests', () => {
       expect(topicResult.error).toBeNull();
       const existingTopic = topicResult.data;
 
-      const existingExplanationTitle = `${testId}-existing-explanation`;
+      const existingExplanationTitle = `[TEST] ${testId}-existing-explanation`;
       const explanationResult = await supabase
         .from('explanations')
         .insert({
@@ -368,7 +368,7 @@ describe('Explanation Generation Integration Tests', () => {
 
       // Mock all OpenAI calls to succeed
       mockOpenAIChatCreate.mockResolvedValueOnce({
-        choices: [{ message: { content: JSON.stringify({ title: `${testId}-rollback-title` }) } }],
+        choices: [{ message: { content: JSON.stringify({ title: `[TEST] ${testId}-rollback-title` }) } }],
       });
 
       mockOpenAIEmbeddingsCreate.mockResolvedValue({
@@ -528,7 +528,7 @@ describe('Explanation Generation Integration Tests', () => {
   describe('Database Constraints', () => {
     it('should handle database constraint violations gracefully', async () => {
       // Arrange - Create topic with specific title
-      const duplicateTopicTitle = `${testId}-duplicate-topic`;
+      const duplicateTopicTitle = `[TEST] ${testId}-duplicate-topic`;
       await supabase
         .from('topics')
         .insert({

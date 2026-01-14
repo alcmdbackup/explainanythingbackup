@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 import { logger } from '@/lib/server_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
@@ -124,6 +125,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     logger.error('fetchSourceMetadata: Unexpected error', {
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+    Sentry.captureException(error, {
+      tags: { endpoint: '/api/fetchSourceMetadata', method: 'POST' },
+      extra: { requestId: RequestIdContext.getRequestId() },
     });
 
     return Response.json(

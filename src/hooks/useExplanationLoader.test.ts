@@ -296,6 +296,8 @@ describe('useExplanationLoader', () => {
                     topic_id: 1,
                     current_title: 'Match 1',
                     current_content: 'Match content 1',
+                    summary_teaser: 'Match preview',
+                    timestamp: '2025-01-01T00:00:00Z',
                     text: 'Match text',
                     ranking: { similarity: 0.95, diversity_score: 0.8 }
                 }
@@ -564,6 +566,8 @@ describe('useExplanationLoader', () => {
                 topic_id: 1,
                 current_title: 'Match',
                 current_content: 'Content',
+                summary_teaser: 'Preview text',
+                timestamp: '2025-01-01T00:00:00Z',
                 text: 'Text',
                 ranking: { similarity: 0.9, diversity_score: 0.7 }
             }];

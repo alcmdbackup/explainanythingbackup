@@ -143,6 +143,56 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_progress.md` using the **Write tool** with
 ...
 ```
 
+### 6.5. Documentation Mapping
+
+Set up documentation mappings for the project:
+
+1. **Ask if new feature deep dive needed:**
+
+   "Will this project require a new feature deep dive document?"
+   - If **Yes**:
+     - Prompt for doc name (e.g., `user_preferences.md`)
+     - Create template in `docs/feature_deep_dives/[name].md`:
+       ```markdown
+       # [Feature Name]
+
+       ## Overview
+       [To be filled during implementation]
+
+       ## Key Files
+       - `src/lib/services/[service].ts` - [description]
+
+       ## Implementation
+       [To be filled during implementation]
+       ```
+     - Add mapping entry to `.claude/doc-mapping.json`
+   - If **No** → continue
+
+2. **Ask which existing docs will be affected:**
+
+   "Which existing documentation files will this project likely affect?"
+
+   Present options:
+   - architecture.md (system design changes)
+   - An existing feature_deep_dive (specify which)
+   - testing_overview.md (test infrastructure)
+   - environments.md (CI/CD, env vars)
+   - Other (specify)
+   - None
+
+3. **For new or selected docs, ask for code patterns:**
+
+   "What code patterns will map to [doc]?"
+
+   Suggest based on project name, e.g.:
+   - Project "add_user_preferences" → suggest `src/lib/services/preferences*.ts`
+
+4. **Update `.claude/doc-mapping.json`:**
+   - Read current mappings
+   - Add new mapping entries for specified patterns
+   - Validate patterns are valid globs
+   - Write updated config
+
 ### 7. Ask for GitHub Issue Summary
 
 **YOU MUST use AskUserQuestion** to get the issue summary:
@@ -191,6 +241,7 @@ Documents created:
    - ${PROJECT_NAME}_research.md
    - ${PROJECT_NAME}_planning.md
    - ${PROJECT_NAME}_progress.md
+Documentation mappings: [list any new mappings added to .claude/doc-mapping.json]
 GitHub Issue: [issue URL]
 
 Next steps:

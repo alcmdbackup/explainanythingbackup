@@ -10,8 +10,10 @@ import { runAISuggestionsPipelineAction, getSessionValidationResultsAction } fro
 import { Spinner } from '@/components/ui/spinner';
 import { SourceList } from '@/components/sources';
 import OutputModeToggle, { type OutputMode } from './OutputModeToggle';
+import TagSelector from './TagSelector';
 import type { SourceChipType } from '@/lib/schemas/schemas';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
+import type { TagModeState, TagModeAction } from '@/reducers/tagModeReducer';
 
 // ============================================================================
 // Types
@@ -44,6 +46,10 @@ interface AIEditorPanelProps {
   onRewrite?: (prompt: string, sources: SourceChipType[]) => Promise<void>;
   /** Callback to open advanced modal - passes current prompt */
   onExpandToModal?: (prompt: string) => void;
+  /** Tag mode state for tag selection */
+  tagState?: TagModeState;
+  /** Dispatch function for tag actions */
+  dispatchTagAction?: React.Dispatch<TagModeAction>;
 }
 
 interface ProgressState {
@@ -233,7 +239,9 @@ export default function AIEditorPanel({
   outputMode = 'inline-diff',
   onOutputModeChange,
   onRewrite,
-  onExpandToModal
+  onExpandToModal,
+  tagState,
+  dispatchTagAction
 }: AIEditorPanelProps) {
   const [userPrompt, setUserPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -481,12 +489,14 @@ export default function AIEditorPanel({
 
       {/* Panel Content */}
       <div className={`flex flex-col h-full ${isOpen ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}>
-        {/* Header */}
+        {/* Header - Dynamic based on output mode */}
         <div className="border-b border-[var(--border-default)] p-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <QuillIcon />
-              <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">Edit article</h2>
+              <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">
+                {outputMode === 'rewrite' ? 'Rewrite article' : 'Suggest edits'}
+              </h2>
             </div>
             {onExpandToModal && (
               <button
@@ -503,42 +513,21 @@ export default function AIEditorPanel({
               </button>
             )}
           </div>
-          <p className="text-sm font-serif text-[var(--text-muted)] mt-1">
-            Use AI to refine and improve your content
-          </p>
+          {/* Output Mode Toggle - Compact, right below header */}
+          {onOutputModeChange && (
+            <div className="mt-3">
+              <OutputModeToggle
+                value={outputMode}
+                onChange={onOutputModeChange}
+                disabled={isLoading}
+              />
+            </div>
+          )}
         </div>
 
         {/* Scrollable Content Area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Quick Actions */}
-          <div className="space-y-2">
-            <h4 className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
-              Quick Actions
-            </h4>
-            <div className="flex flex-wrap gap-2">
-              {QUICK_ACTIONS.map((action) => (
-                <button
-                  key={action.id}
-                  onClick={() => handleQuickAction(action)}
-                  disabled={isLoading || !currentContent.trim()}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-ui
-                    bg-[var(--surface-elevated)]
-                    border border-[var(--border-default)]
-                    rounded-md
-                    text-[var(--text-secondary)]
-                    hover:bg-[var(--surface-secondary)] hover:border-[var(--border-strong)]
-                    hover:text-[var(--text-primary)]
-                    disabled:opacity-50 disabled:cursor-not-allowed
-                    transition-all duration-200"
-                >
-                  {action.icon}
-                  <span>{action.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Prompt Input */}
+          {/* Prompt Input - Primary focus */}
           <div className="bg-[var(--surface-elevated)] rounded-lg p-3 border border-[var(--border-default)]">
             <label htmlFor="ai-prompt" className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
               What would you like to improve?
@@ -556,6 +545,25 @@ export default function AIEditorPanel({
                 font-serif text-sm resize-none transition-all duration-200"
               disabled={isLoading}
             />
+            {/* Quick Actions - Subtle text links below prompt */}
+            <div className="flex flex-wrap items-center gap-x-1 pt-2">
+              {QUICK_ACTIONS.map((action, index) => (
+                <span key={action.id} className="inline-flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickAction(action)}
+                    disabled={isLoading || !currentContent.trim()}
+                    className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-copper)]
+                      disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {action.label}
+                  </button>
+                  {index < QUICK_ACTIONS.length - 1 && (
+                    <span className="text-xs text-[var(--text-muted)]/50 mx-1">·</span>
+                  )}
+                </span>
+              ))}
+            </div>
           </div>
 
           {/* Sources Section */}
@@ -594,13 +602,18 @@ export default function AIEditorPanel({
             </div>
           )}
 
-          {/* Output Mode Toggle */}
-          {onOutputModeChange && (
-            <OutputModeToggle
-              value={outputMode}
-              onChange={onOutputModeChange}
-              disabled={isLoading}
-            />
+          {/* Tags Section */}
+          {tagState && dispatchTagAction && sessionData?.explanation_id && (
+            <div
+              className="bg-[var(--surface-elevated)] rounded-lg p-3 border border-[var(--border-default)]"
+              data-testid="sidebar-tag-selector"
+            >
+              <TagSelector
+                tagState={tagState}
+                dispatch={dispatchTagAction}
+                disabled={isLoading}
+              />
+            </div>
           )}
 
           {/* Submit Button */}

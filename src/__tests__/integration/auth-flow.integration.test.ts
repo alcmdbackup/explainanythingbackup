@@ -50,7 +50,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: topic } = await supabase
         .from('topics')
         .insert({
-          topic_title: `test-topic-${testId}`,
+          topic_title: `[TEST] topic-${testId}`,
           topic_description: 'Test topic for auth flow',
         })
         .select()
@@ -59,7 +59,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: explanation } = await supabase
         .from('explanations')
         .insert({
-          explanation_title: `test-explanation-${testId}`,
+          explanation_title: `[TEST] explanation-${testId}`,
           content: 'Test content',
           primary_topic_id: topic!.id,
           status: 'published',
@@ -89,7 +89,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: topic } = await supabase
         .from('topics')
         .insert({
-          topic_title: `test-topic-${testId}`,
+          topic_title: `[TEST] topic-${testId}`,
           topic_description: 'Test topic',
         })
         .select()
@@ -98,7 +98,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: explanation } = await supabase
         .from('explanations')
         .insert({
-          explanation_title: `test-explanation-${testId}`,
+          explanation_title: `[TEST] explanation-${testId}`,
           content: 'Test content',
           primary_topic_id: topic!.id,
           status: 'published',
@@ -128,7 +128,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: topic } = await supabase
         .from('topics')
         .insert({
-          topic_title: `test-topic-${testId}`,
+          topic_title: `[TEST] topic-${testId}`,
           topic_description: 'Test topic',
         })
         .select()
@@ -137,7 +137,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: explanation } = await supabase
         .from('explanations')
         .insert({
-          explanation_title: `test-explanation-${testId}`,
+          explanation_title: `[TEST] explanation-${testId}`,
           content: 'Test content',
           primary_topic_id: topic!.id,
           status: 'published',
@@ -179,7 +179,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: topic } = await supabase
         .from('topics')
         .insert({
-          topic_title: `test-topic-${testId}`,
+          topic_title: `[TEST] topic-${testId}`,
           topic_description: 'Test topic',
         })
         .select()
@@ -188,7 +188,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: explanation } = await supabase
         .from('explanations')
         .insert({
-          explanation_title: `test-explanation-${testId}`,
+          explanation_title: `[TEST] explanation-${testId}`,
           content: 'Test content',
           primary_topic_id: topic!.id,
           status: 'published',
@@ -224,7 +224,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: topic } = await supabase
         .from('topics')
         .insert({
-          topic_title: `test-topic-${testId}`,
+          topic_title: `[TEST] topic-${testId}`,
           topic_description: 'Test topic',
         })
         .select()
@@ -233,7 +233,7 @@ describe('Auth Flow Integration Tests', () => {
       const { data: explanation } = await supabase
         .from('explanations')
         .insert({
-          explanation_title: `test-explanation-${testId}`,
+          explanation_title: `[TEST] explanation-${testId}`,
           content: 'Test content',
           primary_topic_id: topic!.id,
           status: 'published',

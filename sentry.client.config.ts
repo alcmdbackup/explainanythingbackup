@@ -3,6 +3,7 @@
 // https://docs.sentry.io/platforms/javascript/guides/nextjs/
 
 import * as Sentry from "@sentry/nextjs";
+import { createBeforeSendLog } from "@/lib/sentrySanitization";
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
@@ -20,6 +21,10 @@ if (!dsn) {
 Sentry.init({
   dsn,
   environment: process.env.NODE_ENV,
+
+  // Enable Sentry Logs for error correlation (SDK v10+ uses top-level option)
+  enableLogs: true,
+  beforeSendLog: createBeforeSendLog(),
 
   // Route through our tunnel endpoint to bypass ad blockers
   tunnel: '/api/monitoring',

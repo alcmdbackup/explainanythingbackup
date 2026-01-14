@@ -526,9 +526,10 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
         try {
             // Use the existing action to get AI suggestions
+            // Use nil UUID for anonymous/test users (database requires valid UUID format)
             const result = await generateAISuggestionsAction(
                 currentContent,
-                'test-user',
+                '00000000-0000-0000-0000-000000000000',
                 'Improve the overall quality of this content'  // Default prompt for debug page
             );
 
@@ -598,10 +599,11 @@ Einstein's contributions to physics earned him the Nobel Prize in Physics in 192
 
         try {
             // Use the existing action to apply AI suggestions
+            // Use nil UUID for anonymous/test users (database requires valid UUID format)
             const result = await applyAISuggestionsAction(
                 aiSuggestions,
                 currentContent,
-                'test-user'
+                '00000000-0000-0000-0000-000000000000'
             );
 
             if (result.success && result.data) {

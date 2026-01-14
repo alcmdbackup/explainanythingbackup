@@ -58,6 +58,8 @@ describe('findMatches Service', () => {
         topic_id: 10,
         current_title: 'First Match',
         current_content: 'Content for first match',
+        summary_teaser: 'Preview for first match',
+        timestamp: '2025-01-01T00:00:00Z',
         ranking: { similarity: 0.95, diversity_score: 0.5 }
       },
       {
@@ -66,6 +68,8 @@ describe('findMatches Service', () => {
         topic_id: 20,
         current_title: 'Second Match',
         current_content: 'Content for second match',
+        summary_teaser: 'Preview for second match',
+        timestamp: '2025-01-02T00:00:00Z',
         ranking: { similarity: 0.90, diversity_score: 0.7 }
       },
       {
@@ -74,6 +78,8 @@ describe('findMatches Service', () => {
         topic_id: 30,
         current_title: 'Third Match',
         current_content: 'Content for third match',
+        summary_teaser: null,
+        timestamp: '2025-01-03T00:00:00Z',
         ranking: { similarity: 0.85, diversity_score: 0.6 }
       }
     ];
@@ -188,6 +194,8 @@ describe('findMatches Service', () => {
         topic_id: 10,
         current_title: 'Only Match',
         current_content: 'Content',
+        summary_teaser: 'Preview text',
+        timestamp: '2025-01-01T00:00:00Z',
         ranking: { similarity: 0.95, diversity_score: 0.5 }
       }];
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
@@ -265,6 +273,8 @@ describe('findMatches Service', () => {
         topic_id: null as any, // Explicitly null topic_id
         current_title: 'Match',
         current_content: 'Content',
+        summary_teaser: null,
+        timestamp: '2025-01-01T00:00:00Z',
         ranking: { similarity: 0.95, diversity_score: null }
       }];
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
@@ -284,6 +294,8 @@ describe('findMatches Service', () => {
         topic_id: 10,
         current_title: 'Long Match',
         current_content: 'x'.repeat(2000), // 2000 chars
+        summary_teaser: 'Short preview',
+        timestamp: '2025-01-01T00:00:00Z',
         ranking: { similarity: 0.95, diversity_score: 0.5 }
       }];
       mockCallOpenAIModel.mockResolvedValue(JSON.stringify({ selectedSourceIndex: 1 }));
@@ -344,6 +356,7 @@ describe('findMatches Service', () => {
         id: 1,
         explanation_title: 'Test Explanation',
         content: 'Test content',
+        summary_teaser: 'Test preview teaser',
         primary_topic_id: 10,
         secondary_topic_id: undefined,
         status: 'published' as any,
@@ -363,6 +376,8 @@ describe('findMatches Service', () => {
         topic_id: 10,
         current_title: 'Test Explanation',
         current_content: 'Test content',
+        summary_teaser: 'Test preview teaser',
+        timestamp: '2024-01-01T00:00:00Z',
         ranking: {
           similarity: 0.95,
           diversity_score: 0.5

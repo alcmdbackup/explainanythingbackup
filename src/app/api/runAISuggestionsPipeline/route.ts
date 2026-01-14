@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
 import { logger } from '@/lib/server_utilities';
 
@@ -50,12 +51,18 @@ export async function POST(request: NextRequest) {
       currentContent,
       null, // editorRef not needed for API route
       undefined, // onProgress callback not supported
-      sessionRequestData
+      sessionRequestData,
+      authResult.data?.userId // Pass userId for LLM tracking
     );
 
     return NextResponse.json(result);
   } catch (error) {
-    console.error('runAISuggestionsPipeline API error:', error);
+    logger.error('runAISuggestionsPipeline API error', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    Sentry.captureException(error, {
+      tags: { endpoint: '/api/runAISuggestionsPipeline', method: 'POST' },
+    });
     return NextResponse.json(
       {
         success: false,

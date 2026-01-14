@@ -187,6 +187,8 @@ export const matchSchema = z.object({
 export const matchWithCurrentContentSchema = matchSchema.extend({
     current_title: z.string(),
     current_content: z.string(),
+    summary_teaser: z.string().nullable(),  // AI-generated preview, null for older explanations
+    timestamp: z.string(),                   // Creation timestamp for display (empty string if missing)
 });
 
 /**
