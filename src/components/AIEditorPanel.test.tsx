@@ -442,7 +442,7 @@ describe('AIEditorPanel', () => {
       fireEvent.click(submitButton);
 
       await waitFor(() => {
-        expect(screen.getByText(/50% complete/i)).toBeInTheDocument();
+        expect(screen.getByText('50%')).toBeInTheDocument();
       });
     });
 
