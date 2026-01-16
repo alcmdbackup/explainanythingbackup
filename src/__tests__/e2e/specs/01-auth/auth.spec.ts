@@ -5,7 +5,7 @@ test.describe('Authentication Flow', () => {
   // NOTE: Login tests moved to auth.unauth.spec.ts since they require unauthenticated state
 
   test.describe('Session Management', () => {
-    test('should persist session after page refresh', { tag: '@critical' }, async ({ authenticatedPage }) => {
+    test('should persist session after page refresh', async ({ authenticatedPage }) => {
       // authenticatedPage is already logged in via fixture
       const loginPage = new LoginPage(authenticatedPage);
 
@@ -22,7 +22,7 @@ test.describe('Authentication Flow', () => {
       expect(authenticatedPage.url()).not.toContain('/login');
     });
 
-    test('should access protected route when authenticated', { tag: '@critical' }, async ({ authenticatedPage }) => {
+    test('should access protected route when authenticated', async ({ authenticatedPage }) => {
       // Navigate to protected route
       await authenticatedPage.goto('/userlibrary');
 
@@ -57,7 +57,7 @@ test.describe('Authentication Flow', () => {
   });
 
   test.describe('Edge Cases', () => {
-    test('should redirect to home when accessing login while authenticated', { tag: '@critical' }, async ({ authenticatedPage }) => {
+    test('should redirect to home when accessing login while authenticated', async ({ authenticatedPage }) => {
       // Try to access login page while already logged in
       await authenticatedPage.goto('/login');
 

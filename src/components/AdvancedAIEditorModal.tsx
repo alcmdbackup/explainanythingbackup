@@ -2,6 +2,7 @@
 
 /**
  * AdvancedAIEditorModal - Full-featured AI editing modal with tags support
+ * Styling matches AIEditorPanel for visual consistency
  * Provides expanded view of AI editing options including prompt, sources, output mode, and tags
  */
 
@@ -133,11 +134,11 @@ export default function AdvancedAIEditorModal({
       />
 
       {/* Modal */}
-      <div className="relative w-full max-w-lg mx-4 bg-[var(--surface-primary)] rounded-xl shadow-2xl border border-[var(--border-default)] max-h-[90vh] overflow-hidden flex flex-col">
+      <div className="relative w-full max-w-lg mx-4 bg-[var(--surface-elevated)] rounded-xl shadow-warm-lg border border-[var(--border-default)] max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-default)]">
-          <div className="flex flex-col gap-2">
-            <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">
+        <div className="flex items-center justify-between px-6 py-5 border-b-2 border-[var(--border-default)]">
+          <div className="flex flex-col gap-3">
+            <h2 className="text-xl font-display font-semibold text-[var(--text-primary)] leading-tight">
               {outputMode === 'rewrite' ? 'Rewrite article' : 'Suggest edits'}
             </h2>
             <OutputModeToggle
@@ -162,19 +163,20 @@ export default function AdvancedAIEditorModal({
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
           {/* Prompt */}
           <div>
-            <label className="block text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
-              Prompt
+            <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
+              What would you like to improve?
             </label>
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Describe your desired changes..."
-              className="w-full h-24 px-3 py-2 border border-[var(--border-default)] rounded-md
-                focus:ring-2 focus:ring-[var(--accent-gold)]/20 focus:border-[var(--accent-gold)]
-                bg-[var(--surface-secondary)]
+              className="w-full h-24 px-3 py-2.5 border border-[var(--border-default)] rounded-page
+                bg-[#f7f3eb] shadow-warm
+                focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)]
+                focus:bg-[var(--surface-secondary)]
                 text-[var(--text-primary)]
                 placeholder:text-[var(--text-muted)]
-                font-serif text-sm resize-none transition-all duration-200"
+                font-body text-sm leading-relaxed resize-none transition-all duration-200"
               disabled={isLoading}
               data-testid="modal-prompt-textarea"
             />
@@ -182,8 +184,8 @@ export default function AdvancedAIEditorModal({
 
           {/* Sources */}
           <div>
-            <label className="block text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
-              Reference Sources
+            <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
+              Reference sources (optional)
             </label>
             <SourceList
               sources={sources}
@@ -218,19 +220,19 @@ export default function AdvancedAIEditorModal({
 
           {/* Error */}
           {error && (
-            <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)]/20 rounded-md text-sm text-[var(--status-error)]">
+            <div className="py-3 pl-4 border-l-4 border-l-[var(--destructive)] text-sm text-[var(--destructive)]">
               {error}
             </div>
           )}
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-[var(--border-default)] bg-[var(--surface-secondary)]">
+        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t-2 border-[var(--border-default)]">
           <button
             type="button"
             onClick={handleCancel}
             disabled={isLoading}
-            className="px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50"
+            className="h-9 px-4 text-sm font-ui font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors disabled:opacity-50 rounded-page"
           >
             Cancel
           </button>
@@ -238,11 +240,14 @@ export default function AdvancedAIEditorModal({
             type="button"
             onClick={handleApply}
             disabled={isLoading || !prompt.trim()}
-            className="px-4 py-2 text-sm font-ui font-medium rounded-md transition-all duration-200
-              focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)] focus:ring-offset-2
-              disabled:opacity-50 disabled:cursor-not-allowed
+            className="h-9 px-4 rounded-page font-ui font-medium text-sm
               text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)]
-              hover:shadow-md"
+              shadow-warm
+              hover:shadow-warm-md hover:brightness-105
+              active:brightness-95
+              transition-all duration-200
+              focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:ring-offset-2
+              disabled:opacity-50 disabled:cursor-not-allowed"
             data-testid="modal-apply-button"
           >
             {isLoading ? (
@@ -251,7 +256,7 @@ export default function AdvancedAIEditorModal({
                 <span>Applying...</span>
               </span>
             ) : (
-              <span>{outputMode === 'rewrite' ? 'Generate New Version' : 'Apply Suggestions'}</span>
+              <span>{outputMode === 'rewrite' ? 'Generate New Version' : 'Get Suggestions'}</span>
             )}
           </button>
         </div>

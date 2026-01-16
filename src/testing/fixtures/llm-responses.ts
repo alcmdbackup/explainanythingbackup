@@ -13,9 +13,9 @@ import { createMockOpenAIResponse } from '../utils/test-helpers';
  */
 export const titleGenerationResponse = createMockOpenAIResponse(
   JSON.stringify({
-    title1: 'Understanding Quantum Entanglement',
-    title2: 'Quantum Entanglement Explained',
-    title3: 'The Science of Quantum Entanglement',
+    title1: '[TEST] Understanding Quantum Entanglement',
+    title2: '[TEST] Quantum Entanglement Explained',
+    title3: '[TEST] The Science of Quantum Entanglement',
   })
 );
 
@@ -24,7 +24,7 @@ export const titleGenerationResponse = createMockOpenAIResponse(
  */
 export const explanationGenerationResponse = createMockOpenAIResponse(
   JSON.stringify({
-    content: `# Understanding Quantum Entanglement
+    content: `# [TEST] Understanding Quantum Entanglement
 
 Quantum entanglement is a physical phenomenon that occurs when pairs or groups of particles interact in ways such that the quantum state of each particle cannot be described independently.
 
@@ -51,7 +51,7 @@ Quantum entanglement is a physical phenomenon that occurs when pairs or groups o
  * Simulates how OpenAI sends chunks in streaming mode
  */
 export const streamingChunks = [
-  '# Understanding',
+  '# [TEST] Understanding',
   ' Quantum',
   ' Entanglement\n\n',
   'Quantum',
@@ -120,7 +120,7 @@ export function* generateStreamingChunks(content: string, chunkSize: number = 10
 /**
  * Full explanation content for realistic testing
  */
-export const fullExplanationContent = `# Understanding Quantum Entanglement
+export const fullExplanationContent = `# [TEST] Understanding Quantum Entanglement
 
 Quantum entanglement is one of the most fascinating and counterintuitive phenomena in quantum mechanics. When particles become entangled, their quantum states become correlated in ways that seem to defy classical physics.
 
@@ -193,9 +193,9 @@ export const emptyLinkMappingsResponse = createMockOpenAIResponse(
  * Complete explanation generation fixture for happy path testing
  */
 export const completeExplanationFixture = {
-  title: 'Understanding Quantum Entanglement',
+  title: '[TEST] Understanding Quantum Entanglement',
   rawContent: fullExplanationContent,
-  enhancedContent: `# Understanding Quantum Entanglement
+  enhancedContent: `# [TEST] Understanding Quantum Entanglement
 
 Quantum entanglement is one of the most fascinating and counterintuitive phenomena in quantum mechanics. When particles become entangled, their quantum states become correlated in ways that seem to defy classical physics.
 

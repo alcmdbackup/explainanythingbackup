@@ -2,7 +2,7 @@
 
 /**
  * AIEditorPanel - Collapsible sidebar for AI-powered editing with sources support
- * Enables users to provide URL sources for context and get AI-suggested edits
+ * Supports 5 design variants configurable via PanelVariantContext
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -11,6 +11,9 @@ import { Spinner } from '@/components/ui/spinner';
 import { SourceList } from '@/components/sources';
 import OutputModeToggle, { type OutputMode } from './OutputModeToggle';
 import TagSelector from './TagSelector';
+import { usePanelVariantOptional } from '@/contexts/PanelVariantContext';
+import { PANEL_VARIANTS, DEFAULT_PANEL_VARIANT } from './ai-panel-variants';
+import { cn } from '@/lib/utils';
 import type { SourceChipType } from '@/lib/schemas/schemas';
 import type { PipelineValidationResults } from '../editorFiles/validation/pipelineValidation';
 import type { TagModeState, TagModeAction } from '@/reducers/tagModeReducer';
@@ -134,9 +137,9 @@ const CheckIcon = () => (
   </svg>
 );
 
-const QuillIcon = () => (
+const QuillIcon = ({ className }: { className?: string }) => (
   <svg
-    className="w-5 h-5 text-[var(--accent-gold)]"
+    className={className}
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -146,6 +149,12 @@ const QuillIcon = () => (
     <path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18" strokeLinecap="round" strokeLinejoin="round" />
     <path d="M2 2l7.586 7.586" strokeLinecap="round" strokeLinejoin="round" />
     <circle cx="11" cy="11" r="2" fill="currentColor" />
+  </svg>
+);
+
+const ExpandModalIcon = () => (
+  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
   </svg>
 );
 
@@ -243,6 +252,10 @@ export default function AIEditorPanel({
   tagState,
   dispatchTagAction
 }: AIEditorPanelProps) {
+  // Get variant styles from context (fallback to default if outside provider)
+  const variantContext = usePanelVariantOptional();
+  const styles = variantContext?.config.styles ?? PANEL_VARIANTS[DEFAULT_PANEL_VARIANT].styles;
+
   const [userPrompt, setUserPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [progressState, setProgressState] = useState<ProgressState | null>(null);
@@ -451,36 +464,28 @@ export default function AIEditorPanel({
 
   return (
     <div
-      className={`
-        flex flex-col h-full
-        bg-[var(--surface-secondary)]
-        border-l border-l-[var(--border-default)]
-        transition-all duration-300 ease-in-out
-        ${isOpen ? 'w-[340px]' : 'w-0'}
-        overflow-hidden
-      `}
+      className={cn(
+        'flex flex-col h-full transition-all duration-300 ease-in-out overflow-hidden',
+        styles.container,
+        isOpen ? 'w-[360px]' : 'w-0'
+      )}
       role="complementary"
       aria-label="AI Suggestions Panel"
       data-testid="ai-suggestions-panel"
     >
-      {/* Collapse/Expand Toggle - Scholarly subtle design */}
+      {/* Collapse/Expand Toggle */}
       <button
         onClick={() => onOpenChange(!isOpen)}
-        className={`
-          absolute top-1/2 -translate-y-1/2 z-10
-          ${isOpen ? '-left-3' : '-left-6'}
-          w-6 h-10
-          flex items-center justify-center
-          bg-[var(--surface-elevated)]
-          text-[var(--text-muted)]
-          border border-[var(--border-default)]
-          rounded-l-md
-          hover:bg-[var(--surface-secondary)]
-          hover:text-[var(--text-secondary)]
-          hover:border-[var(--border-strong)]
-          transition-all duration-200
-          focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/20 focus:ring-offset-1
-        `}
+        className={cn(
+          'absolute top-1/2 -translate-y-1/2 z-10',
+          isOpen ? '-left-3' : '-left-6',
+          'w-6 h-10 flex items-center justify-center',
+          'bg-[var(--surface-elevated)] text-[var(--text-muted)]',
+          'border border-[var(--border-default)]/50 rounded-l-md',
+          'hover:bg-[var(--surface-secondary)] hover:text-[var(--text-secondary)]',
+          'transition-all duration-200',
+          'focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/20'
+        )}
         aria-label={isOpen ? 'Collapse AI panel' : 'Expand AI panel'}
         aria-expanded={isOpen}
       >
@@ -488,13 +493,16 @@ export default function AIEditorPanel({
       </button>
 
       {/* Panel Content */}
-      <div className={`flex flex-col h-full ${isOpen ? 'opacity-100' : 'opacity-0'} transition-opacity duration-200`}>
-        {/* Header - Dynamic based on output mode */}
-        <div className="border-b border-[var(--border-default)] p-4">
+      <div className={cn(
+        'flex flex-col h-full transition-opacity duration-200',
+        isOpen ? 'opacity-100' : 'opacity-0'
+      )}>
+        {/* Header - Title, mode toggle, and expand button */}
+        <div className={styles.header}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <QuillIcon />
-              <h2 className="text-lg font-display font-semibold text-[var(--text-primary)]">
+            <div className="flex items-center gap-3">
+              <QuillIcon className={styles.headerIcon} />
+              <h2 className={styles.headerTitle}>
                 {outputMode === 'rewrite' ? 'Rewrite article' : 'Suggest edits'}
               </h2>
             </div>
@@ -503,17 +511,16 @@ export default function AIEditorPanel({
                 type="button"
                 onClick={() => onExpandToModal(userPrompt)}
                 disabled={isLoading}
-                className="p-1.5 text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors disabled:opacity-50"
+                className="p-2 text-[var(--text-muted)] hover:text-[var(--accent-gold)] rounded-lg hover:bg-[var(--surface-elevated)]/50 transition-all disabled:opacity-50"
                 title="Open advanced editor"
                 data-testid="modal-expand-button"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-                </svg>
+                <ExpandModalIcon />
               </button>
             )}
           </div>
-          {/* Output Mode Toggle - Compact, right below header */}
+
+          {/* Output Mode Toggle - in header */}
           {onOutputModeChange && (
             <div className="mt-3">
               <OutputModeToggle
@@ -525,11 +532,14 @@ export default function AIEditorPanel({
           )}
         </div>
 
+        {/* Divider line between header and content */}
+        <div className="border-t-2 border-[var(--border-default)]" />
+
         {/* Scrollable Content Area */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* Prompt Input - Primary focus */}
-          <div className="bg-[var(--surface-elevated)] rounded-lg p-3 border border-[var(--border-default)]">
-            <label htmlFor="ai-prompt" className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          {/* Prompt Input */}
+          <div className={styles.section}>
+            <label htmlFor="ai-prompt" className={styles.sectionLabel}>
               What would you like to improve?
             </label>
             <textarea
@@ -537,29 +547,26 @@ export default function AIEditorPanel({
               value={userPrompt}
               onChange={(e) => setUserPrompt(e.target.value)}
               placeholder="Describe your desired changes..."
-              className="w-full h-20 px-3 py-2 border border-[var(--border-default)] rounded-md
-                focus:ring-2 focus:ring-[var(--accent-gold)]/20 focus:border-[var(--accent-gold)]
-                bg-[var(--surface-secondary)]
-                text-[var(--text-primary)]
-                placeholder:text-[var(--text-muted)]
-                font-serif text-sm resize-none transition-all duration-200"
+              className={styles.textarea}
               disabled={isLoading}
             />
-            {/* Quick Actions - Subtle text links below prompt */}
-            <div className="flex flex-wrap items-center gap-x-1 pt-2">
+            {/* Quick Actions */}
+            <div className={styles.quickActions}>
               {QUICK_ACTIONS.map((action, index) => (
                 <span key={action.id} className="inline-flex items-center">
                   <button
                     type="button"
                     onClick={() => handleQuickAction(action)}
                     disabled={isLoading || !currentContent.trim()}
-                    className="text-xs text-[var(--text-muted)] hover:text-[var(--accent-copper)]
-                      disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className={cn(
+                      styles.quickActionLink,
+                      'disabled:opacity-50 disabled:cursor-not-allowed'
+                    )}
                   >
                     {action.label}
                   </button>
                   {index < QUICK_ACTIONS.length - 1 && (
-                    <span className="text-xs text-[var(--text-muted)]/50 mx-1">·</span>
+                    <span className="text-[var(--text-muted)]/30 mx-1.5">·</span>
                   )}
                 </span>
               ))}
@@ -569,10 +576,10 @@ export default function AIEditorPanel({
           {/* Sources Section */}
           {onSourcesChange && (
             <div
-              className="bg-[var(--surface-elevated)] rounded-lg p-3 border border-[var(--border-default)]"
+              className={styles.section}
               data-testid="sidebar-source-list"
             >
-              <label className="block text-sm font-ui font-medium text-[var(--text-secondary)] mb-2">
+              <label className={styles.sectionLabel}>
                 Reference Sources (optional)
               </label>
               <SourceList
@@ -605,7 +612,7 @@ export default function AIEditorPanel({
           {/* Tags Section */}
           {tagState && dispatchTagAction && sessionData?.explanation_id && (
             <div
-              className="bg-[var(--surface-elevated)] rounded-lg p-3 border border-[var(--border-default)]"
+              className={styles.section}
               data-testid="sidebar-tag-selector"
             >
               <TagSelector
@@ -620,12 +627,7 @@ export default function AIEditorPanel({
           <button
             onClick={() => handleSubmit()}
             disabled={isLoading || !userPrompt.trim() || !currentContent.trim()}
-            className="w-full py-2.5 px-4 font-ui font-medium text-sm rounded-md transition-all duration-200
-              focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)] focus:ring-offset-2
-              disabled:opacity-50 disabled:cursor-not-allowed
-              text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)]
-              hover:shadow-md hover:-translate-y-0.5
-              active:translate-y-0"
+            className={styles.submitButton}
           >
             <span className="flex items-center justify-center gap-2">
               {isLoading ? (
@@ -646,7 +648,7 @@ export default function AIEditorPanel({
 
           {/* Loading State with Progress */}
           {isLoading && progressState && (
-            <div data-testid="suggestions-loading" className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-lg p-4">
+            <div data-testid="suggestions-loading" className={styles.loadingCard}>
               <div className="flex items-center mb-3">
                 <Spinner variant="quill" size={20} className="mr-2" />
                 <span className="text-sm font-ui font-medium text-[var(--accent-copper)]">
@@ -656,21 +658,21 @@ export default function AIEditorPanel({
               <p className="text-sm italic font-serif text-[var(--text-muted)] mb-3">
                 {progressState.step}
               </p>
-              <div className="w-full bg-[var(--border-default)] rounded-full h-2">
+              <div className="w-full bg-[var(--border-default)]/30 rounded-full h-1.5">
                 <div
                   className="bg-gradient-to-r from-[var(--accent-gold)] to-[var(--accent-copper)] h-full rounded-full transition-all duration-300"
                   style={{ width: `${progressState.progress}%` }}
                 />
               </div>
               <p className="text-xs font-ui text-[var(--text-muted)] mt-2 text-right">
-                {progressState.progress}% complete
+                {progressState.progress}%
               </p>
             </div>
           )}
 
           {/* Error Display */}
           {error && (
-            <div data-testid="suggestions-error" className="bg-[var(--destructive)]/5 border-l-4 border-l-[var(--destructive)] border border-[var(--destructive)]/20 rounded-r-md p-4">
+            <div data-testid="suggestions-error" className={styles.errorCard}>
               <div className="flex items-center">
                 <svg className="w-5 h-5 text-[var(--destructive)] mr-2" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
@@ -687,7 +689,7 @@ export default function AIEditorPanel({
 
           {/* Loaded Session Validation Results */}
           {!lastResult && loadedValidationResults && (
-            <div data-testid="loaded-validation-results" className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-lg p-4">
+            <div data-testid="loaded-validation-results" className={styles.loadingCard}>
               <p className="text-xs font-ui font-medium text-[var(--text-muted)] mb-2">Previous Session Validation:</p>
               <div className="flex flex-wrap gap-1.5">
                 {loadedValidationResults.step2 && (
@@ -718,7 +720,7 @@ export default function AIEditorPanel({
 
           {/* Success Message */}
           {lastResult?.success && !isLoading && (
-            <div data-testid="suggestions-success" className="bg-[var(--accent-gold)]/10 border-l-4 border-l-[var(--accent-gold)] border border-[var(--accent-gold)]/20 rounded-r-md p-4">
+            <div data-testid="suggestions-success" className={styles.successCard}>
               <div className="flex items-center">
                 <svg className="w-5 h-5 text-[var(--accent-copper)] mr-2" fill="currentColor" viewBox="0 0 20 20">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
@@ -733,7 +735,7 @@ export default function AIEditorPanel({
 
               {/* Validation Summary */}
               {lastResult.validationResults && (
-                <div className="mt-3 pt-3 border-t border-[var(--border-default)]">
+                <div className="mt-3 pt-3 border-t border-[var(--border-default)]/30">
                   <p className="text-xs font-ui font-medium text-[var(--text-muted)] mb-2">Pipeline Validation:</p>
                   <div className="flex flex-wrap gap-1.5">
                     {lastResult.validationResults.step2 && (
@@ -783,16 +785,19 @@ export default function AIEditorPanel({
 
         {/* History Section - Fixed at bottom */}
         {suggestionHistory.length > 0 && (
-          <div className="border-t border-[var(--border-default)] p-4">
+          <div className={styles.historyWrapper}>
             <button
               onClick={() => setIsHistoryExpanded(!isHistoryExpanded)}
-              className="w-full flex items-center justify-between text-sm font-ui text-[var(--text-muted)] hover:text-[var(--accent-copper)] transition-colors py-1"
+              className={styles.historyButton}
             >
               <span className="flex items-center gap-2">
                 <HistoryIcon />
-                Recent Suggestions ({suggestionHistory.length})
+                Recent ({suggestionHistory.length})
               </span>
-              <ChevronDownIcon className={`w-4 h-4 transition-transform duration-200 ${isHistoryExpanded ? 'rotate-180' : ''}`} />
+              <ChevronDownIcon className={cn(
+                'w-4 h-4 transition-transform duration-200',
+                isHistoryExpanded && 'rotate-180'
+              )} />
             </button>
 
             {isHistoryExpanded && (
@@ -801,7 +806,7 @@ export default function AIEditorPanel({
                   <button
                     key={item.id}
                     onClick={() => handleHistoryItemClick(item)}
-                    className="w-full text-left p-2.5 rounded-md bg-[var(--surface-elevated)] border border-[var(--border-default)] cursor-pointer hover:border-[var(--border-strong)] hover:shadow-sm transition-all duration-200"
+                    className={styles.historyItem}
                   >
                     <p className="text-sm font-serif text-[var(--text-secondary)] line-clamp-2">
                       {item.prompt}

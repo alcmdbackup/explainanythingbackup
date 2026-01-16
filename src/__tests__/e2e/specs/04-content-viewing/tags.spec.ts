@@ -55,7 +55,7 @@ test.describe('Tag Management', () => {
     await testExplanation.cleanup();
   });
 
-  test('should display existing tags on explanation', { tag: '@critical' }, async ({ authenticatedPage }) => {
+  test('should display existing tags on explanation', async ({ authenticatedPage }) => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     // Navigate directly to test explanation
@@ -109,7 +109,7 @@ test.describe('Tag Management', () => {
     expect(typeof hasTagInput).toBe('boolean');
   });
 
-  test('should preserve tag state after page refresh', { tag: '@critical' }, async ({ authenticatedPage }) => {
+  test('should preserve tag state after page refresh', async ({ authenticatedPage }) => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     // Navigate directly to test explanation

@@ -135,8 +135,12 @@ test('import creates explanation', async ({ page }) => {
 ### Test Statistics
 - **Unit**: 60+ colocated `.test.ts` files
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 11 test files in `__tests__/integration/`
-- **E2E**: 17 spec files in `__tests__/e2e/specs/` (including 6 AI suggestions specs)
+- **Integration**: 15 test files (14 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
+  - **Critical**: 5 tests (auth-flow, explanation-generation, streaming-api, error-handling, vector-matching)
+  - **Full**: All 15 tests
+- **E2E**: 22 spec files in `__tests__/e2e/specs/`
+  - **Critical**: 10 `@critical` tagged tests (run on PRs to main)
+  - **Full**: 163 tests (run on PRs to production)
 
 ---
 
@@ -187,20 +191,36 @@ test('import creates explanation', async ({ page }) => {
 
 **Trigger:** Pull requests to `main` or `production`
 
-**Pipeline:**
+**Change Detection (Fast Path vs Full Path):**
+
+The CI workflow detects what files changed to optimize costs:
+
+| Path | Trigger | Jobs Run |
+|------|---------|----------|
+| **Fast** | Only docs/migrations changed (no `.ts`, `.tsx`, `.js`, `.jsx`, `.json`, `.css`) | lint + tsc only (~1 min) |
+| **Full** | Any code file changed | All tests (~2.5-3 min) |
+
+**Full Path Pipeline:**
 ```
-typecheck → lint → unit tests → integration tests → E2E tests
+detect-changes → typecheck + lint (parallel)
+                      ↓
+              unit tests (affected only)
+                      ↓
+     integration-critical + e2e-critical (parallel)
 ```
 
-**E2E Behavior by Target Branch:**
+**Test Behavior by Target Branch:**
 
-| Target Branch | E2E Scope | Tests | Sharding |
-|---------------|-----------|-------|----------|
-| `main` | Critical only | ~36 `@critical` tagged | None |
-| `production` | Full suite | All tests | 4 shards |
+| Target Branch | Integration | E2E | Sharding |
+|---------------|------------|-----|----------|
+| `main` | Critical (5 tests) | Critical (10 tests) | None |
+| `production` | Full (15 tests) | Full (163 tests) | 4 shards |
 
-- **Browser:** Chromium only
-- **Fail strategy:** fail-fast (stops on first failure)
+**Key Optimizations:**
+- Unit tests run only on affected files (`--changedSince`)
+- Integration and E2E critical tests run in parallel
+- Browser: Chromium only
+- Fail strategy: fail-fast (stops on first failure)
 
 ### Nightly Workflow (`e2e-nightly.yml`)
 

@@ -1,96 +1,71 @@
-/**
- * Panel Variant Context
- *
- * Manages the selected styling variant for AIEditorPanel and AdvancedAIEditorModal.
- * Variants only apply when Midnight Scholar theme is active.
- */
 'use client';
 
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { type PanelVariant, getVariantStyles, type VariantStyles } from '@/components/ai-panel-variants';
+/**
+ * PanelVariantContext - Manages AI Editor Panel design variant selection
+ * Persists choice to localStorage for user preference retention
+ */
 
-interface PanelVariantContextValue {
-  variant: PanelVariant;
-  setVariant: (v: PanelVariant) => void;
-  styles: VariantStyles;
-  isVariantActive: boolean; // Only true when Midnight Scholar is selected
-}
-
-const PanelVariantContext = createContext<PanelVariantContextValue | undefined>(undefined);
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { PanelVariant, PANEL_VARIANTS, DEFAULT_PANEL_VARIANT, type PanelVariantConfig } from '@/components/ai-panel-variants';
 
 const STORAGE_KEY = 'ai-panel-variant';
-const THEME_STORAGE_KEY = 'theme-palette';
 
-export function PanelVariantProvider({ children }: { children: React.ReactNode }) {
-  const [variant, setVariantState] = useState<PanelVariant>('mono');
-  const [palette, setPalette] = useState<string>('midnight-scholar');
-  const [mounted, setMounted] = useState(false);
+interface PanelVariantContextType {
+  variant: PanelVariant;
+  setVariant: (variant: PanelVariant) => void;
+  config: PanelVariantConfig;
+}
+
+const PanelVariantContext = createContext<PanelVariantContextType | undefined>(undefined);
+
+interface PanelVariantProviderProps {
+  children: ReactNode;
+}
+
+export function PanelVariantProvider({ children }: PanelVariantProviderProps) {
+  const [variant, setVariantState] = useState<PanelVariant>(DEFAULT_PANEL_VARIANT);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // Load from localStorage on mount
   useEffect(() => {
-    const storedVariant = localStorage.getItem(STORAGE_KEY) as PanelVariant | null;
-    if (storedVariant) {
-      setVariantState(storedVariant);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored && stored in PANEL_VARIANTS) {
+      setVariantState(stored as PanelVariant);
     }
-    // Read theme palette from localStorage (written by ThemeProvider)
-    const storedPalette = localStorage.getItem(THEME_STORAGE_KEY);
-    if (storedPalette) {
-      setPalette(storedPalette);
-    }
-    setMounted(true);
+    setIsHydrated(true);
   }, []);
 
-  // Subscribe to palette changes via localStorage events
-  useEffect(() => {
-    if (!mounted) return;
+  // Save to localStorage when variant changes
+  const setVariant = (newVariant: PanelVariant) => {
+    setVariantState(newVariant);
+    localStorage.setItem(STORAGE_KEY, newVariant);
+  };
 
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === THEME_STORAGE_KEY && e.newValue) {
-        setPalette(e.newValue);
-      }
-    };
-    window.addEventListener('storage', handleStorageChange);
+  const config = PANEL_VARIANTS[variant];
 
-    // Also poll for changes (same-tab updates don't trigger storage events)
-    const checkPalette = () => {
-      const currentPalette = localStorage.getItem(THEME_STORAGE_KEY);
-      if (currentPalette && currentPalette !== palette) {
-        setPalette(currentPalette);
-      }
-    };
-    const interval = setInterval(checkPalette, 500);
+  // Prevent hydration mismatch by using default until client-side hydration
+  const value: PanelVariantContextType = {
+    variant: isHydrated ? variant : DEFAULT_PANEL_VARIANT,
+    setVariant,
+    config: isHydrated ? config : PANEL_VARIANTS[DEFAULT_PANEL_VARIANT],
+  };
 
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, [mounted, palette]);
-
-  const setVariant = useCallback((v: PanelVariant) => {
-    setVariantState(v);
-    localStorage.setItem(STORAGE_KEY, v);
-  }, []);
-
-  // Variants only active when Midnight Scholar is selected AND mounted
-  // (to prevent hydration mismatch, assume active until mounted)
-  const isVariantActive = mounted ? palette === 'midnight-scholar' : true;
-
-  // Get styles - use mono if not on Midnight Scholar or not yet mounted
-  const styles = getVariantStyles(isVariantActive ? variant : 'mono');
-
-  // Always wrap with Provider to ensure context is available
-  // Use default 'mono' styles before mounting to prevent hydration mismatch
   return (
-    <PanelVariantContext.Provider value={{ variant, setVariant, styles, isVariantActive }}>
+    <PanelVariantContext.Provider value={value}>
       {children}
     </PanelVariantContext.Provider>
   );
 }
 
-export function usePanelVariant() {
+export function usePanelVariant(): PanelVariantContextType {
   const context = useContext(PanelVariantContext);
   if (context === undefined) {
     throw new Error('usePanelVariant must be used within a PanelVariantProvider');
   }
   return context;
+}
+
+// Export hook for optional usage (won't throw if outside provider)
+export function usePanelVariantOptional(): PanelVariantContextType | undefined {
+  return useContext(PanelVariantContext);
 }

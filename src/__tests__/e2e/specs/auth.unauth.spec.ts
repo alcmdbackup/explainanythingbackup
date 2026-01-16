@@ -4,7 +4,7 @@ import { waitForState, waitForPageStable } from '../helpers/wait-utils';
 import { safeScreenshot } from '../helpers/error-utils';
 
 test.describe('Unauthenticated User Tests', () => {
-  test('login page loads', { tag: '@critical' }, async ({ page }) => {
+  test('login page loads', async ({ page }) => {
     await page.goto('/login');
 
     // Verify email input is present
@@ -28,7 +28,7 @@ test.describe('Unauthenticated User Tests', () => {
     await expect(page).toHaveURL(/\/login/);
   });
 
-  test('should require authentication to access library', { tag: '@critical' }, async ({ page }) => {
+  test('should require authentication to access library', async ({ page }) => {
     // Try accessing library without authentication
     await page.goto('/userlibrary');
 
@@ -99,7 +99,7 @@ test.describe('Unauthenticated User Tests', () => {
     expect(isLoggedIn).toBe(true);
   });
 
-  test('should show error with invalid credentials', { tag: '@critical' }, async ({ page }) => {
+  test('should show error with invalid credentials', async ({ page }) => {
     const loginPage = new LoginPage(page);
     await loginPage.navigate();
 

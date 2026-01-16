@@ -105,17 +105,28 @@ supabase db push
 
 **Trigger:** Pull requests to `main` or `production`
 
-**Pipeline:**
+**Change Detection (Fast Path vs Full Path):**
+
+| Path | Trigger | Jobs Run |
+|------|---------|----------|
+| **Fast** | Only docs/migrations changed | lint + tsc only (~1 min) |
+| **Full** | Any code file changed | All tests (~2.5-3 min) |
+
+**Pipeline (Full Path):**
 ```
-typecheck → lint → unit tests → integration tests → E2E tests
+detect-changes → typecheck + lint (parallel)
+                      ↓
+              unit tests (affected only)
+                      ↓
+     integration-critical + e2e-critical (parallel)
 ```
 
-**E2E Behavior by Target Branch:**
+**Test Behavior by Target Branch:**
 
-| Target Branch | E2E Scope | Tests | Sharding |
-|---------------|-----------|-------|----------|
-| `main` | Critical only | ~36 `@critical` tagged | None |
-| `production` | Full suite | All tests | 4 shards |
+| Target Branch | Integration | E2E | Sharding |
+|---------------|------------|-----|----------|
+| `main` | Critical (5 tests) | Critical (10 tests) | None |
+| `production` | Full (15 tests) | Full (163 tests) | 4 shards |
 
 - **Browser:** Chromium only
 - **Fail strategy:** fail-fast (stops on first failure)
@@ -148,9 +159,9 @@ typecheck → lint → unit tests → integration tests → E2E tests
 |--------|-----|---------|-------------------|
 | **Trigger** | PR to main/production | Daily 6 AM UTC | Vercel deploy success |
 | **Branch** | PR branch | main | production |
-| **Test types** | Unit → Integration → E2E | E2E only | E2E `@smoke` only |
+| **Test types** | Unit → Integration + E2E (parallel) | E2E only | E2E `@smoke` only |
 | **Target** | Local build | Local build | Live production URL |
-| **Secrets** | Repository (dev) | Repository (dev) | Production environment |
+| **Secrets** | Development environment | Development environment | Production environment |
 | **Browsers** | Chromium | Chromium + Firefox | Chromium |
 
 > **Note:** CI and Nightly workflows build and run the app locally on the GitHub runner (`npm run build && npm start`). They do NOT test against any deployed environment. Only the Post-Deploy Smoke workflow tests against a live deployment.

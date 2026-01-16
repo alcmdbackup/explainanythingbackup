@@ -18,6 +18,7 @@ import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
 import Bibliography from '@/components/sources/Bibliography';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
+import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
 import {
     pageLifecycleReducer,
     initialPageLifecycleState,
@@ -1457,13 +1458,15 @@ function ResultsPageContent() {
 
 export default function ResultsPage() {
     return (
-        <Suspense fallback={
-            <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
-                <div className="ink-dots"></div>
-                <p className="text-sm font-serif text-[var(--text-muted)]">Loading...</p>
-            </div>
-        }>
-            <ResultsPageContent />
-        </Suspense>
+        <PanelVariantProvider>
+            <Suspense fallback={
+                <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
+                    <div className="ink-dots"></div>
+                    <p className="text-sm font-serif text-[var(--text-muted)]">Loading...</p>
+                </div>
+            }>
+                <ResultsPageContent />
+            </Suspense>
+        </PanelVariantProvider>
     );
 } 

@@ -8,7 +8,7 @@ import { test, expect } from '../fixtures/auth';
  * Tag with @smoke to include in post-deployment smoke test runs.
  */
 test.describe('Smoke Tests', () => {
-  test('home page loads and has search bar', { tag: ['@critical', '@smoke'] }, async ({ authenticatedPage: page }) => {
+  test('home page loads and has search bar', { tag: '@smoke' }, async ({ authenticatedPage: page }) => {
     await page.goto('/');
 
     // Verify page loads

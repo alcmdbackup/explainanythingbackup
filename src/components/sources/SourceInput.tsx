@@ -146,9 +146,8 @@ export default function SourceInput({
           onClick={() => handleSubmit()}
           disabled={disabled || isLoading || !url.trim()}
           variant="outline"
-          size="sm"
           data-testid="source-add-button"
-          className="shrink-0"
+          className="shrink-0 h-auto py-2 px-3 text-sm"
         >
           {isLoading ? (
             <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />

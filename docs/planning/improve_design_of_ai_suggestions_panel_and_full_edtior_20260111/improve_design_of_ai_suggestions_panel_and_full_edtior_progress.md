@@ -96,3 +96,81 @@
 4. **Layout Reorder**: Mode toggle at top, quick actions below prompt
 5. **Visual Hierarchy**: Emphasis on prompt and sources, subtle quick actions
 6. **Tags Section**: Added TagSelector to AIEditorPanel (mirrors AdvancedAIEditorModal)
+
+---
+
+## Phase 5: Design Variants System (2026-01-14)
+
+### Work Done
+- Created 5 configurable design variants for the AI suggestion panel:
+  - **Classic Scholar**: Refined scholarly aesthetic with subtle borders (default)
+  - **Minimal Manuscript**: Borderless design using shadows for elevation
+  - **Warm Study**: Parchment feel with soft gradients and copper/gold tones
+  - **Ink & Quill**: Editorial style with bold typography and high contrast
+  - **Glass Library**: Glassmorphism with backdrop blur and atmospheric effects
+- Created variant configuration system with style objects
+- Added PanelVariantContext with localStorage persistence
+- Added variant selector dropdown in panel header
+- Improved panel spacing (width 340px → 360px)
+- Lightened borders throughout using opacity modifiers
+
+### Files Created
+| File | Purpose |
+|------|---------|
+| `src/components/ai-panel-variants.ts` | 5 variant configurations (~350 lines) |
+| `src/contexts/PanelVariantContext.tsx` | Context + provider with localStorage |
+| `src/components/PanelVariantSelector.tsx` | Standalone dropdown component |
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `src/components/AIEditorPanel.tsx` | Refactored to use variant styles, added inline selector |
+| `src/app/results/page.tsx` | Added PanelVariantProvider wrapper |
+
+### Issues Encountered
+- Initially placed variant selector in main content area; moved to panel header per user feedback
+- Unused import (`usePanelVariant`) caused lint error; removed
+
+### Verification
+- Lint: Pass
+- TypeScript: Pass
+- Build: Pass
+
+### Commit
+```
+74893d5 feat(ui): add 5 configurable design variants for AI suggestion panel
+```
+
+---
+
+## Phase 5b: Design Variants Redesign (2026-01-14)
+
+### Work Done
+- Replaced 3 variants with cleaner, non-blocky designs per user feedback:
+  - **minimal-manuscript** → **Floating Parchment**: Ethereal borderless design using negative space and subtle dividers
+  - **warm-study** → **Candlelit Alcove**: Warm atmospheric glow with radial gradients, no hard borders
+  - **ink-quill** → **Serif Manuscript**: Typography-driven editorial style, transparent backgrounds
+- Kept **Classic Scholar** and **Glass Library** variants unchanged
+- All new variants remove blocky section backgrounds (`bg-*`, `rounded-*`, `border`, `shadow-*`)
+- New variants use:
+  - Padding-only sections (`py-*`)
+  - Subtle bottom dividers (`border-b border-*/10`)
+  - Transparent or minimal backgrounds
+  - Typography hierarchy for visual structure
+
+### Design Philosophy
+| Old Approach | New Approach |
+|--------------|--------------|
+| Boxed sections with backgrounds | Open flow with whitespace |
+| Borders defining regions | Typography and spacing hierarchy |
+| Multiple competing containers | Clean vertical rhythm |
+
+### Files Modified
+| File | Changes |
+|------|---------|
+| `src/components/ai-panel-variants.ts` | Replaced 3 variants with new clean designs |
+
+### Verification
+- Lint: Pass
+- TypeScript: Pass
+- Build: Pass
