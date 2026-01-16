@@ -14,6 +14,7 @@
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --maxWorkers=2",
     "test:integration": "jest --config jest.integration.config.js",
+    "test:integration:critical": "jest --config jest.integration.config.js --testPathPatterns=\"auth-flow|explanation-generation|streaming-api|error-handling|vector-matching\"",
     "test:integration:watch": "jest --config jest.integration.config.js --watch",
     "test:all": "npm run test && npm run test:integration",
     "test:e2e": "playwright test --project=chromium --project=chromium-unauth",

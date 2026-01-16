@@ -115,7 +115,7 @@ test.describe('Action Buttons', () => {
       expect(isEnabled).toBe(false);
     });
 
-    test('should show already saved state for existing saved explanations', { tag: '@critical' }, async ({ authenticatedPage }) => {
+    test('should show already saved state for existing saved explanations', async ({ authenticatedPage }) => {
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation
@@ -133,7 +133,7 @@ test.describe('Action Buttons', () => {
   });
 
   test.describe('Edit Mode (P0)', () => {
-    test('should enter edit mode when edit button clicked', { tag: '@critical' }, async ({ authenticatedPage }) => {
+    test('should enter edit mode when edit button clicked', async ({ authenticatedPage }) => {
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation

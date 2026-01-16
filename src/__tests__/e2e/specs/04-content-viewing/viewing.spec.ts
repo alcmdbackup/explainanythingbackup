@@ -50,7 +50,7 @@ test.describe('Content Viewing', () => {
     expect(hasContent).toBe(true);
   });
 
-  test('should display explanation title', { tag: '@critical' }, async ({ authenticatedPage }) => {
+  test('should display explanation title', async ({ authenticatedPage }) => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     // Navigate directly to the test explanation
@@ -75,7 +75,7 @@ test.describe('Content Viewing', () => {
     expect(typeof hasTags).toBe('boolean');
   });
 
-  test('should show save button state correctly', { tag: '@critical' }, async ({ authenticatedPage }) => {
+  test('should show save button state correctly', async ({ authenticatedPage }) => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     // Navigate directly to the test explanation
@@ -87,7 +87,7 @@ test.describe('Content Viewing', () => {
     expect(saveButtonExists).toBe(true);
   });
 
-  test('should preserve explanation ID in URL', { tag: '@critical' }, async ({ authenticatedPage }) => {
+  test('should preserve explanation ID in URL', async ({ authenticatedPage }) => {
     const resultsPage = new ResultsPage(authenticatedPage);
 
     // Navigate directly to the test explanation

@@ -159,7 +159,7 @@ test.describe('Import Articles Feature', () => {
     });
 
     test.describe('Validation', () => {
-        test('should disable Process button when content is empty', { tag: '@critical' }, async ({ authenticatedPage }) => {
+        test('should disable Process button when content is empty', async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
@@ -199,7 +199,7 @@ test.describe('Import Articles Feature', () => {
     });
 
     test.describe('Modal Behavior', () => {
-        test('should cancel and clear form', { tag: '@critical' }, async ({ authenticatedPage }) => {
+        test('should cancel and clear form', async ({ authenticatedPage }) => {
             const importPage = new ImportPage(authenticatedPage);
 
             await authenticatedPage.goto('/');
