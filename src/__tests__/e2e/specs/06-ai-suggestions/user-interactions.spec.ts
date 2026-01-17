@@ -48,13 +48,16 @@ test.describe('AI Suggestions User Interactions', () => {
     await testExplanation.cleanup();
   });
 
-  // Real production AI test - validates diff buttons appear after real AI response
-  // Skipped in prod due to AI unreliability - mocked equivalent in save-blocking.spec.ts
-  test('should show accept/reject buttons after AI response', { tag: ['@prod-ai', '@skip-prod'] }, async ({ authenticatedPage: page }) => {
-    // Use test.slow() to allow for real AI latency (triples default timeout)
-    test.slow();
-
+  // Validates diff buttons appear after AI response (mocked for reliability)
+  // Skip in production - mock content doesn't match real explanation content
+  test('should show accept/reject buttons after AI response', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
     const resultsPage = new ResultsPage(page);
+
+    // Mock AI suggestions API for reliable, fast response
+    await mockAISuggestionsPipelineAPI(page, {
+      success: true,
+      content: mockDiffContent.insertion,
+    });
 
     await page.goto(`/results?explanation_id=${testExplanation.id}`);
     await resultsPage.waitForAnyContent(60000);
@@ -62,11 +65,10 @@ test.describe('AI Suggestions User Interactions', () => {
     await enterEditMode(page);
     await submitAISuggestionPrompt(page, 'Add more details');
 
-    // Wait for AI success and diff nodes - real AI may take longer
-    await waitForSuggestionsSuccess(page, 120000); // 2 minute timeout for real AI
+    await waitForSuggestionsSuccess(page);
     await waitForDiffNodes(page);
 
-    // Check that accept/reject buttons exist (using button text since that's the pattern in this codebase)
+    // Check that accept/reject buttons exist
     const acceptButton = page.locator('button:has-text("✓")').first();
     const rejectButton = page.locator('button:has-text("✕")').first();
     await expect(acceptButton).toBeVisible({ timeout: 5000 });
