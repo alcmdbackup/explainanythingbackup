@@ -171,7 +171,7 @@ export default function AdvancedAIEditorModal({
               onChange={(e) => setPrompt(e.target.value)}
               placeholder="Describe your desired changes..."
               className="w-full h-24 px-3 py-2.5 border border-[var(--border-default)] rounded-page
-                bg-[#f7f3eb] shadow-warm
+                bg-[var(--surface-input)] shadow-warm
                 focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)]
                 focus:bg-[var(--surface-secondary)]
                 text-[var(--text-primary)]
@@ -264,7 +264,7 @@ export default function AdvancedAIEditorModal({
         {/* Cancel Warning Dialog */}
         {showCancelWarning && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
-            <div className="bg-[var(--surface-elevated)] rounded-lg p-6 mx-4 max-w-sm border border-[var(--border-default)] shadow-xl">
+            <div className="bg-[var(--surface-elevated)] rounded-lg p-6 mx-4 max-w-sm border border-[var(--border-default)] shadow-warm-xl">
               <h3 className="text-base font-serif font-semibold text-[var(--text-primary)] mb-2">
                 Discard changes?
               </h3>

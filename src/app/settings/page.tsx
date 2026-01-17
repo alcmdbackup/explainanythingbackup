@@ -38,15 +38,12 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-[var(--background)]">
       <Navigation />
-      <main className="container mx-auto max-w-2xl px-4 py-12">
+      <main className="container mx-auto max-w-6xl px-4 py-8">
         {/* Page header with decorative flourish */}
-        <header className="mb-10">
-          <h1 className="font-display text-3xl font-bold text-[var(--text-primary)] mb-2">
+        <header className="mb-8">
+          <h1 className="atlas-display-section atlas-animate-fade-up stagger-1">
             Settings
           </h1>
-          <p className="text-[var(--text-muted)] font-body">
-            Customize your reading experience
-          </p>
           <div className="title-flourish mt-4" />
         </header>
 

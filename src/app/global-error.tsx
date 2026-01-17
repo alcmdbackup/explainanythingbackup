@@ -41,7 +41,7 @@ export default function GlobalError({
             minHeight: '100vh',
             padding: '2rem',
             fontFamily: 'system-ui, -apple-system, sans-serif',
-            backgroundColor: '#f8f9fa',
+            backgroundColor: '#faf7f2', // --surface-primary
           }}
         >
           <div style={{
@@ -65,7 +65,7 @@ export default function GlobalError({
             <p
               data-testid="global-error-message"
               style={{
-                color: '#666',
+                color: '#8a8a9a', // --text-muted
                 marginBottom: '1.5rem',
                 lineHeight: '1.6',
               }}
@@ -77,7 +77,7 @@ export default function GlobalError({
               onClick={() => reset()}
               style={{
                 padding: '0.75rem 1.5rem',
-                backgroundColor: '#4f46e5',
+                backgroundColor: '#d4a853', // --accent-gold
                 color: 'white',
                 border: 'none',
                 borderRadius: '6px',

@@ -44,7 +44,7 @@ export interface PanelVariantConfig {
  * Input background - warm tinted to match scholarly aesthetic
  * Halfway between surface-primary (#faf7f2) and surface-elevated (#f5f0e6)
  */
-const INPUT_BG = 'bg-[#f7f3eb]';
+const INPUT_BG = 'bg-[var(--surface-input)]';
 
 /**
  * Lined Paper - Clean scholarly style
@@ -66,7 +66,7 @@ const linedPaper: PanelVariantConfig = {
     container: `
       bg-[var(--surface-elevated)]
       border-l border-[var(--border-default)]
-      shadow-warm-lg
+      shadow-warm-xl
     `,
 
     // Header - compact and clean

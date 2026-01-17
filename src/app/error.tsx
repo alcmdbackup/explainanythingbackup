@@ -40,7 +40,7 @@ export default function Error({
         minHeight: '100vh',
         padding: '2rem',
         fontFamily: 'system-ui, -apple-system, sans-serif',
-        backgroundColor: '#f8f9fa',
+        backgroundColor: '#faf7f2', // --surface-primary
       }}
     >
       <div
@@ -66,7 +66,7 @@ export default function Error({
         <p
           data-testid="error-boundary-message"
           style={{
-            color: '#666',
+            color: '#8a8a9a', // --text-muted
             marginBottom: '1.5rem',
             lineHeight: '1.6',
           }}
@@ -79,7 +79,7 @@ export default function Error({
           onClick={() => reset()}
           style={{
             padding: '0.75rem 1.5rem',
-            backgroundColor: '#4f46e5',
+            backgroundColor: '#d4a853', // --accent-gold
             color: 'white',
             border: 'none',
             borderRadius: '6px',

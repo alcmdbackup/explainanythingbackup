@@ -56,7 +56,7 @@ export default function ExploreGalleryPage({
       <main className="container mx-auto px-4 py-8 max-w-7xl">
         {/* Page Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
+          <h1 className="atlas-display-section atlas-animate-fade-up stagger-1">
             Explore
           </h1>
           <div className="title-flourish mt-4"></div>
@@ -68,7 +68,7 @@ export default function ExploreGalleryPage({
         {/* Error State */}
         {error && (
           <div className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-lg text-[var(--destructive)]">
-            <span className="font-serif">{error}</span>
+            <span className="font-body">{error}</span>
           </div>
         )}
 

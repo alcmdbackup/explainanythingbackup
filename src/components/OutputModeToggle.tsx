@@ -47,7 +47,7 @@ export default function OutputModeToggle({
             'px-2.5 py-1 text-xs font-ui rounded transition-all duration-150',
             'focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]/30',
             value === 'inline-diff'
-              ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-copper)] shadow-sm'
+              ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-copper)] shadow-warm-sm'
               : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
             disabled && 'opacity-50 cursor-not-allowed'
           )}
@@ -66,7 +66,7 @@ export default function OutputModeToggle({
             'px-2.5 py-1 text-xs font-ui rounded transition-all duration-150',
             'focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]/30',
             value === 'rewrite'
-              ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-copper)] shadow-sm'
+              ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-copper)] shadow-warm-sm'
               : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
             disabled && 'opacity-50 cursor-not-allowed'
           )}
