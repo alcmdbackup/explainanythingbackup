@@ -82,6 +82,10 @@
       "docs": ["docs/docs_overall/managing_claude_settings.md"]
     },
     {
+      "pattern": ".claude/commands/debug*.md",
+      "docs": ["docs/feature_deep_dives/debugging_skill.md"]
+    },
+    {
       "pattern": "src/lib/utils/supabase/**",
       "docs": ["docs/feature_deep_dives/authentication_rls.md"]
     },
