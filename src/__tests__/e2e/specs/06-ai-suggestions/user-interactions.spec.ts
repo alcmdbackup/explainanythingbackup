@@ -49,7 +49,8 @@ test.describe('AI Suggestions User Interactions', () => {
   });
 
   // Validates diff buttons appear after AI response (mocked for reliability)
-  test('should show accept/reject buttons after AI response', async ({ authenticatedPage: page }) => {
+  // Skip in production - mock content doesn't match real explanation content
+  test('should show accept/reject buttons after AI response', { tag: '@skip-prod' }, async ({ authenticatedPage: page }) => {
     const resultsPage = new ResultsPage(page);
 
     // Mock AI suggestions API for reliable, fast response
