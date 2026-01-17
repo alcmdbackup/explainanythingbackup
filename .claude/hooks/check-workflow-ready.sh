@@ -216,5 +216,45 @@ EOF
   fi
 fi
 
+# --- Frontend File Prerequisite Check ---
+# Only enforce design_style_guide.md for frontend files
+
+is_frontend_file() {
+  local path="$1"
+  # Component files
+  [[ "$path" == *"/components/"* ]] && return 0
+  # App pages (TSX files in app directory)
+  [[ "$path" == *"/app/"* ]] && [[ "$path" == *.tsx ]] && return 0
+  # Styling files
+  [[ "$path" == *.css ]] && return 0
+  [[ "$path" == *"tailwind.config"* ]] && return 0
+  # Editor files (Lexical)
+  [[ "$path" == *"/editorFiles/"* ]] && return 0
+  # Hooks (often contain UI logic)
+  [[ "$path" == *"/hooks/"* ]] && return 0
+  # Reducers (UI state management)
+  [[ "$path" == *"/reducers/"* ]] && return 0
+  # Contexts (UI contexts)
+  [[ "$path" == *"/contexts/"* ]] && return 0
+  return 1
+}
+
+if is_frontend_file "$FILE_PATH"; then
+  DESIGN_STYLE_GUIDE_READ=$(jq -r '.prerequisites.design_style_guide_read // empty' "$STATUS_FILE" 2>/dev/null)
+
+  if [ -z "$DESIGN_STYLE_GUIDE_READ" ]; then
+    cat << 'EOF'
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "deny",
+    "permissionDecisionReason": "Frontend file prerequisite not met.\n\nBefore editing frontend/UI files, read:\n  /docs/docs_overall/design_style_guide.md\n\nThis ensures familiarity with:\n- Midnight Scholar design system\n- CSS variable tokens (--surface-*, --accent-*, --text-*)\n- Typography tokens (font-display, font-body, font-ui)\n- Shadow system (shadow-warm-*)\n- Border radius tokens (rounded-page, rounded-book)"
+  }
+}
+EOF
+    exit 0
+  fi
+fi
+
 # All checks passed - allow the operation
 exit 0

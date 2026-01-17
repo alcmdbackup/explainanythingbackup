@@ -73,6 +73,17 @@ describe('Supabase Middleware - updateSession', () => {
       auth: {
         getUser: mockGetUser,
       },
+      // Mock for checking disabled users
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { is_disabled: false, disabled_reason: null },
+              error: null,
+            }),
+          }),
+        }),
+      }),
     };
 
     mockCreateServerClient.mockImplementation((url, key, options) => {

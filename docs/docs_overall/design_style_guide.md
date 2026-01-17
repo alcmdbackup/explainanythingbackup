@@ -21,6 +21,15 @@ var(--accent-copper)    /* Secondary accent */
 /* Borders */
 var(--border-default)   /* Standard borders */
 var(--border-strong)    /* Emphasized borders */
+
+/* Status (validation & feedback) */
+var(--status-error)     /* Form errors, error messages */
+var(--status-warning)   /* Warnings, pending states */
+var(--status-success)   /* Success confirmations */
+
+/* Extended Surfaces */
+var(--surface-nav)      /* Navigation bar (darker) */
+var(--surface-input)    /* Form input backgrounds */
 ```
 
 ### Typography
@@ -100,6 +109,11 @@ Colors are defined as CSS custom properties, enabling theme switching and consis
 | `--accent-gold` | `#d4a853` | Primary accent |
 | `--accent-copper` | `#b87333` | Secondary accent |
 | `--border-default` | `#e8e4dc` | Default borders |
+| `--status-error` | `var(--destructive)` | Form validation errors |
+| `--status-warning` | `#d4a853` | Warnings, pending states |
+| `--status-success` | `#2d7d4a` | Success confirmations |
+| `--surface-nav` | `#f8f4ed` | Navigation bar (darker for hierarchy) |
+| `--surface-input` | `#f7f3eb` | Form input backgrounds |
 
 ### Dark Mode (Night Study)
 
@@ -111,6 +125,11 @@ Colors are defined as CSS custom properties, enabling theme switching and consis
 | `--surface-elevated` | `#1a2a47` | Hover states |
 | `--accent-gold` | `#f0c674` | Primary accent (lamplight) |
 | `--accent-copper` | `#d4a853` | Secondary accent (brass) |
+| `--status-error` | `var(--destructive)` | Form validation errors |
+| `--status-warning` | `#f0c674` | Warnings, pending states |
+| `--status-success` | `#52b788` | Success confirmations |
+| `--surface-nav` | `#0d1a2d` | Navigation bar (darker for hierarchy) |
+| `--surface-input` | `#1a2644` | Form input backgrounds |
 
 ### Theme Variants
 
@@ -131,6 +150,40 @@ color: var(--text-primary);
 background: var(--surface-secondary);
 border-color: var(--border-default);
 ```
+
+---
+
+## Token Decision Matrix
+
+Use this guide to select the appropriate token for each context.
+
+### Surface Token Selection
+
+| Token | When to Use | When NOT to Use |
+|-------|-------------|-----------------|
+| `--surface-primary` | Page background, main content area | Overlays, elevated elements |
+| `--surface-secondary` | Cards, content containers, sidebars | Navigation bar, form inputs |
+| `--surface-elevated` | Hover states, subtle emphasis | Primary containers |
+| `--surface-nav` | Navigation bar ONLY | Content areas (creates hierarchy) |
+| `--surface-input` | Form inputs, text areas | Non-interactive surfaces |
+
+### Status Token Selection
+
+| Token | When to Use | When NOT to Use |
+|-------|-------------|-----------------|
+| `--status-error` | Form validation errors, error messages, inline feedback | Delete buttons (use `--destructive`) |
+| `--status-warning` | Alerts, pending states, non-critical warnings | |
+| `--status-success` | Success messages, completed badges, confirmations | |
+| `--destructive` | Delete buttons, irreversible actions | General error display |
+
+### Shadow Selection
+
+| Class | When to Use |
+|-------|-------------|
+| `shadow-warm-sm` | Badges, chips, toggle controls, subtle depth |
+| `shadow-warm-md` | Dropdowns, form focus states, moderate elevation |
+| `shadow-warm-lg` | Cards, dialog overlays, standard elevation |
+| `shadow-warm-xl` | Modals, AI panels, maximum elevation |
 
 ---
 
@@ -322,16 +375,35 @@ Dark mode warm shadows include a subtle glow:
 
 ### Shadows
 
-Warm copper-tinted shadows for a cohesive feel:
+Warm copper-tinted shadows for a cohesive feel.
 
-| Class | Usage |
-|-------|-------|
-| `shadow-warm-sm` | Subtle depth |
-| `shadow-warm` | Default elevation |
-| `shadow-warm-md` | Moderate elevation |
-| `shadow-warm-lg` | High elevation |
-| `shadow-page` | Inset paper depth |
-| `shadow-gold-glow` | Focus rings |
+**Light Mode** (warm copper tint, `rgba(180, 115, 51, opacity)`):
+
+| Class | Opacity | Usage |
+|-------|---------|-------|
+| `shadow-warm-sm` | 5% | Subtle depth (badges, chips, toggle buttons) |
+| `shadow-warm` | 8% | Default elevation |
+| `shadow-warm-md` | 8% | Moderate elevation (dropdowns, form focus) |
+| `shadow-warm-lg` | 10% | High elevation (cards, dialogs) |
+| `shadow-warm-xl` | 12% | Maximum elevation (modals, AI panels) |
+| `shadow-page` | n/a | Inset paper depth |
+| `shadow-gold-glow` | n/a | Focus rings |
+
+**Dark Mode** (black shadows, higher opacity for visibility):
+
+| Class | Opacity | Note |
+|-------|---------|------|
+| `shadow-warm-sm` | 15% | 3× light mode |
+| `shadow-warm-md` | 20% | 2.5× light mode |
+| `shadow-warm-xl` | 30% | 2.5× light mode |
+
+> **Why black shadows in dark mode?** Warm copper shadows become invisible against dark backgrounds. Black shadows with higher opacity provide necessary depth perception while maintaining the Midnight Scholar aesthetic.
+
+**Migration Guide**: Replace all standard Tailwind shadows with warm variants:
+- `shadow-sm` → `shadow-warm-sm`
+- `shadow-md` → `shadow-warm-md`
+- `shadow-lg` → `shadow-warm-lg`
+- `shadow-xl` → `shadow-warm-xl`
 
 ### Paper Texture
 
@@ -375,12 +447,15 @@ Apply subtle SVG fractal noise overlay:
 
 ### Atlas Classes (legacy)
 ```css
-.atlas-display        /* Display typography (Playfair, 3.5rem) */
-.atlas-ui             /* UI typography (DM Sans) */
-.atlas-body           /* Body typography (Source Serif) */
-.atlas-button         /* Button styling */
+.atlas-display         /* Hero display typography (Playfair, 3.5rem) */
+.atlas-display-section /* Section page headings (Playfair, 2.25rem) */
+.atlas-ui              /* UI typography (DM Sans) */
+.atlas-body            /* Body typography (Source Serif) */
+.atlas-button          /* Button styling */
 .atlas-animate-fade-up /* Legacy fade animation */
 ```
+
+> **Note**: Use `atlas-display` for hero/landing pages and `atlas-display-section` for section pages (Settings, Explore, My Library) to maintain visual hierarchy.
 
 ### Color Utilities
 ```css

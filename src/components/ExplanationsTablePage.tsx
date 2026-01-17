@@ -91,7 +91,7 @@ export default function ExplanationsTablePage({
             <main className="container mx-auto px-4 py-8 max-w-6xl">
                 {/* Page Header */}
                 <div className="mb-8">
-                    <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
+                    <h1 className="atlas-display-section atlas-animate-fade-up stagger-1">
                         {pageTitle}
                     </h1>
                     <div className="title-flourish mt-4"></div>

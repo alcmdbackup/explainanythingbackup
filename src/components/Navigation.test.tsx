@@ -212,7 +212,8 @@ describe('Navigation', () => {
       render(<Navigation />);
       const nav = screen.getByRole('navigation');
       // Uses CSS variable based styling for light/dark mode support
-      expect(nav).toHaveClass('bg-[var(--surface-secondary)]');
+      // Navigation uses --surface-nav token for visual hierarchy
+      expect(nav).toHaveClass('bg-[var(--surface-nav)]');
     });
 
     it('should apply theme styling to heading', () => {

@@ -54,7 +54,7 @@ export default function Navigation({
     }, []);
 
     return (
-        <nav className="scholar-nav bg-[var(--surface-secondary)] border-b border-[var(--border-default)] relative">
+        <nav className="scholar-nav bg-[var(--surface-nav)] border-b border-[var(--border-default)] relative paper-texture">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="flex justify-between items-center h-16">
                     {/* Logo - Elegant serif treatment */}
@@ -141,7 +141,7 @@ export default function Navigation({
                 </div>
             </div>
             {/* Gold accent line at bottom */}
-            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--accent-gold)] to-transparent opacity-60"></div>
+            <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-gradient-to-r from-transparent via-[var(--accent-gold)] to-transparent opacity-80"></div>
 
             {/* Import Modal */}
             <ImportModal

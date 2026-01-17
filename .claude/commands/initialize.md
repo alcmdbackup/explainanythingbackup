@@ -31,7 +31,7 @@ else
   DATE_SUFFIX=$(date +%Y%m%d)
   PROJECT_PATH="docs/planning/${PROJECT_NAME}_${DATE_SUFFIX}"
 fi
-BRANCH_NAME="fix/${PROJECT_NAME}"
+# BRANCH_NAME will be set after asking user for branch type
 ```
 
 **Validation:**
@@ -40,6 +40,23 @@ BRANCH_NAME="fix/${PROJECT_NAME}"
   ```bash
   [ -d docs/planning/PROJECT_NAME_DATE ] && echo EXISTS || echo NOT_EXISTS
   ```
+
+### 1.5. Ask for Branch Type
+
+**YOU MUST use AskUserQuestion** to get the branch type prefix:
+
+Present the following options:
+- `feat` - New feature or enhancement (Recommended for most projects)
+- `fix` - Bug fix or correction
+- `chore` - Maintenance, refactoring, or tooling
+- `docs` - Documentation only changes
+
+Store the selected type and construct the branch name:
+
+```bash
+BRANCH_TYPE="[user's selection]"  # e.g., "feat", "fix", "chore", "docs"
+BRANCH_NAME="${BRANCH_TYPE}/${PROJECT_NAME}"
+```
 
 ### 2. Create Branch from Remote Main
 
@@ -235,7 +252,7 @@ Display this completion message:
 ```
 Project initialized successfully!
 
-Branch: fix/${PROJECT_NAME} (based on origin/main)
+Branch: ${BRANCH_TYPE}/${PROJECT_NAME} (based on origin/main)
 Folder: ${PROJECT_PATH}/
 Documents created:
    - ${PROJECT_NAME}_research.md

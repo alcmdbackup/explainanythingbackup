@@ -42,9 +42,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-        # TODO: Restore after validation
-        # with:
-        #   ref: production  # Checkout production branch
+        with:
+          ref: production  # Checkout production branch to match deployed code
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

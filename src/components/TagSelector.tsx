@@ -181,7 +181,7 @@ export default function TagSelector({
 
           {showAddDropdown && (
             <div
-              className="absolute z-10 mt-1 w-48 bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-md shadow-lg max-h-48 overflow-y-auto"
+              className="absolute z-10 mt-1 w-48 bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-md shadow-warm-lg max-h-48 overflow-y-auto"
               data-testid="add-tag-dropdown"
             >
               {isLoadingTags ? (

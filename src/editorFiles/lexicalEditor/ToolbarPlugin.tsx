@@ -176,7 +176,7 @@ function FloatingLinkEditor({ editor }: { editor: any }) {
   }, [isEditMode]);
 
   return (
-    <div ref={editorRef} className="link-editor absolute z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg p-2 min-w-64">
+    <div ref={editorRef} className="link-editor absolute z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-warm-lg p-2 min-w-64">
       {isEditMode ? (
         <input
           ref={inputRef}
@@ -386,7 +386,7 @@ function BlockOptionsDropdownList({
   };
 
   return (
-    <div className="dropdown absolute z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-lg p-1 min-w-48" ref={dropDownRef}>
+    <div className="dropdown absolute z-50 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md shadow-warm-lg p-1 min-w-48" ref={dropDownRef}>
       <button className="item w-full text-left px-3 py-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded flex items-center justify-between" onClick={formatParagraph}>
         <div className="flex items-center gap-2">
           <span className="icon paragraph text-sm">¶</span>

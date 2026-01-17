@@ -17,6 +17,7 @@ import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/Lex
 import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
 import Bibliography from '@/components/sources/Bibliography';
+import { ReportContentButton } from '@/components/ReportContentButton';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
 import {
@@ -34,6 +35,8 @@ import {
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
 import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
+import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
+import { BookmarkIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -61,8 +64,8 @@ function ResultsPageContent() {
     // Track pending AI suggestions (blocks save when true)
     const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
 
-    // AI Editor Panel state (visible by default, collapsible)
-    const [isAIPanelOpen, setIsAIPanelOpen] = useState(true);
+    // AI Editor Panel state (collapsed by default, auto-opens when content loads)
+    const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
 
     // Output mode for AI editor (inline-diff vs rewrite)
     const [outputMode, setOutputMode] = useState<'inline-diff' | 'rewrite'>('inline-diff');
@@ -649,6 +652,9 @@ function ResultsPageContent() {
     const handleSearchSubmit = async (query: string) => {
         if (!query.trim()) return;
 
+        // Collapse AI panel on new search (before action starts)
+        setIsAIPanelOpen(false);
+
         if (!FORCE_REGENERATION_ON_NAV) {
             await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null, sources);
         } else {
@@ -701,6 +707,7 @@ function ResultsPageContent() {
 
             // Reset lifecycle to idle when processing new URL parameters
             dispatchLifecycle({ type: 'RESET' });
+            setIsAIPanelOpen(false);  // Collapse AI panel on new search
 
             // Immediately clear old content to prevent flash
             setExplanationTitle('');
@@ -916,6 +923,13 @@ function ResultsPageContent() {
         };
     }, []);
 
+    // Auto-open AI panel when content finishes loading (viewing phase)
+    useEffect(() => {
+        if (lifecycleState.phase === 'viewing' && !isAIPanelOpen) {
+            setIsAIPanelOpen(true);
+        }
+    }, [lifecycleState.phase, isAIPanelOpen]);
+
     return (
         <div className="h-screen bg-[var(--surface-primary)] flex flex-col" data-lifecycle-phase={lifecycleState.phase}>
             {/* SEO Meta Tags - updates document head with summary data */}
@@ -991,7 +1005,7 @@ function ResultsPageContent() {
                                             </h1>
                                             <button
                                                 onClick={() => setShowMatches(false)}
-                                                className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
+                                                className="text-sm font-ui text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
                                             >
                                                 ← Back
                                             </button>
@@ -1039,29 +1053,29 @@ function ResultsPageContent() {
                                         <div className="flex items-center justify-between min-h-[2.5rem]">
                                             <div className="flex items-center gap-3">
                                                 {explanationStatus === ExplanationStatus.Draft && (
-                                                    <span className="px-3 py-1 text-sm font-sans font-bold uppercase tracking-wide bg-[var(--accent-blue)] text-white rounded-page">
+                                                    <span className="px-3 py-1 text-sm font-ui font-bold uppercase tracking-wide bg-[var(--accent-blue)] text-white rounded-page">
                                                         Draft
                                                     </span>
                                                 )}
-                                                <h1 data-testid="explanation-title" className="text-3xl font-display font-bold text-[var(--text-primary)] leading-tight">
+                                                <h1 data-testid="explanation-title" className="atlas-display atlas-animate-fade-up stagger-1">
                                                     {explanationTitle}
                                                 </h1>
                                             </div>
                                             {matches && matches.length > 0 && (
                                                 <button
                                                     onClick={() => setShowMatches(true)}
-                                                    className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline"
+                                                    className="text-sm font-ui text-[var(--accent-gold)] hover:text-[var(--accent-copper)] font-medium transition-colors gold-underline atlas-animate-fade-up stagger-2"
                                                 >
                                                     View related ({matches.length})
                                                 </button>
                                             )}
                                         </div>
-                                        <div className="title-flourish mt-4"></div>
+                                        <div className="title-flourish mt-4 atlas-animate-fade-up stagger-3"></div>
                                     </div>
                                 )}
 
                                 {!isTagsModified(tagState) && !isPageLoading && (
-                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+                                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 atlas-animate-fade-up stagger-4">
                                     {/* Action buttons - left side */}
                                     <div className="flex flex-wrap gap-2">
                                         {(explanationTitle || content) && (
@@ -1090,8 +1104,9 @@ function ResultsPageContent() {
                                                             }, FILE_DEBUG);
                                                             await handleUserAction(userInput, UserInputType.Rewrite, mode, userid, [], explanationId, explanationVector);
                                                         }}
-                                                        className="px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
+                                                        className="inline-flex items-center gap-2 px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] hover:opacity-90 transition-colors rounded-l-page disabled:cursor-not-allowed disabled:opacity-50"
                                                     >
+                                                        <SparklesIcon className="w-4 h-4" />
                                                         Rewrite
                                                     </button>
                                                     <button
@@ -1138,9 +1153,10 @@ function ResultsPageContent() {
                                             data-user-saved={userSaved}
                                             data-user-saved-loaded={userSavedLoaded}
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before saving" : undefined}
-                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
-                                            {isSaving ? 'Saving...' : userSaved ? 'Saved ✓' : 'Save'}
+                                            {userSaved ? <CheckIcon className="w-4 h-4" /> : <BookmarkIcon className="w-4 h-4" />}
+                                            {isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}
                                         </button>
                                         {(hasUnsavedChanges || explanationStatus === ExplanationStatus.Draft) && (
                                             <button
@@ -1148,8 +1164,9 @@ function ResultsPageContent() {
                                                 disabled={isSavingChanges || (explanationStatus !== ExplanationStatus.Draft && !hasUnsavedChanges) || isStreaming || hasPendingSuggestions}
                                                 data-testid="publish-button"
                                                 title={hasPendingSuggestions ? "Accept or reject AI suggestions before publishing" : undefined}
-                                                className="inline-flex items-center justify-center rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                                className="inline-flex items-center justify-center gap-2 rounded-page bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] shadow-warm transition-all duration-200 hover:shadow-warm-md disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                             >
+                                                <CheckCircleIcon className="w-4 h-4" />
                                                 {isSavingChanges ? 'Publishing...' : 'Publish'}
                                             </button>
                                         )}
@@ -1167,10 +1184,17 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="edit-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before exiting edit mode" : undefined}
-                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
+                                            {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
+                                        {explanationId && (
+                                            <ReportContentButton
+                                                explanationId={explanationId}
+                                                disabled={isStreaming}
+                                            />
+                                        )}
                                     </div>
 
                                     {/* Mode dropdown - right side */}
@@ -1249,7 +1273,7 @@ function ResultsPageContent() {
                                             background: rgba(156, 163, 175, 0.9);
                                         }
                                     `}</style>
-                                    <div data-testid="explanation-content" className="scholar-card p-6">
+                                    <div data-testid="explanation-content" className="scholar-card p-6 atlas-animate-fade-up stagger-5">
                                         {(streamCompleted || (!isStreaming && content)) && <div data-testid="stream-complete" className="hidden" />}
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
@@ -1358,6 +1382,7 @@ function ResultsPageContent() {
                         }}
                         tagState={tagState}
                         dispatchTagAction={dispatchTagAction}
+                        isStreaming={isStreaming}
                         />
                     </div>
 
