@@ -2,7 +2,7 @@
 
 /**
  * AIEditorPanel - Collapsible sidebar for AI-powered editing with sources support
- * Supports 5 design variants configurable via PanelVariantContext
+ * Supports design variants configurable via PanelVariantContext.
  */
 
 import { useState, useCallback, useEffect } from 'react';
@@ -523,7 +523,7 @@ export default function AIEditorPanel({
                 type="button"
                 onClick={() => onExpandToModal(userPrompt)}
                 disabled={isStreaming || isLoading}
-                className="p-2 text-[var(--text-muted)] hover:text-[var(--accent-gold)] rounded-lg hover:bg-[var(--surface-elevated)]/50 transition-all disabled:opacity-50"
+                className="p-2 text-[var(--text-on-primary)]/80 hover:text-[var(--text-on-primary)] rounded-lg hover:bg-white/10 transition-all disabled:opacity-50"
                 title="Open advanced editor"
                 data-testid="modal-expand-button"
               >

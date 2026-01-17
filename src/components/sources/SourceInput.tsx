@@ -135,7 +135,7 @@ export default function SourceInput({
             'flex-1 px-3 py-2 rounded-page text-sm',
             'bg-[var(--surface-primary)] border border-[var(--border-default)]',
             'text-[var(--text-primary)] placeholder:text-[var(--text-muted)]',
-            'focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)]',
+            'focus:outline-none focus:border-[var(--accent-gold)] focus:ring-1 focus:ring-[var(--accent-gold)] focus:bg-[var(--surface-secondary)]',
             'transition-colors duration-200',
             'disabled:opacity-50 disabled:cursor-not-allowed',
             error && 'border-[var(--status-error)]'

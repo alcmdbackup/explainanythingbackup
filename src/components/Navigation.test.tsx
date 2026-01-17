@@ -24,9 +24,9 @@ jest.mock('./SearchBar', () => {
 });
 
 jest.mock('next/link', () => {
-  return function MockLink({ children, href, className }: any) {
+  return function MockLink({ children, href, className, style }: any) {
     return (
-      <a href={href} className={className}>
+      <a href={href} className={className} style={style}>
         {children}
       </a>
     );
@@ -151,8 +151,10 @@ describe('Navigation', () => {
     it('should apply consistent styling classes to all navigation links', () => {
       render(<Navigation />);
       const homeLink = screen.getByText('Home').closest('a');
-      // Uses CSS variable based styling
-      expect(homeLink).toHaveClass('scholar-nav-link', 'text-[var(--text-secondary)]');
+      // Uses scholar-nav-link class for styling, color is applied via inline style
+      expect(homeLink).toHaveClass('scholar-nav-link');
+      // Color is hardcoded to white for dark navy theme
+      expect(homeLink).toHaveStyle({ color: '#ffffff' });
     });
   });
 
@@ -208,24 +210,27 @@ describe('Navigation', () => {
   // ========================================================================
 
   describe('Styling and Theme', () => {
-    it('should apply theme styling to navigation bar', () => {
+    it('should apply dark navy theme styling to navigation bar', () => {
       render(<Navigation />);
       const nav = screen.getByRole('navigation');
-      // Uses CSS variable based styling for light/dark mode support
-      // Navigation uses --surface-nav token for visual hierarchy
-      expect(nav).toHaveClass('bg-[var(--surface-nav)]');
+      // Uses hardcoded dark navy theme
+      expect(nav).toHaveStyle({ backgroundColor: '#0d1628' });
+      expect(nav).toHaveClass('dark-nav');
     });
 
-    it('should apply theme styling to heading', () => {
+    it('should apply white logo color for dark theme', () => {
       render(<Navigation />);
       const heading = screen.getByRole('heading', { level: 1 });
-      expect(heading).toHaveClass('text-[var(--text-primary)]');
+      // Logo is white on dark navy theme
+      expect(heading).toHaveStyle({ color: '#ffffff' });
     });
 
     it('should have border styling', () => {
       render(<Navigation />);
       const nav = screen.getByRole('navigation');
-      expect(nav).toHaveClass('border-b', 'border-[var(--border-default)]');
+      // Border color is hardcoded for dark theme, border-b class still exists
+      expect(nav).toHaveClass('border-b');
+      expect(nav).toHaveStyle({ borderColor: 'rgba(255, 255, 255, 0.12)' });
     });
 
     it('should apply transition classes to logout button', () => {
@@ -264,6 +269,12 @@ describe('Navigation', () => {
       expect(logoutButton).toHaveClass('focus:outline-none', 'focus-visible:ring-2');
     });
 
+    it('should have scholar-nav-link class on logout button for hover underline', () => {
+      render(<Navigation />);
+      const logoutButton = screen.getByRole('button', { name: /logout/i });
+      expect(logoutButton).toHaveClass('scholar-nav-link');
+    });
+
     it('should support keyboard navigation for all links', () => {
       render(<Navigation />);
       const links = ['Home', 'Saved', 'Explore'].map(text =>
@@ -294,11 +305,11 @@ describe('Navigation', () => {
       expect(container).toBeInTheDocument();
     });
 
-    it('should render gradient border at bottom', () => {
+    it('should render gold accent border at bottom', () => {
       render(<Navigation />);
       const nav = screen.getByRole('navigation');
-      const gradientBorder = nav.querySelector('.bg-gradient-to-r');
-      expect(gradientBorder).toBeInTheDocument();
+      const goldBorder = nav.querySelector('.bg-\\[var\\(--accent-gold\\)\\]');
+      expect(goldBorder).toBeInTheDocument();
     });
   });
 

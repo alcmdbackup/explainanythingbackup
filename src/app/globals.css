@@ -1770,6 +1770,15 @@
   width: 100%;
 }
 
+/* Dark nav variant - white underlines and hover states */
+.scholar-nav.dark-nav .scholar-nav-link::after {
+  background: #ffffff;
+}
+
+.scholar-nav.dark-nav .scholar-nav-link:hover {
+  color: #ffffff;
+}
+
 /* ==========================================================================
    UTILITY CLASSES
    ========================================================================== */
@@ -2046,6 +2055,12 @@
 .search-focus-glow:focus {
   box-shadow: 0 0 0 1px rgba(var(--accent-gold-rgb), 0.2);
   border-color: var(--accent-gold) !important;
+}
+
+/* Nav search placeholder for dark mode - uses CSS custom property from wrapper */
+.nav-search-wrapper .nav-search-dark-placeholder::placeholder {
+  color: var(--nav-search-placeholder, rgba(255, 255, 255, 0.6));
+  opacity: 1;
 }
 
 /* Card hover lift effect - minimal */

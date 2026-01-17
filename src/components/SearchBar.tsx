@@ -18,6 +18,13 @@ interface SearchBarProps {
     sources?: SourceChipType[];
     onSourcesChange?: (sources: SourceChipType[]) => void;
     showSourcesSection?: boolean;
+    // Dark mode styling for nav variant
+    darkModeStyles?: {
+        backgroundColor?: string;
+        textColor?: string;
+        placeholderColor?: string;
+        borderColor?: string;
+    };
 }
 
 /**
@@ -38,7 +45,8 @@ export default function SearchBar({
     disabled = false,
     sources = [],
     onSourcesChange,
-    showSourcesSection = false
+    showSourcesSection = false,
+    darkModeStyles
 }: SearchBarProps) {
     const [prompt, setPrompt] = useState(initialValue);
     const [isSourcesExpanded, setIsSourcesExpanded] = useState(showSourcesSection);
@@ -186,15 +194,33 @@ export default function SearchBar({
     }
 
     // Nav variant - Compact pill search
+    // Build inline styles for dark mode support (overrides CSS variables when provided)
+    const navInputStyle: React.CSSProperties = darkModeStyles ? {
+        backgroundColor: darkModeStyles.backgroundColor || 'rgba(255, 255, 255, 0.08)',
+        borderColor: darkModeStyles.borderColor || 'rgba(255, 255, 255, 0.3)',
+        color: darkModeStyles.textColor || '#ffffff',
+    } : {};
+
+    // For placeholder styling in dark mode, we use a wrapper with CSS custom property
+    // that can be referenced by the placeholder pseudo-element via global CSS
+    const wrapperStyle: React.CSSProperties = darkModeStyles ? {
+        '--nav-search-placeholder': darkModeStyles.placeholderColor || 'rgba(255, 255, 255, 0.5)',
+    } as React.CSSProperties : {};
+
     return (
         <form onSubmit={handleSubmit} className={`w-full ${className}`}>
-            <div className="flex items-center">
+            <div className="flex items-center nav-search-wrapper" style={wrapperStyle}>
                 <input
                     type="text"
                     value={prompt}
                     onChange={handlePromptChange}
                     data-testid="search-input"
-                    className="w-full bg-transparent border border-[var(--border-default)] focus:border-[var(--accent-gold)] px-4 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none transition-colors duration-200 atlas-ui rounded-full search-focus-glow"
+                    className={`w-full border focus:border-[var(--accent-gold)] px-4 py-2 text-sm focus:outline-none transition-colors duration-200 atlas-ui rounded-full search-focus-glow ${
+                        darkModeStyles
+                            ? 'nav-search-dark-placeholder'
+                            : 'bg-transparent border-[var(--border-default)] text-[var(--text-primary)] placeholder-[var(--text-muted)]'
+                    }`}
+                    style={navInputStyle}
                     placeholder={placeholder}
                     maxLength={maxLength}
                     disabled={disabled}
