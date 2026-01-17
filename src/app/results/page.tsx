@@ -64,8 +64,8 @@ function ResultsPageContent() {
     // Track pending AI suggestions (blocks save when true)
     const [hasPendingSuggestions, setHasPendingSuggestions] = useState(false);
 
-    // AI Editor Panel state (visible by default, collapsible)
-    const [isAIPanelOpen, setIsAIPanelOpen] = useState(true);
+    // AI Editor Panel state (collapsed by default, auto-opens when content loads)
+    const [isAIPanelOpen, setIsAIPanelOpen] = useState(false);
 
     // Output mode for AI editor (inline-diff vs rewrite)
     const [outputMode, setOutputMode] = useState<'inline-diff' | 'rewrite'>('inline-diff');
@@ -652,6 +652,9 @@ function ResultsPageContent() {
     const handleSearchSubmit = async (query: string) => {
         if (!query.trim()) return;
 
+        // Collapse AI panel on new search (before action starts)
+        setIsAIPanelOpen(false);
+
         if (!FORCE_REGENERATION_ON_NAV) {
             await handleUserAction(query, UserInputType.Query, mode, userid, [], null, null, sources);
         } else {
@@ -704,6 +707,7 @@ function ResultsPageContent() {
 
             // Reset lifecycle to idle when processing new URL parameters
             dispatchLifecycle({ type: 'RESET' });
+            setIsAIPanelOpen(false);  // Collapse AI panel on new search
 
             // Immediately clear old content to prevent flash
             setExplanationTitle('');
@@ -918,6 +922,13 @@ function ResultsPageContent() {
             }
         };
     }, []);
+
+    // Auto-open AI panel when content finishes loading (viewing phase)
+    useEffect(() => {
+        if (lifecycleState.phase === 'viewing' && !isAIPanelOpen) {
+            setIsAIPanelOpen(true);
+        }
+    }, [lifecycleState.phase, isAIPanelOpen]);
 
     return (
         <div className="h-screen bg-[var(--surface-primary)] flex flex-col" data-lifecycle-phase={lifecycleState.phase}>
@@ -1371,6 +1382,7 @@ function ResultsPageContent() {
                         }}
                         tagState={tagState}
                         dispatchTagAction={dispatchTagAction}
+                        isStreaming={isStreaming}
                         />
                     </div>
 

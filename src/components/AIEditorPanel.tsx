@@ -53,6 +53,8 @@ interface AIEditorPanelProps {
   tagState?: TagModeState;
   /** Dispatch function for tag actions */
   dispatchTagAction?: React.Dispatch<TagModeAction>;
+  /** Disable panel during content streaming */
+  isStreaming?: boolean;
 }
 
 interface ProgressState {
@@ -250,7 +252,8 @@ export default function AIEditorPanel({
   onRewrite,
   onExpandToModal,
   tagState,
-  dispatchTagAction
+  dispatchTagAction,
+  isStreaming = false
 }: AIEditorPanelProps) {
   // Get variant styles from context (fallback to default if outside provider)
   const variantContext = usePanelVariantOptional();
@@ -488,6 +491,7 @@ export default function AIEditorPanel({
         )}
         aria-label={isOpen ? 'Collapse AI panel' : 'Expand AI panel'}
         aria-expanded={isOpen}
+        data-testid="ai-panel-toggle"
       >
         {isOpen ? <ChevronRightIcon className="w-3.5 h-3.5" /> : <ChevronLeftIcon className="w-3.5 h-3.5" />}
       </button>
@@ -495,8 +499,16 @@ export default function AIEditorPanel({
       {/* Panel Content */}
       <div className={cn(
         'flex flex-col h-full transition-opacity duration-200',
-        isOpen ? 'opacity-100' : 'opacity-0'
+        isOpen ? 'opacity-100' : 'opacity-0',
+        isStreaming && 'opacity-50 pointer-events-none'
       )}>
+        {/* Screen reader announcement for streaming state */}
+        {isStreaming && (
+          <span className="sr-only" role="status" aria-live="polite">
+            AI Editor panel disabled while content is being generated
+          </span>
+        )}
+
         {/* Header - Title, mode toggle, and expand button */}
         <div className={styles.header}>
           <div className="flex items-center justify-between">
@@ -510,7 +522,7 @@ export default function AIEditorPanel({
               <button
                 type="button"
                 onClick={() => onExpandToModal(userPrompt)}
-                disabled={isLoading}
+                disabled={isStreaming || isLoading}
                 className="p-2 text-[var(--text-muted)] hover:text-[var(--accent-gold)] rounded-lg hover:bg-[var(--surface-elevated)]/50 transition-all disabled:opacity-50"
                 title="Open advanced editor"
                 data-testid="modal-expand-button"
@@ -526,7 +538,7 @@ export default function AIEditorPanel({
               <OutputModeToggle
                 value={outputMode}
                 onChange={onOutputModeChange}
-                disabled={isLoading}
+                disabled={isStreaming || isLoading}
               />
             </div>
           )}
@@ -548,7 +560,7 @@ export default function AIEditorPanel({
               onChange={(e) => setUserPrompt(e.target.value)}
               placeholder="Describe your desired changes..."
               className={styles.textarea}
-              disabled={isLoading}
+              disabled={isStreaming || isLoading}
             />
             {/* Quick Actions */}
             <div className={styles.quickActions}>
@@ -557,7 +569,7 @@ export default function AIEditorPanel({
                   <button
                     type="button"
                     onClick={() => handleQuickAction(action)}
-                    disabled={isLoading || !currentContent.trim()}
+                    disabled={isStreaming || isLoading || !currentContent.trim()}
                     className={cn(
                       styles.quickActionLink,
                       'disabled:opacity-50 disabled:cursor-not-allowed'
@@ -604,7 +616,7 @@ export default function AIEditorPanel({
                   onSourcesChange(newSources);
                 }}
                 maxSources={5}
-                disabled={isLoading}
+                disabled={isStreaming || isLoading}
               />
             </div>
           )}
@@ -618,7 +630,7 @@ export default function AIEditorPanel({
               <TagSelector
                 tagState={tagState}
                 dispatch={dispatchTagAction}
-                disabled={isLoading}
+                disabled={isStreaming || isLoading}
               />
             </div>
           )}
@@ -626,7 +638,7 @@ export default function AIEditorPanel({
           {/* Submit Button */}
           <button
             onClick={() => handleSubmit()}
-            disabled={isLoading || !userPrompt.trim() || !currentContent.trim()}
+            disabled={isStreaming || isLoading || !userPrompt.trim() || !currentContent.trim()}
             className={styles.submitButton}
           >
             <span className="flex items-center justify-center gap-2">

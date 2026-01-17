@@ -557,4 +557,90 @@ describe('AIEditorPanel', () => {
       });
     });
   });
+
+  // ========================================================================
+  // Streaming Disabled State Tests
+  // ========================================================================
+
+  describe('Streaming Disabled State', () => {
+    it('should render with opacity-50 class when isStreaming=true', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      // The panel content wrapper should have opacity-50 class
+      const panel = screen.getByRole('complementary');
+      // Find the panel content div with the streaming disabled classes
+      const panelContent = panel.querySelector('.opacity-50.pointer-events-none');
+      expect(panelContent).toBeInTheDocument();
+    });
+
+    it('should have pointer-events-none when isStreaming=true', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      const panel = screen.getByRole('complementary');
+      const panelContent = panel.querySelector('.pointer-events-none');
+      expect(panelContent).toBeInTheDocument();
+    });
+
+    it('should disable textarea when isStreaming=true', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
+      expect(textarea).toBeDisabled();
+    });
+
+    it('should disable submit button when isStreaming=true', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      const submitButton = screen.getByRole('button', { name: /get suggestions/i });
+      expect(submitButton).toBeDisabled();
+    });
+
+    it('should render sr-only status announcement when isStreaming=true', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      // Check for the screen reader announcement
+      const announcement = screen.getByText(/AI Editor panel disabled while content is being generated/i);
+      expect(announcement).toBeInTheDocument();
+      expect(announcement).toHaveClass('sr-only');
+    });
+
+    it('should render normally when isStreaming=false', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: false });
+      render(<AIEditorPanel {...props} />);
+
+      const panel = screen.getByRole('complementary');
+      // Should NOT have the streaming disabled classes
+      const panelContent = panel.querySelector('.opacity-50.pointer-events-none');
+      expect(panelContent).not.toBeInTheDocument();
+
+      // Controls should be enabled (assuming no loading state)
+      const textarea = screen.getByRole('textbox', { name: /what would you like to improve/i });
+      expect(textarea).not.toBeDisabled();
+    });
+
+    it('should disable quick action buttons when isStreaming=true', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: true, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      // Quick action buttons should be disabled
+      const simplifyButton = screen.getByRole('button', { name: /simplify/i });
+      expect(simplifyButton).toBeDisabled();
+    });
+
+    it('should show toggle button when isStreaming=true (allows user to expand)', () => {
+      const props = createMockAISuggestionsPanelProps({ isOpen: false, isStreaming: true });
+      render(<AIEditorPanel {...props} />);
+
+      // Toggle button should be visible during streaming so user can expand
+      const toggleButton = screen.getByTestId('ai-panel-toggle');
+      expect(toggleButton).toBeInTheDocument();
+      expect(toggleButton).not.toBeDisabled();
+    });
+
+  });
 });
