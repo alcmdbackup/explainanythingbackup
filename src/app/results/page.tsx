@@ -17,6 +17,7 @@ import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/Lex
 import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
 import Bibliography from '@/components/sources/Bibliography';
+import { ReportContentButton } from '@/components/ReportContentButton';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
 import {
@@ -1177,6 +1178,12 @@ function ResultsPageContent() {
                                             {isEditMode ? <CheckIcon className="w-4 h-4" /> : <PencilSquareIcon className="w-4 h-4" />}
                                             {isEditMode ? 'Done' : 'Edit'}
                                         </button>
+                                        {explanationId && (
+                                            <ReportContentButton
+                                                explanationId={explanationId}
+                                                disabled={isStreaming}
+                                            />
+                                        )}
                                     </div>
 
                                     {/* Mode dropdown - right side */}

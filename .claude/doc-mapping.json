@@ -204,6 +204,14 @@
     {
       "pattern": "src/app/api/test-responses/**",
       "docs": ["docs/feature_deep_dives/markdown_ast_diffing.md"]
+    },
+    {
+      "pattern": "src/app/admin/**",
+      "docs": ["docs/feature_deep_dives/admin_panel.md"]
+    },
+    {
+      "pattern": "src/lib/services/admin*.ts",
+      "docs": ["docs/feature_deep_dives/admin_panel.md"]
     }
   ],
   "alwaysConsider": [

@@ -50,6 +50,31 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Check if user is disabled (skip for auth routes and error page)
+  if (
+    user &&
+    !request.nextUrl.pathname.startsWith('/login') &&
+    !request.nextUrl.pathname.startsWith('/auth') &&
+    !request.nextUrl.pathname.startsWith('/error') &&
+    !request.nextUrl.pathname.startsWith('/account-disabled')
+  ) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('is_disabled, disabled_reason')
+      .eq('user_id', user.id)
+      .single()
+
+    if (profile?.is_disabled) {
+      // User is disabled, redirect to account disabled page
+      const url = request.nextUrl.clone()
+      url.pathname = '/account-disabled'
+      if (profile.disabled_reason) {
+        url.searchParams.set('reason', profile.disabled_reason)
+      }
+      return NextResponse.redirect(url)
+    }
+  }
+
   // IMPORTANT: You *must* return the supabaseResponse object as it is.
   // If you're creating a new response object with NextResponse.next() make sure to:
   // 1. Pass the request in it, like so:
