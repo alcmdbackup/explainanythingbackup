@@ -83,10 +83,12 @@ export default function AdminUsersPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by email or ID..."
+            data-testid="admin-users-search"
             className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] w-64"
           />
           <button
             type="submit"
+            data-testid="admin-users-search-btn"
             className="px-4 py-2 bg-[var(--accent-primary)] text-white rounded-md hover:opacity-90"
           >
             Search
@@ -98,6 +100,7 @@ export default function AdminUsersPage() {
             type="checkbox"
             checked={showDisabled}
             onChange={(e) => { setShowDisabled(e.target.checked); setPage(0); }}
+            data-testid="admin-users-show-disabled"
             className="rounded"
           />
           Show disabled
@@ -112,7 +115,7 @@ export default function AdminUsersPage() {
       )}
 
       {/* Users Table */}
-      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg">
+      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg" data-testid="admin-users-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--bg-tertiary)]">
             <tr>
@@ -143,6 +146,7 @@ export default function AdminUsersPage() {
               users.map((user) => (
                 <tr
                   key={user.id}
+                  data-testid={`admin-users-row-${user.id}`}
                   className="border-t border-[var(--border-color)] hover:bg-[var(--bg-secondary)]"
                 >
                   <td className="p-3">
@@ -178,6 +182,7 @@ export default function AdminUsersPage() {
                   <td className="p-3">
                     <button
                       onClick={() => setSelectedUser(user)}
+                      data-testid={`admin-users-view-${user.id}`}
                       className="text-[var(--accent-primary)] hover:underline text-xs"
                     >
                       View Details
@@ -191,7 +196,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Pagination */}
-      <div className="flex justify-between items-center text-sm">
+      <div className="flex justify-between items-center text-sm" data-testid="admin-users-pagination">
         <span className="text-[var(--text-muted)]">
           {total > 0 ? `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, total)} of ${total}` : 'No users'}
         </span>
@@ -199,6 +204,7 @@ export default function AdminUsersPage() {
           <button
             onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
+            data-testid="admin-users-prev-page"
             className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
           >
             Previous
@@ -209,6 +215,7 @@ export default function AdminUsersPage() {
           <button
             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
             disabled={page >= totalPages - 1}
+            data-testid="admin-users-next-page"
             className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
           >
             Next

@@ -5,6 +5,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import {
   getAdminExplanationsAction,
   hideExplanationAction,
@@ -118,6 +119,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
     setActionLoading(true);
     const result = await hideExplanationAction(id);
     if (result.success) {
+      toast.success('Explanation hidden successfully');
       await loadExplanations();
     } else {
       setError(result.error?.message || 'Failed to hide explanation');
@@ -129,6 +131,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
     setActionLoading(true);
     const result = await restoreExplanationAction(id);
     if (result.success) {
+      toast.success('Explanation restored successfully');
       await loadExplanations();
     } else {
       setError(result.error?.message || 'Failed to restore explanation');
@@ -142,6 +145,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
     setActionLoading(true);
     const result = await bulkHideExplanationsAction(Array.from(selectedIds));
     if (result.success) {
+      toast.success(`${selectedIds.size} explanations hidden successfully`);
       setSelectedIds(new Set());
       await loadExplanations();
     } else {
@@ -166,12 +170,14 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           placeholder="Search explanations..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          data-testid="admin-content-search"
           className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] w-64"
         />
 
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
+          data-testid="admin-content-status-filter"
           className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)]"
         >
           <option value="">All Statuses</option>
@@ -184,6 +190,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
             type="checkbox"
             checked={showHidden}
             onChange={(e) => { setShowHidden(e.target.checked); setPage(0); }}
+            data-testid="admin-content-show-hidden"
             className="rounded"
           />
           Show hidden
@@ -203,6 +210,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           <button
             onClick={handleBulkHide}
             disabled={actionLoading}
+            data-testid="admin-content-bulk-hide"
             className="px-3 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
           >
             Hide Selected ({selectedIds.size})
@@ -218,7 +226,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg">
+      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg" data-testid="admin-content-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--bg-tertiary)]">
             <tr>
@@ -227,6 +235,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                   type="checkbox"
                   checked={explanations.length > 0 && selectedIds.size === explanations.length}
                   onChange={handleSelectAll}
+                  data-testid="admin-content-select-all"
                   className="rounded"
                 />
               </th>
@@ -271,6 +280,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
               explanations.map((exp) => (
                 <tr
                   key={exp.id}
+                  data-testid={`admin-content-row-${exp.id}`}
                   className={`border-t border-[var(--border-color)] hover:bg-[var(--bg-secondary)] ${
                     exp.delete_status !== 'visible' ? 'opacity-60' : ''
                   }`}
@@ -280,6 +290,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                       type="checkbox"
                       checked={selectedIds.has(exp.id)}
                       onChange={() => handleSelectOne(exp.id)}
+                      data-testid={`admin-content-checkbox-${exp.id}`}
                       className="rounded"
                     />
                   </td>
@@ -287,6 +298,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                   <td className="p-3">
                     <button
                       onClick={() => onSelectExplanation?.(exp)}
+                      data-testid={`admin-content-title-${exp.id}`}
                       className="text-left hover:text-[var(--accent-primary)] font-medium"
                     >
                       {exp.explanation_title || 'Untitled'}
@@ -328,6 +340,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                     <div className="flex gap-2">
                       <button
                         onClick={() => onSelectExplanation?.(exp)}
+                        data-testid={`admin-content-view-${exp.id}`}
                         className="text-[var(--accent-primary)] hover:underline text-xs"
                       >
                         View
@@ -336,6 +349,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                         <button
                           onClick={() => handleRestore(exp.id)}
                           disabled={actionLoading}
+                          data-testid={`admin-content-restore-${exp.id}`}
                           className="text-green-400 hover:underline text-xs disabled:opacity-50"
                         >
                           Restore
@@ -344,6 +358,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                         <button
                           onClick={() => handleHide(exp.id)}
                           disabled={actionLoading}
+                          data-testid={`admin-content-hide-${exp.id}`}
                           className="text-red-400 hover:underline text-xs disabled:opacity-50"
                         >
                           Hide
@@ -359,7 +374,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
       </div>
 
       {/* Pagination */}
-      <div className="flex justify-between items-center text-sm">
+      <div className="flex justify-between items-center text-sm" data-testid="admin-content-pagination">
         <span className="text-[var(--text-muted)]">
           Showing {page * pageSize + 1}-{Math.min((page + 1) * pageSize, total)} of {total}
         </span>
@@ -367,6 +382,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           <button
             onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
+            data-testid="admin-content-prev-page"
             className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
           >
             Previous
@@ -377,6 +393,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           <button
             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
             disabled={page >= totalPages - 1}
+            data-testid="admin-content-next-page"
             className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
           >
             Next

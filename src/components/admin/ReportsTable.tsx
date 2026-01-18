@@ -5,6 +5,7 @@
  */
 
 import { useState, useCallback, useEffect } from 'react';
+import { toast } from 'sonner';
 import {
   getContentReportsAction,
   resolveContentReportAction,
@@ -83,6 +84,8 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
     });
 
     if (result.success) {
+      const statusLabel = status === 'actioned' ? 'hidden' : status;
+      toast.success(`Report ${statusLabel} successfully`);
       await loadReports();
       setSelectedReport(null);
     } else {
@@ -101,6 +104,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value as ReportStatus | ''); setPage(0); }}
+          data-testid="admin-reports-status-filter"
           className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)]"
         >
           <option value="">All Statuses</option>
@@ -119,7 +123,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg">
+      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg" data-testid="admin-reports-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--bg-tertiary)]">
             <tr>
@@ -148,6 +152,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
               reports.map((report) => (
                 <tr
                   key={report.id}
+                  data-testid={`admin-reports-row-${report.id}`}
                   className="border-t border-[var(--border-color)] hover:bg-[var(--bg-secondary)]"
                 >
                   <td className="p-3 text-[var(--text-muted)]">{report.id}</td>
@@ -156,6 +161,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
                       href={`/explanations?id=${report.explanation_id}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      data-testid={`admin-reports-explanation-${report.id}`}
                       className="text-[var(--accent-primary)] hover:underline"
                     >
                       {report.explanation_title || `#${report.explanation_id}`}
@@ -166,6 +172,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
                     {report.details && (
                       <button
                         onClick={() => setSelectedReport(report)}
+                        data-testid={`admin-reports-details-${report.id}`}
                         className="ml-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs"
                       >
                         (details)
@@ -186,6 +193,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
                         <button
                           onClick={() => handleResolve(report.id, 'dismissed')}
                           disabled={actionLoading === report.id}
+                          data-testid={`admin-reports-dismiss-${report.id}`}
                           className="text-gray-400 hover:underline text-xs disabled:opacity-50"
                         >
                           Dismiss
@@ -193,6 +201,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
                         <button
                           onClick={() => handleResolve(report.id, 'reviewed')}
                           disabled={actionLoading === report.id}
+                          data-testid={`admin-reports-review-${report.id}`}
                           className="text-blue-400 hover:underline text-xs disabled:opacity-50"
                         >
                           Mark Reviewed
@@ -200,6 +209,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
                         <button
                           onClick={() => handleResolve(report.id, 'actioned', true)}
                           disabled={actionLoading === report.id}
+                          data-testid={`admin-reports-action-${report.id}`}
                           className="text-red-400 hover:underline text-xs disabled:opacity-50"
                         >
                           Hide Content
@@ -219,7 +229,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
       </div>
 
       {/* Pagination */}
-      <div className="flex justify-between items-center text-sm">
+      <div className="flex justify-between items-center text-sm" data-testid="admin-reports-pagination">
         <span className="text-[var(--text-muted)]">
           {total > 0 ? `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, total)} of ${total}` : 'No reports'}
         </span>
@@ -227,6 +237,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
           <button
             onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
+            data-testid="admin-reports-prev-page"
             className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
           >
             Previous
@@ -237,6 +248,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
           <button
             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
             disabled={page >= totalPages - 1}
+            data-testid="admin-reports-next-page"
             className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
           >
             Next
@@ -246,12 +258,16 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
 
       {/* Report Details Modal */}
       {selectedReport && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          data-testid="admin-reports-detail-modal"
+        >
           <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-lg w-full">
             <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
               <h3 className="font-semibold text-[var(--text-primary)]">Report Details</h3>
               <button
                 onClick={() => setSelectedReport(null)}
+                data-testid="admin-reports-modal-close"
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl"
               >
                 &times;
@@ -282,6 +298,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
             <div className="flex justify-end gap-2 p-4 border-t border-[var(--border-color)]">
               <button
                 onClick={() => setSelectedReport(null)}
+                data-testid="admin-reports-modal-close-footer"
                 className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)]"
               >
                 Close
