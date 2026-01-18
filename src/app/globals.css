@@ -147,6 +147,23 @@
   /* RGB values for animations (extracted from accent-gold #d4a853) */
   --accent-gold-rgb: 212, 168, 83;
   --accent-copper-rgb: 184, 115, 51;
+
+  /* Navigation dark mode overrides (for hero pages with dark nav) */
+  --nav-dark-bg: #0d1628;
+  --nav-dark-text: #ffffff;
+  --nav-dark-border: rgba(255, 255, 255, 0.12);
+  --nav-dark-search-bg: rgba(255, 255, 255, 0.08);
+  --nav-dark-search-border: rgba(255, 255, 255, 0.3);
+  --nav-dark-placeholder: rgba(255, 255, 255, 0.6);
+  --nav-dark-import-bg: #ffffff;
+  --nav-dark-import-text: #0d1628;
+  --nav-dark-import-border: rgba(255, 255, 255, 0.9);
+
+  /* Scrollbar colors (RGB base for alpha compositing) */
+  --text-secondary-rgb: 74, 74, 90;
+  --scrollbar-thumb: rgba(var(--text-secondary-rgb), 0.5);
+  --scrollbar-thumb-hover: rgba(var(--text-secondary-rgb), 0.7);
+  --scrollbar-thumb-active: rgba(var(--text-secondary-rgb), 0.9);
 }
 
 /* ==========================================================================
@@ -238,6 +255,12 @@
   /* RGB values for animations (extracted from accent-gold #f0c674) */
   --accent-gold-rgb: 240, 198, 116;
   --accent-copper-rgb: 212, 168, 83;
+
+  /* Scrollbar colors - dark mode (lighter for visibility) */
+  --text-secondary-rgb: 138, 138, 151;
+  --scrollbar-thumb: rgba(var(--text-secondary-rgb), 0.5);
+  --scrollbar-thumb-hover: rgba(var(--text-secondary-rgb), 0.7);
+  --scrollbar-thumb-active: rgba(var(--text-secondary-rgb), 0.9);
 }
 
 /* ==========================================================================

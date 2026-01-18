@@ -70,7 +70,7 @@ function encodeStandaloneTitleParam(title: string): string {
 
 // Theme configuration for the editor - Midnight Scholar styling
 const theme = {
-  paragraph: 'mt-1 mb-4 leading-relaxed font-serif text-[var(--text-primary)]',
+  paragraph: 'mt-1 mb-4 leading-relaxed font-body text-[var(--text-primary)]',
   heading: {
     h1: 'text-3xl font-display font-bold mb-4 mt-0 leading-tight text-[var(--text-primary)]',
     h2: 'text-2xl font-display font-semibold mb-3 mt-6 leading-tight text-[var(--text-primary)]',
@@ -85,14 +85,14 @@ const theme = {
     underline: 'underline decoration-[var(--accent-gold)]',
   },
   list: {
-    ul: 'my-4 space-y-2 list-disc list-inside font-serif',
-    ol: 'my-4 space-y-2 list-decimal list-inside font-serif',
+    ul: 'my-4 space-y-2 list-disc list-inside font-body',
+    ol: 'my-4 space-y-2 list-decimal list-inside font-body',
     listitem: 'my-1 leading-relaxed marker:text-[var(--accent-gold)]',
   },
   link: 'text-[var(--accent-gold)] underline cursor-pointer transition-colors hover:text-[var(--accent-copper)]',
   code: 'px-1.5 py-0.5 rounded-page text-sm font-mono bg-[var(--surface-elevated)] text-[var(--text-secondary)]',
   codeblock: 'bg-[var(--surface-elevated)] p-4 rounded-book overflow-x-auto my-4 border border-[var(--border-default)] font-mono text-sm',
-  quote: 'border-l-4 border-[var(--accent-gold)] pl-4 my-4 italic font-serif text-[var(--text-secondary)] bg-[var(--surface-elevated)]/50 py-2 rounded-r-page',
+  quote: 'border-l-4 border-[var(--accent-gold)] pl-4 my-4 italic font-body text-[var(--text-secondary)] bg-[var(--surface-elevated)]/50 py-2 rounded-r-page',
 };
 
 // Error handler function
@@ -194,7 +194,7 @@ function DisplayModePlugin({ isEditMode }: { isEditMode: boolean }) {
 function EditorStateDisplay({ editorStateJson }: { editorStateJson: string }) {
   return (
     <div className="mt-4">
-      <h3 className="text-sm font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+      <h3 className="text-sm font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
         Editor State (JSON)
       </h3>
       <textarea
@@ -722,7 +722,7 @@ const LexicalEditor = forwardRef<LexicalEditorRef, LexicalEditorProps>(({
               />
             }
             placeholder={
-              <div className="absolute top-4 left-4 text-[var(--text-muted)] font-serif italic pointer-events-none">
+              <div className="absolute top-4 left-4 text-[var(--text-muted)] font-body italic pointer-events-none">
                 {placeholder}
               </div>
             }
@@ -802,7 +802,7 @@ function TreeViewPlugin() {
 
   return (
     <div className="mt-4">
-      <h3 className="text-sm font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
+      <h3 className="text-sm font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider mb-2">
         Editor Tree View
       </h3>
       <TreeView
@@ -825,7 +825,7 @@ export function EditModeToggle({ isEditMode, onToggle }: { isEditMode: boolean; 
   return (
     <button
       onClick={onToggle}
-      className="inline-flex items-center px-4 py-2 border border-[var(--border-default)] rounded-page shadow-warm bg-[var(--surface-secondary)] hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] text-[var(--text-secondary)] font-sans text-sm font-medium transition-all duration-200 focus:ring-2 focus:ring-[var(--accent-gold)]/30"
+      className="inline-flex items-center px-4 py-2 border border-[var(--border-default)] rounded-page shadow-warm bg-[var(--surface-secondary)] hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] text-[var(--text-secondary)] font-ui text-sm font-medium transition-all duration-200 focus:ring-2 focus:ring-[var(--accent-gold)]/30"
     >
       {isEditMode ? (
         <>

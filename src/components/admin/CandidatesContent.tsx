@@ -225,7 +225,7 @@ export default function CandidatesContent() {
       {/* Approve Modal */}
       {modalMode === 'approve' && selectedCandidate && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--surface-primary)] rounded-lg shadow-xl max-w-lg w-full mx-4">
+          <div className="bg-[var(--surface-primary)] rounded-lg shadow-warm-xl max-w-lg w-full mx-4">
             <div className="p-6">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-xl font-display text-[var(--text-primary)]">

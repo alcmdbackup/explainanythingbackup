@@ -53,7 +53,7 @@ export function ExplanationDetailModal({
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+      <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex justify-between items-start p-4 border-b border-gray-200">
           <div>

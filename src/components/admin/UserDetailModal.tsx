@@ -87,7 +87,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
           <div>

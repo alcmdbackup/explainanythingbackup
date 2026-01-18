@@ -70,13 +70,13 @@ export default function FeedCard({ explanation, metrics, index = 0 }: FeedCardPr
     >
       {/* Clickable content area */}
       <Link href={href} className="block p-5 hover:bg-[var(--surface-elevated)]/50 transition-colors">
-        <time className="text-sm text-[var(--text-muted)] font-sans">
+        <time className="text-sm text-[var(--text-muted)] font-ui">
           {formatTimestamp(explanation.timestamp)}
         </time>
         <h2 className="mt-1 text-lg font-display font-semibold text-[var(--text-primary)] line-clamp-2">
           {explanation.explanation_title}
         </h2>
-        <p className="mt-2 text-[var(--text-secondary)] font-serif line-clamp-3">
+        <p className="mt-2 text-[var(--text-secondary)] font-body line-clamp-3">
           {preview}
         </p>
       </Link>

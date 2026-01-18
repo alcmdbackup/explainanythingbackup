@@ -667,7 +667,7 @@ export default function AIEditorPanel({
                   Processing...
                 </span>
               </div>
-              <p className="text-sm italic font-serif text-[var(--text-muted)] mb-3">
+              <p className="text-sm italic font-body text-[var(--text-muted)] mb-3">
                 {progressState.step}
               </p>
               <div className="w-full bg-[var(--border-default)]/30 rounded-full h-1.5">
@@ -693,7 +693,7 @@ export default function AIEditorPanel({
                   Error
                 </span>
               </div>
-              <p className="text-sm font-serif text-[var(--destructive)] mt-2">
+              <p className="text-sm font-body text-[var(--destructive)] mt-2">
                 {error}
               </p>
             </div>
@@ -741,7 +741,7 @@ export default function AIEditorPanel({
                   Revisions Applied
                 </span>
               </div>
-              <p className="text-sm font-serif text-[var(--text-secondary)] mt-2">
+              <p className="text-sm font-body text-[var(--text-secondary)] mt-2">
                 Your content has been updated with AI suggestions.
               </p>
 
@@ -782,7 +782,7 @@ export default function AIEditorPanel({
                     href={`/editorTest?explanation_id=${sessionData.explanation_id}&session_id=${lastResult.session_id}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center px-3 py-1.5 text-xs font-ui font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-md transition-all duration-200 hover:shadow-md"
+                    className="inline-flex items-center px-3 py-1.5 text-xs font-ui font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-md transition-all duration-200 hover:shadow-warm-md"
                   >
                     <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-2M7 13l3 3 7-7" />
@@ -820,7 +820,7 @@ export default function AIEditorPanel({
                     onClick={() => handleHistoryItemClick(item)}
                     className={styles.historyItem}
                   >
-                    <p className="text-sm font-serif text-[var(--text-secondary)] line-clamp-2">
+                    <p className="text-sm font-body text-[var(--text-secondary)] line-clamp-2">
                       {item.prompt}
                     </p>
                     <p className="text-xs font-ui text-[var(--text-muted)] mt-1.5 flex items-center gap-1">

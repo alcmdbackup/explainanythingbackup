@@ -42,20 +42,20 @@ export default function Navigation({
     const [importModalOpen, setImportModalOpen] = useState(false);
     const [previewData, setPreviewData] = useState<ImportData | null>(null);
 
-    // Hardcoded "Darker Nav (Navy)" theme - permanent dark header styling
+    // Dark Nav theme using CSS variables with fallbacks for reliability
     const navColors = {
-        bg: '#0d1628',
-        text: '#ffffff',
-        textMuted: '#ffffff',
-        border: 'rgba(255, 255, 255, 0.12)',
-        logo: '#ffffff',
-        searchBg: 'rgba(255, 255, 255, 0.08)',
-        searchText: '#ffffff',
-        searchPlaceholder: 'rgba(255, 255, 255, 0.6)',
-        searchBorder: 'rgba(255, 255, 255, 0.3)',
-        importBg: '#ffffff',
-        importText: '#0d1628',
-        importBorder: 'rgba(255, 255, 255, 0.9)',
+        bg: 'var(--nav-dark-bg, #0d1628)',
+        text: 'var(--nav-dark-text, #ffffff)',
+        textMuted: 'var(--nav-dark-text, #ffffff)',
+        border: 'var(--nav-dark-border, rgba(255, 255, 255, 0.12))',
+        logo: 'var(--nav-dark-text, #ffffff)',
+        searchBg: 'var(--nav-dark-search-bg, rgba(255, 255, 255, 0.08))',
+        searchText: 'var(--nav-dark-text, #ffffff)',
+        searchPlaceholder: 'var(--nav-dark-placeholder, rgba(255, 255, 255, 0.6))',
+        searchBorder: 'var(--nav-dark-search-border, rgba(255, 255, 255, 0.3))',
+        importBg: 'var(--nav-dark-import-bg, #ffffff)',
+        importText: 'var(--nav-dark-import-text, #0d1628)',
+        importBorder: 'var(--nav-dark-import-border, rgba(255, 255, 255, 0.9))',
         isDark: true
     };
 
@@ -169,7 +169,7 @@ export default function Navigation({
                         <button
                             data-testid="import-button"
                             onClick={() => setImportModalOpen(true)}
-                            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-ui font-semibold transition-all duration-200 shadow-md hover:shadow-lg hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2"
+                            className="flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-ui font-semibold transition-all duration-200 shadow-warm-md hover:shadow-warm-lg hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2"
                             style={{
                                 backgroundColor: navColors.importBg,
                                 borderColor: navColors.importBorder,

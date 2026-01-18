@@ -472,6 +472,37 @@ Apply subtle SVG fractal noise overlay:
 
 ---
 
+## ESLint Enforcement
+
+The design system is enforced via custom ESLint rules that run on every lint check. Violations will fail CI.
+
+### Rules
+
+| Rule | Detects | Fix |
+|------|---------|-----|
+| `no-hardcoded-colors` | Hex colors (`#fff`), `rgba()` in style props | Use CSS variables: `var(--text-primary)` |
+| `no-arbitrary-text-sizes` | `text-[14px]` patterns in className | Use standard sizes: `text-sm`, `text-base` |
+| `prefer-design-system-fonts` | `font-serif`, `font-sans` | Use `font-body`, `font-ui` |
+| `prefer-warm-shadows` | `shadow-sm`, `shadow-md`, `shadow-lg`, `shadow-xl` | Use `shadow-warm-*` variants |
+
+### Exceptions
+
+These files are exempt from design system rules (intentional hardcoding):
+- `src/app/error.tsx`, `src/app/global-error.tsx` (error boundary fallbacks)
+- `src/app/settings/SettingsContent.tsx` (color picker preview)
+- `src/app/(debug)/**` (debug pages)
+- `src/app/admin/costs/page.tsx` (admin dashboard)
+- `**/*.test.tsx` (test files)
+
+### Running Locally
+
+```bash
+npm run lint                    # Check for violations
+npm run test:eslint-rules       # Run rule unit tests
+```
+
+---
+
 ## Key Files
 
 | File | Purpose |
@@ -482,3 +513,4 @@ Apply subtle SVG fractal noise overlay:
 | `src/components/ui/button.tsx` | Button component with CVA variants |
 | `src/components/ui/card.tsx` | Card component styling |
 | `src/contexts/ThemeContext.tsx` | Theme switching (palette + mode) |
+| `eslint-rules/design-system.js` | Custom ESLint plugin for enforcement |

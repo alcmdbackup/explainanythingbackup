@@ -247,7 +247,7 @@ export function ReportsTable({ initialStatus = 'pending' }: ReportsTableProps) {
       {/* Report Details Modal */}
       {selectedReport && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl max-w-lg w-full">
+          <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-lg w-full">
             <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
               <h3 className="font-semibold text-[var(--text-primary)]">Report Details</h3>
               <button

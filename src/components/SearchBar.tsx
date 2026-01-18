@@ -194,17 +194,17 @@ export default function SearchBar({
     }
 
     // Nav variant - Compact pill search
-    // Build inline styles for dark mode support (overrides CSS variables when provided)
+    // Build inline styles for dark mode support using CSS variables with fallbacks
     const navInputStyle: React.CSSProperties = darkModeStyles ? {
-        backgroundColor: darkModeStyles.backgroundColor || 'rgba(255, 255, 255, 0.08)',
-        borderColor: darkModeStyles.borderColor || 'rgba(255, 255, 255, 0.3)',
-        color: darkModeStyles.textColor || '#ffffff',
+        backgroundColor: darkModeStyles.backgroundColor || 'var(--nav-dark-search-bg, rgba(255, 255, 255, 0.08))',
+        borderColor: darkModeStyles.borderColor || 'var(--nav-dark-search-border, rgba(255, 255, 255, 0.3))',
+        color: darkModeStyles.textColor || 'var(--nav-dark-text, #ffffff)',
     } : {};
 
     // For placeholder styling in dark mode, we use a wrapper with CSS custom property
     // that can be referenced by the placeholder pseudo-element via global CSS
     const wrapperStyle: React.CSSProperties = darkModeStyles ? {
-        '--nav-search-placeholder': darkModeStyles.placeholderColor || 'rgba(255, 255, 255, 0.5)',
+        '--nav-search-placeholder': darkModeStyles.placeholderColor || 'var(--nav-dark-placeholder, rgba(255, 255, 255, 0.5))',
     } as React.CSSProperties : {};
 
     return (

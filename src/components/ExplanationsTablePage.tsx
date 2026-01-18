@@ -102,14 +102,14 @@ export default function ExplanationsTablePage({
 
                 {error && (
                     <div data-testid="library-error" className="mb-6 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)]">
-                        <span className="font-serif">{error}</span>
+                        <span className="font-body">{error}</span>
                     </div>
                 )}
 
                 {isLoading ? (
                     <div data-testid="library-loading" className="text-center py-16 scholar-card">
                         <div className="w-16 h-16 mx-auto mb-4 border-4 border-[var(--accent-gold)]/30 border-t-[var(--accent-gold)] rounded-full animate-spin"></div>
-                        <p className="font-serif text-[var(--text-muted)] text-lg">Loading your library...</p>
+                        <p className="font-body text-[var(--text-muted)] text-lg">Loading your library...</p>
                     </div>
                 ) : explanations.length === 0 ? (
                     <div data-testid="library-empty-state" className="text-center py-16 scholar-card">
@@ -122,11 +122,11 @@ export default function ExplanationsTablePage({
                         >
                             <path d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
-                        <p className="font-serif text-[var(--text-muted)] text-lg">Nothing saved yet</p>
-                        <p className="font-sans text-sm text-[var(--text-muted)] mt-2">Save explanations you want to revisit.</p>
+                        <p className="font-body text-[var(--text-muted)] text-lg">Nothing saved yet</p>
+                        <p className="font-ui text-sm text-[var(--text-muted)] mt-2">Save explanations you want to revisit.</p>
                         <Link
                             href="/"
-                            className="inline-flex items-center mt-6 px-4 py-2 text-sm font-sans font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-page shadow-warm hover:shadow-warm-md transition-all duration-200"
+                            className="inline-flex items-center mt-6 px-4 py-2 text-sm font-ui font-medium text-[var(--text-on-primary)] bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] rounded-page shadow-warm hover:shadow-warm-md transition-all duration-200"
                         >
                             Start exploring
                         </Link>
@@ -138,7 +138,7 @@ export default function ExplanationsTablePage({
                                 <thead className="bg-[var(--surface-elevated)] border-b-2 border-[var(--accent-gold)]/30 sticky top-0 z-10">
                                     <tr>
                                         <th
-                                            className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--accent-copper)] transition-colors"
+                                            className="px-6 py-4 text-left text-xs font-ui font-medium text-[var(--accent-gold)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--accent-copper)] transition-colors"
                                             onClick={() => handleSort('title')}
                                         >
                                             <span className="flex items-center gap-1">
@@ -148,11 +148,11 @@ export default function ExplanationsTablePage({
                                                 )}
                                             </span>
                                         </th>
-                                        <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                                        <th className="px-6 py-4 text-left text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                             Preview
                                         </th>
                                         <th
-                                            className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--accent-copper)] transition-colors"
+                                            className="px-6 py-4 text-left text-xs font-ui font-medium text-[var(--accent-gold)] uppercase tracking-wider cursor-pointer select-none hover:text-[var(--accent-copper)] transition-colors"
                                             onClick={() => handleSort('date')}
                                         >
                                             <span className="flex items-center gap-1">
@@ -163,12 +163,12 @@ export default function ExplanationsTablePage({
                                             </span>
                                         </th>
                                         {sort === 'top' && (
-                                            <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--accent-gold)] uppercase tracking-wider">
+                                            <th className="px-6 py-4 text-left text-xs font-ui font-medium text-[var(--accent-gold)] uppercase tracking-wider">
                                                 Views
                                             </th>
                                         )}
                                         {hasDateSaved && (
-                                            <th className="px-6 py-4 text-left text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                                            <th className="px-6 py-4 text-left text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                                 Saved
                                             </th>
                                         )}
@@ -192,25 +192,25 @@ export default function ExplanationsTablePage({
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap max-w-xs">
-                                                <span className="font-serif text-sm text-[var(--text-secondary)] truncate block">
+                                                <span className="font-body text-sm text-[var(--text-secondary)] truncate block">
                                                     {stripTitleFromContent(explanation.content)}
                                                 </span>
                                             </td>
                                             <td className="px-6 py-4 whitespace-nowrap">
-                                                <span className="text-sm font-sans text-[var(--text-muted)]">
+                                                <span className="text-sm font-ui text-[var(--text-muted)]">
                                                     {formatUserFriendlyDate(explanation.timestamp)}
                                                 </span>
                                             </td>
                                             {sort === 'top' && (
                                                 <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="text-sm font-sans text-[var(--accent-gold)]">
+                                                    <span className="text-sm font-ui text-[var(--accent-gold)]">
                                                         {explanation.viewCount ?? 0}
                                                     </span>
                                                 </td>
                                             )}
                                             {hasDateSaved && (
                                                 <td data-testid="save-date" className="px-6 py-4 whitespace-nowrap">
-                                                    <span className="text-sm font-sans text-[var(--text-muted)]">
+                                                    <span className="text-sm font-ui text-[var(--text-muted)]">
                                                         {explanation.dateSaved
                                                             ? formatUserFriendlyDate(explanation.dateSaved)
                                                             : '—'}
@@ -220,7 +220,7 @@ export default function ExplanationsTablePage({
                                             <td className="px-6 py-4 whitespace-nowrap text-right">
                                                 <Link
                                                     href={`/results?explanation_id=${explanation.id}`}
-                                                    className="text-sm font-sans text-[var(--accent-gold)] hover:text-[var(--accent-copper)] transition-colors gold-underline"
+                                                    className="text-sm font-ui text-[var(--accent-gold)] hover:text-[var(--accent-copper)] transition-colors gold-underline"
                                                     onClick={(e) => e.stopPropagation()}
                                                 >
                                                     View →

@@ -965,7 +965,7 @@ function ResultsPageContent() {
                     <div className="flex-1 px-4 py-8">
                         {error && (
                             <div data-testid="error-message" className="max-w-2xl mx-auto mb-8 p-4 bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] text-[var(--destructive)] rounded-r-page shadow-warm">
-                                <span className="font-serif">{error}</span>
+                                <span className="font-body">{error}</span>
                             </div>
                         )}
 
@@ -973,11 +973,11 @@ function ResultsPageContent() {
                         <div className="w-full max-w-4xl mx-auto h-full">
                         {/* Matches View */}
                         {showMatches && (
-                            <div 
+                            <div
                                 className="h-full overflow-y-auto"
-                                style={{ 
+                                style={{
                                     scrollbarWidth: 'thin',
-                                    scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent'
+                                    scrollbarColor: 'var(--scrollbar-thumb) transparent'
                                 }}
                             >
                                 <style jsx>{`
@@ -988,14 +988,14 @@ function ResultsPageContent() {
                                         background: transparent;
                                     }
                                     div::-webkit-scrollbar-thumb {
-                                        background: rgba(156, 163, 175, 0.5);
+                                        background: var(--scrollbar-thumb);
                                         border-radius: 4px;
                                     }
                                     div::-webkit-scrollbar-thumb:hover {
-                                        background: rgba(156, 163, 175, 0.7);
+                                        background: var(--scrollbar-thumb-hover);
                                     }
                                     div::-webkit-scrollbar-thumb:active {
-                                        background: rgba(156, 163, 175, 0.9);
+                                        background: var(--scrollbar-thumb-active);
                                     }
                                 `}</style>
                                 <div className="mt-2">
@@ -1036,7 +1036,7 @@ function ResultsPageContent() {
                                                 />
                                             ))
                                         ) : (
-                                            <p className="font-serif text-[var(--text-muted)] text-center py-8">
+                                            <p className="font-body text-[var(--text-muted)] text-center py-8">
                                                 No related explanations found.
                                             </p>
                                         )}
@@ -1138,7 +1138,7 @@ function ResultsPageContent() {
                                                                     dispatchTagAction({ type: 'EXIT_TO_NORMAL' });
                                                                     setShowAdvancedModal(true);
                                                                 }}
-                                                                className="block w-full text-left px-4 py-2 text-sm font-sans text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                                                                className="block w-full text-left px-4 py-2 text-sm font-ui text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--accent-gold)] transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                                                             >
                                                                 Advanced AI editor...
                                                             </button>
@@ -1183,7 +1183,7 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
-                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-sans font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
@@ -1207,7 +1207,7 @@ function ResultsPageContent() {
 
                                     {/* Mode dropdown - right side */}
                                     <div className="flex items-center gap-2">
-                                        <label htmlFor="mode-select" className="text-xs font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider">
+                                        <label htmlFor="mode-select" className="text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider">
                                             Mode:
                                         </label>
                                         <select
@@ -1218,7 +1218,7 @@ function ResultsPageContent() {
                                             }}
                                             disabled={isStreaming}
                                             data-testid="mode-select"
-                                            className="rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-3 py-1.5 text-sm font-sans text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-3 py-1.5 text-sm font-ui text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
                                             <option value={MatchMode.Normal}>Normal</option>
                                             <option value={MatchMode.SkipMatch}>Skip Match</option>
@@ -1260,7 +1260,7 @@ function ResultsPageContent() {
                                     style={{
                                         height: 'calc(100vh - 300px)',
                                         scrollbarWidth: 'thin',
-                                        scrollbarColor: 'rgba(156, 163, 175, 0.5) transparent'
+                                        scrollbarColor: 'var(--scrollbar-thumb) transparent'
                                     }}
                                 >
                                     <style jsx>{`
@@ -1271,14 +1271,14 @@ function ResultsPageContent() {
                                             background: transparent;
                                         }
                                         div::-webkit-scrollbar-thumb {
-                                            background: rgba(156, 163, 175, 0.5);
+                                            background: var(--scrollbar-thumb);
                                             border-radius: 4px;
                                         }
                                         div::-webkit-scrollbar-thumb:hover {
-                                            background: rgba(156, 163, 175, 0.7);
+                                            background: var(--scrollbar-thumb-hover);
                                         }
                                         div::-webkit-scrollbar-thumb:active {
-                                            background: rgba(156, 163, 175, 0.9);
+                                            background: var(--scrollbar-thumb-active);
                                         }
                                     `}</style>
                                     <div data-testid="explanation-content" className="scholar-card p-6 atlas-animate-fade-up stagger-5">
@@ -1286,7 +1286,7 @@ function ResultsPageContent() {
                                         {isStreaming && !content ? (
                                             <div className="flex flex-col items-center justify-center py-12 gap-4">
                                                 <div className="ink-dots"></div>
-                                                <p className="text-sm font-serif text-[var(--text-muted)]">Writing...</p>
+                                                <p className="text-sm font-body text-[var(--text-muted)]">Writing...</p>
                                             </div>
                                         ) : isMarkdownMode ? (
                                             <>
@@ -1495,7 +1495,7 @@ export default function ResultsPage() {
             <Suspense fallback={
                 <div className="h-screen bg-[var(--surface-primary)] flex flex-col items-center justify-center gap-4">
                     <div className="ink-dots"></div>
-                    <p className="text-sm font-serif text-[var(--text-muted)]">Loading...</p>
+                    <p className="text-sm font-body text-[var(--text-muted)]">Loading...</p>
                 </div>
             }>
                 <ResultsPageContent />
