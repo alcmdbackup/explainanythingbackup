@@ -42,6 +42,17 @@ jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
   withLogging: (fn: unknown) => fn
 }));
 
+// Mock vectorsim operations
+jest.mock('@/lib/services/vectorsim', () => ({
+  deleteVectorsByExplanationId: jest.fn().mockResolvedValue(1),
+  processContentToStoreEmbedding: jest.fn().mockResolvedValue(undefined)
+}));
+
+// Mock auditLog
+jest.mock('@/lib/services/auditLog', () => ({
+  logAdminAction: jest.fn().mockResolvedValue(undefined)
+}));
+
 describe('AdminContent Service', () => {
   let mockSupabase: {
     from: jest.Mock;
@@ -79,8 +90,8 @@ describe('AdminContent Service', () => {
   describe('getAdminExplanationsAction', () => {
     it('should return explanations with pagination info', async () => {
       const mockExplanations = [
-        { id: 1, explanation_title: 'Test 1', is_hidden: false },
-        { id: 2, explanation_title: 'Test 2', is_hidden: true }
+        { id: 1, explanation_title: 'Test 1', delete_status: 'visible' },
+        { id: 2, explanation_title: 'Test 2', delete_status: 'hidden' }
       ];
 
       mockSupabase.range.mockResolvedValue({
@@ -133,8 +144,8 @@ describe('AdminContent Service', () => {
       expect(result.success).toBe(true);
       expect(mockSupabase.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          is_hidden: true,
-          hidden_by: 'admin-user-123'
+          delete_status: 'hidden',
+          delete_source: 'manual'
         })
       );
       expect(mockLogger.info).toHaveBeenCalledWith(
@@ -168,9 +179,9 @@ describe('AdminContent Service', () => {
       expect(result.success).toBe(true);
       expect(mockSupabase.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          is_hidden: false,
-          hidden_at: null,
-          hidden_by: null
+          delete_status: 'visible',
+          delete_status_changed_at: null,
+          delete_reason: null
         })
       );
     });

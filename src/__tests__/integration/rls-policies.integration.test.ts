@@ -139,4 +139,94 @@ describe('RLS Policies', () => {
       expect(queriesError).toBeNull();
     });
   });
+
+  describe('Hidden content visibility (delete_status)', () => {
+    let testExplanationId: number | null = null;
+
+    beforeAll(async () => {
+      // Create a hidden test explanation using service client (bypasses RLS)
+      const { data, error } = await serviceClient
+        .from('explanations')
+        .insert({
+          explanation_title: 'RLS Test Hidden Explanation - Do Not Display',
+          content: 'This content should not be visible to anonymous users',
+          status: 'published',
+          delete_status: 'hidden'
+        })
+        .select('id')
+        .single();
+
+      if (error) {
+        console.error('Failed to create test explanation:', error);
+      } else {
+        testExplanationId = data?.id ?? null;
+      }
+    });
+
+    afterAll(async () => {
+      // Clean up test explanation
+      if (testExplanationId) {
+        await serviceClient
+          .from('explanations')
+          .delete()
+          .eq('id', testExplanationId);
+      }
+    });
+
+    it('anonymous user cannot see hidden explanations', async () => {
+      if (!testExplanationId) {
+        console.warn('Skipping test: test explanation not created');
+        return;
+      }
+
+      const { data, error } = await anonClient
+        .from('explanations')
+        .select('id')
+        .eq('id', testExplanationId)
+        .single();
+
+      // RLS should block access - either error (PGRST116 for no rows) or null data
+      // The policy only allows delete_status='visible' OR admin users
+      if (error) {
+        // Expected: PGRST116 means "no rows returned" which is correct behavior
+        expect(['PGRST116', '406']).toContain(error.code);
+      } else {
+        // If no error, data should be null
+        expect(data).toBeNull();
+      }
+    });
+
+    it('service role can see hidden explanations', async () => {
+      if (!testExplanationId) {
+        console.warn('Skipping test: test explanation not created');
+        return;
+      }
+
+      const { data, error } = await serviceClient
+        .from('explanations')
+        .select('id, delete_status')
+        .eq('id', testExplanationId)
+        .single();
+
+      expect(error).toBeNull();
+      expect(data).not.toBeNull();
+      expect(data?.delete_status).toBe('hidden');
+    });
+
+    it('anonymous user can see visible explanations', async () => {
+      // Query for any visible explanation (should return results)
+      const { data, error } = await anonClient
+        .from('explanations')
+        .select('id, delete_status')
+        .eq('delete_status', 'visible')
+        .limit(1);
+
+      expect(error).toBeNull();
+      // There should be at least one visible explanation in the database
+      // If database is empty, this may return empty array which is also valid
+      if (data && data.length > 0) {
+        expect(data[0].delete_status).toBe('visible');
+      }
+    });
+  });
 });

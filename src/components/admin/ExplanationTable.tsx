@@ -259,7 +259,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                 <tr
                   key={exp.id}
                   className={`border-t border-[var(--border-color)] hover:bg-[var(--bg-secondary)] ${
-                    exp.is_hidden ? 'opacity-60' : ''
+                    exp.delete_status !== 'visible' ? 'opacity-60' : ''
                   }`}
                 >
                   <td className="p-3">
@@ -292,10 +292,10 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                     {new Date(exp.timestamp).toLocaleDateString()}
                   </td>
                   <td className="p-3">
-                    {exp.is_hidden ? (
-                      <span className="text-red-400">Yes</span>
+                    {exp.delete_status !== 'visible' ? (
+                      <span className="text-red-400">{exp.delete_status}</span>
                     ) : (
-                      <span className="text-[var(--text-muted)]">No</span>
+                      <span className="text-[var(--text-muted)]">visible</span>
                     )}
                   </td>
                   <td className="p-3">
@@ -306,7 +306,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                       >
                         View
                       </button>
-                      {exp.is_hidden ? (
+                      {exp.delete_status !== 'visible' ? (
                         <button
                           onClick={() => handleRestore(exp.id)}
                           disabled={actionLoading}

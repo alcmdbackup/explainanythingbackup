@@ -63,8 +63,8 @@ export function ExplanationDetailModal({
             <div className="flex gap-3 mt-1 text-sm text-[var(--text-muted)]">
               <span>ID: {explanation.id}</span>
               <span>Status: {explanation.status}</span>
-              {explanation.is_hidden && (
-                <span className="text-red-400">Hidden</span>
+              {explanation.delete_status !== 'visible' && (
+                <span className="text-red-400">{explanation.delete_status}</span>
               )}
             </div>
           </div>
@@ -98,20 +98,22 @@ export function ExplanationDetailModal({
                 {explanation.primary_topic_id || 'None'}
               </span>
             </div>
-            {explanation.hidden_at && (
+            {explanation.delete_status !== 'visible' && explanation.delete_status_changed_at && (
               <>
                 <div>
-                  <span className="text-[var(--text-muted)]">Hidden At:</span>{' '}
+                  <span className="text-[var(--text-muted)]">Status Changed:</span>{' '}
                   <span className="text-red-400">
-                    {new Date(explanation.hidden_at).toLocaleString()}
+                    {new Date(explanation.delete_status_changed_at).toLocaleString()}
                   </span>
                 </div>
-                <div>
-                  <span className="text-[var(--text-muted)]">Hidden By:</span>{' '}
-                  <span className="text-[var(--text-primary)]">
-                    {explanation.hidden_by || 'Unknown'}
-                  </span>
-                </div>
+                {explanation.delete_reason && (
+                  <div>
+                    <span className="text-[var(--text-muted)]">Reason:</span>{' '}
+                    <span className="text-[var(--text-primary)]">
+                      {explanation.delete_reason}
+                    </span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -154,7 +156,7 @@ export function ExplanationDetailModal({
             >
               Close
             </button>
-            {explanation.is_hidden ? (
+            {explanation.delete_status !== 'visible' ? (
               <button
                 onClick={handleRestore}
                 disabled={loading}

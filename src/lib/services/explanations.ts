@@ -169,6 +169,7 @@ async function getRecentExplanationsImpl(
       .from('explanations')
       .select()
       .eq('status', 'published')
+      .eq('delete_status', 'visible')  // Exclude soft-deleted content
       .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
       .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`)
       .order('timestamp', { ascending: false })
@@ -222,11 +223,12 @@ async function getRecentExplanationsImpl(
 
   logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size, totalEvents: viewEvents?.length });
 
-  // Step 2: Get all published explanations (excluding test content)
+  // Step 2: Get all published explanations (excluding test content and soft-deleted)
   const { data: explanations, error: expError } = await supabase
     .from('explanations')
     .select()
     .eq('status', 'published')
+    .eq('delete_status', 'visible')  // Exclude soft-deleted content
     .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
     .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`);
 

@@ -349,12 +349,14 @@ describe('Explanations Service', () => {
 
       mockSupabase.eq.mockImplementation(() => {
         if (queryState === 'explanations') {
-          // Return object with chained not() calls for [TEST] and test- filters
+          // Return object with chained eq() then not() calls for delete_status and test content filters
           return {
-            not: jest.fn().mockReturnValue({
-              not: jest.fn().mockResolvedValue({
-                data: mockExplanations,
-                error: null
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockReturnValue({
+                not: jest.fn().mockResolvedValue({
+                  data: mockExplanations,
+                  error: null
+                })
               })
             })
           };
@@ -385,12 +387,14 @@ describe('Explanations Service', () => {
           // First eq call is for event_name filter - return chain
           return mockSupabase;
         }
-        // Second eq call is for explanations status filter - needs chained not() methods
+        // Second eq call is for explanations status filter - needs chained eq() then not() methods
         return {
-          not: jest.fn().mockReturnValue({
-            not: jest.fn().mockResolvedValue({
-              data: [],
-              error: null
+          eq: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [],
+                error: null
+              })
             })
           })
         };
@@ -407,12 +411,14 @@ describe('Explanations Service', () => {
       // Arrange
       // For 'all' period, gte should not be called
       mockSupabase.eq.mockImplementation(() => {
-        // Explanations query needs chained not() methods
+        // Explanations query needs chained eq() then not() methods for delete_status filter
         return {
-          not: jest.fn().mockReturnValue({
-            not: jest.fn().mockResolvedValue({
-              data: [],
-              error: null
+          eq: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [],
+                error: null
+              })
             })
           })
         };
