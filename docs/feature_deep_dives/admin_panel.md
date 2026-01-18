@@ -6,11 +6,16 @@ The admin panel provides content moderation capabilities including user manageme
 
 ## Key Files
 
-- `src/lib/services/adminContent.ts` - Core admin content management actions
-- `src/lib/services/adminAuth.ts` - Admin authentication and authorization
-- `src/lib/services/contentReports.ts` - User-submitted content reports
-- `src/lib/services/auditLog.ts` - Admin action audit logging
-- `src/components/admin/` - Admin UI components
+| File | Purpose |
+|------|---------|
+| `src/app/admin/layout.tsx` | Admin layout with auth check and sidebar |
+| `src/app/admin/content/page.tsx` | Main content page, manages modal state |
+| `src/components/admin/ExplanationTable.tsx` | Table with filtering, sorting, pagination, bulk actions |
+| `src/components/admin/ExplanationDetailModal.tsx` | Modal for viewing/managing single explanation |
+| `src/lib/services/adminContent.ts` | Server actions for admin CRUD operations |
+| `src/lib/services/adminAuth.ts` | Admin authentication and authorization |
+| `src/lib/services/contentReports.ts` | User-submitted content reports |
+| `src/lib/services/auditLog.ts` | Admin action audit logging |
 
 ## Two-Stage Soft Delete System
 
@@ -33,22 +38,6 @@ delete_reason          -- Why the content was hidden/deleted
 delete_source          -- 'manual' | 'automated' | 'report'
 ```
 
-### Admin Actions
-
-**Hide Explanation** (`hideExplanationAction`):
-1. Sets `delete_status = 'hidden'`
-2. Deletes Pinecone vectors (removes from search)
-3. Logs audit action
-
-**Restore Explanation** (`restoreExplanationAction`):
-1. Sets `delete_status = 'visible'`
-2. Re-creates Pinecone vectors (returns to search)
-3. Logs audit action
-
-**Bulk Hide** (`bulkHideExplanationsAction`):
-- Hides up to 100 explanations at once
-- Deletes vectors for all hidden items
-
 ### RLS Policy
 
 Hidden content is protected at the database level:
@@ -62,6 +51,68 @@ CREATE POLICY "explanations_select_policy" ON explanations FOR SELECT USING (
 
 Only admins can see hidden/deleted content.
 
+## Content Table UI
+
+The `ExplanationTable` component displays explanations with:
+
+**Columns:**
+1. Checkbox (bulk selection)
+2. ID (sortable)
+3. Title (sortable, opens detail modal)
+4. Link (external link to view explanation)
+5. Status (published/draft badge)
+6. Created (sortable date)
+7. Delete Status (visible/hidden/deleted indicator)
+8. Actions (View, Hide/Restore)
+
+**Filters:**
+- Search text (searches title and content)
+- Status dropdown (All/Draft/Published)
+- Show hidden checkbox (include/exclude hidden explanations)
+- Filter test content checkbox (hides articles with [TEST] in title, default: checked)
+
+**Server-Side Filtering:**
+
+```typescript
+interface AdminExplanationFilters {
+  search?: string;
+  status?: string;
+  showHidden?: boolean;
+  filterTestContent?: boolean;
+  limit?: number;
+  offset?: number;
+  sortBy?: 'timestamp' | 'title' | 'id';
+  sortOrder?: 'asc' | 'desc';
+}
+```
+
+### Detail Modal
+
+The `ExplanationDetailModal` uses a light theme (white background) for readability:
+- Header: Title, ID, status, delete status indicator
+- Metadata grid: Created date, topic IDs, status changed info
+- Summary section
+- Content preview (monospace, scrollable)
+- Footer: Public page link, Close, Hide/Restore buttons
+
+### Status Badges
+
+High-contrast badges for readability:
+- Published: `bg-green-800 text-green-100`
+- Draft: `bg-orange-800 text-orange-100`
+
+## Admin Actions
+
+| Action | Service Function | Description |
+|--------|-----------------|-------------|
+| Get list | `getAdminExplanationsAction` | Paginated list with filters |
+| Get one | `getAdminExplanationByIdAction` | Single explanation by ID |
+| Hide | `hideExplanationAction` | Sets `delete_status = 'hidden'`, removes from search |
+| Restore | `restoreExplanationAction` | Sets `delete_status = 'visible'`, re-indexes for search |
+| Bulk hide | `bulkHideExplanationsAction` | Hide multiple (max 100) |
+
+All admin actions are logged to the audit log via `logAdminAction()`.
+
 ## Content Reports
 
 Users can report inappropriate content via `createContentReportAction`. Reports include:
@@ -70,6 +121,13 @@ Users can report inappropriate content via `createContentReportAction`. Reports 
 - Status tracking (pending, reviewed, dismissed, actioned)
 
 Admins resolve reports via `resolveContentReportAction`, optionally hiding the reported content.
+
+## Routes
+
+- `/admin` - Dashboard (redirects to content)
+- `/admin/content` - Content management table
+- `/admin/users` - User management (if implemented)
+- `/admin/settings` - System settings (if implemented)
 
 ## Implementation Notes
 

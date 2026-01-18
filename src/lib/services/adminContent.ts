@@ -37,6 +37,7 @@ export interface AdminExplanationFilters {
   search?: string;
   status?: string;
   showHidden?: boolean;
+  filterTestContent?: boolean;
   limit?: number;
   offset?: number;
   sortBy?: 'timestamp' | 'title' | 'id';
@@ -67,6 +68,7 @@ const _getAdminExplanationsAction = withLogging(async (
       search = '',
       status,
       showHidden = true,
+      filterTestContent = false,
       limit = 50,
       offset = 0,
       sortBy = 'timestamp',
@@ -91,6 +93,10 @@ const _getAdminExplanationsAction = withLogging(async (
 
     if (!showHidden) {
       query = query.eq('delete_status', 'visible');
+    }
+
+    if (filterTestContent) {
+      query = query.not('explanation_title', 'ilike', '%[TEST]%');
     }
 
     // Apply sorting

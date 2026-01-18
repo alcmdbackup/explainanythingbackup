@@ -31,6 +31,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [showHidden, setShowHidden] = useState(true);
+  const [filterTestContent, setFilterTestContent] = useState(true);
 
   // Sorting
   const [sortBy, setSortBy] = useState<SortField>('timestamp');
@@ -54,6 +55,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
       search: search || undefined,
       status: statusFilter || undefined,
       showHidden,
+      filterTestContent,
       limit: pageSize,
       offset: page * pageSize,
       sortBy,
@@ -70,7 +72,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
     }
 
     setLoading(false);
-  }, [search, statusFilter, showHidden, page, sortBy, sortOrder]);
+  }, [search, statusFilter, showHidden, filterTestContent, page, sortBy, sortOrder]);
 
   useEffect(() => {
     loadExplanations();
@@ -187,6 +189,16 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           Show hidden
         </label>
 
+        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
+          <input
+            type="checkbox"
+            checked={filterTestContent}
+            onChange={(e) => { setFilterTestContent(e.target.checked); setPage(0); }}
+            className="rounded"
+          />
+          Filter test content
+        </label>
+
         {selectedIds.size > 0 && (
           <button
             onClick={handleBulkHide}
@@ -230,6 +242,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
               >
                 Title <SortIcon field="title" />
               </th>
+              <th className="p-3 text-left">Link</th>
               <th className="p-3 text-left">Status</th>
               <th
                 className="p-3 text-left cursor-pointer hover:bg-[var(--bg-secondary)]"
@@ -244,13 +257,13 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={8} className="p-8 text-center text-[var(--text-muted)]">
                   Loading...
                 </td>
               </tr>
             ) : explanations.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={8} className="p-8 text-center text-[var(--text-muted)]">
                   No explanations found
                 </td>
               </tr>
@@ -280,10 +293,23 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                     </button>
                   </td>
                   <td className="p-3">
+                    <a
+                      href={`/explanations?id=${exp.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[var(--accent-primary)] hover:underline inline-flex items-center"
+                      title="Open explanation"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </td>
+                  <td className="p-3">
                     <span className={`px-2 py-1 rounded text-xs ${
                       exp.status === 'published'
-                        ? 'bg-green-900/30 text-green-400'
-                        : 'bg-yellow-900/30 text-yellow-400'
+                        ? 'bg-green-800 text-green-100'
+                        : 'bg-orange-800 text-orange-100'
                     }`}>
                       {exp.status}
                     </span>

@@ -60,6 +60,7 @@ describe('AdminContent Service', () => {
     update: jest.Mock;
     eq: jest.Mock;
     or: jest.Mock;
+    not: jest.Mock;
     in: jest.Mock;
     order: jest.Mock;
     range: jest.Mock;
@@ -77,6 +78,7 @@ describe('AdminContent Service', () => {
       update: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
       or: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
       order: jest.fn().mockReturnThis(),
       range: jest.fn().mockReturnThis(),
@@ -120,6 +122,34 @@ describe('AdminContent Service', () => {
       expect(mockSupabase.or).toHaveBeenCalledWith(
         expect.stringContaining('test query')
       );
+    });
+
+    it('should apply filterTestContent filter when true', async () => {
+      mockSupabase.range.mockResolvedValue({
+        data: [],
+        error: null,
+        count: 0
+      });
+
+      await getAdminExplanationsAction({ filterTestContent: true });
+
+      expect(mockSupabase.not).toHaveBeenCalledWith(
+        'explanation_title',
+        'ilike',
+        '%[TEST]%'
+      );
+    });
+
+    it('should not filter test content when filterTestContent is false', async () => {
+      mockSupabase.range.mockResolvedValue({
+        data: [],
+        error: null,
+        count: 0
+      });
+
+      await getAdminExplanationsAction({ filterTestContent: false });
+
+      expect(mockSupabase.not).not.toHaveBeenCalled();
     });
 
     it('should return error when not admin', async () => {
