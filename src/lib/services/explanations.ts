@@ -6,7 +6,7 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type ExplanationWithMetrics, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
@@ -118,7 +118,7 @@ async function getRecentExplanationsImpl(
     sort?: SortMode;      // 'new' | 'top', default 'new'
     period?: TimePeriod;  // 'today' | 'week' | 'month' | 'all', default 'week'
   }
-): Promise<ExplanationWithViewCount[]> {
+): Promise<ExplanationWithMetrics[]> {
   const supabase = await createSupabaseServerClient()
 
   // Validate parameters
@@ -129,6 +129,39 @@ async function getRecentExplanationsImpl(
   const period = options?.period ?? 'week';
 
   logger.debug('getRecentExplanations', { sort, period });
+
+  // Helper function to fetch and merge metrics for explanations
+  async function mergeMetrics(explanations: ExplanationWithViewCount[]): Promise<ExplanationWithMetrics[]> {
+    if (explanations.length === 0) return [];
+
+    const explanationIds = explanations.map(e => e.id);
+
+    // Fetch metrics from explanationMetrics table (uses explanationid - no underscore)
+    const { data: metricsData, error: metricsError } = await supabase
+      .from('explanationMetrics')
+      .select('explanationid, total_views, total_saves')
+      .in('explanationid', explanationIds);
+
+    if (metricsError) {
+      logger.warn('Failed to fetch metrics, continuing without saves', { error: metricsError.message });
+      return explanations.map(exp => ({ ...exp, total_saves: 0 }));
+    }
+
+    // Create lookup map
+    const metricsMap = new Map(
+      (metricsData || []).map(m => [m.explanationid, m])
+    );
+
+    // Merge metrics into explanations
+    return explanations.map(exp => {
+      const metrics = metricsMap.get(exp.id);
+      return {
+        ...exp,
+        viewCount: exp.viewCount ?? metrics?.total_views ?? 0,
+        total_saves: metrics?.total_saves ?? 0,
+      };
+    });
+  }
 
   // For 'new' mode, use simple timestamp ordering
   if (sort === 'new') {
@@ -142,7 +175,9 @@ async function getRecentExplanationsImpl(
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
-    return data || [];
+
+    // Merge metrics for 'new' mode explanations
+    return mergeMetrics(data || []);
   }
 
   // For 'top' mode, count views during the period from userExplanationEvents
@@ -213,8 +248,9 @@ async function getRecentExplanationsImpl(
     return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
 
-  // Apply pagination
-  return explanationsWithViews.slice(offset, offset + limit);
+  // Apply pagination, then merge metrics
+  const paginatedResults = explanationsWithViews.slice(offset, offset + limit);
+  return mergeMetrics(paginatedResults);
 }
 
 /**

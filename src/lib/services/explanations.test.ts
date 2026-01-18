@@ -199,16 +199,34 @@ describe('Explanations Service', () => {
         }
       ];
 
+      // Track which table is being queried
+      let currentTable = '';
+      mockSupabase.from.mockImplementation((table: string) => {
+        currentTable = table;
+        return mockSupabase;
+      });
+
       mockSupabase.range.mockResolvedValue({
         data: mockExplanations,
         error: null
       });
 
+      // Mock explanationMetrics query (returns empty - no metrics found)
+      mockSupabase.in.mockImplementation(() => {
+        if (currentTable === 'explanationMetrics') {
+          return Promise.resolve({ data: [], error: null });
+        }
+        return mockSupabase;
+      });
+
       // Act
       const result = await getRecentExplanations();
 
-      // Assert
-      expect(result).toEqual(mockExplanations);
+      // Assert - now returns ExplanationWithMetrics with viewCount and total_saves
+      expect(result).toEqual([
+        { ...mockExplanations[0], viewCount: 0, total_saves: 0 },
+        { ...mockExplanations[1], viewCount: 0, total_saves: 0 }
+      ]);
       expect(mockSupabase.from).toHaveBeenCalledWith('explanations');
       expect(mockSupabase.order).toHaveBeenCalledWith('timestamp', { ascending: false });
       expect(mockSupabase.range).toHaveBeenCalledWith(0, 9);

@@ -2683,3 +2683,45 @@
     opacity: 1;
   }
 }
+
+/* ==========================================================================
+   FEED CARD - Reddit-style full-width card for Explore feed
+   ========================================================================== */
+
+.feed-card {
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 0.75rem;
+  overflow: hidden;
+  transition: border-color 0.2s ease;
+}
+
+.feed-card:hover {
+  border-color: var(--border-strong);
+}
+
+/* Feed card entrance animation */
+@keyframes feedCardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.feed-card {
+  animation: feedCardEntrance 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  animation-delay: calc(var(--card-index, 0) * 0.05s);
+  opacity: 0;
+}
+
+/* Reduced motion support for feed cards */
+@media (prefers-reduced-motion: reduce) {
+  .feed-card {
+    animation: none;
+    opacity: 1;
+  }
+}

@@ -1,35 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { type ExplanationWithMetrics, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import Navigation from '@/components/Navigation';
-import MasonryGrid from './MasonryGrid';
-import ExplanationCard from './ExplanationCard';
+import FeedCard from './FeedCard';
 import FilterPills from './FilterPills';
 
-/**
- * Formats a timestamp string for display
- */
-function formatTimestamp(timestamp: string | undefined | null): string {
-  if (!timestamp) return '';
-  try {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return '';
-  }
-}
-
 interface ExploreGalleryPageProps {
-  explanations: ExplanationWithViewCount[];
+  explanations: ExplanationWithMetrics[];
   error: string | null;
   sort: SortMode;
   period: TimePeriod;
 }
 
 /**
- * ExploreGalleryPage - Immersive card gallery for browsing explanations
- * Replaces table-based ExplanationsTablePage with masonry layout
+ * ExploreGalleryPage - Reddit-style feed for browsing explanations.
+ * Uses FeedCard components with engagement metrics (views, saves, share).
  */
 export default function ExploreGalleryPage({
   explanations,
@@ -37,8 +23,6 @@ export default function ExploreGalleryPage({
   sort,
   period,
 }: ExploreGalleryPageProps) {
-  const showViews = sort === 'top';
-
   return (
     <div className="min-h-screen bg-[var(--surface-primary)]">
       <Navigation
@@ -102,29 +86,20 @@ export default function ExploreGalleryPage({
             </Link>
           </div>
         ) : (
-          /* Masonry Grid */
-          <MasonryGrid>
+          /* Single-column Feed */
+          <div className="max-w-3xl mx-auto space-y-4">
             {explanations.map((explanation, index) => (
-              <ExplanationCard
+              <FeedCard
                 key={explanation.id}
                 explanation={explanation}
-                href={`/results?${new URLSearchParams({ explanation_id: explanation.id.toString() })}`}
+                metrics={{
+                  total_views: explanation.viewCount ?? 0,
+                  total_saves: explanation.total_saves ?? 0,
+                }}
                 index={index}
-                footer={
-                  <>
-                    <time className="text-[var(--text-muted)]">
-                      {formatTimestamp(explanation.timestamp)}
-                    </time>
-                    {showViews && explanation.viewCount !== undefined && (
-                      <span className="text-[var(--text-muted)]">
-                        {explanation.viewCount.toLocaleString()} view{explanation.viewCount !== 1 ? 's' : ''}
-                      </span>
-                    )}
-                  </>
-                }
               />
             ))}
-          </MasonryGrid>
+          </div>
         )}
       </main>
     </div>

@@ -37,6 +37,7 @@ import { useUserAuth } from '@/hooks/useUserAuth';
 import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
 import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
 import { BookmarkIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import ShareButton from '@/components/ShareButton';
 
 const FILE_DEBUG = true;
 const FORCE_REGENERATION_ON_NAV = false;
@@ -1158,6 +1159,13 @@ function ResultsPageContent() {
                                             {userSaved ? <CheckIcon className="w-4 h-4" /> : <BookmarkIcon className="w-4 h-4" />}
                                             {isSaving ? 'Saving...' : userSaved ? 'Saved' : 'Save'}
                                         </button>
+                                        {explanationId && (
+                                            <ShareButton
+                                                url={typeof window !== 'undefined' ? `${window.location.origin}/results?explanation_id=${explanationId}` : `/results?explanation_id=${explanationId}`}
+                                                variant="text"
+                                                className="inline-flex items-center justify-center gap-2 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            />
+                                        )}
                                         {(hasUnsavedChanges || explanationStatus === ExplanationStatus.Draft) && (
                                             <button
                                                 onClick={handleSaveOrPublishChanges}
