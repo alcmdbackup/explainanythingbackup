@@ -7,6 +7,7 @@ import { saveExplanationToLibraryAction, getUserQueryByIdAction, createUserExpla
 import { matchWithCurrentContentType, MatchMode, UserInputType, ExplanationStatus, type SourceChipType } from '@/lib/schemas/schemas';
 import { logger } from '@/lib/client_utilities';
 import { RequestIdContext } from '@/lib/requestIdContext';
+import { markPerformance, measurePerformance } from '@/lib/webVitals';
 import { useClientPassRequestId } from '@/hooks/clientPassRequestId';
 import Navigation from '@/components/Navigation';
 import ExplanationCard from '@/components/explore/ExplanationCard';
@@ -350,7 +351,7 @@ function ResultsPageContent() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        // Handle streaming response
+        // Handle streaming response with client-side timeout detection
         const reader = response.body?.getReader();
         if (!reader) {
             throw new Error('Failed to get response reader');
@@ -360,7 +361,23 @@ function ResultsPageContent() {
         const decoder = new TextDecoder();
         let finalResult: unknown = null;
         let chunkCount = 0;
+        const CLIENT_TIMEOUT_MS = 60000; // 60 seconds with no data = timeout
+        let lastDataTime = Date.now();
+        let timeoutCheckId: ReturnType<typeof setInterval> | null = null;
 
+        // Client-side timeout detection - shows error if no data for 60s
+        timeoutCheckId = setInterval(() => {
+            if (Date.now() - lastDataTime > CLIENT_TIMEOUT_MS) {
+                logger.warn('Client stream timeout - no data received', { elapsed: Date.now() - lastDataTime });
+                if (timeoutCheckId) clearInterval(timeoutCheckId);
+                reader.cancel();
+                dispatchLifecycle({ type: 'ERROR', error: 'Connection timeout - no data received from server' });
+                setExplanationVector(null);
+                setExplanationStatus(null);
+            }
+        }, 5000); // Check every 5 seconds
+
+        try {
         while (true) {
             const { done, value } = await reader.read();
 
@@ -370,6 +387,7 @@ function ResultsPageContent() {
             }
 
             chunkCount++;
+            lastDataTime = Date.now(); // Reset timeout on any data received
             const chunk = decoder.decode(value);
             logger.debug('Chunk received', { chunkCount, length: chunk.length }, FILE_DEBUG);
             const lines = chunk.split('\n');
@@ -378,6 +396,13 @@ function ResultsPageContent() {
                 if (line.startsWith('data: ')) {
                     try {
                         const data = JSON.parse(line.slice(6));
+
+                        // Handle heartbeat events - just reset timeout, no UI update needed
+                        if (data.type === 'heartbeat') {
+                            logger.debug('Heartbeat received', { elapsed: data.elapsed }, FILE_DEBUG);
+                            continue; // Skip to next line
+                        }
+
                         logger.debug('Client received streaming data', { data }, FILE_DEBUG);
 
                         if (data.type === 'error') {
@@ -390,6 +415,7 @@ function ResultsPageContent() {
 
                         if (data.type === 'streaming_start') {
                             logger.debug('Client received streaming_start', { data }, FILE_DEBUG);
+                            markPerformance('streaming_start');
                             dispatchLifecycle({ type: 'START_STREAMING' });
                         }
 
@@ -435,6 +461,8 @@ function ResultsPageContent() {
 
                             finalResult = data.result;
                             setStreamCompleted(true); // Mark stream as completed for E2E testing
+                            markPerformance('content_complete');
+                            measurePerformance('streaming_duration', 'streaming_start', 'content_complete');
                             //setIsStreaming(false);
                             //wait for page reload to set this to false. This will prevent the flashing of the action buttons.
                             break;
@@ -446,6 +474,13 @@ function ResultsPageContent() {
             }
 
             if (finalResult) break;
+        }
+        } finally {
+            // Clean up timeout interval
+            if (timeoutCheckId) {
+                clearInterval(timeoutCheckId);
+                timeoutCheckId = null;
+            }
         }
 
         if (!finalResult) {

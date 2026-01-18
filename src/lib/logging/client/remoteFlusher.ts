@@ -37,6 +37,11 @@ export function initRemoteFlusher(
 ): () => void {
   if (typeof window === 'undefined') return () => {};
 
+  // FAST_DEV mode: Skip remote log flushing for faster local development
+  if (process.env.NEXT_PUBLIC_FAST_DEV === 'true') {
+    return () => {};
+  }
+
   const finalConfig = { ...DEFAULT_CONFIG, ...config };
   let isOnline = navigator.onLine;
 

@@ -1,14 +1,39 @@
-import { trace } from '@opentelemetry/api';
+// instrumentation.ts - Next.js instrumentation hook for OpenTelemetry and Sentry initialization
+import { trace, Span } from '@opentelemetry/api';
 import * as Sentry from '@sentry/nextjs';
 
-// Create custom tracers for different parts of your application
-const llmTracer = trace.getTracer('explainanything-llm');
-const dbTracer = trace.getTracer('explainanything-database');
-const vectorTracer = trace.getTracer('explainanything-vector');
-const appTracer = trace.getTracer('explainanything-application');
+// Lazy-initialized tracers (only created when FAST_DEV is not enabled)
+let llmTracer: ReturnType<typeof trace.getTracer> | null = null;
+let dbTracer: ReturnType<typeof trace.getTracer> | null = null;
+let vectorTracer: ReturnType<typeof trace.getTracer> | null = null;
+let appTracer: ReturnType<typeof trace.getTracer> | null = null;
+
+function initTracers() {
+  if (!llmTracer) {
+    llmTracer = trace.getTracer('explainanything-llm');
+    dbTracer = trace.getTracer('explainanything-database');
+    vectorTracer = trace.getTracer('explainanything-vector');
+    appTracer = trace.getTracer('explainanything-application');
+  }
+}
 
 export async function register() {
+  // Production safeguard: FAST_DEV must NEVER run in production
+  if (process.env.NODE_ENV === 'production' && process.env.FAST_DEV === 'true' && !process.env.CI) {
+    console.error('FATAL: FAST_DEV cannot be enabled in production');
+    return; // Graceful degradation instead of crash
+  }
+
+  // FAST_DEV mode: Skip all observability initialization for faster local development
+  if (process.env.FAST_DEV === 'true') {
+    console.log('⚡ FAST_DEV: Skipping OpenTelemetry and Sentry initialization');
+    return;
+  }
+
   console.log('🔧 Next.js instrumentation hook registered')
+
+  // Initialize tracers
+  initTracers();
 
   // Initialize Sentry based on runtime (MUST be first)
   if (process.env.NEXT_RUNTIME === 'nodejs') {
@@ -45,9 +70,10 @@ export async function register() {
       const url = typeof input === 'string' ? input : input.toString();
       
       // Only trace external API calls (Pinecone, etc.)
+      // Note: vectorTracer/dbTracer are guaranteed non-null here because initTracers() was called above
       if (url.includes('pinecone.io')) {
         console.log('🔍 Tracing Pinecone fetch call:', url);
-        return vectorTracer.startActiveSpan(`fetch ${url}`, async (span) => {
+        return vectorTracer!.startActiveSpan(`fetch ${url}`, async (span) => {
           span.setAttributes({
             'http.method': init?.method || 'GET',
             'http.url': url,
@@ -72,7 +98,7 @@ export async function register() {
         });
       } else if (url.includes('supabase.co')) {
         console.log('🗄️ Tracing Supabase call:', url);
-        return dbTracer.startActiveSpan(`fetch ${url}`, async (span) => {
+        return dbTracer!.startActiveSpan(`fetch ${url}`, async (span) => {
           span.setAttributes({
             'http.method': init?.method || 'GET',
             'http.url': url,
@@ -114,20 +140,40 @@ export async function register() {
   }
 }
 
+// No-op span for FAST_DEV mode - implements minimal Span interface
+const noopSpan: Span = {
+  spanContext: () => ({ traceId: '', spanId: '', traceFlags: 0 }),
+  setAttribute: () => noopSpan,
+  setAttributes: () => noopSpan,
+  addEvent: () => noopSpan,
+  addLink: () => noopSpan,
+  addLinks: () => noopSpan,
+  setStatus: () => noopSpan,
+  updateName: () => noopSpan,
+  end: () => {},
+  isRecording: () => false,
+  recordException: () => {},
+};
+
 // Export utility functions for custom spans in your application code
-export function createLLMSpan(name: string, attributes: Record<string, string | number>) {
+// Returns no-op span when FAST_DEV is enabled (tracers not initialized)
+export function createLLMSpan(name: string, attributes: Record<string, string | number>): Span {
+  if (!llmTracer) return noopSpan;
   return llmTracer.startSpan(name, { attributes });
 }
 
-export function createDBSpan(name: string, attributes: Record<string, string | number>) {
+export function createDBSpan(name: string, attributes: Record<string, string | number>): Span {
+  if (!dbTracer) return noopSpan;
   return dbTracer.startSpan(name, { attributes });
 }
 
-export function createVectorSpan(name: string, attributes: Record<string, string | number>) {
+export function createVectorSpan(name: string, attributes: Record<string, string | number>): Span {
+  if (!vectorTracer) return noopSpan;
   return vectorTracer.startSpan(name, { attributes });
 }
 
-export function createAppSpan(name: string, attributes: Record<string, string | number>) {
+export function createAppSpan(name: string, attributes: Record<string, string | number>): Span {
+  if (!appTracer) return noopSpan;
   return appTracer.startSpan(name, { attributes });
 }
 

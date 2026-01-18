@@ -181,47 +181,23 @@ async function getRecentExplanationsImpl(
     return mergeMetrics(data || []);
   }
 
-  // For 'top' mode, count views during the period from userExplanationEvents
-  // Query userExplanationEvents to get view counts grouped by explanationid
-  // Filter by event_name = 'explanation_viewed' and created_at within period
-  let viewCountsQuery = supabase
-    .from('userExplanationEvents')
-    .select('explanationid')
-    .eq('event_name', 'explanation_viewed');
-
-  // Add time filter (except for 'all')
-  if (period !== 'all') {
-    const cutoffDate = new Date();
-    switch (period) {
-      case 'hour':
-        cutoffDate.setHours(cutoffDate.getHours() - 1);
-        break;
-      case 'today':
-        cutoffDate.setDate(cutoffDate.getDate() - 1);
-        break;
-      case 'week':
-        cutoffDate.setDate(cutoffDate.getDate() - 7);
-        break;
-      case 'month':
-        cutoffDate.setDate(cutoffDate.getDate() - 30);
-        break;
-    }
-    logger.debug('getRecentExplanations cutoffDate', { cutoffDate: cutoffDate.toISOString() });
-    viewCountsQuery = viewCountsQuery.gte('created_at', cutoffDate.toISOString());
-  }
-
-  const { data: viewEvents, error: viewError } = await viewCountsQuery;
+  // For 'top' mode, use server-side aggregation via RPC function
+  // This replaces fetching ALL events and doing client-side Map aggregation
+  const { data: viewCountsData, error: viewError } = await supabase
+    .rpc('get_explanation_view_counts', {
+      p_period: period,
+      p_limit: 1000  // Get top 1000 to ensure enough for pagination
+    });
 
   if (viewError) throw viewError;
 
-  // Count views per explanation
+  // Convert RPC result to Map for efficient lookup
   const viewCounts = new Map<number, number>();
-  for (const event of viewEvents || []) {
-    const count = viewCounts.get(event.explanationid) || 0;
-    viewCounts.set(event.explanationid, count + 1);
+  for (const row of viewCountsData || []) {
+    viewCounts.set(row.explanationid, Number(row.view_count));
   }
 
-  logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size, totalEvents: viewEvents?.length });
+  logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size });
 
   // Step 2: Get all published explanations (excluding test content and soft-deleted)
   const { data: explanations, error: expError } = await supabase

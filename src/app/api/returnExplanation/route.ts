@@ -118,18 +118,64 @@ export async function POST(request: NextRequest) {
             }
         }
 
-        // Create streaming response
+        // Create streaming response with timeout handling
         const encoder = new TextEncoder();
-        
+        const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
+        const MAX_STREAM_TIMEOUT_MS = 300000; // 5 minutes
+
         const stream = new ReadableStream({
             async start(controller) {
+                const streamStartTime = Date.now();
+                let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+
+                // Send heartbeat pings to keep connection alive during long operations
+                const startHeartbeat = () => {
+                    heartbeatInterval = setInterval(() => {
+                        // Check for max timeout
+                        if (Date.now() - streamStartTime > MAX_STREAM_TIMEOUT_MS) {
+                            logger.warn('Stream exceeded maximum timeout', {
+                                elapsed: Date.now() - streamStartTime,
+                                maxTimeout: MAX_STREAM_TIMEOUT_MS
+                            });
+                            clearInterval(heartbeatInterval!);
+                            const timeoutData = JSON.stringify({
+                                type: 'error',
+                                error: 'Stream timeout exceeded',
+                                code: 'STREAM_TIMEOUT',
+                                isStreaming: false,
+                                isComplete: true
+                            });
+                            controller.enqueue(encoder.encode(`event: error\ndata: ${timeoutData}\n\n`));
+                            controller.close();
+                            return;
+                        }
+
+                        // Send heartbeat ping
+                        const heartbeatData = JSON.stringify({
+                            type: 'heartbeat',
+                            timestamp: Date.now(),
+                            elapsed: Date.now() - streamStartTime
+                        });
+                        controller.enqueue(encoder.encode(`event: heartbeat\ndata: ${heartbeatData}\n\n`));
+                    }, HEARTBEAT_INTERVAL_MS);
+                };
+
+                const stopHeartbeat = () => {
+                    if (heartbeatInterval) {
+                        clearInterval(heartbeatInterval);
+                        heartbeatInterval = null;
+                    }
+                };
+
                 try {
+                    startHeartbeat();
+
                     // Send streaming start signal
                     const startData = JSON.stringify({
                         type: 'streaming_start',
                         isStreaming: true
                     });
-                    controller.enqueue(encoder.encode(`data: ${startData}\n\n`));
+                    controller.enqueue(encoder.encode(`event: message\ndata: ${startData}\n\n`));
 
                     // Streaming callback that forwards content to the client
                     const streamingCallback = (content: string) => {
@@ -140,32 +186,32 @@ export async function POST(request: NextRequest) {
                             if (parsedContent.type === 'progress') {
                                 // Forward progress events directly
                                 logger.debug('API route forwarding progress event', parsedContent, FILE_DEBUG);
-                                const data = JSON.stringify({ 
+                                const data = JSON.stringify({
                                     type: 'progress',
                                     ...parsedContent,
                                     isStreaming: true,
-                                    isComplete: false 
+                                    isComplete: false
                                 });
-                                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                                controller.enqueue(encoder.encode(`event: progress\ndata: ${data}\n\n`));
                             } else {
                                 // Regular content
-                                const data = JSON.stringify({ 
+                                const data = JSON.stringify({
                                     type: 'content',
                                     content: content,
                                     isStreaming: true, // Always true when we receive content
-                                    isComplete: false 
+                                    isComplete: false
                                 });
-                                controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                                controller.enqueue(encoder.encode(`event: content\ndata: ${data}\n\n`));
                             }
                         } catch {
                             // If parsing fails, treat as regular content
-                            const data = JSON.stringify({ 
+                            const data = JSON.stringify({
                                 type: 'content',
                                 content: content,
                                 isStreaming: true, // Always true when we receive content
-                                isComplete: false 
+                                isComplete: false
                             });
-                            controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+                            controller.enqueue(encoder.encode(`event: content\ndata: ${data}\n\n`));
                         }
                     };
 
@@ -199,12 +245,14 @@ export async function POST(request: NextRequest) {
                         }, FILE_DEBUG);
                     }
 
+                    stopHeartbeat();
+
                     // Send streaming end signal
                     const endData = JSON.stringify({
                         type: 'streaming_end',
                         isStreaming: false
                     });
-                    controller.enqueue(encoder.encode(`data: ${endData}\n\n`));
+                    controller.enqueue(encoder.encode(`event: message\ndata: ${endData}\n\n`));
 
                     // Convert finalSources to SourceChipType[] for client consumption
                     // This eliminates the race condition where client queries DB before sources are visible
@@ -227,17 +275,19 @@ export async function POST(request: NextRequest) {
                         isStreaming: false,
                         isComplete: true
                     });
-                    controller.enqueue(encoder.encode(`data: ${finalData}\n\n`));
+                    controller.enqueue(encoder.encode(`event: complete\ndata: ${finalData}\n\n`));
                     controller.close();
 
                 } catch (error) {
+                    stopHeartbeat();
                     const errorData = JSON.stringify({
                         type: 'error',
                         error: error instanceof Error ? error.message : 'Unknown error',
+                        code: 'STREAM_ERROR',
                         isStreaming: false,
                         isComplete: true
                     });
-                    controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+                    controller.enqueue(encoder.encode(`event: error\ndata: ${errorData}\n\n`));
                     controller.close();
                 }
             }
@@ -245,9 +295,10 @@ export async function POST(request: NextRequest) {
 
         return new Response(stream, {
             headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'Cache-Control': 'no-cache',
+                'Content-Type': 'text/event-stream',
+                'Cache-Control': 'no-cache, no-transform',
                 'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no', // Disable nginx buffering for SSE
             },
         });
         }); // Close RequestIdContext.run()

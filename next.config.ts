@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 import { withSentryConfig } from "@sentry/nextjs";
 
+// Bundle analyzer - only loaded when ANALYZE=true
+const withBundleAnalyzer = process.env.ANALYZE === 'true'
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  ? require('@next/bundle-analyzer')({ enabled: true })
+  : (config: NextConfig) => config;
+
 const nextConfig: NextConfig = {
   // Webpack configuration for additional transformations
   webpack: (config, { dev, isServer }) => {
@@ -57,8 +63,11 @@ const sentryWebpackPluginOptions = {
 };
 
 // Only wrap with Sentry if DSN is configured
-const config = process.env.SENTRY_DSN
+const sentryWrappedConfig = process.env.SENTRY_DSN
   ? withSentryConfig(nextConfig, sentryWebpackPluginOptions)
   : nextConfig;
+
+// Apply bundle analyzer wrapper (no-op unless ANALYZE=true)
+const config = withBundleAnalyzer(sentryWrappedConfig);
 
 export default config;
