@@ -103,12 +103,16 @@ test.describe('Report Content Button', () => {
     const flagButton = authenticatedPage.locator('button[title="Report this content"]');
     await flagButton.click();
 
-    // Try to submit without selecting reason
+    // Submit button should be disabled when no reason is selected
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
-    await submitButton.click();
+    await expect(submitButton).toBeDisabled();
 
-    // Should show validation error
-    await expect(authenticatedPage.locator('text=Please select a reason')).toBeVisible();
+    // Select a reason
+    const spamOption = authenticatedPage.locator('label:has-text("Spam")');
+    await spamOption.click();
+
+    // Now submit button should be enabled
+    await expect(submitButton).toBeEnabled();
   });
 
   test('should submit report successfully with reason selected', async ({ authenticatedPage }) => {
