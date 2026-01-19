@@ -117,6 +117,8 @@ export async function createTestExplanation(
       content: options.content ?? '<p>Test content for E2E testing.</p>',
       status: options.status ?? 'published',
       primary_topic_id: topicId,
+      // Explicitly set delete_status to ensure visibility through RLS and app queries
+      delete_status: 'visible',
     })
     .select()
     .single();
