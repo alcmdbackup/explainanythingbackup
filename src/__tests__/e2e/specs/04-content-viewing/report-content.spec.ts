@@ -159,9 +159,9 @@ test.describe('Report Content Button', () => {
     await expect(modalContent).toBeVisible();
 
     // The modal backdrop should capture clicks (clicking outside closes modal)
-    // We verify the modal is properly stacked by checking the submit button is clickable
+    // Submit button is visible but disabled until a reason is selected
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
-    await expect(submitButton).toBeEnabled();
+    await expect(submitButton).toBeVisible();
 
     // Verify we can type in the textarea (proves modal is receiving input)
     const textarea = authenticatedPage.locator('textarea[placeholder*="additional context"]');
