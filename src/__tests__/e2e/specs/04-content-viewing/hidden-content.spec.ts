@@ -41,6 +41,7 @@ test.describe('Hidden Content Visibility', () => {
     serviceClient = createServiceClient();
 
     // Create a hidden test explanation
+    // primary_topic_id: 1 refers to a default topic that should exist in the test DB
     const { data, error } = await serviceClient
       .from('explanations')
       .insert({
@@ -48,6 +49,7 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
+        primary_topic_id: 1,
       })
       .select('id')
       .single();
