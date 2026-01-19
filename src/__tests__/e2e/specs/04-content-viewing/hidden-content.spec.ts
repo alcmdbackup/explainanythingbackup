@@ -40,8 +40,24 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Create a hidden test explanation
-    // primary_topic_id: 1 refers to a default topic that should exist in the test DB
+    // First, get or create a test topic (required for explanations)
+    const { data: topic, error: topicError } = await serviceClient
+      .from('topics')
+      .upsert(
+        {
+          topic_title: 'test-e2e-hidden-content-topic',
+          topic_description: 'Topic for hidden content E2E tests',
+        },
+        { onConflict: 'topic_title' }
+      )
+      .select('id')
+      .single();
+
+    if (topicError || !topic?.id) {
+      throw new Error(`Failed to get or create test topic: ${topicError?.message || 'No topic ID'}`);
+    }
+
+    // Create a hidden test explanation using the topic
     const { data, error } = await serviceClient
       .from('explanations')
       .insert({
@@ -49,7 +65,7 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
-        primary_topic_id: 1,
+        primary_topic_id: topic.id,
       })
       .select('id')
       .single();
