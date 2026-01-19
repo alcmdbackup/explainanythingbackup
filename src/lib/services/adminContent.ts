@@ -11,6 +11,7 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
+import { deleteVectorsByExplanationId, processContentToStoreEmbedding } from '@/lib/services/vectorsim';
 
 // Types for admin explanation data
 export interface AdminExplanation {
@@ -21,9 +22,13 @@ export interface AdminExplanation {
   timestamp: string;
   primary_topic_id: number | null;
   secondary_topic_id: number | null;
-  is_hidden: boolean;
-  hidden_at: string | null;
-  hidden_by: string | null;
+  // Two-stage delete fields
+  delete_status: 'visible' | 'hidden' | 'deleted';
+  delete_status_changed_at: string | null;
+  delete_reason: string | null;
+  delete_source: 'manual' | 'automated' | 'user_request' | 'legal' | null;
+  moderation_reviewed: boolean;
+  legal_hold: boolean;
   summary_teaser: string | null;
   meta_description: string | null;
 }
@@ -32,6 +37,7 @@ export interface AdminExplanationFilters {
   search?: string;
   status?: string;
   showHidden?: boolean;
+  filterTestContent?: boolean;
   limit?: number;
   offset?: number;
   sortBy?: 'timestamp' | 'title' | 'id';
@@ -62,6 +68,7 @@ const _getAdminExplanationsAction = withLogging(async (
       search = '',
       status,
       showHidden = true,
+      filterTestContent = false,
       limit = 50,
       offset = 0,
       sortBy = 'timestamp',
@@ -73,7 +80,7 @@ const _getAdminExplanationsAction = withLogging(async (
 
     let query = supabase
       .from('explanations')
-      .select('id, explanation_title, content, status, timestamp, primary_topic_id, secondary_topic_id, is_hidden, hidden_at, hidden_by, summary_teaser, meta_description', { count: 'exact' });
+      .select('id, explanation_title, content, status, timestamp, primary_topic_id, secondary_topic_id, delete_status, delete_status_changed_at, delete_reason, delete_source, moderation_reviewed, legal_hold, summary_teaser, meta_description', { count: 'exact' });
 
     // Apply filters
     if (search) {
@@ -85,7 +92,11 @@ const _getAdminExplanationsAction = withLogging(async (
     }
 
     if (!showHidden) {
-      query = query.or('is_hidden.eq.false,is_hidden.is.null');
+      query = query.eq('delete_status', 'visible');
+    }
+
+    if (filterTestContent) {
+      query = query.not('explanation_title', 'ilike', '%[TEST]%');
     }
 
     // Apply sorting
@@ -123,10 +134,11 @@ export const getAdminExplanationsAction = serverReadRequestId(_getAdminExplanati
 
 /**
  * Hide an explanation (soft delete).
- * Sets is_hidden=true rather than actually deleting.
+ * Sets delete_status='hidden' to exclude from public queries and search.
  */
 const _hideExplanationAction = withLogging(async (
-  explanationId: number
+  explanationId: number,
+  options?: { reason?: string; source?: 'manual' | 'automated' | 'user_request' | 'legal' }
 ): Promise<{
   success: boolean;
   error: ErrorResponse | null;
@@ -135,13 +147,15 @@ const _hideExplanationAction = withLogging(async (
     const adminUserId = await requireAdmin();
 
     const supabase = await createSupabaseServiceClient();
+    const now = new Date().toISOString();
 
     const { error } = await supabase
       .from('explanations')
       .update({
-        is_hidden: true,
-        hidden_at: new Date().toISOString(),
-        hidden_by: adminUserId
+        delete_status: 'hidden',
+        delete_status_changed_at: now,
+        delete_reason: options?.reason || null,
+        delete_source: options?.source || 'manual'
       })
       .eq('id', explanationId);
 
@@ -151,6 +165,18 @@ const _hideExplanationAction = withLogging(async (
     }
 
     logger.info('Explanation hidden', { explanationId, adminUserId });
+
+    // Delete vectors from Pinecone to exclude from search
+    try {
+      const deletedCount = await deleteVectorsByExplanationId(explanationId);
+      logger.info('Deleted vectors for hidden explanation', { explanationId, deletedCount });
+    } catch (vectorError) {
+      logger.error('Failed to delete vectors for hidden explanation', {
+        explanationId,
+        error: vectorError instanceof Error ? vectorError.message : String(vectorError)
+      });
+      // Don't fail the hide operation - vector cleanup is secondary
+    }
 
     // Log audit action
     await logAdminAction({
@@ -174,7 +200,7 @@ export const hideExplanationAction = serverReadRequestId(_hideExplanationAction)
 
 /**
  * Restore a hidden explanation.
- * Sets is_hidden=false to make it visible again.
+ * Sets delete_status='visible' to make it accessible again.
  */
 const _restoreExplanationAction = withLogging(async (
   explanationId: number
@@ -190,9 +216,9 @@ const _restoreExplanationAction = withLogging(async (
     const { error } = await supabase
       .from('explanations')
       .update({
-        is_hidden: false,
-        hidden_at: null,
-        hidden_by: null
+        delete_status: 'visible',
+        delete_status_changed_at: null,
+        delete_reason: null
       })
       .eq('id', explanationId);
 
@@ -202,6 +228,31 @@ const _restoreExplanationAction = withLogging(async (
     }
 
     logger.info('Explanation restored', { explanationId, adminUserId });
+
+    // Re-create vectors in Pinecone to make searchable again
+    try {
+      const { data: explanation } = await supabase
+        .from('explanations')
+        .select('id, explanation_title, content, primary_topic_id')
+        .eq('id', explanationId)
+        .single();
+
+      if (explanation) {
+        const combinedContent = `# ${explanation.explanation_title}\n\n${explanation.content}`;
+        await processContentToStoreEmbedding(
+          combinedContent,
+          explanation.id,
+          explanation.primary_topic_id ?? 0  // Default to 0 if null
+        );
+        logger.info('Re-created vectors for restored explanation', { explanationId });
+      }
+    } catch (vectorError) {
+      logger.error('Failed to re-create vectors for restored explanation', {
+        explanationId,
+        error: vectorError instanceof Error ? vectorError.message : String(vectorError)
+      });
+      // Don't fail the restore operation - content is visible but not searchable until vectors created
+    }
 
     // Log audit action
     await logAdminAction({
@@ -255,13 +306,14 @@ const _bulkHideExplanationsAction = withLogging(async (
     }
 
     const supabase = await createSupabaseServiceClient();
+    const now = new Date().toISOString();
 
     const { error, count } = await supabase
       .from('explanations')
       .update({
-        is_hidden: true,
-        hidden_at: new Date().toISOString(),
-        hidden_by: adminUserId
+        delete_status: 'hidden',
+        delete_status_changed_at: now,
+        delete_source: 'manual'
       })
       .in('id', explanationIds);
 
@@ -275,6 +327,17 @@ const _bulkHideExplanationsAction = withLogging(async (
       hiddenCount: count || explanationIds.length,
       adminUserId
     });
+
+    // Delete vectors for all hidden explanations in parallel
+    // Each deletion is caught individually so failures don't block others
+    await Promise.all(explanationIds.map(id =>
+      deleteVectorsByExplanationId(id).catch(err =>
+        logger.error('Failed to delete vectors in bulk hide', {
+          id,
+          error: err instanceof Error ? err.message : String(err)
+        })
+      )
+    ));
 
     // Log audit action
     await logAdminAction({
@@ -319,7 +382,7 @@ const _getAdminExplanationByIdAction = withLogging(async (
 
     const { data, error } = await supabase
       .from('explanations')
-      .select('id, explanation_title, content, status, timestamp, primary_topic_id, secondary_topic_id, is_hidden, hidden_at, hidden_by, summary_teaser, meta_description')
+      .select('id, explanation_title, content, status, timestamp, primary_topic_id, secondary_topic_id, delete_status, delete_status_changed_at, delete_reason, delete_source, moderation_reviewed, legal_hold, summary_teaser, meta_description')
       .eq('id', explanationId)
       .limit(1);
 

@@ -23,7 +23,7 @@ export function TextRevealSettings() {
     <div className="space-y-2">
       <label
         htmlFor="text-reveal-select"
-        className="block text-sm font-sans font-medium text-[var(--text-muted)] uppercase tracking-wider"
+        className="block text-sm font-ui font-medium text-[var(--text-muted)] uppercase tracking-wider"
       >
         Text Reveal Animation
       </label>
@@ -31,7 +31,7 @@ export function TextRevealSettings() {
         id="text-reveal-select"
         value={effect}
         onChange={(e) => setEffect(e.target.value as TextRevealEffect)}
-        className="w-full rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-4 py-2.5 text-sm font-sans text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)]"
+        className="w-full rounded-page border border-[var(--border-default)] bg-[var(--surface-secondary)] px-4 py-2.5 text-sm font-ui text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-gold)]/30 focus:border-[var(--accent-gold)]"
       >
         {TEXT_REVEAL_EFFECT_OPTIONS.map(({ value, label, description }) => (
           <option key={value} value={value}>
@@ -39,7 +39,7 @@ export function TextRevealSettings() {
           </option>
         ))}
       </select>
-      <p className="text-xs font-serif text-[var(--text-muted)] italic">
+      <p className="text-xs font-body text-[var(--text-muted)] italic">
         Applied to newly generated content during streaming
       </p>
     </div>

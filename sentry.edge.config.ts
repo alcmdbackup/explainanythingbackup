@@ -5,6 +5,16 @@
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
 
+// Production safeguard: FAST_DEV must NEVER run in production
+if (process.env.NODE_ENV === 'production' && process.env.FAST_DEV === 'true' && !process.env.CI) {
+  console.error('FATAL: FAST_DEV cannot be enabled in production');
+}
+
+// FAST_DEV mode: Skip all Sentry initialization for faster local development
+if (process.env.FAST_DEV === 'true') {
+  console.log('⚡ FAST_DEV: Skipping Sentry edge initialization');
+} else {
+
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.NODE_ENV,
@@ -22,3 +32,5 @@ Sentry.init({
   // Setting this option to true will print useful information to the console while you're setting up Sentry.
   debug: false,
 });
+
+} // End FAST_DEV else block

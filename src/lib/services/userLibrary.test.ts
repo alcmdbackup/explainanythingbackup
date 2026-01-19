@@ -238,43 +238,43 @@ describe('UserLibrary Service', () => {
   });
 
   describe('getUserLibraryExplanations', () => {
-    it('should return explanations with saved timestamps', async () => {
+    it('should return explanations with saved timestamps using PostgREST JOIN', async () => {
       // Arrange
       const userId = 'user-123';
-      const mockIdCreatedArr = [
-        { explanationid: 1, created: '2024-01-01T00:00:00Z' },
-        { explanationid: 2, created: '2024-01-02T00:00:00Z' }
-      ];
-
-      const mockExplanations = [
+      // Mock PostgREST JOIN response - explanations are nested under 'explanations' key
+      const mockJoinedData = [
         {
-          id: 1,
-          explanation_title: 'Title 1',
-          content: 'Content 1',
-          primary_topic_id: 1,
-          secondary_topic_id: null,
-          timestamp: '2024-01-01T00:00:00Z',
-          status: 'active'
+          explanationid: 1,
+          created: '2024-01-01T00:00:00Z',
+          explanations: {
+            id: 1,
+            explanation_title: 'Title 1',
+            content: 'Content 1',
+            primary_topic_id: 1,
+            secondary_topic_id: null,
+            timestamp: '2024-01-01T00:00:00Z',
+            status: 'active'
+          }
         },
         {
-          id: 2,
-          explanation_title: 'Title 2',
-          content: 'Content 2',
-          primary_topic_id: 2,
-          secondary_topic_id: 3,
-          timestamp: '2024-01-02T00:00:00Z',
-          status: 'active'
+          explanationid: 2,
+          created: '2024-01-02T00:00:00Z',
+          explanations: {
+            id: 2,
+            explanation_title: 'Title 2',
+            content: 'Content 2',
+            primary_topic_id: 2,
+            secondary_topic_id: 3,
+            timestamp: '2024-01-02T00:00:00Z',
+            status: 'active'
+          }
         }
       ];
 
-      // Mock getExplanationIdsForUser
       mockSupabase.eq.mockResolvedValue({
-        data: mockIdCreatedArr,
+        data: mockJoinedData,
         error: null
       });
-
-      // Mock getExplanationsByIds
-      (getExplanationsByIds as jest.Mock).mockResolvedValue(mockExplanations);
 
       // Act
       const result = await getUserLibraryExplanations(userId);
@@ -303,7 +303,8 @@ describe('UserLibrary Service', () => {
         }
       ]);
 
-      expect(getExplanationsByIds).toHaveBeenCalledWith([1, 2]);
+      // Should NOT call getExplanationsByIds since we use JOIN
+      expect(getExplanationsByIds).not.toHaveBeenCalled();
     });
 
     it('should return empty array when user has no saved explanations', async () => {
@@ -321,32 +322,34 @@ describe('UserLibrary Service', () => {
       expect(getExplanationsByIds).not.toHaveBeenCalled();
     });
 
-    it('should handle missing explanations gracefully', async () => {
+    it('should handle missing explanations gracefully (null join result)', async () => {
       // Arrange
       const userId = 'user-123';
-      const mockIdCreatedArr = [
-        { explanationid: 1, created: '2024-01-01T00:00:00Z' },
-        { explanationid: 999, created: '2024-01-02T00:00:00Z' } // Non-existent
-      ];
-
-      const mockExplanations = [
+      // When explanation doesn't exist, PostgREST returns null for the joined table
+      const mockJoinedData = [
         {
-          id: 1,
-          explanation_title: 'Title 1',
-          content: 'Content 1',
-          primary_topic_id: 1,
-          timestamp: '2024-01-01T00:00:00Z',
-          status: 'active'
+          explanationid: 1,
+          created: '2024-01-01T00:00:00Z',
+          explanations: {
+            id: 1,
+            explanation_title: 'Title 1',
+            content: 'Content 1',
+            primary_topic_id: 1,
+            timestamp: '2024-01-01T00:00:00Z',
+            status: 'active'
+          }
+        },
+        {
+          explanationid: 999,
+          created: '2024-01-02T00:00:00Z',
+          explanations: null  // Non-existent explanation returns null
         }
-        // ID 999 not returned by getExplanationsByIds
       ];
 
       mockSupabase.eq.mockResolvedValue({
-        data: mockIdCreatedArr,
+        data: mockJoinedData,
         error: null
       });
-
-      (getExplanationsByIds as jest.Mock).mockResolvedValue(mockExplanations);
 
       // Act
       const result = await getUserLibraryExplanations(userId);
@@ -354,36 +357,17 @@ describe('UserLibrary Service', () => {
       // Assert
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe(1);
-      expect(result[1].id).toBeUndefined(); // Missing explanation should have empty properties
+      expect(result[1].id).toBeUndefined(); // Missing explanation should have undefined properties
       expect(result[1].saved_timestamp).toBe('2024-01-02T00:00:00Z');
     });
 
-    it('should propagate errors from getExplanationIdsForUser', async () => {
+    it('should propagate errors from Supabase query', async () => {
       // Arrange
       const mockError = { message: 'Database error' };
       mockSupabase.eq.mockResolvedValue({
         data: null,
         error: mockError
       });
-
-      // Act & Assert
-      await expect(getUserLibraryExplanations('user-123')).rejects.toEqual(mockError);
-      expect(getExplanationsByIds).not.toHaveBeenCalled();
-    });
-
-    it('should propagate errors from getExplanationsByIds', async () => {
-      // Arrange
-      const mockIdCreatedArr = [
-        { explanationid: 1, created: '2024-01-01T00:00:00Z' }
-      ];
-
-      mockSupabase.eq.mockResolvedValue({
-        data: mockIdCreatedArr,
-        error: null
-      });
-
-      const mockError = new Error('Failed to fetch explanations');
-      (getExplanationsByIds as jest.Mock).mockRejectedValue(mockError);
 
       // Act & Assert
       await expect(getUserLibraryExplanations('user-123')).rejects.toEqual(mockError);

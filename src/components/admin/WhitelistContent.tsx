@@ -1,6 +1,12 @@
 'use client';
+/**
+ * Admin whitelist management component with accessibility support.
+ * Manages canonical terms and aliases for link whitelisting.
+ */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
+import FocusTrap from 'focus-trap-react';
+import { toast } from 'sonner';
 import {
   getAllWhitelistTermsAction,
   createWhitelistTermAction,
@@ -18,6 +24,7 @@ export default function WhitelistContent() {
   const [terms, setTerms] = useState<LinkWhitelistFullType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const modalTitleId = useId();
 
   // Modal state
   const [modalMode, setModalMode] = useState<ModalMode>(null);
@@ -104,6 +111,7 @@ export default function WhitelistContent() {
     if (modalMode === 'create') {
       const result = await createWhitelistTermAction(formData as LinkWhitelistInsertType);
       if (result.success) {
+        toast.success('Whitelist term created successfully');
         await loadTerms();
         closeModal();
       } else {
@@ -112,6 +120,7 @@ export default function WhitelistContent() {
     } else if (modalMode === 'edit' && selectedTerm) {
       const result = await updateWhitelistTermAction(selectedTerm.id, formData);
       if (result.success) {
+        toast.success('Whitelist term updated successfully');
         await loadTerms();
         closeModal();
       } else {
@@ -129,6 +138,7 @@ export default function WhitelistContent() {
 
     const result = await deleteWhitelistTermAction(id);
     if (result.success) {
+      toast.success('Whitelist term deleted successfully');
       await loadTerms();
     } else {
       setError(result.error?.message || 'Failed to delete term');
@@ -141,6 +151,7 @@ export default function WhitelistContent() {
     setAliasLoading(true);
     const result = await addAliasesAction(selectedTerm.id, [newAlias.trim()]);
     if (result.success && result.data) {
+      toast.success('Alias added successfully');
       setAliases([...aliases, ...result.data]);
       setNewAlias('');
     }
@@ -151,6 +162,7 @@ export default function WhitelistContent() {
     setAliasLoading(true);
     const result = await removeAliasAction(aliasId);
     if (result.success) {
+      toast.success('Alias removed successfully');
       setAliases(aliases.filter(a => a.id !== aliasId));
     }
     setAliasLoading(false);
@@ -188,13 +200,14 @@ export default function WhitelistContent() {
         </p>
         <button
           onClick={openCreateModal}
+          data-testid="admin-whitelist-add-term"
           className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--text-on-primary)] rounded hover:opacity-90 transition-opacity"
         >
           Add Term
         </button>
       </div>
 
-      <div className="scholar-card overflow-hidden">
+      <div className="scholar-card overflow-hidden" data-testid="admin-whitelist-table">
         <table className="w-full">
           <thead className="bg-[var(--surface-elevated)]">
             <tr>
@@ -213,7 +226,7 @@ export default function WhitelistContent() {
               </tr>
             ) : (
               terms.map((term) => (
-                <tr key={term.id} className="hover:bg-[var(--surface-secondary)]">
+                <tr key={term.id} data-testid={`admin-whitelist-row-${term.id}`} className="hover:bg-[var(--surface-secondary)]">
                   <td className="px-4 py-3 text-[var(--text-primary)]">{term.canonical_term}</td>
                   <td className="px-4 py-3 text-[var(--text-secondary)]">{term.standalone_title}</td>
                   <td className="px-4 py-3">
@@ -230,18 +243,21 @@ export default function WhitelistContent() {
                   <td className="px-4 py-3 text-right space-x-2">
                     <button
                       onClick={() => openAliasModal(term)}
+                      data-testid={`admin-whitelist-aliases-${term.id}`}
                       className="px-3 py-1 text-sm text-[var(--accent-gold)] hover:underline"
                     >
                       Aliases
                     </button>
                     <button
                       onClick={() => openEditModal(term)}
+                      data-testid={`admin-whitelist-edit-${term.id}`}
                       className="px-3 py-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => handleDelete(term.id)}
+                      data-testid={`admin-whitelist-delete-${term.id}`}
                       className="px-3 py-1 text-sm text-red-400 hover:text-red-300"
                     >
                       Delete
@@ -256,22 +272,31 @@ export default function WhitelistContent() {
 
       {/* Modal */}
       {modalMode && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-[var(--surface-primary)] rounded-lg shadow-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="p-6">
-              <div className="flex justify-between items-center mb-6">
-                <h2 className="text-xl font-display text-[var(--text-primary)]">
-                  {modalMode === 'create' && 'Add Whitelist Term'}
-                  {modalMode === 'edit' && 'Edit Whitelist Term'}
-                  {modalMode === 'aliases' && `Aliases for "${selectedTerm?.canonical_term}"`}
-                </h2>
-                <button
-                  onClick={closeModal}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                >
-                  &times;
-                </button>
-              </div>
+        <FocusTrap>
+          <div
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={modalTitleId}
+            data-testid="admin-whitelist-modal"
+          >
+            <div className="bg-[var(--surface-primary)] rounded-lg shadow-warm-xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 id={modalTitleId} className="text-xl font-display text-[var(--text-primary)]">
+                    {modalMode === 'create' && 'Add Whitelist Term'}
+                    {modalMode === 'edit' && 'Edit Whitelist Term'}
+                    {modalMode === 'aliases' && `Aliases for "${selectedTerm?.canonical_term}"`}
+                  </h2>
+                  <button
+                    onClick={closeModal}
+                    data-testid="admin-whitelist-modal-close"
+                    aria-label="Close modal"
+                    className="text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  >
+                    &times;
+                  </button>
+                </div>
 
               {(modalMode === 'create' || modalMode === 'edit') && (
                 <form onSubmit={handleSubmit} className="space-y-4">
@@ -283,6 +308,7 @@ export default function WhitelistContent() {
                       type="text"
                       value={formData.canonical_term || ''}
                       onChange={(e) => setFormData({ ...formData, canonical_term: e.target.value })}
+                      data-testid="admin-whitelist-canonical-term"
                       className="w-full px-3 py-2 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-gold)]"
                       required
                     />
@@ -295,6 +321,7 @@ export default function WhitelistContent() {
                       type="text"
                       value={formData.standalone_title || ''}
                       onChange={(e) => setFormData({ ...formData, standalone_title: e.target.value })}
+                      data-testid="admin-whitelist-standalone-title"
                       className="w-full px-3 py-2 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-gold)]"
                       required
                     />
@@ -306,6 +333,7 @@ export default function WhitelistContent() {
                     <textarea
                       value={formData.description || ''}
                       onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      data-testid="admin-whitelist-description"
                       rows={3}
                       className="w-full px-3 py-2 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-gold)]"
                     />
@@ -316,6 +344,7 @@ export default function WhitelistContent() {
                       id="is_active"
                       checked={formData.is_active}
                       onChange={(e) => setFormData({ ...formData, is_active: e.target.checked })}
+                      data-testid="admin-whitelist-is-active"
                       className="rounded border-[var(--border-default)]"
                     />
                     <label htmlFor="is_active" className="text-sm text-[var(--text-secondary)]">
@@ -326,6 +355,7 @@ export default function WhitelistContent() {
                     <button
                       type="button"
                       onClick={closeModal}
+                      data-testid="admin-whitelist-cancel"
                       className="px-4 py-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     >
                       Cancel
@@ -333,6 +363,7 @@ export default function WhitelistContent() {
                     <button
                       type="submit"
                       disabled={saving}
+                      data-testid="admin-whitelist-submit"
                       className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--text-on-primary)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
                       {saving ? 'Saving...' : modalMode === 'create' ? 'Create' : 'Update'}
@@ -349,12 +380,14 @@ export default function WhitelistContent() {
                       value={newAlias}
                       onChange={(e) => setNewAlias(e.target.value)}
                       placeholder="New alias..."
+                      data-testid="admin-whitelist-alias-input"
                       className="flex-1 px-3 py-2 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-gold)]"
                       onKeyDown={(e) => e.key === 'Enter' && handleAddAlias()}
                     />
                     <button
                       onClick={handleAddAlias}
                       disabled={aliasLoading || !newAlias.trim()}
+                      data-testid="admin-whitelist-add-alias"
                       className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--text-on-primary)] rounded hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
                       Add
@@ -368,16 +401,17 @@ export default function WhitelistContent() {
                       ))}
                     </div>
                   ) : aliases.length === 0 ? (
-                    <p className="text-[var(--text-muted)] text-center py-4">
+                    <p className="text-[var(--text-muted)] text-center py-4" data-testid="admin-whitelist-no-aliases">
                       No aliases yet. Add one above.
                     </p>
                   ) : (
-                    <ul className="divide-y divide-[var(--border-default)]">
+                    <ul className="divide-y divide-[var(--border-default)]" data-testid="admin-whitelist-alias-list">
                       {aliases.map((alias) => (
-                        <li key={alias.id} className="flex justify-between items-center py-2">
+                        <li key={alias.id} className="flex justify-between items-center py-2" data-testid={`admin-whitelist-alias-${alias.id}`}>
                           <span className="text-[var(--text-primary)]">{alias.alias_term}</span>
                           <button
                             onClick={() => handleRemoveAlias(alias.id)}
+                            data-testid={`admin-whitelist-remove-alias-${alias.id}`}
                             className="text-red-400 hover:text-red-300 text-sm"
                           >
                             Remove
@@ -390,6 +424,7 @@ export default function WhitelistContent() {
                   <div className="flex justify-end pt-4">
                     <button
                       onClick={closeModal}
+                      data-testid="admin-whitelist-close-aliases"
                       className="px-4 py-2 bg-[var(--surface-elevated)] text-[var(--text-primary)] rounded hover:opacity-90"
                     >
                       Close
@@ -400,6 +435,7 @@ export default function WhitelistContent() {
             </div>
           </div>
         </div>
+        </FocusTrap>
       )}
     </div>
   );

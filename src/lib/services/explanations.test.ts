@@ -30,6 +30,7 @@ type MockSupabaseClient = {
   range: jest.Mock;
   gte: jest.Mock;
   not: jest.Mock;
+  rpc: jest.Mock;
 };
 
 describe('Explanations Service', () => {
@@ -55,6 +56,7 @@ describe('Explanations Service', () => {
       range: jest.fn().mockReturnThis(),
       gte: jest.fn().mockReturnThis(),
       not: jest.fn().mockReturnThis(),
+      rpc: jest.fn(),
     };
 
     // Setup the mock to return our mockSupabase
@@ -199,16 +201,34 @@ describe('Explanations Service', () => {
         }
       ];
 
+      // Track which table is being queried
+      let currentTable = '';
+      mockSupabase.from.mockImplementation((table: string) => {
+        currentTable = table;
+        return mockSupabase;
+      });
+
       mockSupabase.range.mockResolvedValue({
         data: mockExplanations,
         error: null
       });
 
+      // Mock explanationMetrics query (returns empty - no metrics found)
+      mockSupabase.in.mockImplementation(() => {
+        if (currentTable === 'explanationMetrics') {
+          return Promise.resolve({ data: [], error: null });
+        }
+        return mockSupabase;
+      });
+
       // Act
       const result = await getRecentExplanations();
 
-      // Assert
-      expect(result).toEqual(mockExplanations);
+      // Assert - now returns ExplanationWithMetrics with viewCount and total_saves
+      expect(result).toEqual([
+        { ...mockExplanations[0], viewCount: 0, total_saves: 0 },
+        { ...mockExplanations[1], viewCount: 0, total_saves: 0 }
+      ]);
       expect(mockSupabase.from).toHaveBeenCalledWith('explanations');
       expect(mockSupabase.order).toHaveBeenCalledWith('timestamp', { ascending: false });
       expect(mockSupabase.range).toHaveBeenCalledWith(0, 9);
@@ -305,43 +325,36 @@ describe('Explanations Service', () => {
         }
       ];
 
-      // Mock view events (explanation 2 has more views)
-      const mockViewEvents = [
-        { explanationid: 2 },
-        { explanationid: 2 },
-        { explanationid: 2 },
-        { explanationid: 1 }
+      // Mock RPC view counts (explanation 2 has more views)
+      const mockViewCounts = [
+        { explanationid: 2, view_count: 3 },
+        { explanationid: 1, view_count: 1 }
       ];
 
-      // Setup mock chain for view events query
-      let queryState = 'initial';
-      mockSupabase.from.mockImplementation((table: string) => {
-        if (table === 'userExplanationEvents') {
-          queryState = 'events';
-        } else if (table === 'explanations') {
-          queryState = 'explanations';
-        }
-        return mockSupabase;
-      });
-
-      mockSupabase.gte.mockResolvedValue({
-        data: mockViewEvents,
+      // Mock RPC call for get_explanation_view_counts
+      mockSupabase.rpc.mockResolvedValue({
+        data: mockViewCounts,
         error: null
       });
 
+      // Mock explanations query with chained filters
       mockSupabase.eq.mockImplementation(() => {
-        if (queryState === 'explanations') {
-          // Return object with chained not() calls for [TEST] and test- filters
-          return {
+        return {
+          eq: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
               not: jest.fn().mockResolvedValue({
                 data: mockExplanations,
                 error: null
               })
             })
-          };
-        }
-        return mockSupabase;
+          })
+        };
+      });
+
+      // Mock explanationMetrics query
+      mockSupabase.in.mockResolvedValue({
+        data: [],
+        error: null
       });
 
       // Act
@@ -350,61 +363,84 @@ describe('Explanations Service', () => {
       // Assert - explanation 2 should come first (more views)
       expect(result[0].id).toBe(2);
       expect(result[1].id).toBe(1);
+      // Verify RPC was called with correct parameters
+      expect(mockSupabase.rpc).toHaveBeenCalledWith('get_explanation_view_counts', {
+        p_period: 'week',
+        p_limit: 1000
+      });
     });
 
-    it('should filter views by time period in top mode', async () => {
-      // Arrange - need to maintain chain for gte call
-      mockSupabase.eq.mockReturnThis(); // Keep chain going
-      mockSupabase.gte.mockResolvedValue({
+    it('should pass time period to RPC in top mode', async () => {
+      // Arrange - RPC handles time filtering server-side now
+      mockSupabase.rpc.mockResolvedValue({
         data: [],
         error: null
       });
+
       // Mock the explanations query
-      let callCount = 0;
       mockSupabase.eq.mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) {
-          // First eq call is for event_name filter - return chain
-          return mockSupabase;
-        }
-        // Second eq call is for explanations status filter - needs chained not() methods
         return {
-          not: jest.fn().mockReturnValue({
-            not: jest.fn().mockResolvedValue({
-              data: [],
-              error: null
+          eq: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [],
+                error: null
+              })
             })
           })
         };
+      });
+
+      // Mock explanationMetrics query
+      mockSupabase.in.mockResolvedValue({
+        data: [],
+        error: null
       });
 
       // Act
       await getRecentExplanations(10, 0, { sort: 'top', period: 'today' });
 
-      // Assert - should call gte with a date filter
-      expect(mockSupabase.gte).toHaveBeenCalledWith('created_at', expect.any(String));
+      // Assert - RPC should be called with 'today' period
+      expect(mockSupabase.rpc).toHaveBeenCalledWith('get_explanation_view_counts', {
+        p_period: 'today',
+        p_limit: 1000
+      });
     });
 
-    it('should not apply time filter for all period in top mode', async () => {
+    it('should pass all period to RPC in top mode', async () => {
       // Arrange
-      // For 'all' period, gte should not be called
+      mockSupabase.rpc.mockResolvedValue({
+        data: [],
+        error: null
+      });
+
       mockSupabase.eq.mockImplementation(() => {
-        // Explanations query needs chained not() methods
         return {
-          not: jest.fn().mockReturnValue({
-            not: jest.fn().mockResolvedValue({
-              data: [],
-              error: null
+          eq: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [],
+                error: null
+              })
             })
           })
         };
       });
 
+      // Mock explanationMetrics query
+      mockSupabase.in.mockResolvedValue({
+        data: [],
+        error: null
+      });
+
       // Act
       await getRecentExplanations(10, 0, { sort: 'top', period: 'all' });
 
-      // Assert - gte should not be called for 'all' period
-      expect(mockSupabase.gte).not.toHaveBeenCalled();
+      // Assert - RPC should be called with 'all' period
+      expect(mockSupabase.rpc).toHaveBeenCalledWith('get_explanation_view_counts', {
+        p_period: 'all',
+        p_limit: 1000
+      });
     });
   });
 

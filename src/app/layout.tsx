@@ -60,7 +60,7 @@ export default function RootLayout({
           ${sourceSerif.variable}
           ${dmSans.variable}
           ${jetbrainsMono.variable}
-          font-serif antialiased
+          font-body antialiased
           bg-surface-primary text-text-primary
           transition-colors duration-300
         `}

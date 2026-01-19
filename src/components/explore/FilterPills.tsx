@@ -60,7 +60,7 @@ export default function FilterPills({ sort, period }: FilterPillsProps) {
         <button
           onClick={() => handleTabClick('new')}
           className={`
-            px-5 py-2 text-sm font-sans font-medium rounded-full transition-all duration-200
+            px-5 py-2 text-sm font-ui font-medium rounded-full transition-all duration-200
             ${
               sort === 'new'
                 ? 'bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] shadow-warm'
@@ -73,7 +73,7 @@ export default function FilterPills({ sort, period }: FilterPillsProps) {
         <button
           onClick={() => handleTabClick('top')}
           className={`
-            px-5 py-2 text-sm font-sans font-medium rounded-full transition-all duration-200
+            px-5 py-2 text-sm font-ui font-medium rounded-full transition-all duration-200
             ${
               sort === 'top'
                 ? 'bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] shadow-warm'
@@ -93,7 +93,7 @@ export default function FilterPills({ sort, period }: FilterPillsProps) {
               key={value}
               onClick={() => handlePeriodChange(value)}
               className={`
-                px-3 py-1.5 text-xs font-sans font-medium rounded-full transition-all duration-200
+                px-3 py-1.5 text-xs font-ui font-medium rounded-full transition-all duration-200
                 ${
                   period === value
                     ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-gold)] border border-[var(--accent-gold)]'

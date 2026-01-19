@@ -113,7 +113,7 @@ export default function CitationTooltip({ source, children, className = '' }: Ci
 
             <div className="flex-1 min-w-0">
               {/* Title */}
-              <p className="text-sm font-serif text-[var(--text-primary)] line-clamp-2">
+              <p className="text-sm font-body text-[var(--text-primary)] line-clamp-2">
                 {source.title || source.domain}
               </p>
 

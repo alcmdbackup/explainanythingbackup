@@ -62,28 +62,30 @@ const linedPaper: PanelVariantConfig = {
   name: 'Lined Paper',
   description: 'Clean scholarly style matching results page',
   styles: {
-    // Panel container - warm tinted with border and strong shadow to pop from surroundings
+    // Panel container - warm tinted with black outline for separation from nav (no top border)
     container: `
       bg-[var(--surface-elevated)]
-      border-l border-[var(--border-default)]
+      border-2 border-t-0 border-black/70
       shadow-warm-xl
+      relative z-20
     `,
 
-    // Header - compact and clean
+    // Header - dark gold with very subtle gradient
     header: `
       px-5 pt-5 pb-4
+      bg-gradient-to-br from-[var(--accent-gold)] to-[color-mix(in_srgb,var(--accent-gold)_85%,var(--accent-copper))]
+      border-b-2 border-b-[var(--accent-gold)]
     `,
 
-    // Title - matches results page h1 style (scaled down)
-    // Results uses: text-3xl font-display font-bold text-[var(--text-primary)] leading-tight
+    // Title - white text for contrast on dark gold background
     headerTitle: `
-      text-xl font-display font-semibold text-[var(--text-primary)]
+      text-xl font-display font-semibold text-[var(--text-on-primary)]
       leading-tight
     `,
 
-    // Icon - gold accent
+    // Icon - white for visibility on dark gold background
     headerIcon: `
-      w-5 h-5 text-[var(--accent-gold)]
+      w-5 h-5 text-[var(--text-on-primary)]
     `,
 
     // Mode toggle wrapper - subtle separator

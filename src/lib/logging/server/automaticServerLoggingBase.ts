@@ -125,6 +125,11 @@ export function withServerLogging<T extends (...args: any[]) => any>(
   functionName: string,
   config: Partial<LogConfig> = {}
 ): T {
+  // FAST_DEV mode: Pass through without any logging overhead
+  if (process.env.FAST_DEV === 'true') {
+    return fn;
+  }
+
   const finalConfig = { ...defaultLogConfig, ...config };
 
   if (!finalConfig.enabled) {
@@ -213,6 +218,11 @@ export function withServerTracing<T extends (...args: any[]) => any>(
   operationName: string,
   config: Partial<TracingConfig> = {}
 ): T {
+  // FAST_DEV mode: Pass through without any tracing overhead
+  if (process.env.FAST_DEV === 'true') {
+    return fn;
+  }
+
   const finalConfig = { ...defaultTracingConfig, ...config };
 
   if (!finalConfig.enabled) {

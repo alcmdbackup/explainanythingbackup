@@ -494,7 +494,7 @@ describe('ExplanationsTablePage', () => {
       const errorSpan = screen.getByText('Error occurred');
       const errorDiv = errorSpan.closest('div');
       expect(errorDiv).toHaveClass('mb-6', 'p-4', 'border-l-4');
-      expect(errorSpan).toHaveClass('font-serif');
+      expect(errorSpan).toHaveClass('font-body');
     });
 
     it('should show table even when error exists', () => {

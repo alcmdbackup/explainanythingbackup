@@ -265,7 +265,7 @@ export default function AdvancedAIEditorModal({
         {showCancelWarning && (
           <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/30">
             <div className="bg-[var(--surface-elevated)] rounded-lg p-6 mx-4 max-w-sm border border-[var(--border-default)] shadow-warm-xl">
-              <h3 className="text-base font-serif font-semibold text-[var(--text-primary)] mb-2">
+              <h3 className="text-base font-body font-semibold text-[var(--text-primary)] mb-2">
                 Discard changes?
               </h3>
               <p className="text-sm text-[var(--text-secondary)] mb-4">

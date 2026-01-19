@@ -41,25 +41,39 @@ export function ClientInitializer() {
       console.error('Failed to load remote flusher:', err);
     });
 
+    // Web Vitals collection (reports CLS, FCP, LCP, TTFB, INP to Sentry)
+    // Initialized early to capture metrics as soon as possible
+    // Skip in FAST_DEV mode for faster local development
+    if (process.env.NEXT_PUBLIC_FAST_DEV !== 'true') {
+      import('@/lib/webVitals').then(({ initWebVitals }) => {
+        initWebVitals();
+      }).catch((err) => {
+        console.error('Failed to load Web Vitals:', err);
+      });
+    }
+
     // Browser tracing (production or when explicitly enabled)
+    // Skip in FAST_DEV mode for faster local development
     // Lazy-load OTel after idle to mitigate bundle size (~60KB)
-    if ('requestIdleCallback' in window) {
-      const idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(
-        async () => {
+    if (process.env.NEXT_PUBLIC_FAST_DEV !== 'true') {
+      if ('requestIdleCallback' in window) {
+        const idleId = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(
+          async () => {
+            const { initBrowserTracing } = await import('@/lib/tracing/browserTracing');
+            initBrowserTracing();
+          },
+          { timeout: 5000 }
+        );
+        cleanupFns.current.push(() =>
+          (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId)
+        );
+      } else {
+        // Fallback for browsers without requestIdleCallback
+        setTimeout(async () => {
           const { initBrowserTracing } = await import('@/lib/tracing/browserTracing');
           initBrowserTracing();
-        },
-        { timeout: 5000 }
-      );
-      cleanupFns.current.push(() =>
-        (window as Window & { cancelIdleCallback: (id: number) => void }).cancelIdleCallback(idleId)
-      );
-    } else {
-      // Fallback for browsers without requestIdleCallback
-      setTimeout(async () => {
-        const { initBrowserTracing } = await import('@/lib/tracing/browserTracing');
-        initBrowserTracing();
-      }, 5000);
+        }, 5000);
+      }
     }
 
     // HMR cleanup

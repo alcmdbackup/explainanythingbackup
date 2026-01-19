@@ -1,10 +1,12 @@
 'use client';
 /**
  * Modal for viewing and managing a single explanation in the admin dashboard.
- * Shows full content and provides hide/restore actions.
+ * Shows full content and provides hide/restore actions with accessibility support.
  */
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
+import FocusTrap from 'focus-trap-react';
+import { toast } from 'sonner';
 import {
   hideExplanationAction,
   restoreExplanationAction,
@@ -24,12 +26,14 @@ export function ExplanationDetailModal({
 }: ExplanationDetailModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const titleId = useId();
 
   const handleHide = async () => {
     setLoading(true);
     setError(null);
     const result = await hideExplanationAction(explanation.id);
     if (result.success) {
+      toast.success('Explanation hidden successfully');
       onUpdate();
       onClose();
     } else {
@@ -43,6 +47,7 @@ export function ExplanationDetailModal({
     setError(null);
     const result = await restoreExplanationAction(explanation.id);
     if (result.success) {
+      toast.success('Explanation restored successfully');
       onUpdate();
       onClose();
     } else {
@@ -52,25 +57,34 @@ export function ExplanationDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
-        {/* Header */}
-        <div className="flex justify-between items-start p-4 border-b border-[var(--border-color)]">
-          <div>
-            <h2 className="text-xl font-semibold text-[var(--text-primary)]">
-              {explanation.explanation_title || 'Untitled'}
-            </h2>
+    <FocusTrap>
+      <div
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        data-testid="admin-content-detail-modal"
+      >
+        <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+          {/* Header */}
+          <div className="flex justify-between items-start p-4 border-b border-[var(--border-color)]">
+            <div>
+              <h2 id={titleId} className="text-xl font-semibold text-[var(--text-primary)]">
+                {explanation.explanation_title || 'Untitled'}
+              </h2>
             <div className="flex gap-3 mt-1 text-sm text-[var(--text-muted)]">
               <span>ID: {explanation.id}</span>
               <span>Status: {explanation.status}</span>
-              {explanation.is_hidden && (
-                <span className="text-red-400">Hidden</span>
+              {explanation.delete_status !== 'visible' && (
+                <span className="text-red-400 capitalize">{explanation.delete_status}</span>
               )}
             </div>
           </div>
           <button
             onClick={onClose}
+            data-testid="admin-content-detail-close"
             className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-2xl leading-none"
+            aria-label="Close modal"
           >
             &times;
           </button>
@@ -98,20 +112,22 @@ export function ExplanationDetailModal({
                 {explanation.primary_topic_id || 'None'}
               </span>
             </div>
-            {explanation.hidden_at && (
+            {explanation.delete_status !== 'visible' && explanation.delete_status_changed_at && (
               <>
                 <div>
-                  <span className="text-[var(--text-muted)]">Hidden At:</span>{' '}
+                  <span className="text-[var(--text-muted)]">Status Changed:</span>{' '}
                   <span className="text-red-400">
-                    {new Date(explanation.hidden_at).toLocaleString()}
+                    {new Date(explanation.delete_status_changed_at).toLocaleString()}
                   </span>
                 </div>
-                <div>
-                  <span className="text-[var(--text-muted)]">Hidden By:</span>{' '}
-                  <span className="text-[var(--text-primary)]">
-                    {explanation.hidden_by || 'Unknown'}
-                  </span>
-                </div>
+                {explanation.delete_reason && (
+                  <div>
+                    <span className="text-[var(--text-muted)]">Reason:</span>{' '}
+                    <span className="text-[var(--text-primary)]">
+                      {explanation.delete_reason}
+                    </span>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -143,6 +159,7 @@ export function ExplanationDetailModal({
             href={`/explanations?id=${explanation.id}`}
             target="_blank"
             rel="noopener noreferrer"
+            data-testid="admin-content-detail-view-public"
             className="text-[var(--accent-primary)] hover:underline text-sm"
           >
             View Public Page →
@@ -150,14 +167,16 @@ export function ExplanationDetailModal({
           <div className="flex gap-3">
             <button
               onClick={onClose}
+              data-testid="admin-content-detail-close-footer"
               className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)]"
             >
               Close
             </button>
-            {explanation.is_hidden ? (
+            {explanation.delete_status !== 'visible' ? (
               <button
                 onClick={handleRestore}
                 disabled={loading}
+                data-testid="admin-content-detail-restore"
                 className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
               >
                 {loading ? 'Restoring...' : 'Restore'}
@@ -166,6 +185,7 @@ export function ExplanationDetailModal({
               <button
                 onClick={handleHide}
                 disabled={loading}
+                data-testid="admin-content-detail-hide"
                 className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50"
               >
                 {loading ? 'Hiding...' : 'Hide'}
@@ -174,6 +194,7 @@ export function ExplanationDetailModal({
           </div>
         </div>
       </div>
-    </div>
+      </div>
+    </FocusTrap>
   );
 }

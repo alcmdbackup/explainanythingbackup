@@ -75,7 +75,7 @@ export default function Bibliography({ sources, className = '' }: BibliographyPr
 
                 {/* Title and domain */}
                 <span className="flex-1">
-                  <span className="font-serif text-[var(--text-primary)] group-hover/link:text-[var(--accent-gold)] transition-colors">
+                  <span className="font-body text-[var(--text-primary)] group-hover/link:text-[var(--accent-gold)] transition-colors">
                     {source.title || source.domain}
                   </span>
                   {source.title && (

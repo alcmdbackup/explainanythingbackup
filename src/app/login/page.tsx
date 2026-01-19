@@ -133,7 +133,7 @@ export default function LoginPage() {
             {formError && (
               <div
                 data-testid="login-error"
-                className="p-4 text-sm bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)] font-serif atlas-animate-fade-up"
+                className="p-4 text-sm bg-[var(--surface-elevated)] border-l-4 border-l-[var(--destructive)] border border-[var(--border-default)] rounded-r-page text-[var(--destructive)] font-body atlas-animate-fade-up"
               >
                 {formError}
               </div>
@@ -143,7 +143,7 @@ export default function LoginPage() {
             {signupSuccess && (
               <div
                 data-testid="signup-success"
-                className="p-4 text-sm bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page text-[var(--accent-gold)] font-serif atlas-animate-fade-up"
+                className="p-4 text-sm bg-[var(--surface-elevated)] border-l-4 border-l-[var(--accent-gold)] border border-[var(--border-default)] rounded-r-page text-[var(--accent-gold)] font-body atlas-animate-fade-up"
               >
                 Check your email for a confirmation link to complete your registration.
               </div>
@@ -160,7 +160,7 @@ export default function LoginPage() {
                 type="email"
                 placeholder="you@example.com"
                 disabled={isLoading}
-                className="h-12 px-4 text-base font-serif"
+                className="h-12 px-4 text-base font-body"
                 {...register('email')}
                 aria-invalid={!!errors.email}
                 aria-describedby={errors.email ? 'email-error' : undefined}
@@ -184,7 +184,7 @@ export default function LoginPage() {
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
                   disabled={isLoading}
-                  className="h-12 px-4 text-base font-serif pr-12"
+                  className="h-12 px-4 text-base font-body pr-12"
                   {...register('password')}
                   aria-invalid={!!errors.password}
                   aria-describedby={errors.password ? 'password-error' : undefined}

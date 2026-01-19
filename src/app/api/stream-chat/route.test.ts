@@ -96,8 +96,8 @@ describe('POST /api/stream-chat', () => {
     const response = await POST(request);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('Content-Type')).toBe('text/plain; charset=utf-8');
-    expect(response.headers.get('Cache-Control')).toBe('no-cache');
+    expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+    expect(response.headers.get('Cache-Control')).toBe('no-cache, no-transform');
     expect(response.headers.get('Connection')).toBe('keep-alive');
   });
 

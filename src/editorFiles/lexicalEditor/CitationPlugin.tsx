@@ -235,7 +235,7 @@ export function CitationPlugin({ sources, enabled = true }: CitationPluginProps)
               />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-serif text-[var(--text-primary)] line-clamp-2">
+              <p className="text-sm font-body text-[var(--text-primary)] line-clamp-2">
                 {tooltip.source.title || tooltip.source.domain}
               </p>
               {tooltip.source.title && (

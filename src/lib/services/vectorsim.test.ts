@@ -24,7 +24,8 @@ import {
   processContentToStoreEmbedding,
   calculateAllowedScores,
   loadFromPineconeUsingExplanationId,
-  searchForSimilarVectors
+  searchForSimilarVectors,
+  deleteVectorsByExplanationId
 } from './vectorsim';
 import { AnchorSet, type VectorSearchResult } from '@/lib/schemas/schemas';
 
@@ -450,6 +451,98 @@ describe('vectorsim', () => {
       expect(result.chunkCount).toBe(250);
       // Should be called multiple times due to batching
       expect(mockNamespace.upsert.mock.calls.length).toBeGreaterThan(1);
+    });
+  });
+
+  describe('deleteVectorsByExplanationId', () => {
+    it('should delete vectors by explanation ID', async () => {
+      // Mock query response with matching vectors
+      const mockVectorIds = ['vec-0', 'vec-1', 'vec-2'];
+      mockNamespace.query.mockResolvedValueOnce({
+        matches: mockVectorIds.map(id => ({ id }))
+      });
+      mockNamespace.deleteMany = jest.fn().mockResolvedValue({});
+
+      const count = await deleteVectorsByExplanationId(123);
+
+      // Verify query was called with correct filter
+      expect(mockNamespace.query).toHaveBeenCalledWith(
+        expect.objectContaining({
+          filter: {
+            explanation_id: { "$eq": 123 }
+          },
+          topK: 10000,
+          includeMetadata: false
+        })
+      );
+      expect(mockNamespace.deleteMany).toHaveBeenCalledWith(mockVectorIds);
+      expect(count).toBe(3);
+    });
+
+    it('should return 0 when no vectors found', async () => {
+      mockNamespace.query.mockResolvedValueOnce({ matches: [] });
+      mockNamespace.deleteMany = jest.fn();
+
+      const count = await deleteVectorsByExplanationId(999);
+
+      expect(count).toBe(0);
+      expect(mockNamespace.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('should handle null matches response', async () => {
+      mockNamespace.query.mockResolvedValueOnce({ matches: null });
+      mockNamespace.deleteMany = jest.fn();
+
+      const count = await deleteVectorsByExplanationId(999);
+
+      expect(count).toBe(0);
+      expect(mockNamespace.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('should delete in batches when many vectors exist', async () => {
+      // Create 1500 mock vector IDs (more than batch size of 1000)
+      const mockVectorIds = Array.from({ length: 1500 }, (_, i) => `vec-${i}`);
+      mockNamespace.query.mockResolvedValueOnce({
+        matches: mockVectorIds.map(id => ({ id }))
+      });
+      mockNamespace.deleteMany = jest.fn().mockResolvedValue({});
+
+      const count = await deleteVectorsByExplanationId(123);
+
+      expect(count).toBe(1500);
+      // Should be called twice: first batch of 1000, second batch of 500
+      expect(mockNamespace.deleteMany).toHaveBeenCalledTimes(2);
+      expect(mockNamespace.deleteMany).toHaveBeenNthCalledWith(1, mockVectorIds.slice(0, 1000));
+      expect(mockNamespace.deleteMany).toHaveBeenNthCalledWith(2, mockVectorIds.slice(1000));
+    });
+
+    it('should throw error for invalid explanation ID type', async () => {
+      await expect(
+        deleteVectorsByExplanationId('not-a-number' as unknown as number)
+      ).rejects.toThrow('explanationId must be a number');
+    });
+
+    it('should handle Pinecone query errors', async () => {
+      mockNamespace.query.mockRejectedValueOnce(new Error('Pinecone connection failed'));
+
+      await expect(deleteVectorsByExplanationId(123)).rejects.toThrow('Pinecone connection failed');
+    });
+
+    it('should handle Pinecone delete errors', async () => {
+      mockNamespace.query.mockResolvedValueOnce({
+        matches: [{ id: 'vec-0' }]
+      });
+      mockNamespace.deleteMany = jest.fn().mockRejectedValue(new Error('Delete failed'));
+
+      await expect(deleteVectorsByExplanationId(123)).rejects.toThrow('Delete failed');
+    });
+
+    it('should use custom namespace when provided', async () => {
+      mockNamespace.query.mockResolvedValueOnce({ matches: [] });
+
+      await deleteVectorsByExplanationId(123, 'custom-namespace');
+
+      expect(mockIndex.namespace).toHaveBeenCalledWith('custom-namespace');
     });
   });
 });

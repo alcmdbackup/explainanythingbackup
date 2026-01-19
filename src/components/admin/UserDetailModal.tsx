@@ -1,10 +1,12 @@
 'use client';
 /**
- * Admin user detail modal.
+ * Admin user detail modal with accessibility support.
  * Shows user info, stats, and provides disable/enable actions.
  */
 
-import { useState } from 'react';
+import { useState, useId } from 'react';
+import FocusTrap from 'focus-trap-react';
+import { toast } from 'sonner';
 import {
   disableUserAction,
   enableUserAction,
@@ -25,6 +27,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
   const [notes, setNotes] = useState(user.profile?.admin_notes || '');
   const [disableReason, setDisableReason] = useState('');
   const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+  const titleId = useId();
 
   const isDisabled = user.profile?.is_disabled || false;
 
@@ -38,6 +41,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
     });
 
     if (result.success) {
+      toast.success('User account disabled successfully');
       setShowDisableConfirm(false);
       onUpdate();
     } else {
@@ -54,6 +58,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
     const result = await enableUserAction(user.id);
 
     if (result.success) {
+      toast.success('User account enabled successfully');
       onUpdate();
     } else {
       setError(result.error?.message || 'Failed to enable user');
@@ -72,6 +77,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
     });
 
     if (result.success) {
+      toast.success('Notes saved successfully');
       onUpdate();
     } else {
       setError(result.error?.message || 'Failed to save notes');
@@ -86,21 +92,30 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
-          <div>
-            <h3 className="font-semibold text-[var(--text-primary)]">User Details</h3>
-            <p className="text-sm text-[var(--text-muted)]">{user.email}</p>
+    <FocusTrap>
+      <div
+        className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        data-testid="admin-user-detail-modal"
+      >
+        <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+          {/* Header */}
+          <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
+            <div>
+              <h3 id={titleId} className="font-semibold text-[var(--text-primary)]">User Details</h3>
+              <p className="text-sm text-[var(--text-muted)]">{user.email}</p>
+            </div>
+            <button
+              onClick={onClose}
+              data-testid="admin-user-detail-close"
+              aria-label="Close modal"
+              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl"
+            >
+              &times;
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl"
-          >
-            &times;
-          </button>
-        </div>
 
         <div className="p-4 space-y-6">
           {error && (
@@ -180,6 +195,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Internal notes about this user..."
+              data-testid="admin-user-detail-notes"
               className="w-full px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] text-sm resize-none"
               rows={3}
             />
@@ -187,6 +203,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
               <button
                 onClick={handleSaveNotes}
                 disabled={loading}
+                data-testid="admin-user-detail-save-notes"
                 className="mt-2 px-3 py-1 bg-[var(--accent-primary)] text-white rounded text-sm disabled:opacity-50"
               >
                 {loading ? 'Saving...' : 'Save Notes'}
@@ -204,6 +221,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                   <button
                     onClick={handleEnable}
                     disabled={loading}
+                    data-testid="admin-user-detail-enable"
                     className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 text-sm"
                   >
                     {loading ? 'Enabling...' : 'Enable Account'}
@@ -211,6 +229,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                 ) : (
                   <button
                     onClick={() => setShowDisableConfirm(true)}
+                    data-testid="admin-user-detail-disable"
                     className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 text-sm"
                   >
                     Disable Account
@@ -218,7 +237,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                 )}
               </div>
             ) : (
-              <div className="p-3 bg-red-900/10 border border-red-600/50 rounded-md">
+              <div className="p-3 bg-red-900/10 border border-red-600/50 rounded-md" data-testid="admin-user-detail-disable-confirm">
                 <p className="text-sm text-[var(--text-primary)] mb-3">
                   Are you sure you want to disable this account? The user will not be able to access the application.
                 </p>
@@ -231,6 +250,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                     value={disableReason}
                     onChange={(e) => setDisableReason(e.target.value)}
                     placeholder="e.g., Terms of service violation"
+                    data-testid="admin-user-detail-disable-reason"
                     className="w-full px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] text-sm"
                   />
                 </div>
@@ -238,6 +258,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                   <button
                     onClick={handleDisable}
                     disabled={loading}
+                    data-testid="admin-user-detail-confirm-disable"
                     className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 text-sm"
                   >
                     {loading ? 'Disabling...' : 'Confirm Disable'}
@@ -245,6 +266,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                   <button
                     onClick={() => setShowDisableConfirm(false)}
                     disabled={loading}
+                    data-testid="admin-user-detail-cancel-disable"
                     className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)] text-sm"
                   >
                     Cancel
@@ -259,12 +281,14 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
         <div className="flex justify-end p-4 border-t border-[var(--border-color)]">
           <button
             onClick={onClose}
+            data-testid="admin-user-detail-close-footer"
             className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)]"
           >
             Close
           </button>
         </div>
       </div>
-    </div>
+      </div>
+    </FocusTrap>
   );
 }

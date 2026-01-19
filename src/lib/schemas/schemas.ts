@@ -297,6 +297,12 @@ export type matchWithCurrentContentType = z.infer<typeof matchWithCurrentContent
 export type ExplanationInsertType = z.infer<typeof explanationInsertSchema>;
 export type ExplanationFullDbType = z.infer<typeof ExplanationFullDbSchema>;
 export type ExplanationWithViewCount = ExplanationFullDbType & { viewCount?: number };
+
+/**
+ * Extended explanation type that includes engagement metrics for feed display.
+ * Extends ExplanationWithViewCount to add total_saves for engagement bar.
+ */
+export type ExplanationWithMetrics = ExplanationWithViewCount & { total_saves?: number };
 export type UserQueryInsertType = z.infer<typeof userQueryInsertSchema>;
 
 /**

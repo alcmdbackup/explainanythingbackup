@@ -32,10 +32,10 @@ export default function OutputModeToggle({
       role="radiogroup"
       aria-label="Output mode selection"
     >
-      <span className="text-xs font-ui text-[var(--text-muted)]">
+      <span className="text-sm font-ui font-medium text-[var(--text-on-primary)]">
         Mode:
       </span>
-      <div className="inline-flex rounded-md border border-[var(--border-default)] bg-[var(--surface-elevated)] p-0.5">
+      <div className="inline-flex rounded-md border border-white/30 bg-white/15 p-1">
         <button
           type="button"
           role="radio"
@@ -44,11 +44,11 @@ export default function OutputModeToggle({
           disabled={disabled}
           onClick={() => onChange('inline-diff')}
           className={cn(
-            'px-2.5 py-1 text-xs font-ui rounded transition-all duration-150',
-            'focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]/30',
+            'px-4 py-1.5 text-sm font-ui font-semibold rounded transition-all duration-150',
+            'focus:outline-none focus:ring-1 focus:ring-white/30',
             value === 'inline-diff'
-              ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-copper)] shadow-warm-sm'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
+              ? 'bg-[var(--text-primary)] text-[var(--background)] shadow-warm-sm'
+              : 'text-[var(--text-on-primary)]/80 hover:text-[var(--text-on-primary)]',
             disabled && 'opacity-50 cursor-not-allowed'
           )}
           title="Shows tracked changes you can accept or reject"
@@ -63,11 +63,11 @@ export default function OutputModeToggle({
           disabled={disabled}
           onClick={() => onChange('rewrite')}
           className={cn(
-            'px-2.5 py-1 text-xs font-ui rounded transition-all duration-150',
-            'focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]/30',
+            'px-4 py-1.5 text-sm font-ui font-semibold rounded transition-all duration-150',
+            'focus:outline-none focus:ring-1 focus:ring-white/30',
             value === 'rewrite'
-              ? 'bg-[var(--accent-gold)]/15 text-[var(--accent-copper)] shadow-warm-sm'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-secondary)]',
+              ? 'bg-[var(--text-primary)] text-[var(--background)] shadow-warm-sm'
+              : 'text-[var(--text-on-primary)]/80 hover:text-[var(--text-on-primary)]',
             disabled && 'opacity-50 cursor-not-allowed'
           )}
           title="Generates a completely new version"

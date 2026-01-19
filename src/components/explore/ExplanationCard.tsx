@@ -115,14 +115,14 @@ export default function ExplanationCard({
         </h3>
 
         {/* Preview */}
-        <p className="font-serif text-sm text-[var(--text-secondary)] mt-3 line-clamp-4 leading-relaxed">
+        <p className="font-body text-sm text-[var(--text-secondary)] mt-3 line-clamp-4 leading-relaxed">
           {preview}
         </p>
       </div>
 
       {/* Footer - only render if provided */}
       {footer && (
-        <div className="px-5 pb-4 flex items-center justify-between text-xs text-[var(--text-muted)] font-sans">
+        <div className="px-5 pb-4 flex items-center justify-between text-xs text-[var(--text-muted)] font-ui">
           {footer}
         </div>
       )}

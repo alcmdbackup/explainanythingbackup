@@ -65,7 +65,7 @@ export default function ExploreTabs({ sort, period }: ExploreTabsProps) {
                 <button
                     onClick={() => handleTabClick('new')}
                     className={`
-                        px-4 py-2 text-sm font-sans font-medium rounded-md transition-all duration-200
+                        px-4 py-2 text-sm font-ui font-medium rounded-md transition-all duration-200
                         ${sort === 'new'
                             ? 'bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] shadow-warm'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]'
@@ -77,7 +77,7 @@ export default function ExploreTabs({ sort, period }: ExploreTabsProps) {
                 <button
                     onClick={() => handleTabClick('top')}
                     className={`
-                        px-4 py-2 text-sm font-sans font-medium rounded-md transition-all duration-200
+                        px-4 py-2 text-sm font-ui font-medium rounded-md transition-all duration-200
                         ${sort === 'top'
                             ? 'bg-gradient-to-br from-[var(--accent-gold)] to-[var(--accent-copper)] text-[var(--text-on-primary)] shadow-warm'
                             : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-secondary)]'
