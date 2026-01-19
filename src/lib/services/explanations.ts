@@ -81,10 +81,13 @@ async function getExplanationByIdImpl(id: number): Promise<ExplanationFullDbType
 
   // Use .limit(1) instead of .single() to avoid "Cannot coerce" errors
   // when replication lag or RLS timing causes 0 rows to be returned temporarily
+  // Filter by delete_status to ensure hidden/deleted content is not accessible
+  // This is defense-in-depth alongside RLS policies
   const { data: results, error } = await supabase
     .from('explanations')
     .select()
     .eq('id', id)
+    .eq('delete_status', 'visible')
     .limit(1);
 
   if (error) throw error;
