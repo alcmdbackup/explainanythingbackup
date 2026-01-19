@@ -37,7 +37,7 @@ import { useExplanationLoader } from '@/hooks/useExplanationLoader';
 import { useUserAuth } from '@/hooks/useUserAuth';
 import { useTextRevealSettings } from '@/hooks/useTextRevealSettings';
 import { SparklesIcon, CheckCircleIcon, CheckIcon } from '@heroicons/react/24/solid';
-import { BookmarkIcon, PencilSquareIcon } from '@heroicons/react/24/outline';
+import { BookmarkIcon, PencilSquareIcon, DocumentTextIcon, Bars3BottomLeftIcon } from '@heroicons/react/24/outline';
 import ShareButton from '@/components/ShareButton';
 
 const FILE_DEBUG = true;
@@ -1093,7 +1093,7 @@ function ResultsPageContent() {
                                                         Draft
                                                     </span>
                                                 )}
-                                                <h1 data-testid="explanation-title" className="atlas-display atlas-animate-fade-up stagger-1">
+                                                <h1 data-testid="explanation-title" className="atlas-display-section atlas-animate-fade-up stagger-1">
                                                     {explanationTitle}
                                                 </h1>
                                             </div>
@@ -1218,8 +1218,9 @@ function ResultsPageContent() {
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
-                                            className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-4 py-2 text-sm font-ui font-medium text-[var(--text-secondary)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--accent-gold)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
                                         >
+                                            {isMarkdownMode ? <Bars3BottomLeftIcon className="w-4 h-4" /> : <DocumentTextIcon className="w-4 h-4" />}
                                             {isMarkdownMode ? 'Plain Text' : 'Formatted'}
                                         </button>
                                         <button

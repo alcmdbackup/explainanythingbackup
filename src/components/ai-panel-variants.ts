@@ -62,11 +62,12 @@ const linedPaper: PanelVariantConfig = {
   name: 'Lined Paper',
   description: 'Clean scholarly style matching results page',
   styles: {
-    // Panel container - warm tinted with gold left border accent
+    // Panel container - warm tinted with black outline for separation from nav (no top border)
     container: `
       bg-[var(--surface-elevated)]
-      border-l-2 border-l-[var(--accent-gold)]
+      border-2 border-t-0 border-black/70
       shadow-warm-xl
+      relative z-20
     `,
 
     // Header - dark gold with very subtle gradient

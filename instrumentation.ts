@@ -1,21 +1,16 @@
-// instrumentation.ts - Next.js instrumentation hook for OpenTelemetry and Sentry initialization
-import { trace, Span } from '@opentelemetry/api';
+/**
+ * Next.js instrumentation hook for OpenTelemetry and Sentry integration.
+ * Initializes tracing, logging, and error tracking for the application.
+ */
 import * as Sentry from '@sentry/nextjs';
+import type { Tracer, Span } from '@opentelemetry/api';
 
-// Lazy-initialized tracers (only created when FAST_DEV is not enabled)
-let llmTracer: ReturnType<typeof trace.getTracer> | null = null;
-let dbTracer: ReturnType<typeof trace.getTracer> | null = null;
-let vectorTracer: ReturnType<typeof trace.getTracer> | null = null;
-let appTracer: ReturnType<typeof trace.getTracer> | null = null;
-
-function initTracers() {
-  if (!llmTracer) {
-    llmTracer = trace.getTracer('explainanything-llm');
-    dbTracer = trace.getTracer('explainanything-database');
-    vectorTracer = trace.getTracer('explainanything-vector');
-    appTracer = trace.getTracer('explainanything-application');
-  }
-}
+// Lazy-initialized tracers (created after Sentry sets up OpenTelemetry)
+let llmTracer: Tracer | null = null;
+let dbTracer: Tracer | null = null;
+let vectorTracer: Tracer | null = null;
+let appTracer: Tracer | null = null;
+let traceModule: typeof import('@opentelemetry/api') | null = null;
 
 export async function register() {
   // Production safeguard: FAST_DEV must NEVER run in production
@@ -32,10 +27,7 @@ export async function register() {
 
   console.log('🔧 Next.js instrumentation hook registered')
 
-  // Initialize tracers
-  initTracers();
-
-  // Initialize Sentry based on runtime (MUST be first)
+  // Initialize Sentry based on runtime (MUST be first, before any OpenTelemetry usage)
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     await import('./sentry.server.config');
     console.log('🛡️ Sentry server config loaded');
@@ -44,6 +36,15 @@ export async function register() {
     await import('./sentry.edge.config');
     console.log('🛡️ Sentry edge config loaded');
   }
+
+  // NOW import OpenTelemetry and create tracers (after Sentry has set it up)
+  traceModule = await import('@opentelemetry/api');
+  const { trace } = traceModule;
+
+  llmTracer = trace.getTracer('explainanything-llm');
+  dbTracer = trace.getTracer('explainanything-database');
+  vectorTracer = trace.getTracer('explainanything-vector');
+  appTracer = trace.getTracer('explainanything-application');
 
   if (process.env.NODE_ENV === 'development') {
     console.log('🔍 OpenTelemetry custom instrumentation enabled')
@@ -68,9 +69,9 @@ export async function register() {
     const originalFetch = global.fetch;
     global.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
-      
+
       // Only trace external API calls (Pinecone, etc.)
-      // Note: vectorTracer/dbTracer are guaranteed non-null here because initTracers() was called above
+      // Note: vectorTracer/dbTracer are guaranteed non-null here because they were initialized above
       if (url.includes('pinecone.io')) {
         console.log('🔍 Tracing Pinecone fetch call:', url);
         return vectorTracer!.startActiveSpan(`fetch ${url}`, async (span) => {
@@ -80,7 +81,7 @@ export async function register() {
             'http.target.service': 'pinecone',
             'pinecone.api.type': url.includes('/query') ? 'query' : url.includes('/upsert') ? 'upsert' : 'other'
           });
-          
+
           try {
             const response = await originalFetch(input, init);
             span.setAttributes({
@@ -104,7 +105,7 @@ export async function register() {
             'http.url': url,
             'http.target.service': 'supabase'
           });
-          
+
           try {
             const response = await originalFetch(input, init);
             span.setAttributes({
@@ -121,17 +122,17 @@ export async function register() {
           }
         });
       }
-      
+
       return originalFetch(input, init);
     };
   }
 
   // Set up error tracking (only in Node.js runtime, not Edge Runtime)
-  if (typeof process !== 'undefined' && 
-      typeof process.on === 'function' && 
+  if (typeof process !== 'undefined' &&
+      typeof process.on === 'function' &&
       process.env.NEXT_RUNTIME !== 'edge') {
     process.on('unhandledRejection', (reason) => {
-      const span = trace.getActiveSpan();
+      const span = traceModule?.trace.getActiveSpan();
       if (span) {
         span.recordException(reason as Error);
         span.setStatus({ code: 2, message: 'Unhandled promise rejection' });
@@ -179,4 +180,4 @@ export function createAppSpan(name: string, attributes: Record<string, string | 
 
 // Capture React Server Component errors for Sentry
 // This is required for proper error reporting in RSC
-export const onRequestError = Sentry.captureRequestError; 
+export const onRequestError = Sentry.captureRequestError;
