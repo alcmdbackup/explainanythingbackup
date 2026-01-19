@@ -145,13 +145,15 @@ describe('RLS Policies', () => {
 
     beforeAll(async () => {
       // Create a hidden test explanation using service client (bypasses RLS)
+      // primary_topic_id: 1 refers to a default topic that should exist in the test DB
       const { data, error } = await serviceClient
         .from('explanations')
         .insert({
           explanation_title: 'RLS Test Hidden Explanation - Do Not Display',
           content: 'This content should not be visible to anonymous users',
           status: 'published',
-          delete_status: 'hidden'
+          delete_status: 'hidden',
+          primary_topic_id: 1,
         })
         .select('id')
         .single();
