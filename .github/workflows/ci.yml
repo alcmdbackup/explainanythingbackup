@@ -157,6 +157,8 @@ jobs:
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
+      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -165,6 +167,9 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+
+      - name: Seed admin test user
+        run: npx tsx scripts/seed-admin-test-user.ts
 
       - name: Get Playwright version
         id: playwright-version
@@ -219,6 +224,8 @@ jobs:
       TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
       TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
       TEST_USER_ID: ${{ secrets.TEST_USER_ID }}
+      ADMIN_TEST_EMAIL: ${{ secrets.ADMIN_TEST_EMAIL }}
+      ADMIN_TEST_PASSWORD: ${{ secrets.ADMIN_TEST_PASSWORD }}
       NEXT_PUBLIC_USE_AI_API_ROUTE: 'true'
     steps:
       - uses: actions/checkout@v4
@@ -227,6 +234,9 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+
+      - name: Seed admin test user
+        run: npx tsx scripts/seed-admin-test-user.ts
 
       - name: Get Playwright version
         id: playwright-version

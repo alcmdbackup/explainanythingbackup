@@ -5,6 +5,12 @@
 import * as Sentry from "@sentry/nextjs";
 import { createBeforeSendLog } from "@/lib/sentrySanitization";
 
+// FAST_DEV mode: Skip all Sentry initialization for faster local development
+// Uses NEXT_PUBLIC_ prefix for client-side access
+if (process.env.NEXT_PUBLIC_FAST_DEV === 'true') {
+  console.log('⚡ FAST_DEV: Skipping Sentry client initialization');
+} else {
+
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
 // Debug logging for Sentry initialization
@@ -74,3 +80,5 @@ Sentry.init({
     return event;
   },
 });
+
+} // End FAST_DEV else block

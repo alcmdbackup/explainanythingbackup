@@ -254,9 +254,10 @@ const _resolveContentReportAction = withLogging(async (
         await supabase
           .from('explanations')
           .update({
-            is_hidden: true,
-            hidden_at: new Date().toISOString(),
-            hidden_by: adminUserId
+            delete_status: 'hidden',
+            delete_status_changed_at: new Date().toISOString(),
+            delete_source: 'manual',
+            delete_reason: `Report resolved: ${input.review_notes || 'No notes provided'}`
           })
           .eq('id', report.explanation_id);
 

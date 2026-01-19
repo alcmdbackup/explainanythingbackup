@@ -6,7 +6,7 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
+import { type ExplanationFullDbType, type ExplanationInsertType, type ExplanationWithViewCount, type ExplanationWithMetrics, type SortMode, type TimePeriod } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
 /**
@@ -118,7 +118,7 @@ async function getRecentExplanationsImpl(
     sort?: SortMode;      // 'new' | 'top', default 'new'
     period?: TimePeriod;  // 'today' | 'week' | 'month' | 'all', default 'week'
   }
-): Promise<ExplanationWithViewCount[]> {
+): Promise<ExplanationWithMetrics[]> {
   const supabase = await createSupabaseServerClient()
 
   // Validate parameters
@@ -130,68 +130,81 @@ async function getRecentExplanationsImpl(
 
   logger.debug('getRecentExplanations', { sort, period });
 
+  // Helper function to fetch and merge metrics for explanations
+  async function mergeMetrics(explanations: ExplanationWithViewCount[]): Promise<ExplanationWithMetrics[]> {
+    if (explanations.length === 0) return [];
+
+    const explanationIds = explanations.map(e => e.id);
+
+    // Fetch metrics from explanationMetrics table (uses explanationid - no underscore)
+    const { data: metricsData, error: metricsError } = await supabase
+      .from('explanationMetrics')
+      .select('explanationid, total_views, total_saves')
+      .in('explanationid', explanationIds);
+
+    if (metricsError) {
+      logger.warn('Failed to fetch metrics, continuing without saves', { error: metricsError.message });
+      return explanations.map(exp => ({ ...exp, total_saves: 0 }));
+    }
+
+    // Create lookup map
+    const metricsMap = new Map(
+      (metricsData || []).map(m => [m.explanationid, m])
+    );
+
+    // Merge metrics into explanations
+    return explanations.map(exp => {
+      const metrics = metricsMap.get(exp.id);
+      return {
+        ...exp,
+        viewCount: exp.viewCount ?? metrics?.total_views ?? 0,
+        total_saves: metrics?.total_saves ?? 0,
+      };
+    });
+  }
+
   // For 'new' mode, use simple timestamp ordering
   if (sort === 'new') {
     const { data, error } = await supabase
       .from('explanations')
       .select()
       .eq('status', 'published')
+      .eq('delete_status', 'visible')  // Exclude soft-deleted content
       .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
       .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`)
       .order('timestamp', { ascending: false })
       .range(offset, offset + limit - 1);
 
     if (error) throw error;
-    return data || [];
+
+    // Merge metrics for 'new' mode explanations
+    return mergeMetrics(data || []);
   }
 
-  // For 'top' mode, count views during the period from userExplanationEvents
-  // Query userExplanationEvents to get view counts grouped by explanationid
-  // Filter by event_name = 'explanation_viewed' and created_at within period
-  let viewCountsQuery = supabase
-    .from('userExplanationEvents')
-    .select('explanationid')
-    .eq('event_name', 'explanation_viewed');
-
-  // Add time filter (except for 'all')
-  if (period !== 'all') {
-    const cutoffDate = new Date();
-    switch (period) {
-      case 'hour':
-        cutoffDate.setHours(cutoffDate.getHours() - 1);
-        break;
-      case 'today':
-        cutoffDate.setDate(cutoffDate.getDate() - 1);
-        break;
-      case 'week':
-        cutoffDate.setDate(cutoffDate.getDate() - 7);
-        break;
-      case 'month':
-        cutoffDate.setDate(cutoffDate.getDate() - 30);
-        break;
-    }
-    logger.debug('getRecentExplanations cutoffDate', { cutoffDate: cutoffDate.toISOString() });
-    viewCountsQuery = viewCountsQuery.gte('created_at', cutoffDate.toISOString());
-  }
-
-  const { data: viewEvents, error: viewError } = await viewCountsQuery;
+  // For 'top' mode, use server-side aggregation via RPC function
+  // This replaces fetching ALL events and doing client-side Map aggregation
+  const { data: viewCountsData, error: viewError } = await supabase
+    .rpc('get_explanation_view_counts', {
+      p_period: period,
+      p_limit: 1000  // Get top 1000 to ensure enough for pagination
+    });
 
   if (viewError) throw viewError;
 
-  // Count views per explanation
+  // Convert RPC result to Map for efficient lookup
   const viewCounts = new Map<number, number>();
-  for (const event of viewEvents || []) {
-    const count = viewCounts.get(event.explanationid) || 0;
-    viewCounts.set(event.explanationid, count + 1);
+  for (const row of viewCountsData || []) {
+    viewCounts.set(row.explanationid, Number(row.view_count));
   }
 
-  logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size, totalEvents: viewEvents?.length });
+  logger.debug('getRecentExplanations viewCounts', { size: viewCounts.size });
 
-  // Step 2: Get all published explanations (excluding test content)
+  // Step 2: Get all published explanations (excluding test content and soft-deleted)
   const { data: explanations, error: expError } = await supabase
     .from('explanations')
     .select()
     .eq('status', 'published')
+    .eq('delete_status', 'visible')  // Exclude soft-deleted content
     .not('explanation_title', 'ilike', `${TEST_CONTENT_PREFIX}%`)
     .not('explanation_title', 'ilike', `${LEGACY_TEST_PREFIX}%`);
 
@@ -213,8 +226,9 @@ async function getRecentExplanationsImpl(
     return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
   });
 
-  // Apply pagination
-  return explanationsWithViews.slice(offset, offset + limit);
+  // Apply pagination, then merge metrics
+  const paginatedResults = explanationsWithViews.slice(offset, offset + limit);
+  return mergeMetrics(paginatedResults);
 }
 
 /**

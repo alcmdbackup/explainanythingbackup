@@ -364,3 +364,93 @@ export async function cleanupAllTrackedExplanations(): Promise<number> {
   clearTrackedExplanationIds();
   return cleaned;
 }
+
+// ============================================================================
+// Admin-specific test data helpers
+// ============================================================================
+
+const TRACKED_REPORTS_FILE = '/tmp/e2e-tracked-report-ids.json';
+
+/**
+ * Creates a test content report for E2E tests.
+ * Uses [TEST] prefix in details for cleanup filtering.
+ */
+export async function createTestReport(
+  explanationId: number,
+  reporterId?: string
+): Promise<number> {
+  const supabase = getSupabase();
+  const testUserId = reporterId || process.env.TEST_USER_ID;
+
+  if (!testUserId) {
+    throw new Error('TEST_USER_ID or reporterId is required for creating test reports');
+  }
+
+  const { data, error } = await supabase
+    .from('content_reports')
+    .insert({
+      explanation_id: explanationId,
+      reporter_id: testUserId,
+      reason: 'spam',
+      details: `${TEST_CONTENT_PREFIX} E2E test report - ${Date.now()}`,
+      status: 'pending',
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    throw new Error(`Failed to create test report: ${error.message}`);
+  }
+
+  trackReportForCleanup(data.id);
+  return data.id;
+}
+
+/**
+ * Registers a report ID for cleanup.
+ */
+function trackReportForCleanup(reportId: number): void {
+  try {
+    let ids: number[] = [];
+    if (fs.existsSync(TRACKED_REPORTS_FILE)) {
+      const content = fs.readFileSync(TRACKED_REPORTS_FILE, 'utf-8');
+      ids = JSON.parse(content);
+    }
+    if (!ids.includes(reportId)) {
+      ids.push(reportId);
+      fs.writeFileSync(TRACKED_REPORTS_FILE, JSON.stringify(ids));
+    }
+  } catch {
+    // Non-critical - silently continue
+  }
+}
+
+/**
+ * Cleans up all test reports (those with [TEST] prefix in details).
+ */
+export async function cleanupTestReports(): Promise<number> {
+  const supabase = getSupabase();
+
+  // Delete by [TEST] prefix pattern
+  const { data, error } = await supabase
+    .from('content_reports')
+    .delete()
+    .ilike('details', `${TEST_CONTENT_PREFIX}%`)
+    .select('id');
+
+  if (error) {
+    console.error('Failed to cleanup test reports:', error.message);
+    return 0;
+  }
+
+  // Also clean up tracked IDs file
+  try {
+    if (fs.existsSync(TRACKED_REPORTS_FILE)) {
+      fs.unlinkSync(TRACKED_REPORTS_FILE);
+    }
+  } catch {
+    // Non-critical
+  }
+
+  return data?.length || 0;
+}

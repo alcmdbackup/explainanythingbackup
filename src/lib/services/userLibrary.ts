@@ -6,7 +6,6 @@
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { userLibraryType } from '@/lib/schemas/schemas';
-import { getExplanationsByIds } from '@/lib/services/explanations';
 import { incrementExplanationSaves } from '@/lib/services/metrics';
 import { assertUserId } from '@/lib/utils/validation';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
@@ -127,30 +126,51 @@ async function getExplanationIdsForUserImpl(
 /**
  * Get all explanations saved in a user's library, paired with their explanationid and created date
  *
- * - Calls getExplanationIdsForUser(userid, true) to get all explanation IDs and created dates saved by the user
- * - Calls getExplanationsByIds(ids) to fetch the full explanation records
- * - Returns an array of { explanationid, created, explanation } objects
- * - Throws an error if any step fails
+ * Uses PostgREST JOIN to fetch user library entries with their associated explanations
+ * in a single query (previously required 2 sequential queries).
  *
  * This function is used by features that need to display all explanations a user has saved in their library.
- * It calls getExplanationIdsForUser and getExplanationsByIds.
  */
 async function getUserLibraryExplanationsImpl(userid: string) {
   assertUserId(userid, 'getUserLibraryExplanations');
-  const idCreatedArr = await getExplanationIdsForUserImpl(userid, true) as { explanationid: number; created: string }[];
-  if (!idCreatedArr.length) return [];
-  const explanations = await getExplanationsByIds(idCreatedArr.map(x => x.explanationid));
-  // Map explanationid to explanation for fast lookup
-  const explanationMap = new Map<number, any>(explanations.map(e => [e.id, e]));
-  return idCreatedArr.map(({ explanationid, created }) => {
-    const explanation = explanationMap.get(explanationid) || {};
+  const supabase = await createSupabaseServerClient();
+
+  // Use PostgREST JOIN via FK relationship: userLibrary_explanationid_fkey
+  // This replaces 2 sequential queries with 1 query that JOINs the tables
+  const { data, error } = await supabase
+    .from('userLibrary')
+    .select(`
+      explanationid,
+      created,
+      explanations!userLibrary_explanationid_fkey (
+        id,
+        explanation_title,
+        content,
+        primary_topic_id,
+        timestamp,
+        secondary_topic_id,
+        status
+      )
+    `)
+    .eq('userid', userid);
+
+  if (error) {
+    logger.error('Error fetching user library explanations', { error: error.message, userid });
+    throw error;
+  }
+
+  if (!data || data.length === 0) return [];
+
+  // Transform the joined data to the expected format
+  return data.map((row: any) => {
+    const explanation = row.explanations || {};
     return {
       id: explanation.id,
       explanation_title: explanation.explanation_title,
       content: explanation.content,
       primary_topic_id: explanation.primary_topic_id,
       timestamp: explanation.timestamp,
-      saved_timestamp: created,
+      saved_timestamp: row.created,
       secondary_topic_id: explanation.secondary_topic_id,
       status: explanation.status,
     };

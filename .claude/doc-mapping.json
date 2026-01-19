@@ -58,7 +58,8 @@
       "pattern": "src/editorFiles/**",
       "docs": [
         "docs/feature_deep_dives/lexical_editor_plugins.md",
-        "docs/feature_deep_dives/ai_suggestions_overview.md"
+        "docs/feature_deep_dives/ai_suggestions_overview.md",
+        "docs/docs_overall/design_style_guide.md"
       ]
     },
     {
@@ -136,6 +137,22 @@
     {
       "pattern": "src/components/**",
       "docs": ["docs/docs_overall/design_style_guide.md"]
+    },
+    {
+      "pattern": "src/app/**/page.tsx",
+      "docs": ["docs/docs_overall/design_style_guide.md"]
+    },
+    {
+      "pattern": "src/app/**/layout.tsx",
+      "docs": ["docs/docs_overall/design_style_guide.md"]
+    },
+    {
+      "pattern": "src/hooks/**",
+      "docs": ["docs/docs_overall/design_style_guide.md", "docs/feature_deep_dives/state_management.md"]
+    },
+    {
+      "pattern": "src/contexts/**",
+      "docs": ["docs/docs_overall/design_style_guide.md", "docs/feature_deep_dives/state_management.md"]
     },
     {
       "pattern": "src/lib/services/importArticle.ts",

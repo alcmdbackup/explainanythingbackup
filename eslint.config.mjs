@@ -9,6 +9,7 @@ const __dirname = dirname(__filename);
 // Import local ESLint rules for test flakiness prevention
 const require = createRequire(import.meta.url);
 const flakinessRules = require("./eslint-rules/index.js");
+const designSystemRules = require("./eslint-rules/design-system.js");
 const promisePlugin = require("eslint-plugin-promise");
 
 const compat = new FlatCompat({
@@ -74,6 +75,36 @@ const eslintConfig = [
       // Warn when promises don't have proper error handling
       // Set to 'warn' to allow gradual adoption
       "promise/catch-or-return": "warn",
+    },
+  },
+  // Design system enforcement for all source files
+  {
+    files: ["src/**/*.ts", "src/**/*.tsx"],
+    plugins: {
+      "design-system": designSystemRules,
+    },
+    rules: {
+      "design-system/no-hardcoded-colors": "error",
+      "design-system/no-arbitrary-text-sizes": "error",
+      "design-system/prefer-design-system-fonts": "error",
+      "design-system/prefer-warm-shadows": "error",
+    },
+  },
+  // Exceptions for files with intentional hardcoding
+  {
+    files: [
+      "src/app/error.tsx",
+      "src/app/global-error.tsx",
+      "src/app/settings/SettingsContent.tsx",
+      "src/app/(debug)/**/*.ts",
+      "src/app/(debug)/**/*.tsx",
+      "src/app/admin/costs/page.tsx",
+      "**/*.test.tsx",
+    ],
+    rules: {
+      "design-system/no-hardcoded-colors": "off",
+      "design-system/no-arbitrary-text-sizes": "off",
+      "design-system/prefer-warm-shadows": "off",
     },
   },
 ];

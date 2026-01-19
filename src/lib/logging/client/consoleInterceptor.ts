@@ -63,6 +63,12 @@ function safeStringify(value: unknown): string {
  */
 export function initConsoleInterceptor(): () => void {
   if (typeof window === 'undefined') return () => {};
+
+  // FAST_DEV mode: Skip console interception for faster local development
+  if (process.env.NEXT_PUBLIC_FAST_DEV === 'true') {
+    return () => {};
+  }
+
   if (isInterceptorActive) return () => {}; // HMR protection
 
   // Test localStorage availability

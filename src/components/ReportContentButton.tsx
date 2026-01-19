@@ -4,7 +4,8 @@
  * Shows a flag icon button that opens a report form modal.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { createContentReportAction, type ReportReason } from '@/lib/services/contentReports';
 
 interface ReportContentButtonProps {
@@ -27,6 +28,12 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // SSR safety: only render portal after component mounts on client
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleSubmit = async () => {
     if (!reason) {
@@ -72,7 +79,7 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
         onClick={() => setIsOpen(true)}
         disabled={disabled}
         title="Report this content"
-        className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-3 py-2 text-sm font-sans font-medium text-[var(--text-muted)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
+        className="inline-flex items-center justify-center rounded-page bg-[var(--surface-secondary)] border border-[var(--border-default)] px-3 py-2 text-sm font-ui font-medium text-[var(--text-muted)] shadow-warm transition-all duration-200 hover:border-[var(--accent-gold)] hover:text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50 h-9"
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -89,10 +96,10 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
         </svg>
       </button>
 
-      {isOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-[var(--bg-primary)] rounded-lg shadow-xl max-w-md w-full">
-            <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
+      {mounted && isOpen && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-[var(--surface-primary)] rounded-lg shadow-warm-xl max-w-md w-full">
+            <div className="flex justify-between items-center p-4 border-b border-[var(--border-default)]">
               <h3 className="font-semibold text-[var(--text-primary)]">Report Content</h3>
               <button
                 onClick={handleClose}
@@ -125,8 +132,8 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
                           key={r.value}
                           className={`flex items-start gap-3 p-3 rounded-md border cursor-pointer transition-colors ${
                             reason === r.value
-                              ? 'border-[var(--accent-primary)] bg-[var(--accent-primary)]/10'
-                              : 'border-[var(--border-color)] hover:border-[var(--border-hover)]'
+                              ? 'border-[var(--accent-gold)] bg-[var(--accent-gold)]/10'
+                              : 'border-[var(--border-default)] hover:border-[var(--accent-gold)]'
                           }`}
                         >
                           <input
@@ -154,7 +161,7 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
                       value={details}
                       onChange={(e) => setDetails(e.target.value)}
                       placeholder="Provide any additional context that might help us review this report..."
-                      className="w-full px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] text-sm resize-none"
+                      className="w-full px-3 py-2 border border-[var(--border-default)] rounded-md bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm resize-none"
                       rows={3}
                     />
                   </div>
@@ -163,24 +170,25 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
             </div>
 
             {!success && (
-              <div className="flex justify-end gap-2 p-4 border-t border-[var(--border-color)]">
+              <div className="flex justify-end gap-2 p-4 border-t border-[var(--border-default)]">
                 <button
                   onClick={handleClose}
-                  className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)] text-sm"
+                  className="px-4 py-2 border border-[var(--border-default)] rounded-md hover:bg-[var(--surface-secondary)] text-sm text-[var(--text-secondary)]"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleSubmit}
                   disabled={loading || !reason}
-                  className="px-4 py-2 bg-[var(--accent-primary)] text-white rounded-md hover:opacity-90 disabled:opacity-50 text-sm"
+                  className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--text-on-primary)] rounded-md hover:opacity-90 disabled:opacity-50 text-sm font-medium"
                 >
                   {loading ? 'Submitting...' : 'Submit Report'}
                 </button>
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
