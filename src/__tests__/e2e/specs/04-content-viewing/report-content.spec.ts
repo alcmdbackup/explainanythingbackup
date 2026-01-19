@@ -47,11 +47,12 @@ test.describe('Report Content Button', () => {
     const modalTitle = authenticatedPage.locator('h3:has-text("Report Content")');
     await expect(modalTitle).toBeVisible();
 
-    // Verify report reasons are shown
-    await expect(authenticatedPage.locator('text=Inappropriate Content')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Misinformation')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Spam')).toBeVisible();
-    await expect(authenticatedPage.locator('text=Copyright Violation')).toBeVisible();
+    // Verify report reasons are shown (use exact match to avoid substring matches)
+    await expect(authenticatedPage.getByText('Inappropriate Content', { exact: true })).toBeVisible();
+    await expect(authenticatedPage.getByText('Misinformation', { exact: true })).toBeVisible();
+    await expect(authenticatedPage.getByText('Spam', { exact: true })).toBeVisible();
+    await expect(authenticatedPage.getByText('Copyright Violation', { exact: true })).toBeVisible();
+    // 'Other' is exact enough since no description contains just "Other"
     await expect(authenticatedPage.locator('text=Other')).toBeVisible();
   });
 
