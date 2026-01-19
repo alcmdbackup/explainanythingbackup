@@ -52,8 +52,7 @@ test.describe('Report Content Button', () => {
     await expect(authenticatedPage.getByText('Misinformation', { exact: true })).toBeVisible();
     await expect(authenticatedPage.getByText('Spam', { exact: true })).toBeVisible();
     await expect(authenticatedPage.getByText('Copyright Violation', { exact: true })).toBeVisible();
-    // 'Other' is exact enough since no description contains just "Other"
-    await expect(authenticatedPage.locator('text=Other')).toBeVisible();
+    await expect(authenticatedPage.getByText('Other', { exact: true })).toBeVisible();
   });
 
   test('should close modal when cancel is clicked', async ({ authenticatedPage }) => {
