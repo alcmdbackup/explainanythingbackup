@@ -155,11 +155,11 @@ export default function AdminUsersPage() {
                   </td>
                   <td className="p-3">
                     {user.profile?.is_disabled ? (
-                      <span className="px-2 py-1 rounded text-xs bg-red-900/30 text-red-400">
+                      <span className="px-2 py-1 rounded text-xs bg-[var(--status-error)] text-white">
                         Disabled
                       </span>
                     ) : (
-                      <span className="px-2 py-1 rounded text-xs bg-green-900/30 text-green-400">
+                      <span className="px-2 py-1 rounded text-xs bg-[var(--status-success)] text-white">
                         Active
                       </span>
                     )}

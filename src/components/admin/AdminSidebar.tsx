@@ -17,6 +17,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { href: '/admin', label: 'Dashboard', icon: '📊', testId: 'admin-sidebar-nav-dashboard' },
   { href: '/admin/content', label: 'Content', icon: '📝', testId: 'admin-sidebar-nav-content' },
+  { href: '/admin/content/reports', label: 'Reports Queue', icon: '🚨', testId: 'admin-sidebar-nav-reports' },
   { href: '/admin/users', label: 'Users', icon: '👥', testId: 'admin-sidebar-nav-users' },
   { href: '/admin/costs', label: 'Costs', icon: '💰', testId: 'admin-sidebar-nav-costs' },
   { href: '/admin/whitelist', label: 'Whitelist', icon: '🔗', testId: 'admin-sidebar-nav-whitelist' },
@@ -32,12 +33,21 @@ export function AdminSidebar() {
     if (href === '/admin') {
       return pathname === '/admin';
     }
+    // Reports Queue should only highlight for reports path
+    if (href === '/admin/content/reports') {
+      return pathname.startsWith('/admin/content/reports');
+    }
+    // Content should not highlight when on reports
+    if (href === '/admin/content') {
+      return pathname === '/admin/content' ||
+        (pathname.startsWith('/admin/content') && !pathname.startsWith('/admin/content/reports'));
+    }
     return pathname.startsWith(href);
   };
 
   return (
-    <aside className="w-64 bg-[var(--bg-secondary)] border-r border-[var(--border-color)] min-h-screen">
-      <div className="p-4 border-b border-[var(--border-color)]">
+    <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen">
+      <div className="p-4 border-b border-[var(--border-default)]">
         <h1 className="text-lg font-semibold text-[var(--text-primary)]">
           Admin Dashboard
         </h1>
@@ -53,8 +63,8 @@ export function AdminSidebar() {
                   flex items-center gap-3 px-3 py-2 rounded-md text-sm
                   transition-colors duration-150
                   ${isActive(item.href)
-                    ? 'bg-[var(--accent-primary)] text-white'
-                    : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]'
+                    ? 'bg-[var(--accent-gold)] text-white'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]'
                   }
                 `}
               >

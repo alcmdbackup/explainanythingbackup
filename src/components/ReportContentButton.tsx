@@ -111,7 +111,7 @@ export function ReportContentButton({ explanationId, disabled }: ReportContentBu
 
             <div className="p-4 space-y-4">
               {success ? (
-                <div className="p-4 bg-green-900/20 border border-green-600 rounded-md text-green-400 text-center">
+                <div className="p-4 bg-[var(--status-success)]/20 border border-[var(--status-success)] rounded-md text-[var(--status-success)] text-center font-ui">
                   Thank you for your report. We will review it shortly.
                 </div>
               ) : (

@@ -112,13 +112,13 @@ export default function CandidatesContent() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'pending':
-        return 'bg-yellow-500/20 text-yellow-400';
+        return 'bg-[var(--status-warning)] text-[var(--text-primary)]';
       case 'approved':
-        return 'bg-green-500/20 text-green-400';
+        return 'bg-[var(--status-success)] text-white';
       case 'rejected':
-        return 'bg-red-500/20 text-red-400';
+        return 'bg-[var(--status-error)] text-white';
       default:
-        return 'bg-gray-500/20 text-gray-400';
+        return 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
     }
   };
 

@@ -173,26 +173,26 @@ export default function AdminPage() {
       </div>
 
       {/* Recent Activity Placeholder */}
-      <div className="bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)] p-4">
+      <div className="bg-[var(--surface-secondary)] rounded-lg border border-[var(--border-default)] p-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-4">
           Quick Actions
         </h2>
         <div className="flex flex-wrap gap-2">
           <Link
             href="/admin/content/reports?status=pending"
-            className="px-3 py-2 text-sm bg-[var(--bg-tertiary)] rounded hover:bg-[var(--accent-primary)] hover:text-white transition-colors"
+            className="px-3 py-2 text-sm bg-[var(--surface-elevated)] rounded hover:bg-[var(--accent-gold)] hover:text-white transition-colors"
           >
             Review Pending Reports
           </Link>
           <Link
             href="/admin/audit"
-            className="px-3 py-2 text-sm bg-[var(--bg-tertiary)] rounded hover:bg-[var(--accent-primary)] hover:text-white transition-colors"
+            className="px-3 py-2 text-sm bg-[var(--surface-elevated)] rounded hover:bg-[var(--accent-gold)] hover:text-white transition-colors"
           >
             View Recent Activity
           </Link>
           <Link
             href="/admin/costs"
-            className="px-3 py-2 text-sm bg-[var(--bg-tertiary)] rounded hover:bg-[var(--accent-primary)] hover:text-white transition-colors"
+            className="px-3 py-2 text-sm bg-[var(--surface-elevated)] rounded hover:bg-[var(--accent-gold)] hover:text-white transition-colors"
           >
             Check Cost Analytics
           </Link>
@@ -214,7 +214,7 @@ function StatCard({ title, value, icon, highlight }: StatCardProps) {
     <div className={`p-4 rounded-lg border ${
       highlight
         ? 'bg-red-50 border-red-200'
-        : 'bg-[var(--bg-secondary)] border-[var(--border-color)]'
+        : 'bg-[var(--surface-secondary)] border-[var(--border-default)]'
     }`}>
       <div className="flex items-center gap-3">
         <span className="text-2xl">{icon}</span>
@@ -241,7 +241,7 @@ function DashboardCard({ title, description, href, icon, badge }: DashboardCardP
   return (
     <Link
       href={href}
-      className="block p-4 bg-[var(--bg-secondary)] rounded-lg border border-[var(--border-color)] hover:border-[var(--accent-primary)] transition-colors"
+      className="block p-4 bg-[var(--surface-secondary)] rounded-lg border border-[var(--border-default)] hover:border-[var(--accent-gold)] transition-colors"
     >
       <div className="flex items-start gap-3">
         <span className="text-2xl">{icon}</span>

@@ -12,7 +12,7 @@ The admin panel provides content moderation capabilities including user manageme
 | `src/app/admin/content/page.tsx` | Main content page, manages modal state |
 | `src/components/admin/ExplanationTable.tsx` | Table with filtering, sorting, pagination, bulk actions |
 | `src/components/admin/ExplanationDetailModal.tsx` | Modal for viewing/managing single explanation |
-| `src/components/admin/AdminSidebar.tsx` | Navigation sidebar with links to all admin sections |
+| `src/components/admin/AdminSidebar.tsx` | Navigation sidebar with smart active state handling |
 | `src/components/admin/AdminLayoutClient.tsx` | Client wrapper that provides Toaster component |
 | `src/components/admin/ReportsTable.tsx` | User reports management table |
 | `src/components/admin/UserDetailModal.tsx` | Modal for user details, notes, and account actions |
@@ -103,9 +103,25 @@ The `ExplanationDetailModal` uses a light theme (white background) for readabili
 
 ### Status Badges
 
-High-contrast badges for readability:
-- Published: `bg-green-800 text-green-100`
-- Draft: `bg-orange-800 text-orange-100`
+High-contrast badges using design system variables for accessibility:
+
+**Content Status:**
+- Published: `bg-[var(--status-success)] text-white`
+- Draft: `bg-[var(--status-warning)] text-[var(--text-primary)]`
+
+**User Status:**
+- Active: `bg-[var(--status-success)] text-white`
+- Disabled: `bg-[var(--status-error)] text-white`
+
+**Report Status:**
+- Pending: `bg-[var(--status-warning)] text-[var(--text-primary)]`
+- Reviewed: `bg-blue-600 text-white`
+- Dismissed: `bg-[var(--surface-elevated)] text-[var(--text-secondary)]`
+- Actioned: `bg-[var(--status-error)] text-white`
+
+**Whitelist/Candidate Status:**
+- Active/Approved: `bg-[var(--status-success)] text-white`
+- Inactive/Rejected: `bg-[var(--surface-elevated)] text-[var(--text-secondary)]` or `bg-[var(--status-error)] text-white`
 
 ## Admin Actions
 
@@ -130,12 +146,15 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 
 ## Routes
 
-- `/admin` - Dashboard (redirects to content)
+- `/admin` - Dashboard with stats and quick links
 - `/admin/content` - Content management table
+- `/admin/content/reports` - Content reports management queue
 - `/admin/users` - User management
-- `/admin/reports` - Content reports management
 - `/admin/whitelist` - Whitelist and candidates tabs
+- `/admin/costs` - LLM cost analytics
+- `/admin/audit` - Audit log
 - `/admin/settings` - System settings
+- `/admin/dev-tools` - Development utilities
 
 ## Implementation Notes
 

@@ -65,9 +65,9 @@ export function ExplanationDetailModal({
         aria-labelledby={titleId}
         data-testid="admin-content-detail-modal"
       >
-        <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+        <div className="bg-[var(--surface-secondary)] rounded-lg shadow-warm-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
           {/* Header */}
-          <div className="flex justify-between items-start p-4 border-b border-[var(--border-color)]">
+          <div className="flex justify-between items-start p-4 border-b border-[var(--border-default)]">
             <div>
               <h2 id={titleId} className="text-xl font-semibold text-[var(--text-primary)]">
                 {explanation.explanation_title || 'Untitled'}
@@ -145,7 +145,7 @@ export function ExplanationDetailModal({
           {/* Content preview */}
           <div>
             <h3 className="text-sm font-semibold text-[var(--text-muted)] mb-2">Content</h3>
-            <div className="bg-[var(--bg-secondary)] rounded-lg p-4 max-h-96 overflow-y-auto">
+            <div className="bg-[var(--surface-elevated)] rounded-lg p-4 max-h-96 overflow-y-auto">
               <pre className="whitespace-pre-wrap text-sm text-[var(--text-primary)] font-mono">
                 {explanation.content}
               </pre>
@@ -154,13 +154,13 @@ export function ExplanationDetailModal({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-between items-center p-4 border-t border-[var(--border-color)]">
+        <div className="flex justify-between items-center p-4 border-t border-[var(--border-default)]">
           <a
             href={`/explanations?id=${explanation.id}`}
             target="_blank"
             rel="noopener noreferrer"
             data-testid="admin-content-detail-view-public"
-            className="text-[var(--accent-primary)] hover:underline text-sm"
+            className="text-[var(--accent-gold)] hover:underline text-sm"
           >
             View Public Page →
           </a>
@@ -168,7 +168,7 @@ export function ExplanationDetailModal({
             <button
               onClick={onClose}
               data-testid="admin-content-detail-close-footer"
-              className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)]"
+              className="px-4 py-2 border border-[var(--border-default)] rounded-md hover:bg-[var(--surface-elevated)]"
             >
               Close
             </button>

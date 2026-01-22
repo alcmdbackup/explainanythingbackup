@@ -171,14 +171,14 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="admin-content-search"
-          className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] w-64"
+          className="px-3 py-2 border border-[var(--border-default)] rounded-md bg-[var(--surface-secondary)] text-[var(--text-primary)] w-64"
         />
 
         <select
           value={statusFilter}
           onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
           data-testid="admin-content-status-filter"
-          className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)]"
+          className="px-3 py-2 border border-[var(--border-default)] rounded-md bg-[var(--surface-secondary)] text-[var(--text-primary)]"
         >
           <option value="">All Statuses</option>
           <option value="draft">Draft</option>
@@ -226,9 +226,9 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
       )}
 
       {/* Table */}
-      <div className="overflow-x-auto border border-[var(--border-color)] rounded-lg" data-testid="admin-content-table">
+      <div className="overflow-x-auto border border-[var(--border-default)] rounded-lg" data-testid="admin-content-table">
         <table className="w-full text-sm">
-          <thead className="bg-[var(--bg-tertiary)]">
+          <thead className="bg-[var(--surface-elevated)]">
             <tr>
               <th className="p-3 text-left">
                 <input
@@ -240,21 +240,20 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                 />
               </th>
               <th
-                className="p-3 text-left cursor-pointer hover:bg-[var(--bg-secondary)]"
+                className="p-3 text-left cursor-pointer hover:bg-[var(--surface-secondary)]"
                 onClick={() => handleSort('id')}
               >
                 ID <SortIcon field="id" />
               </th>
               <th
-                className="p-3 text-left cursor-pointer hover:bg-[var(--bg-secondary)]"
+                className="p-3 text-left cursor-pointer hover:bg-[var(--surface-secondary)]"
                 onClick={() => handleSort('title')}
               >
                 Title <SortIcon field="title" />
               </th>
-              <th className="p-3 text-left">Link</th>
               <th className="p-3 text-left">Status</th>
               <th
-                className="p-3 text-left cursor-pointer hover:bg-[var(--bg-secondary)]"
+                className="p-3 text-left cursor-pointer hover:bg-[var(--surface-secondary)]"
                 onClick={() => handleSort('timestamp')}
               >
                 Created <SortIcon field="timestamp" />
@@ -266,13 +265,13 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
                   Loading...
                 </td>
               </tr>
             ) : explanations.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">
                   No explanations found
                 </td>
               </tr>
@@ -281,7 +280,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                 <tr
                   key={exp.id}
                   data-testid={`admin-content-row-${exp.id}`}
-                  className={`border-t border-[var(--border-color)] hover:bg-[var(--bg-secondary)] ${
+                  className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] ${
                     exp.delete_status !== 'visible' ? 'opacity-60' : ''
                   }`}
                 >
@@ -299,23 +298,10 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                     <button
                       onClick={() => onSelectExplanation?.(exp)}
                       data-testid={`admin-content-title-${exp.id}`}
-                      className="text-left hover:text-[var(--accent-primary)] font-medium"
+                      className="text-left hover:text-[var(--accent-gold)] font-medium"
                     >
                       {exp.explanation_title || 'Untitled'}
                     </button>
-                  </td>
-                  <td className="p-3">
-                    <a
-                      href={`/explanations?id=${exp.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[var(--accent-primary)] hover:underline inline-flex items-center"
-                      title="Open explanation"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                      </svg>
-                    </a>
                   </td>
                   <td className="p-3">
                     <span className={`px-2 py-1 rounded text-xs ${
@@ -337,14 +323,19 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
                     )}
                   </td>
                   <td className="p-3">
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => onSelectExplanation?.(exp)}
-                        data-testid={`admin-content-view-${exp.id}`}
-                        className="text-[var(--accent-primary)] hover:underline text-xs"
+                    <div className="flex gap-2 items-center">
+                      <a
+                        href={`/explanations?id=${exp.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`admin-content-link-${exp.id}`}
+                        className="text-[var(--accent-gold)] hover:text-[var(--accent-gold)]/80"
+                        title="Open explanation"
                       >
-                        View
-                      </button>
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                        </svg>
+                      </a>
                       {exp.delete_status !== 'visible' ? (
                         <button
                           onClick={() => handleRestore(exp.id)}
@@ -383,7 +374,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
             onClick={() => setPage(Math.max(0, page - 1))}
             disabled={page === 0}
             data-testid="admin-content-prev-page"
-            className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
+            className="px-3 py-1 border border-[var(--border-default)] rounded disabled:opacity-50"
           >
             Previous
           </button>
@@ -394,7 +385,7 @@ export function ExplanationTable({ onSelectExplanation }: ExplanationTableProps)
             onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
             disabled={page >= totalPages - 1}
             data-testid="admin-content-next-page"
-            className="px-3 py-1 border border-[var(--border-color)] rounded disabled:opacity-50"
+            className="px-3 py-1 border border-[var(--border-default)] rounded disabled:opacity-50"
           >
             Next
           </button>
