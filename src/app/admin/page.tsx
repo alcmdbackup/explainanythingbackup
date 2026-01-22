@@ -130,7 +130,7 @@ export default function AdminPage() {
         <DashboardCard
           title="Reports Queue"
           description="Review user reports"
-          href="/admin/reports"
+          href="/admin/content/reports"
           icon="🚨"
           badge={stats?.pendingReports ? `${stats.pendingReports} pending` : undefined}
         />
@@ -179,7 +179,7 @@ export default function AdminPage() {
         </h2>
         <div className="flex flex-wrap gap-2">
           <Link
-            href="/admin/reports?status=pending"
+            href="/admin/content/reports?status=pending"
             className="px-3 py-2 text-sm bg-[var(--bg-tertiary)] rounded hover:bg-[var(--accent-primary)] hover:text-white transition-colors"
           >
             Review Pending Reports
