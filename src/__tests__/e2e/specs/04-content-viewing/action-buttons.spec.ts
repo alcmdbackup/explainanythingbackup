@@ -226,6 +226,54 @@ test.describe('Action Buttons', () => {
       await resultsPage.clickFormatToggle();
       expect(await resultsPage.isMarkdownMode()).toBe(true);
     });
+
+    test('should allow editing in plain text mode', async ({ authenticatedPage }) => {
+      const resultsPage = new ResultsPage(authenticatedPage);
+
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+      await resultsPage.waitForAnyContent(60000);
+
+      // Toggle to plain text mode
+      await resultsPage.clickFormatToggle();
+      expect(await resultsPage.isPlainTextMode()).toBe(true);
+
+      // Enter edit mode
+      await resultsPage.clickEditButton();
+      expect(await resultsPage.isInEditMode()).toBe(true);
+
+      // Verify RawMarkdownEditor textarea is rendered in plain text mode
+      const editor = authenticatedPage.locator('[data-testid="raw-markdown-editor"]');
+      await expect(editor).toBeVisible();
+    });
+
+    test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
+      const resultsPage = new ResultsPage(authenticatedPage);
+
+      // Navigate directly to test explanation
+      await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
+      await resultsPage.waitForAnyContent(60000);
+
+      // Get initial content using ResultsPage.getContent()
+      const initialContent = await resultsPage.getContent();
+      expect(initialContent).toBeTruthy();
+
+      // Toggle to plain text mode
+      await resultsPage.clickFormatToggle();
+      expect(await resultsPage.isPlainTextMode()).toBe(true);
+
+      // Verify content is preserved (editor should still have content)
+      const plaintextContent = await resultsPage.getContent();
+      expect(plaintextContent).toBeTruthy();
+
+      // Toggle back to markdown mode
+      await resultsPage.clickFormatToggle();
+      expect(await resultsPage.isMarkdownMode()).toBe(true);
+
+      // Verify content is still preserved after round-trip
+      const restoredContent = await resultsPage.getContent();
+      expect(restoredContent).toEqual(initialContent);
+    });
   });
 
   test.describe('Mode Dropdown (P2)', () => {

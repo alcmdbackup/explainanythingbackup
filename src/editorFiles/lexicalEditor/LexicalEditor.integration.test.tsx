@@ -396,6 +396,30 @@ describe('LexicalEditor - Mode Switching', () => {
     const editMode = ref.current?.getEditMode();
     expect(editMode).toBe(false);
   });
+
+  it('supports editing when isMarkdownMode is false and isEditMode is true', async () => {
+    const ref = createRef<LexicalEditorRef>();
+    render(
+      <LexicalEditor
+        ref={ref}
+        initialContent="Test content"
+        isMarkdownMode={false}
+        isEditMode={true}
+      />
+    );
+
+    await waitFor(() => {
+      expect(ref.current).not.toBeNull();
+    });
+
+    // Verify edit mode is enabled via ref API
+    const editMode = ref.current?.getEditMode();
+    expect(editMode).toBe(true);
+
+    // Verify markdown mode is disabled (plaintext mode)
+    const markdownMode = ref.current?.getMarkdownMode();
+    expect(markdownMode).toBe(false);
+  });
 });
 
 // ============= Content Tests =============

@@ -18,6 +18,7 @@ import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/Lex
 import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
 import Bibliography from '@/components/sources/Bibliography';
+import { RawMarkdownEditor } from '@/components/RawMarkdownEditor';
 import { ReportContentButton } from '@/components/ReportContentButton';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
 import { PanelVariantProvider } from '@/contexts/PanelVariantContext';
@@ -54,6 +55,7 @@ function ResultsPageContent() {
     const [prompt, setPrompt] = useState('');
     const [matches, setMatches] = useState<matchWithCurrentContentType[]>([]);
     const [isMarkdownMode, setIsMarkdownMode] = useState(true);
+    const [rawMarkdownContent, setRawMarkdownContent] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [showMatches, setShowMatches] = useState(false);
     const [mode, setMode] = useState<MatchMode>(MatchMode.Normal);
@@ -1214,7 +1216,20 @@ function ResultsPageContent() {
                                             </button>
                                         )}
                                         <button
-                                            onClick={() => setIsMarkdownMode(!isMarkdownMode)}
+                                            onClick={() => {
+                                                if (isMarkdownMode) {
+                                                    // Switching TO plain text: capture current markdown from editor
+                                                    const currentMarkdown = editorRef.current?.getContentAsMarkdown() || formattedExplanation;
+                                                    setRawMarkdownContent(currentMarkdown);
+                                                } else {
+                                                    // Switching TO markdown: sync raw edits back to editor
+                                                    if (rawMarkdownContent && editorRef.current) {
+                                                        editorRef.current.setContentFromMarkdown(rawMarkdownContent);
+                                                        setEditorCurrentContent(rawMarkdownContent);
+                                                    }
+                                                }
+                                                setIsMarkdownMode(!isMarkdownMode);
+                                            }}
                                             disabled={isStreaming || hasPendingSuggestions}
                                             data-testid="format-toggle-button"
                                             title={hasPendingSuggestions ? "Accept or reject AI suggestions before switching view" : undefined}
@@ -1346,9 +1361,14 @@ function ResultsPageContent() {
                                                 <Bibliography sources={bibliographySources} />
                                             </>
                                         ) : (
-                                            <pre className="whitespace-pre-wrap text-sm font-mono text-[var(--text-secondary)] leading-relaxed">
-                                                {formattedExplanation}
-                                            </pre>
+                                            <>
+                                                <RawMarkdownEditor
+                                                    content={rawMarkdownContent || formattedExplanation}
+                                                    onChange={(newContent) => setRawMarkdownContent(newContent)}
+                                                    isEditMode={isEditMode && !isStreaming}
+                                                />
+                                                <Bibliography sources={bibliographySources} />
+                                            </>
                                         )}
                                     </div>
                                 </div>
