@@ -491,6 +491,113 @@ describe('llms', () => {
     });
   });
 
+  describe('cost tracking', () => {
+    it('should include estimated_cost_usd in tracking data', async () => {
+      const mockResponse = {
+        choices: [{
+          message: { content: 'Test response' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 5000,
+          total_tokens: 15000
+        },
+        model: 'gpt-4.1-mini'
+      };
+
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
+
+      await callOpenAIModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false
+      );
+
+      // gpt-4.1-mini: (10000/1M * 0.40) + (5000/1M * 1.60) = 0.004 + 0.008 = 0.012
+      expect(mockSupabase.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          estimated_cost_usd: expect.any(Number)
+        })
+      );
+
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.012, 6);
+    });
+
+    it('should calculate zero cost for zero tokens', async () => {
+      const mockResponse = {
+        choices: [{
+          message: { content: 'Test response' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        },
+        model: 'gpt-4.1-mini'
+      };
+
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
+
+      await callOpenAIModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false
+      );
+
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBe(0);
+    });
+
+    it('should use default pricing for unknown model', async () => {
+      // Mock response with an unknown model (would fall back to default pricing)
+      const mockResponse = {
+        choices: [{
+          message: { content: 'Test response' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500
+        },
+        model: 'unknown-model-xyz'
+      };
+
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
+
+      await callOpenAIModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini', // Request model is valid, but API returns different model
+        false,
+        null,
+        null,
+        null,
+        false
+      );
+
+      // Default pricing: (1000/1M * 10.00) + (500/1M * 30.00) = 0.01 + 0.015 = 0.025
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.025, 6);
+    });
+  });
+
   describe('edge cases', () => {
     it('should throw ServiceError on invalid tracking data', async () => {
       // Replace mock with invalid token data

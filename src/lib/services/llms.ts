@@ -13,6 +13,7 @@ import { createLLMSpan } from '../../../instrumentation';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
+import { calculateLLMCost } from '@/config/llmPricing';
 
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
@@ -238,18 +239,23 @@ async function callOpenAIModel(
         }
         
         // Save LLM call tracking data to database
+        const promptTokens = usage.prompt_tokens ?? 0;
+        const completionTokens = usage.completion_tokens ?? 0;
+        const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+
         const trackingData: LlmCallTrackingType = {
-            userid, 
+            userid,
             prompt,
             content: response,
             call_source,
             raw_api_response: rawApiResponse,
             model: modelUsed,
-            prompt_tokens: usage.prompt_tokens ?? 0,
-            completion_tokens: usage.completion_tokens ?? 0,
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
             total_tokens: usage.total_tokens ?? 0,
-            reasoning_tokens: usage.completion_tokens_details?.reasoning_tokens,
+            reasoning_tokens: reasoningTokens || undefined,
             finish_reason: finishReason,
+            estimated_cost_usd: calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens),
         };
         
         await saveLlmCallTracking(trackingData);

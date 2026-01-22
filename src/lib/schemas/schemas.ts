@@ -552,6 +552,7 @@ export const llmCallTrackingSchema = z.object({
     total_tokens: z.number().int().nonnegative(),
     reasoning_tokens: z.number().int().nonnegative().optional(),
     finish_reason: z.string(),
+    estimated_cost_usd: z.number().nonnegative().optional(),
 });
 
 export type LlmCallTrackingType = z.infer<typeof llmCallTrackingSchema>;
