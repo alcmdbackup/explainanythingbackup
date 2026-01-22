@@ -135,8 +135,7 @@ async function getUserLibraryExplanationsImpl(userid: string) {
   assertUserId(userid, 'getUserLibraryExplanations');
   const supabase = await createSupabaseServerClient();
 
-  // Use PostgREST JOIN via FK relationship: userLibrary_explanationid_fkey
-  // This replaces 2 sequential queries with 1 query that JOINs the tables
+  // Step 1: Fetch library entries with explanations (includes summary_teaser for FeedCard)
   const { data, error } = await supabase
     .from('userLibrary')
     .select(`
@@ -146,6 +145,7 @@ async function getUserLibraryExplanationsImpl(userid: string) {
         id,
         explanation_title,
         content,
+        summary_teaser,
         primary_topic_id,
         timestamp,
         secondary_topic_id,
@@ -161,18 +161,45 @@ async function getUserLibraryExplanationsImpl(userid: string) {
 
   if (!data || data.length === 0) return [];
 
-  // Transform the joined data to the expected format
+  // Step 2: Fetch metrics for all explanation IDs
+  const explanationIds = data.map((row: any) => row.explanationid);
+  const { data: metricsData, error: metricsError } = await supabase
+    .from('explanationMetrics')
+    .select('explanationid, total_views, total_saves')
+    .in('explanationid', explanationIds);
+
+  if (metricsError) {
+    logger.warn('Failed to fetch metrics for library explanations', { error: metricsError.message });
+    // Continue without metrics rather than failing entirely
+  }
+
+  // Step 3: Create metrics lookup map
+  const metricsMap = new Map<number, { total_views: number; total_saves: number }>();
+  if (metricsData) {
+    for (const m of metricsData) {
+      metricsMap.set(m.explanationid, {
+        total_views: m.total_views ?? 0,
+        total_saves: m.total_saves ?? 0,
+      });
+    }
+  }
+
+  // Step 4: Transform and merge data
   return data.map((row: any) => {
     const explanation = row.explanations || {};
+    const metrics = metricsMap.get(row.explanationid) || { total_views: 0, total_saves: 0 };
     return {
       id: explanation.id,
       explanation_title: explanation.explanation_title,
       content: explanation.content,
+      summary_teaser: explanation.summary_teaser ?? null,
       primary_topic_id: explanation.primary_topic_id,
       timestamp: explanation.timestamp,
       saved_timestamp: row.created,
       secondary_topic_id: explanation.secondary_topic_id,
       status: explanation.status,
+      total_views: metrics.total_views,
+      total_saves: metrics.total_saves,
     };
   });
 }

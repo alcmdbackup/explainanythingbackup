@@ -524,6 +524,14 @@ export const userSavedExplanationSchema = ExplanationFullDbSchema.extend({
 });
 export type UserSavedExplanationType = z.infer<typeof userSavedExplanationSchema>;
 
+// Extends UserSavedExplanationType with metrics for library display (FeedCard integration)
+export const userSavedExplanationWithMetricsSchema = userSavedExplanationSchema.extend({
+  summary_teaser: z.string().nullable().optional(),
+  total_views: z.number().int().min(0).default(0),
+  total_saves: z.number().int().min(0).default(0),
+});
+export type UserSavedExplanationWithMetrics = z.infer<typeof userSavedExplanationWithMetricsSchema>;
+
 /**
  * Schema for tracking OpenAI API call metrics and details
  * @example
