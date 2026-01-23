@@ -150,6 +150,7 @@ function ResultsPageContent() {
     const [editorCurrentContent, setEditorCurrentContent] = useState('');
     const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
     const lastStreamingUpdateRef = useRef<string>('');
+    const rawMarkdownDebounceRef = useRef<NodeJS.Timeout | null>(null);
     const isInitialLoadRef = useRef<boolean>(true);
     const hasInitializedContent = useRef<boolean>(false);
 
@@ -577,8 +578,16 @@ function ResultsPageContent() {
         dispatchLifecycle({ type: 'START_SAVE' });
 
         try {
-            // Get current content from editor or from lifecycle state
-            const currentContent = editorRef.current?.getContentAsMarkdown() || getPageContent(lifecycleState);
+            // Get content based on current editor mode
+            let currentContent: string;
+            if (isMarkdownMode) {
+                // Formatted mode: get from LexicalEditor via ref
+                currentContent = editorRef.current?.getContentAsMarkdown() || getPageContent(lifecycleState);
+            } else {
+                // Plaintext mode: get from rawMarkdownContent state
+                // Fall back to lifecycle state if rawMarkdownContent is empty (shouldn't happen in edit mode)
+                currentContent = rawMarkdownContent || getPageContent(lifecycleState);
+            }
             const currentTitle = getPageTitle(lifecycleState);
 
             // Always target Published status - consistent "Publish Changes" experience
@@ -629,15 +638,30 @@ function ResultsPageContent() {
     const formattedExplanation = content || getPageContent(lifecycleState) || '';
 
     /**
-     * Handles edit mode toggle for Lexical editor
+     * Handles edit mode toggle for both Lexical editor and RawMarkdownEditor
      */
     const handleEditModeToggle = () => {
         if (isEditMode) {
-            // Sync current editor content to lifecycle state before exiting edit mode
-            const currentContent = editorRef.current?.getContentAsMarkdown() || '';
-            if (currentContent) {
-                dispatchLifecycle({ type: 'UPDATE_CONTENT', content: currentContent });
+            // CRITICAL FIX: Get content based on current editor mode
+            let contentToSync: string;
+            if (isMarkdownMode) {
+                // Formatted mode: get from LexicalEditor
+                contentToSync = editorRef.current?.getContentAsMarkdown() || '';
+            } else {
+                // Plaintext mode: get from rawMarkdownContent state
+                // Clear any pending debounce to ensure we sync latest content
+                if (rawMarkdownDebounceRef.current) {
+                    clearTimeout(rawMarkdownDebounceRef.current);
+                    rawMarkdownDebounceRef.current = null;
+                }
+                contentToSync = rawMarkdownContent;
             }
+
+            // Sync content to lifecycle reducer before exiting
+            if (contentToSync) {
+                dispatchLifecycle({ type: 'UPDATE_CONTENT', content: contentToSync });
+            }
+
             // Exit edit mode (preserves the content we just synced)
             dispatchLifecycle({ type: 'EXIT_EDIT_MODE' });
         } else {
@@ -645,6 +669,31 @@ function ResultsPageContent() {
             dispatchLifecycle({ type: 'ENTER_EDIT_MODE' });
         }
     };
+
+    /**
+     * Handles content changes from RawMarkdownEditor (plaintext mode)
+     * Debounces UPDATE_CONTENT dispatch to prevent excessive reducer updates while typing
+     * Similar pattern to existing streaming content debounce
+     */
+    const handleRawMarkdownChange = useCallback((newContent: string) => {
+        // Always update local state immediately for responsive UI
+        setRawMarkdownContent(newContent);
+
+        // Debounce the reducer dispatch to prevent excessive updates
+        if (rawMarkdownDebounceRef.current) {
+            clearTimeout(rawMarkdownDebounceRef.current);
+        }
+
+        rawMarkdownDebounceRef.current = setTimeout(() => {
+            // Dispatch UPDATE_CONTENT to sync with lifecycle reducer
+            // This ensures hasUnsavedChanges gets computed and publish button appears
+            // Check phase at dispatch time (not callback creation time) to handle edge cases
+            // where user exits edit mode before debounce fires
+            if (lifecycleState.phase === 'editing') {
+                dispatchLifecycle({ type: 'UPDATE_CONTENT', content: newContent });
+            }
+        }, 300); // 300ms debounce - same as typical typing debounce
+    }, [lifecycleState.phase, dispatchLifecycle]);
 
     /**
      * Handles content changes from Lexical editor
@@ -952,11 +1001,14 @@ function ResultsPageContent() {
         }
     }, [content, editorCurrentContent, isStreaming, isEditMode, debouncedUpdateContent, lifecycleState]);
 
-    // Cleanup debounce timeout on unmount
+    // Cleanup debounce timeouts on unmount
     useEffect(() => {
         return () => {
             if (debounceTimeoutRef.current) {
                 clearTimeout(debounceTimeoutRef.current);
+            }
+            if (rawMarkdownDebounceRef.current) {
+                clearTimeout(rawMarkdownDebounceRef.current);
             }
         };
     }, []);
@@ -1218,14 +1270,22 @@ function ResultsPageContent() {
                                         <button
                                             onClick={() => {
                                                 if (isMarkdownMode) {
-                                                    // Switching TO plain text: capture current markdown from editor
+                                                    // Switching TO plaintext: capture current content from LexicalEditor
                                                     const currentMarkdown = editorRef.current?.getContentAsMarkdown() || formattedExplanation;
                                                     setRawMarkdownContent(currentMarkdown);
                                                 } else {
-                                                    // Switching TO markdown: sync raw edits back to editor
-                                                    if (rawMarkdownContent && editorRef.current) {
-                                                        editorRef.current.setContentFromMarkdown(rawMarkdownContent);
-                                                        setEditorCurrentContent(rawMarkdownContent);
+                                                    // Switching TO formatted: sync plaintext edits back to LexicalEditor
+                                                    const contentToSync = rawMarkdownContent || formattedExplanation;
+                                                    if (editorRef.current) {
+                                                        editorRef.current.setContentFromMarkdown(contentToSync);
+                                                        setEditorCurrentContent(contentToSync);
+                                                    }
+
+                                                    // CRITICAL FIX: Dispatch UPDATE_CONTENT to sync with lifecycle reducer
+                                                    // This ensures hasUnsavedChanges reflects plaintext edits
+                                                    // Only dispatch in 'editing' phase - the reducer guards against other phases
+                                                    if (contentToSync && lifecycleState.phase === 'editing') {
+                                                        dispatchLifecycle({ type: 'UPDATE_CONTENT', content: contentToSync });
                                                     }
                                                 }
                                                 setIsMarkdownMode(!isMarkdownMode);
@@ -1364,7 +1424,7 @@ function ResultsPageContent() {
                                             <>
                                                 <RawMarkdownEditor
                                                     content={rawMarkdownContent || formattedExplanation}
-                                                    onChange={(newContent) => setRawMarkdownContent(newContent)}
+                                                    onChange={handleRawMarkdownChange}
                                                     isEditMode={isEditMode && !isStreaming}
                                                 />
                                                 <Bibliography sources={bibliographySources} />

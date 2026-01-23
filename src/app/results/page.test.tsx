@@ -12,7 +12,8 @@
  */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import ResultsPage from './page';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useExplanationLoader } from '@/hooks/useExplanationLoader';
@@ -90,6 +91,12 @@ jest.mock('@/components/TagBar', () => {
 
 jest.mock('@/editorFiles/lexicalEditor/LexicalEditor', () => {
   const MockEditor = React.forwardRef<any, any>((props, ref) => {
+    // Expose mock methods via ref for testing
+    React.useImperativeHandle(ref, () => ({
+      getContentAsMarkdown: jest.fn(() => 'mock markdown content'),
+      setContentFromMarkdown: jest.fn(),
+      setEditMode: jest.fn(),
+    }));
     return (
       <div
         data-testid="lexical-editor"
@@ -106,6 +113,18 @@ jest.mock('@/editorFiles/lexicalEditor/LexicalEditor', () => {
     default: MockEditor,
   };
 });
+
+// Mock RawMarkdownEditor for plaintext mode testing
+jest.mock('@/components/RawMarkdownEditor', () => ({
+  RawMarkdownEditor: jest.fn(({ content, onChange, isEditMode }) => (
+    <textarea
+      data-testid="raw-markdown-editor"
+      value={content}
+      onChange={(e) => onChange(e.target.value)}
+      readOnly={!isEditMode}
+    />
+  )),
+}));
 
 jest.mock('@/components/AIEditorPanel', () => {
   return function MockAIEditorPanel({ isOpen }: any) {
@@ -434,6 +453,130 @@ describe('ResultsPage - Phase 12 Completion Tests', () => {
       render(<ResultsPage />);
 
       expect(screen.getByTestId('navigation')).toBeInTheDocument();
+    });
+  });
+
+  describe('Plaintext Mode Content Handling', () => {
+    beforeEach(() => {
+      // Ensure content exists for these tests
+      mockUseExplanationLoader = createMockUseExplanationLoader({
+        explanationTitle: 'Test Explanation',
+        content: '# Test Content\n\nThis is test content.',
+        explanationId: 123,
+        explanationStatus: ExplanationStatus.Published,
+        isLoading: false,
+      });
+      (useExplanationLoader as jest.Mock).mockReturnValue(mockUseExplanationLoader);
+    });
+
+    it('should render format toggle button', () => {
+      render(<ResultsPage />);
+
+      const formatToggleButton = screen.getByTestId('format-toggle-button');
+      expect(formatToggleButton).toBeInTheDocument();
+      // Initially in markdown mode, button should show "Plain Text"
+      expect(formatToggleButton).toHaveTextContent('Plain Text');
+    });
+
+    it('should toggle to plaintext mode when format toggle clicked', async () => {
+      render(<ResultsPage />);
+
+      const formatToggleButton = screen.getByTestId('format-toggle-button');
+
+      // Click to switch to plaintext mode
+      await act(async () => {
+        fireEvent.click(formatToggleButton);
+      });
+
+      // Button should now show "Formatted" (indicating we can switch back)
+      await waitFor(() => {
+        expect(formatToggleButton).toHaveTextContent('Formatted');
+      });
+    });
+
+    it('should render RawMarkdownEditor in plaintext mode', async () => {
+      render(<ResultsPage />);
+
+      const formatToggleButton = screen.getByTestId('format-toggle-button');
+
+      // Initially, LexicalEditor should be visible
+      expect(screen.getByTestId('lexical-editor')).toBeInTheDocument();
+
+      // Click to switch to plaintext mode
+      await act(async () => {
+        fireEvent.click(formatToggleButton);
+      });
+
+      // RawMarkdownEditor should be visible
+      await waitFor(() => {
+        expect(screen.getByTestId('raw-markdown-editor')).toBeInTheDocument();
+      });
+    });
+
+    it('should toggle back to formatted mode', async () => {
+      render(<ResultsPage />);
+
+      const formatToggleButton = screen.getByTestId('format-toggle-button');
+
+      // Toggle to plaintext
+      await act(async () => {
+        fireEvent.click(formatToggleButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('raw-markdown-editor')).toBeInTheDocument();
+      });
+
+      // Toggle back to formatted
+      await act(async () => {
+        fireEvent.click(formatToggleButton);
+      });
+
+      await waitFor(() => {
+        expect(screen.getByTestId('lexical-editor')).toBeInTheDocument();
+      });
+    });
+
+    it('should preserve content when toggling modes', async () => {
+      render(<ResultsPage />);
+
+      const formatToggleButton = screen.getByTestId('format-toggle-button');
+
+      // Toggle to plaintext
+      await act(async () => {
+        fireEvent.click(formatToggleButton);
+      });
+
+      const rawEditor = await waitFor(() => screen.getByTestId('raw-markdown-editor'));
+      // Content should be populated (either from editor ref or from explanation)
+      // The mock returns 'mock markdown content' from getContentAsMarkdown
+      expect(rawEditor).toHaveValue('mock markdown content');
+    });
+
+    it('should render edit button that controls edit mode', () => {
+      render(<ResultsPage />);
+
+      const editButton = screen.getByTestId('edit-button');
+      expect(editButton).toBeInTheDocument();
+      expect(editButton).toHaveTextContent('Edit');
+    });
+
+    it('should render RawMarkdownEditor with content in plaintext mode', async () => {
+      render(<ResultsPage />);
+
+      const formatToggleButton = screen.getByTestId('format-toggle-button');
+
+      // Toggle to plaintext mode
+      await act(async () => {
+        fireEvent.click(formatToggleButton);
+      });
+
+      // Verify RawMarkdownEditor is rendered in plaintext mode
+      const rawEditor = await waitFor(() => screen.getByTestId('raw-markdown-editor'));
+      expect(rawEditor).toBeInTheDocument();
+
+      // RawMarkdownEditor should have content populated from editor
+      expect(rawEditor.tagName.toLowerCase()).toBe('textarea');
     });
   });
 });

@@ -176,6 +176,25 @@ if (tagState.hasChanges) {
 tagDispatch({ type: 'RESET' });
 ```
 
+### Plaintext Mode Integration
+
+When in plaintext mode (RawMarkdownEditor), content changes are synced to the
+lifecycle reducer via `UPDATE_CONTENT` dispatch at these points:
+
+- **On keystroke** (debounced 300ms via `handleRawMarkdownChange`) - ensures publish button appears within 300ms of content changes
+- **When toggling from plaintext to formatted mode** (immediate) - syncs plaintext edits before switching editors
+- **When exiting edit mode while in plaintext mode** (immediate, clears debounce) - ensures latest content is captured
+
+The debounce prevents excessive reducer updates during typing while still providing
+responsive UI feedback. The debounce is cleared when exiting edit mode to ensure
+the latest content is captured, not a debounced-delayed version.
+
+This differs from LexicalEditor which doesn't dispatch `UPDATE_CONTENT` on every
+keystroke - instead it syncs only when exiting edit mode. This is because
+LexicalEditor maintains its own internal state accessed via ref methods
+(`getContentAsMarkdown()`), while RawMarkdownEditor uses React state
+(`rawMarkdownContent`).
+
 ### Best Practices
 
 1. **Use selectors**: Access state through selector functions for consistency
@@ -183,3 +202,4 @@ tagDispatch({ type: 'RESET' });
 3. **Handle all phases**: Account for every possible state in UI
 4. **Track originals**: Store original values for change detection
 5. **Reset on navigation**: Clear state when leaving page
+6. **Sync editor modes**: Ensure content is synced when toggling between formatted and plaintext modes
