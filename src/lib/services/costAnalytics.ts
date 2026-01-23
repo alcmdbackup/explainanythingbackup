@@ -21,6 +21,7 @@ export interface CostSummary {
   avgCostPerCall: number;
   periodStart: string;
   periodEnd: string;
+  nullCostCount: number;  // Records with NULL estimated_cost_usd
 }
 
 export interface DailyCost {
@@ -70,14 +71,19 @@ const _getCostSummaryAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     // Default to last 30 days
-    const endDate = filters.endDate || new Date().toISOString().split('T')[0];
-    const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const now = new Date();
+    const endDate = filters.endDate || now.toISOString();
+    const startDate = filters.startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Handle both date-only (YYYY-MM-DD) and full ISO timestamps
+    const startTimestamp = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`;
+    const endTimestamp = endDate.includes('T') ? endDate : `${endDate}T23:59:59Z`;
 
     let query = supabase
       .from('llmCallTracking')
       .select('estimated_cost_usd, total_tokens', { count: 'exact' })
-      .gte('created_at', `${startDate}T00:00:00Z`)
-      .lte('created_at', `${endDate}T23:59:59Z`);
+      .gte('created_at', startTimestamp)
+      .lte('created_at', endTimestamp);
 
     if (filters.model) {
       query = query.eq('model', filters.model);
@@ -93,6 +99,23 @@ const _getCostSummaryAction = withLogging(async (
       throw error;
     }
 
+    // Count records with null cost in the same time range
+    let nullCountQuery = supabase
+      .from('llmCallTracking')
+      .select('id', { count: 'exact', head: true })
+      .is('estimated_cost_usd', null)
+      .gte('created_at', startTimestamp)
+      .lte('created_at', endTimestamp);
+
+    if (filters.model) {
+      nullCountQuery = nullCountQuery.eq('model', filters.model);
+    }
+    if (filters.userId) {
+      nullCountQuery = nullCountQuery.eq('userid', filters.userId);
+    }
+
+    const { count: nullCount } = await nullCountQuery;
+
     const totalCalls = count || 0;
     const totalCost = data?.reduce((sum, row) => sum + (Number(row.estimated_cost_usd) || 0), 0) || 0;
     const totalTokens = data?.reduce((sum, row) => sum + (row.total_tokens || 0), 0) || 0;
@@ -105,7 +128,8 @@ const _getCostSummaryAction = withLogging(async (
         totalTokens,
         avgCostPerCall: totalCalls > 0 ? totalCost / totalCalls : 0,
         periodStart: startDate,
-        periodEnd: endDate
+        periodEnd: endDate,
+        nullCostCount: nullCount || 0
       },
       error: null
     };
@@ -135,9 +159,13 @@ const _getDailyCostsAction = withLogging(async (
 
     const supabase = await createSupabaseServiceClient();
 
-    // Default to last 30 days
-    const endDate = filters.endDate || new Date().toISOString().split('T')[0];
-    const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    // Default to last 30 days - extract date part for daily view
+    const now = new Date();
+    const endDateRaw = filters.endDate || now.toISOString();
+    const startDateRaw = filters.startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    // Daily costs view uses date-only format
+    const endDate = endDateRaw.includes('T') ? endDateRaw.split('T')[0] : endDateRaw;
+    const startDate = startDateRaw.includes('T') ? startDateRaw.split('T')[0] : startDateRaw;
 
     // Use the daily_llm_costs view
     let query = supabase
@@ -212,14 +240,19 @@ const _getCostByModelAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     // Default to last 30 days
-    const endDate = filters.endDate || new Date().toISOString().split('T')[0];
-    const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const now = new Date();
+    const endDate = filters.endDate || now.toISOString();
+    const startDate = filters.startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Handle both date-only (YYYY-MM-DD) and full ISO timestamps
+    const startTimestamp = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`;
+    const endTimestamp = endDate.includes('T') ? endDate : `${endDate}T23:59:59Z`;
 
     let query = supabase
       .from('llmCallTracking')
       .select('model, prompt_tokens, completion_tokens, reasoning_tokens, total_tokens, estimated_cost_usd')
-      .gte('created_at', `${startDate}T00:00:00Z`)
-      .lte('created_at', `${endDate}T23:59:59Z`);
+      .gte('created_at', startTimestamp)
+      .lte('created_at', endTimestamp);
 
     if (filters.userId) {
       query = query.eq('userid', filters.userId);
@@ -294,14 +327,19 @@ const _getCostByUserAction = withLogging(async (
     const { limit = 20 } = filters;
 
     // Default to last 30 days
-    const endDate = filters.endDate || new Date().toISOString().split('T')[0];
-    const startDate = filters.startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const now = new Date();
+    const endDate = filters.endDate || now.toISOString();
+    const startDate = filters.startDate || new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // Handle both date-only (YYYY-MM-DD) and full ISO timestamps
+    const startTimestamp = startDate.includes('T') ? startDate : `${startDate}T00:00:00Z`;
+    const endTimestamp = endDate.includes('T') ? endDate : `${endDate}T23:59:59Z`;
 
     let query = supabase
       .from('llmCallTracking')
       .select('userid, total_tokens, estimated_cost_usd')
-      .gte('created_at', `${startDate}T00:00:00Z`)
-      .lte('created_at', `${endDate}T23:59:59Z`);
+      .gte('created_at', startTimestamp)
+      .lte('created_at', endTimestamp);
 
     if (filters.model) {
       query = query.eq('model', filters.model);
@@ -356,6 +394,7 @@ export const getCostByUserAction = serverReadRequestId(_getCostByUserAction);
 
 /**
  * Backfill estimated costs for records that don't have them.
+ * Processes all records with missing costs in batches for scalability.
  * Should be run once after migration, then costs are calculated on insert.
  */
 const _backfillCostsAction = withLogging(async (
@@ -369,70 +408,85 @@ const _backfillCostsAction = withLogging(async (
     const adminUserId = await requireAdmin();
 
     const supabase = await createSupabaseServiceClient();
-    const { batchSize = 1000, dryRun = false } = options;
+    const { batchSize = 500, dryRun = false } = options;
 
-    // Get records without cost
-    const { data: records, error } = await supabase
-      .from('llmCallTracking')
-      .select('id, model, prompt_tokens, completion_tokens, reasoning_tokens')
-      .is('estimated_cost_usd', null)
-      .limit(batchSize);
+    let totalProcessed = 0;
+    let totalUpdated = 0;
+    let hasMore = true;
 
-    if (error) {
-      logger.error('Error fetching records for backfill', { error: error.message });
-      throw error;
-    }
+    // Process all records in batches until none remain
+    while (hasMore) {
+      // Get next batch of records without cost
+      const { data: records, error } = await supabase
+        .from('llmCallTracking')
+        .select('id, model, prompt_tokens, completion_tokens, reasoning_tokens')
+        .is('estimated_cost_usd', null)
+        .limit(batchSize);
 
-    if (!records || records.length === 0) {
-      return {
-        success: true,
-        data: { processed: 0, updated: 0 },
-        error: null
-      };
-    }
+      if (error) {
+        logger.error('Error fetching records for backfill', { error: error.message });
+        throw error;
+      }
 
-    let updated = 0;
+      if (!records || records.length === 0) {
+        hasMore = false;
+        break;
+      }
 
-    if (!dryRun) {
-      for (const record of records) {
-        const cost = calculateLLMCost(
-          record.model || '',
-          record.prompt_tokens || 0,
-          record.completion_tokens || 0,
-          record.reasoning_tokens || 0
-        );
+      totalProcessed += records.length;
 
-        const { error: updateError } = await supabase
-          .from('llmCallTracking')
-          .update({ estimated_cost_usd: cost })
-          .eq('id', record.id);
+      if (!dryRun) {
+        for (const record of records) {
+          const cost = calculateLLMCost(
+            record.model || '',
+            record.prompt_tokens || 0,
+            record.completion_tokens || 0,
+            record.reasoning_tokens || 0
+          );
 
-        if (!updateError) {
-          updated++;
+          const { error: updateError } = await supabase
+            .from('llmCallTracking')
+            .update({ estimated_cost_usd: cost })
+            .eq('id', record.id);
+
+          if (!updateError) {
+            totalUpdated++;
+          }
         }
       }
+
+      // If we got fewer records than batch size, we're done
+      if (records.length < batchSize) {
+        hasMore = false;
+      }
+
+      logger.debug('Cost backfill batch completed', {
+        batchSize: records.length,
+        totalProcessed,
+        totalUpdated
+      });
     }
 
     logger.info('Cost backfill completed', {
-      processed: records.length,
-      updated,
+      processed: totalProcessed,
+      updated: totalUpdated,
       dryRun
     });
 
-    // Log audit action (only for non-dry-run)
-    if (!dryRun && updated > 0) {
+    // Log audit action (only for non-dry-run with updates)
+    if (!dryRun && totalUpdated > 0) {
       await logAdminAction({
         adminUserId,
         action: 'backfill_costs',
         entityType: 'system',
         entityId: 'llmCallTracking',
-        details: { processed: records.length, updated }
+        details: { processed: totalProcessed, updated: totalUpdated }
       });
     }
 
     return {
       success: true,
-      data: { processed: records.length, updated: dryRun ? 0 : updated },
+      data: { processed: totalProcessed, updated: dryRun ? 0 : totalUpdated },
       error: null
     };
   } catch (error) {

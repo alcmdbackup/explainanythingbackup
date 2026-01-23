@@ -10,8 +10,14 @@ if (process.env.NODE_ENV === 'production' && process.env.FAST_DEV === 'true' && 
   console.error('FATAL: FAST_DEV cannot be enabled in production');
 }
 
+// Runtime guard: Only initialize in Node.js runtime (not Edge)
+// This prevents duplicate OpenTelemetry registration if Turbopack loads this in wrong context
+if (process.env.NEXT_RUNTIME === 'edge') {
+  console.warn('⚠️ sentry.server.config loaded in Edge runtime - skipping (use sentry.edge.config instead)');
+}
+
 // FAST_DEV mode: Skip all Sentry initialization for faster local development
-if (process.env.FAST_DEV === 'true') {
+else if (process.env.FAST_DEV === 'true') {
   console.log('⚡ FAST_DEV: Skipping Sentry server initialization');
 } else {
 
