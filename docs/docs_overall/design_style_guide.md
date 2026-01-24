@@ -478,12 +478,17 @@ The design system is enforced via custom ESLint rules that run on every lint che
 
 ### Rules
 
-| Rule | Detects | Fix |
-|------|---------|-----|
-| `no-hardcoded-colors` | Hex colors (`#fff`), `rgba()` in style props | Use CSS variables: `var(--text-primary)` |
-| `no-arbitrary-text-sizes` | `text-[14px]` patterns in className | Use standard sizes: `text-sm`, `text-base` |
-| `prefer-design-system-fonts` | `font-serif`, `font-sans` | Use `font-body`, `font-ui` |
-| `prefer-warm-shadows` | `shadow-sm`, `shadow-md`, `shadow-lg`, `shadow-xl` | Use `shadow-warm-*` variants |
+| Rule | Severity | Detects | Fix |
+|------|----------|---------|-----|
+| `no-hardcoded-colors` | error | Hex colors (`#fff`), `rgba()` in style props | Use CSS variables: `var(--text-primary)` |
+| `no-arbitrary-text-sizes` | error | `text-[14px]` patterns in className | Use standard sizes: `text-sm`, `text-base` |
+| `prefer-design-system-fonts` | error | `font-serif`, `font-sans` | Use `font-body`, `font-ui` |
+| `prefer-warm-shadows` | error | `shadow-sm`, `shadow-md`, `shadow-lg`, `shadow-xl` | Use `shadow-warm-*` variants |
+| `no-tailwind-color-classes` | warn | Tailwind palette colors (`bg-green-50`, `text-red-700`) | Use `bg-[var(--status-success)]` |
+| `prefer-design-radius` | warn | `rounded-md`, `rounded-lg` | Use `rounded-page`, `rounded-book` |
+| `enforce-heading-typography` | warn | Wrong size/font on h1-h4 elements | h1=`text-4xl`, h2=`text-2xl`, h3=`text-xl`, h4=`text-lg` + `font-display` |
+| `enforce-prose-font` | warn | `font-display` on prose elements (p, span, li) | Use `font-body` for prose text |
+| `no-inline-typography` | error | Inline `fontSize`, `fontFamily` in style props | Use Tailwind `text-*` and `font-*` classes |
 
 ### Exceptions
 

@@ -59,7 +59,7 @@ export default function Home() {
                         </div>
                         <button
                             onClick={() => setImportModalOpen(true)}
-                            className="mt-4 text-sm text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors duration-200"
+                            className="mt-4 text-sm text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors duration-200 gold-underline"
                         >
                             Or import from AI
                         </button>

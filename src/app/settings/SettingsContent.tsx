@@ -29,7 +29,7 @@ export default function SettingsContent() {
       {/* Theme Palette Selection - Visual Grid */}
       <section className="space-y-4">
         <div className="space-y-1">
-          <h2 className="font-display text-lg font-semibold text-[var(--text-primary)]">
+          <h2 className="font-display text-2xl font-semibold text-[var(--text-primary)]">
             Theme Palette
           </h2>
           <p className="text-sm text-[var(--text-muted)]">
@@ -98,7 +98,7 @@ export default function SettingsContent() {
       {/* Appearance Mode Toggle */}
       <section className="space-y-4">
         <div className="space-y-1">
-          <h2 className="font-display text-lg font-semibold text-[var(--text-primary)]">
+          <h2 className="font-display text-2xl font-semibold text-[var(--text-primary)]">
             Appearance
           </h2>
           <p className="text-sm text-[var(--text-muted)]">
@@ -145,7 +145,7 @@ export default function SettingsContent() {
       {/* Text Reveal Animation */}
       <section className="space-y-4">
         <div className="space-y-1">
-          <h2 className="font-display text-lg font-semibold text-[var(--text-primary)]">
+          <h2 className="font-display text-2xl font-semibold text-[var(--text-primary)]">
             Animations
           </h2>
           <p className="text-sm text-[var(--text-muted)]">
@@ -161,7 +161,7 @@ export default function SettingsContent() {
       {/* Live Theme Preview */}
       <section className="space-y-4">
         <div className="space-y-1">
-          <h2 className="font-display text-lg font-semibold text-[var(--text-primary)]">
+          <h2 className="font-display text-2xl font-semibold text-[var(--text-primary)]">
             Preview
           </h2>
           <p className="text-sm text-[var(--text-muted)]">
@@ -178,7 +178,7 @@ export default function SettingsContent() {
 
           {/* Typography preview */}
           <div className="space-y-2">
-            <h3 className="font-display text-base font-semibold text-[var(--text-primary)]">
+            <h3 className="font-display text-lg font-semibold text-[var(--text-primary)]">
               Sample Heading
             </h3>
             <p className="font-body text-sm text-[var(--text-secondary)] leading-relaxed">

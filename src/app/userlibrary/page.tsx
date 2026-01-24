@@ -35,14 +35,15 @@ export default function UserLibraryPage() {
   }, []);
 
   return (
-    <main className="min-h-screen bg-[var(--surface-primary)]">
+    <main className="min-h-screen bg-[var(--surface-primary)] paper-texture">
       <Navigation showSearchBar />
 
       <div className="pt-8 pb-16">
-        <header className="max-w-3xl mx-auto px-4 mb-8">
-          <h1 className="atlas-display-section text-[var(--text-primary)]">
+        <header className="max-w-3xl mx-auto px-4 mb-8 text-center">
+          <h1 className="atlas-display-section text-[var(--text-primary)] atlas-animate-fade-up stagger-1">
             My Library
           </h1>
+          <div className="title-flourish mt-4"></div>
         </header>
 
         {error && (
@@ -58,7 +59,7 @@ export default function UserLibraryPage() {
             <svg className="w-16 h-16 mx-auto mb-4 text-[var(--text-muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
             </svg>
-            <p className="text-lg font-display text-[var(--text-primary)]">Nothing saved yet</p>
+            <p className="text-lg font-body text-[var(--text-primary)]">Nothing saved yet</p>
             <p className="text-[var(--text-muted)] mt-1">Save explanations you want to revisit.</p>
           </div>
         ) : (

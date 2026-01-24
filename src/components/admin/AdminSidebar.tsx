@@ -63,7 +63,7 @@ export function AdminSidebar() {
                   flex items-center gap-3 px-3 py-2 rounded-md text-sm
                   transition-colors duration-150
                   ${isActive(item.href)
-                    ? 'bg-[var(--accent-gold)] text-white'
+                    ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]'
                     : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]'
                   }
                 `}
