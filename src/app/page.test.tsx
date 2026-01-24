@@ -1,7 +1,8 @@
 /**
- * Unit tests for the Home page component - testing workflow enforcement.
+ * Unit tests for the Home page component - testing tabbed interface structure.
  */
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import Home from './page';
 
 // Mock the components
@@ -11,18 +12,53 @@ jest.mock('@/components/Navigation', () => {
     };
 });
 
-jest.mock('@/components/SearchBar', () => {
-    return function MockSearchBar({ variant, placeholder, maxLength }: { variant?: string; placeholder?: string; maxLength?: number }) {
+jest.mock('@/components/home', () => ({
+    HomeTabs: function MockHomeTabs({ activeTab, onTabChange }: { activeTab: string; onTabChange: (tab: string) => void }) {
         return (
-            <div
-                data-testid="search-bar"
-                data-variant={variant}
-                data-placeholder={placeholder}
-                data-max-length={maxLength}
-            >
-                SearchBar
+            <div role="tablist" data-testid="home-tabs" data-active-tab={activeTab}>
+                <button
+                    role="tab"
+                    data-testid="home-tab-search"
+                    aria-selected={activeTab === 'search'}
+                    onClick={() => onTabChange('search')}
+                >
+                    Search
+                </button>
+                <button
+                    role="tab"
+                    data-testid="home-tab-import"
+                    aria-selected={activeTab === 'import'}
+                    onClick={() => onTabChange('import')}
+                >
+                    Import
+                </button>
             </div>
         );
+    },
+    HomeSearchPanel: function MockHomeSearchPanel({ query, onQueryChange }: { query: string; onQueryChange: (q: string) => void }) {
+        return (
+            <div id="search-panel" role="tabpanel" data-testid="home-search-panel" aria-labelledby="search-tab">
+                <input
+                    data-testid="home-search-input"
+                    value={query}
+                    onChange={(e) => onQueryChange(e.target.value)}
+                    placeholder="What would you like to learn?"
+                />
+            </div>
+        );
+    },
+    HomeImportPanel: function MockHomeImportPanel() {
+        return (
+            <div id="import-panel" role="tabpanel" data-testid="home-import-panel" aria-labelledby="import-tab">
+                Import Panel
+            </div>
+        );
+    },
+}));
+
+jest.mock('@/components/import/ImportPreview', () => {
+    return function MockImportPreview() {
+        return null;
     };
 });
 
@@ -41,11 +77,11 @@ describe('Home', () => {
             expect(navigation).toBeInTheDocument();
         });
 
-        it('should render SearchBar component', () => {
+        it('should render HomeTabs component', () => {
             render(<Home />);
 
-            const searchBar = screen.getByTestId('search-bar');
-            expect(searchBar).toBeInTheDocument();
+            const tabs = screen.getByTestId('home-tabs');
+            expect(tabs).toBeInTheDocument();
         });
 
         it('should render main heading', () => {
@@ -74,35 +110,48 @@ describe('Home', () => {
         });
     });
 
-    describe('SearchBar Integration', () => {
-        it('should pass variant="home" to SearchBar', () => {
+    describe('Tab Integration', () => {
+        it('should show Search tab as default', () => {
             render(<Home />);
 
-            const searchBar = screen.getByTestId('search-bar');
-            expect(searchBar).toHaveAttribute('data-variant', 'home');
+            const tabs = screen.getByTestId('home-tabs');
+            expect(tabs).toHaveAttribute('data-active-tab', 'search');
         });
 
-        it('should pass placeholder to SearchBar', () => {
+        it('should render Search panel when Search tab is active', () => {
             render(<Home />);
 
-            const searchBar = screen.getByTestId('search-bar');
-            expect(searchBar).toHaveAttribute('data-placeholder', 'What would you like to learn?');
+            const searchPanel = screen.getByTestId('home-search-panel');
+            expect(searchPanel).toBeInTheDocument();
         });
 
-        it('should pass maxLength to SearchBar', () => {
+        it('should switch to Import tab when clicked', async () => {
+            const user = userEvent.setup();
             render(<Home />);
 
-            const searchBar = screen.getByTestId('search-bar');
-            expect(searchBar).toHaveAttribute('data-max-length', '150');
+            await user.click(screen.getByTestId('home-tab-import'));
+
+            const tabs = screen.getByTestId('home-tabs');
+            expect(tabs).toHaveAttribute('data-active-tab', 'import');
         });
 
-        it('should render SearchBar in the main content area', () => {
+        it('should render Import panel when Import tab is active', async () => {
+            const user = userEvent.setup();
+            render(<Home />);
+
+            await user.click(screen.getByTestId('home-tab-import'));
+
+            const importPanel = screen.getByTestId('home-import-panel');
+            expect(importPanel).toBeInTheDocument();
+        });
+
+        it('should render tabs in the main content area', () => {
             const { container } = render(<Home />);
 
             const main = container.querySelector('main');
-            const searchBar = screen.getByTestId('search-bar');
+            const tabs = screen.getByTestId('home-tabs');
 
-            expect(main).toContainElement(searchBar);
+            expect(main).toContainElement(tabs);
         });
     });
 
@@ -225,20 +274,40 @@ describe('Home', () => {
             );
         });
 
-        it('should render SearchBar inside main content', () => {
+        it('should render Search panel inside main content', () => {
             const { container } = render(<Home />);
 
             const main = container.querySelector('main');
-            const searchBar = screen.getByTestId('search-bar');
+            const searchPanel = screen.getByTestId('home-search-panel');
 
-            expect(main).toContainElement(searchBar);
+            expect(main).toContainElement(searchPanel);
         });
 
-        it('should have proper width constraints on SearchBar container', () => {
+        it('should have proper width constraints on panel container', () => {
             render(<Home />);
 
-            const searchBarParent = screen.getByTestId('search-bar').parentElement;
-            expect(searchBarParent).toHaveClass('w-full');
+            const panelParent = screen.getByTestId('home-search-panel').parentElement;
+            expect(panelParent).toHaveClass('w-full');
+        });
+    });
+
+    describe('State Management', () => {
+        it('should preserve search query when switching tabs', async () => {
+            const user = userEvent.setup();
+            render(<Home />);
+
+            // Type in search input
+            const searchInput = screen.getByTestId('home-search-input');
+            await user.type(searchInput, 'quantum physics');
+
+            // Switch to Import tab
+            await user.click(screen.getByTestId('home-tab-import'));
+
+            // Switch back to Search tab
+            await user.click(screen.getByTestId('home-tab-search'));
+
+            // Query should be preserved
+            expect(screen.getByTestId('home-search-input')).toHaveValue('quantum physics');
         });
     });
 });

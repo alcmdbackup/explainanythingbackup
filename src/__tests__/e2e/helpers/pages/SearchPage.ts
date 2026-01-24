@@ -3,8 +3,12 @@ import { BasePage } from './BasePage';
 import { safeIsVisible } from '../error-utils';
 
 export class SearchPage extends BasePage {
-  private searchInput = '[data-testid="search-input"]';
-  private searchButton = '[data-testid="search-submit"]';
+  // Home page now uses HomeSearchPanel with different test IDs
+  private searchInput = '[data-testid="home-search-input"]';
+  private searchButton = '[data-testid="home-search-submit"]';
+  // Nav variant still uses original test IDs
+  private navSearchInput = '[data-testid="search-input"]';
+  private navSearchButton = '[data-testid="search-submit"]';
 
   constructor(page: Page) {
     super(page);

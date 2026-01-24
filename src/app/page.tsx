@@ -1,10 +1,14 @@
+/**
+ * Home page with tabbed interface for Search and Import content creation modes.
+ * Search tab provides query input with sources and tag preferences.
+ * Import tab allows pasting AI content for processing.
+ */
 'use client';
 
 import { useState, useCallback } from 'react';
-import SearchBar from '@/components/SearchBar';
 import Navigation from '@/components/Navigation';
-import ImportModal from '@/components/import/ImportModal';
 import ImportPreview from '@/components/import/ImportPreview';
+import { HomeTabs, HomeSearchPanel, HomeImportPanel, type HomeTab } from '@/components/home';
 import { type ImportSource, type SourceChipType } from '@/lib/schemas/schemas';
 
 interface ImportData {
@@ -14,18 +18,18 @@ interface ImportData {
 }
 
 export default function Home() {
+    const [activeTab, setActiveTab] = useState<HomeTab>('search');
     const [sources, setSources] = useState<SourceChipType[]>([]);
-    const [importModalOpen, setImportModalOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
     const [previewData, setPreviewData] = useState<ImportData | null>(null);
 
     const handleProcessed = useCallback((data: ImportData) => {
         setPreviewData(data);
-        setImportModalOpen(false);
     }, []);
 
     const handlePreviewBack = useCallback(() => {
         setPreviewData(null);
-        setImportModalOpen(true);
+        setActiveTab('import');
     }, []);
 
     const handlePreviewClose = useCallback((open: boolean) => {
@@ -48,31 +52,30 @@ export default function Home() {
                         </p>
                     </div>
                     <div className="flex flex-col items-center atlas-animate-fade-up stagger-3">
+                        {/* Tab switcher */}
+                        <HomeTabs
+                            activeTab={activeTab}
+                            onTabChange={setActiveTab}
+                        />
+
+                        {/* Tab panels */}
                         <div className="w-full">
-                            <SearchBar
-                                variant="home"
-                                placeholder="What would you like to learn?"
-                                maxLength={150}
-                                sources={sources}
-                                onSourcesChange={setSources}
-                            />
+                            {activeTab === 'search' ? (
+                                <HomeSearchPanel
+                                    sources={sources}
+                                    onSourcesChange={setSources}
+                                    query={searchQuery}
+                                    onQueryChange={setSearchQuery}
+                                />
+                            ) : (
+                                <HomeImportPanel
+                                    onProcessed={handleProcessed}
+                                />
+                            )}
                         </div>
-                        <button
-                            onClick={() => setImportModalOpen(true)}
-                            className="mt-4 text-sm text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors duration-200 gold-underline"
-                        >
-                            Or import from AI
-                        </button>
                     </div>
                 </main>
             </div>
-
-            {/* Import Modal */}
-            <ImportModal
-                open={importModalOpen}
-                onOpenChange={setImportModalOpen}
-                onProcessed={handleProcessed}
-            />
 
             {/* Import Preview */}
             {previewData && (

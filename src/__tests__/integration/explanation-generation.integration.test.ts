@@ -603,4 +603,187 @@ describe('Explanation Generation Integration Tests', () => {
       expect(result.error !== null || result.explanationId !== null).toBe(true);
     });
   });
+
+  describe('Additional Rules Parameter', () => {
+    it('should include additionalRules in the content generation prompt', async () => {
+      // Arrange
+      const userQuery = 'What is photosynthesis?';
+      const mockEmbedding = generateRandomEmbedding(3072);
+      const additionalRules = [
+        'Write at an advanced difficulty level suitable for graduate students',
+        'Keep the explanation brief with 2-3 paragraphs maximum',
+        'Include mathematical formulas where appropriate',
+      ];
+
+      // Track what prompts are sent to OpenAI
+      let contentGenerationPrompt = '';
+
+      // Mock OpenAI: Embedding creation
+      mockOpenAIEmbeddingsCreate.mockResolvedValue({
+        data: [{ embedding: mockEmbedding }],
+      });
+
+      // Mock Pinecone: No matches found
+      mockPineconeQuery.mockResolvedValue(pineconeNoMatchesResponse);
+
+      // Smart mock that captures the content generation prompt
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        // Title generation
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          return titleGenerationResponse;
+        }
+
+        // Tag evaluation
+        if (hasResponseFormat && (prompt.includes('difficulty level') || prompt.toLowerCase().includes('evaluate'))) {
+          return tagEvaluationResponse;
+        }
+
+        // Key term links
+        if (hasResponseFormat && prompt.includes('KEY TERMS WITH CONTEXT')) {
+          return keyTermLinkMappingsResponse;
+        }
+
+        // Heading links
+        if (hasResponseFormat && (prompt.includes('standalone titles') || prompt.includes('subsection'))) {
+          return headingLinkMappingsResponse;
+        }
+
+        // Content generation (no response_format) - capture the prompt
+        if (!hasResponseFormat && !params.stream) {
+          contentGenerationPrompt = prompt;
+          return {
+            choices: [{ message: { content: fullExplanationContent } }],
+          };
+        }
+
+        // Streaming content generation - capture the prompt
+        if (params.stream === true) {
+          contentGenerationPrompt = prompt;
+          async function* streamGenerator() {
+            const chunks = ['# Understanding', ' Photosynthesis\n\n', '...'];
+            for (const chunk of chunks) {
+              yield {
+                choices: [{ delta: { content: chunk }, finish_reason: null }],
+                model: 'gpt-4.1-mini',
+                usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150 },
+              };
+            }
+          }
+          return streamGenerator();
+        }
+
+        return {
+          choices: [{ message: { content: 'Unexpected call' } }],
+        };
+      });
+
+      // Act
+      const result = await returnExplanationLogic(
+        userQuery,             // userInput: string
+        null,                  // savedId: number | null
+        MatchMode.Normal,      // matchMode: MatchMode
+        userId,                // userid: string
+        UserInputType.Query,   // userInputType: UserInputType
+        additionalRules,       // additionalRules: string[] - NOW WITH RULES!
+        undefined,             // onStreamingText?: StreamingCallback
+        undefined,             // existingContent?: string
+        null,                  // previousExplanationViewedId?: number | null
+        null                   // previousExplanationViewedVector?: { values: number[] } | null
+      );
+
+      // Assert - Check result
+      expect(result.error).toBeNull();
+      expect(result.explanationId).toBeTruthy();
+
+      // Verify additionalRules were included in the content generation prompt
+      expect(contentGenerationPrompt).toBeTruthy();
+      expect(contentGenerationPrompt).toContain('Write at an advanced difficulty level suitable for graduate students');
+      expect(contentGenerationPrompt).toContain('Keep the explanation brief with 2-3 paragraphs maximum');
+      expect(contentGenerationPrompt).toContain('Include mathematical formulas where appropriate');
+    });
+
+    it('should generate content without extra rules when additionalRules is empty', async () => {
+      // Arrange
+      const userQuery = 'What is gravity?';
+      const mockEmbedding = generateRandomEmbedding(3072);
+      const emptyRules: string[] = [];
+
+      // Track what prompts are sent to OpenAI
+      let contentGenerationPrompt = '';
+
+      // Mock OpenAI: Embedding creation
+      mockOpenAIEmbeddingsCreate.mockResolvedValue({
+        data: [{ embedding: mockEmbedding }],
+      });
+
+      // Mock Pinecone: No matches found
+      mockPineconeQuery.mockResolvedValue(pineconeNoMatchesResponse);
+
+      // Smart mock that captures the content generation prompt
+      mockOpenAIChatCreate.mockImplementation(async (params: any) => {
+        const prompt = params.messages?.[1]?.content || '';
+        const hasResponseFormat = !!params.response_format;
+
+        // Title generation
+        if (hasResponseFormat && prompt.includes('Guess the title')) {
+          return titleGenerationResponse;
+        }
+
+        // Tag evaluation
+        if (hasResponseFormat && (prompt.includes('difficulty level') || prompt.toLowerCase().includes('evaluate'))) {
+          return tagEvaluationResponse;
+        }
+
+        // Key term links
+        if (hasResponseFormat && prompt.includes('KEY TERMS WITH CONTEXT')) {
+          return keyTermLinkMappingsResponse;
+        }
+
+        // Heading links
+        if (hasResponseFormat && (prompt.includes('standalone titles') || prompt.includes('subsection'))) {
+          return headingLinkMappingsResponse;
+        }
+
+        // Content generation - capture the prompt
+        if (!hasResponseFormat) {
+          contentGenerationPrompt = prompt;
+          return {
+            choices: [{ message: { content: fullExplanationContent } }],
+          };
+        }
+
+        return {
+          choices: [{ message: { content: 'Unexpected call' } }],
+        };
+      });
+
+      // Act
+      const result = await returnExplanationLogic(
+        userQuery,             // userInput: string
+        null,                  // savedId: number | null
+        MatchMode.Normal,      // matchMode: MatchMode
+        userId,                // userid: string
+        UserInputType.Query,   // userInputType: UserInputType
+        emptyRules,            // additionalRules: string[] - EMPTY
+        undefined,             // onStreamingText?: StreamingCallback
+        undefined,             // existingContent?: string
+        null,                  // previousExplanationViewedId?: number | null
+        null                   // previousExplanationViewedVector?: { values: number[] } | null
+      );
+
+      // Assert - Check result
+      expect(result.error).toBeNull();
+      expect(result.explanationId).toBeTruthy();
+
+      // Verify prompt exists and contains base rules but NOT custom difficulty/length rules
+      expect(contentGenerationPrompt).toBeTruthy();
+      expect(contentGenerationPrompt).toContain('Use lists and bullets sparingly'); // Base rule
+      // Should NOT contain custom rules (since we passed empty array)
+      expect(contentGenerationPrompt).not.toContain('advanced difficulty level');
+      expect(contentGenerationPrompt).not.toContain('brief with 2-3 paragraphs');
+    });
+  });
 });
