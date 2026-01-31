@@ -142,6 +142,15 @@ detect-changes → typecheck + lint (parallel)
 - `E2E_TEST_MODE=true` for SSE streaming compatibility
 - **Fail strategy:** Continues on failure (tests all browsers)
 
+### Evolution Batch Runner (`evolution-batch.yml`)
+
+**Trigger:** Manual dispatch or scheduled (when configured)
+
+**Behavior:**
+- Runs the evolution pipeline batch runner against pending evolution runs
+- Uses Development environment secrets
+- Requires evolution DB tables to be migrated
+
 ### Post-Deploy Smoke Tests (`post-deploy-smoke.yml`)
 
 **Trigger:** Vercel deployment completes successfully to Production

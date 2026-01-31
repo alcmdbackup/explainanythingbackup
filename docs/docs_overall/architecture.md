@@ -36,7 +36,7 @@ User Query → Vector Search (Pinecone) → Match Found? → Return Existing
 | Codebase | 60k+ LOC TypeScript |
 | Services | 17 domain services |
 | Actions | 50+ server actions |
-| Tests | 80+ unit, 10 integration, 9 E2E specs |
+| Tests | 80+ unit, 18 integration, 9 E2E specs |
 
 ---
 

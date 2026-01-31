@@ -154,6 +154,8 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/users` - User management
 - `/admin/whitelist` - Whitelist and candidates tabs
 - `/admin/costs` - LLM cost analytics (see Cost Analytics section below)
+- `/admin/quality` - Content quality dashboard
+- `/admin/quality/evolution` - Evolution pipeline management (queue runs, apply winners, rollback)
 - `/admin/audit` - Audit log
 - `/admin/settings` - System settings
 - `/admin/dev-tools` - Development utilities

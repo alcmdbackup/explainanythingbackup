@@ -15,9 +15,10 @@ ExplainAnything uses a **four-tier testing strategy**:
 ### Test Statistics
 - **Unit**: 60+ colocated `.test.ts` files
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 15 test files (14 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
+- **Integration**: 18 test files (17 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
   - **Critical** (run on PRs to main): 5 tests
-  - **Full** (run on PRs to production): 15 tests
+  - **Full** (run on PRs to production): 18 tests
+  - **Evolution** (3 files): Auto-skip when evolution DB tables not yet migrated
 - **E2E**: 22 spec files in `__tests__/e2e/specs/`
   - **Critical** (`@critical` tag): 10 tests (run on PRs to main)
   - **Full**: 163 tests (run on PRs to production)
@@ -94,12 +95,16 @@ src/testing/
     ├── integration-helpers.ts         # DB setup/teardown
     ├── logging-test-helpers.ts        # Logging test utilities
     ├── page-test-helpers.ts           # Next.js page testing, router mocks
-    └── phase9-test-helpers.ts         # Auth/middleware testing utilities
+    ├── phase9-test-helpers.ts         # Auth/middleware testing utilities
+    └── evolution-test-helpers.ts      # Evolution pipeline test factories & mocks
 
 src/__tests__/
-├── integration/                       # 11 integration test files
+├── integration/                       # 14 integration test files
 │   ├── auth-flow.integration.test.ts
 │   ├── error-handling.integration.test.ts
+│   ├── evolution-actions.integration.test.ts
+│   ├── evolution-infrastructure.integration.test.ts
+│   ├── evolution-pipeline.integration.test.ts
 │   ├── explanation-generation.integration.test.ts
 │   ├── explanation-update.integration.test.ts
 │   ├── import-articles.integration.test.ts
@@ -343,6 +348,18 @@ createMockFormData(fields)          // FormData mock
 createMockCookies(values)           // Cookie mock
 createMockRedirect()                // Next.js redirect helper
 createSupabaseErrorMock(code)       // Supabase error factory
+```
+
+### evolution-test-helpers.ts
+```typescript
+NOOP_SPAN                              // No-op OTel span for mocked instrumentation
+VALID_VARIANT_TEXT                     // Format-valid markdown for pipeline tests
+evolutionTablesExist(supabase)         // Check if evolution tables are migrated
+cleanupEvolutionData(supabase, ids)    // FK-safe cleanup of evolution test data
+createTestEvolutionRun(supabase, ...)  // Insert test evolution run
+createTestVariant(supabase, ...)       // Insert test variant
+createMockEvolutionLLMClient(overrides) // Mock LLM client for pipeline tests
+createMockEvolutionLogger()            // Mock logger with jest.fn() methods
 ```
 
 ### logging-test-helpers.ts

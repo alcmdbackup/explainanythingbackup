@@ -22,14 +22,18 @@ export type AuditAction =
   | 'enable_user'
   | 'update_user_notes'
   | 'update_feature_flag'
-  | 'backfill_costs';
+  | 'backfill_costs'
+  | 'queue_evolution_run'
+  | 'apply_evolution_winner'
+  | 'rollback_evolution';
 
 export type EntityType =
   | 'explanation'
   | 'report'
   | 'user'
   | 'feature_flag'
-  | 'system';
+  | 'system'
+  | 'evolution_run';
 
 export interface AuditLogEntry {
   id: number;

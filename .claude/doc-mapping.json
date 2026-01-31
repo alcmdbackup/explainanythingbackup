@@ -233,6 +233,10 @@
     {
       "pattern": "src/lib/services/admin*.ts",
       "docs": ["docs/feature_deep_dives/admin_panel.md"]
+    },
+    {
+      "pattern": "src/lib/services/writing*.ts",
+      "docs": ["docs/feature_deep_dives/writing_pipeline.md"]
     }
   ],
   "alwaysConsider": [

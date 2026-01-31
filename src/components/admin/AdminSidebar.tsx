@@ -20,6 +20,8 @@ const navItems: NavItem[] = [
   { href: '/admin/content/reports', label: 'Reports Queue', icon: '🚨', testId: 'admin-sidebar-nav-reports' },
   { href: '/admin/users', label: 'Users', icon: '👥', testId: 'admin-sidebar-nav-users' },
   { href: '/admin/costs', label: 'Costs', icon: '💰', testId: 'admin-sidebar-nav-costs' },
+  { href: '/admin/quality/evolution', label: 'Evolution', icon: '🧬', testId: 'admin-sidebar-nav-evolution' },
+  { href: '/admin/quality', label: 'Quality Scores', icon: '📈', testId: 'admin-sidebar-nav-quality' },
   { href: '/admin/whitelist', label: 'Whitelist', icon: '🔗', testId: 'admin-sidebar-nav-whitelist' },
   { href: '/admin/audit', label: 'Audit Log', icon: '📋', testId: 'admin-sidebar-nav-audit' },
   { href: '/admin/settings', label: 'Settings', icon: '⚙️', testId: 'admin-sidebar-nav-settings' },
@@ -41,6 +43,10 @@ export function AdminSidebar() {
     if (href === '/admin/content') {
       return pathname === '/admin/content' ||
         (pathname.startsWith('/admin/content') && !pathname.startsWith('/admin/content/reports'));
+    }
+    // Quality Scores should not highlight when on evolution sub-page
+    if (href === '/admin/quality') {
+      return pathname === '/admin/quality';
     }
     return pathname.startsWith(href);
   };

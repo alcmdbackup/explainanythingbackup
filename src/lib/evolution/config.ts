@@ -1,0 +1,57 @@
+// Default configuration for the evolution pipeline.
+// Per-run overrides stored in content_evolution_runs.config JSONB column.
+
+import type { EvolutionRunConfig } from './types';
+
+export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
+  maxIterations: 15,
+  budgetCapUsd: 5.00,
+  plateau: { window: 3, threshold: 0.02 },
+  expansion: {
+    minPool: 15,
+    minIterations: 3,
+    diversityThreshold: 0.25,
+    maxIterations: 8,
+  },
+  generation: { strategies: 3 },
+  calibration: { opponents: 5 },
+  budgetCaps: {
+    generation: 0.25,
+    calibration: 0.20,
+    tournament: 0.30,
+    evolution: 0.20,
+    reflection: 0.05,
+  },
+  useEmbeddings: false,
+} as const;
+
+/** Merge per-run config overrides with defaults. */
+export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
+  return {
+    ...DEFAULT_EVOLUTION_CONFIG,
+    ...overrides,
+    plateau: { ...DEFAULT_EVOLUTION_CONFIG.plateau, ...overrides.plateau },
+    expansion: { ...DEFAULT_EVOLUTION_CONFIG.expansion, ...overrides.expansion },
+    generation: { ...DEFAULT_EVOLUTION_CONFIG.generation, ...overrides.generation },
+    calibration: { ...DEFAULT_EVOLUTION_CONFIG.calibration, ...overrides.calibration },
+    budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...overrides.budgetCaps },
+  };
+}
+
+// ─── Elo constants ───────────────────────────────────────────────
+
+export const ELO_CONSTANTS = {
+  DEFAULT_K: 32,
+  INITIAL_RATING: 1200.0,
+  FLOOR: 800.0,
+} as const;
+
+/**
+ * Adaptive K-factor schedule: higher K for fewer matches (rapid calibration),
+ * lower K for many matches (stability).
+ */
+export const K_SCHEDULE: ReadonlyArray<{ maxMatches: number; k: number }> = [
+  { maxMatches: 5, k: 48 },
+  { maxMatches: 15, k: 32 },
+  { maxMatches: Infinity, k: 16 },
+];

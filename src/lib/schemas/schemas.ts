@@ -1094,3 +1094,68 @@ export const aiSuggestionSessionDataSchema = z.object({
 });
 
 export type AISuggestionSessionDataType = z.infer<typeof aiSuggestionSessionDataSchema>;
+
+// =============================================================================
+// CONTENT QUALITY EVALUATION SCHEMAS (Phase D)
+// =============================================================================
+
+/**
+ * Dimensions for content quality evaluation.
+ * Reduced set based on Python criteria.py — correlated dimensions merged.
+ */
+export const contentQualityDimensions = z.enum([
+  'clarity',
+  'structure',
+  'engagement',
+  'conciseness',
+  'coherence',
+  'specificity',
+  'point_of_view',
+  'overall',
+]);
+export type ContentQualityDimension = z.infer<typeof contentQualityDimensions>;
+
+/**
+ * Schema for a single dimension score from LLM evaluation.
+ * Score is 0-1 (normalized from the 1-10 scale in prompts).
+ */
+export const contentQualityScoreSchema = z.object({
+  dimension: contentQualityDimensions,
+  score: z.number().min(0).max(1),
+  rationale: z.string().min(10).max(800),
+});
+export type ContentQualityScore = z.infer<typeof contentQualityScoreSchema>;
+
+/**
+ * Schema for LLM structured output: multi-dimension eval response.
+ * Used with callOpenAIModel + zodResponseFormat.
+ */
+export const contentQualityEvalResponseSchema = z.object({
+  scores: z.array(contentQualityScoreSchema).min(1).max(8),
+});
+export type ContentQualityEvalResponse = z.infer<typeof contentQualityEvalResponseSchema>;
+
+/**
+ * Schema for independent article scoring (used in comparison service).
+ * Scores on 1-10 scale for head-to-head comparison margin calculation.
+ */
+export const articleScoreSchema = z.object({
+  clarity: z.number().int().min(1).max(10),
+  structure: z.number().int().min(1).max(10),
+  conciseness: z.number().int().min(1).max(10),
+  engagement: z.number().int().min(1).max(10),
+  overall: z.number().int().min(1).max(10),
+  reasoning: z.string().min(10).max(500),
+});
+export type ArticleScore = z.infer<typeof articleScoreSchema>;
+
+/**
+ * Schema for pairwise comparison result (single ordering).
+ */
+export const comparisonResultSchema = z.object({
+  winner: z.enum(['first', 'second', 'tie']),
+  reasoning: z.string().min(10).max(800),
+  first_strengths: z.array(z.string()).min(1).max(3),
+  second_strengths: z.array(z.string()).min(1).max(3),
+});
+export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
