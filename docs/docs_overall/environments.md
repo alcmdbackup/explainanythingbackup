@@ -186,6 +186,7 @@ Available to all workflows - API keys that don't change between environments:
 | Secret | Purpose |
 |--------|---------|
 | `OPENAI_API_KEY` | OpenAI API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (evolution pipeline) |
 | `PINECONE_API_KEY` | Pinecone API key |
 
 #### Development Environment Secrets
@@ -274,6 +275,7 @@ See `scripts/query-honeycomb.md` for detailed instructions on querying logs and 
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (public) |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase admin key (server-only) |
 | `OPENAI_API_KEY` | OpenAI API key |
+| `DEEPSEEK_API_KEY` | DeepSeek API key (used by evolution pipeline) |
 | `PINECONE_API_KEY` | Pinecone API key |
 | `PINECONE_INDEX_NAME_ALL` | Pinecone index name |
 

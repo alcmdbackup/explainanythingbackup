@@ -116,7 +116,7 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
  * Used by: callOpenAIModel function for parameter validation
  * Calls: N/A (validation schema)
  */
-export const allowedLLMModelSchema = z.enum(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano"]);
+export const allowedLLMModelSchema = z.enum(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano", "deepseek-chat"]);
 
 export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;
 

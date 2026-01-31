@@ -89,11 +89,11 @@ function getOpenAIClient(): OpenAI {
     if (typeof window !== 'undefined') {
         throw new Error('OpenAI client cannot be used on the client side');
     }
-    
+
     if (!process.env.OPENAI_API_KEY) {
         throw new Error('OPENAI_API_KEY not found in environment variables. Please check your .env file exists and contains a valid API key.');
     }
-    
+
     if (!openai) {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
@@ -101,8 +101,38 @@ function getOpenAIClient(): OpenAI {
             timeout: 60000  // Increased to 60 seconds for GPT-5 models
         });
     }
-    
+
     return openai;
+}
+
+// DeepSeek client — uses OpenAI-compatible API at a different base URL
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+let deepseekClient: OpenAI | null = null;
+
+function getDeepSeekClient(): OpenAI {
+    if (typeof window !== 'undefined') {
+        throw new Error('DeepSeek client cannot be used on the client side');
+    }
+
+    if (!process.env.DEEPSEEK_API_KEY) {
+        throw new Error('DEEPSEEK_API_KEY not found in environment variables. Please check your .env file.');
+    }
+
+    if (!deepseekClient) {
+        deepseekClient = new OpenAI({
+            apiKey: process.env.DEEPSEEK_API_KEY,
+            baseURL: DEEPSEEK_BASE_URL,
+            maxRetries: 3,
+            timeout: 60000,
+        });
+    }
+
+    return deepseekClient;
+}
+
+/** Check if a model should be routed to DeepSeek. */
+function isDeepSeekModel(model: string): boolean {
+    return model.startsWith('deepseek-');
 }
 
 
@@ -161,7 +191,12 @@ async function callOpenAIModel(
             stream: streaming
         };
         if (response_obj && response_obj_name) {
-            requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
+            // DeepSeek doesn't support json_schema; fall back to json_object
+            if (isDeepSeekModel(validatedModel)) {
+                requestOptions.response_format = { type: 'json_object' };
+            } else {
+                requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
+            }
         }
 
         const span = createLLMSpan('openai.chat.completions.create', {
@@ -172,6 +207,9 @@ async function callOpenAIModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
         
+        // Route to the correct client based on model provider
+        const client = isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
+
         let response: string;
         let usage: any = {};
         let finishReason = 'unknown';
@@ -181,7 +219,7 @@ async function callOpenAIModel(
         try {
             if (streaming) {
                 // Handle streaming response
-                const stream = await getOpenAIClient().chat.completions.create(requestOptions) as any;
+                const stream = await client.chat.completions.create(requestOptions) as any;
                 let accumulatedContent = '';
                 let lastChunk: any = null;
                 
@@ -215,7 +253,7 @@ async function callOpenAIModel(
                 });
             } else {
                 // Handle non-streaming response
-                const completion = await getOpenAIClient().chat.completions.create(requestOptions) as any;
+                const completion = await client.chat.completions.create(requestOptions) as any;
                 
                 usage = completion.usage || {};
                 finishReason = completion.choices[0]?.finish_reason || 'unknown';
