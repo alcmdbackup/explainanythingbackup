@@ -198,7 +198,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
 
   const startMs = Date.now();
   try {
-    const result = await executeFullPipeline(run.id, agents, ctx, logger, { featureFlags });
+    const result = await executeFullPipeline(run.id, agents, ctx, logger, { featureFlags, startMs });
     const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
     log('info', 'Run completed', {
       runId: run.id,

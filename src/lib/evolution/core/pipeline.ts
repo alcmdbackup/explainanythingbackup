@@ -5,8 +5,8 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState } from './state';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
-import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext } from '../types';
-import { BudgetExceededError } from '../types';
+import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
+import { BudgetExceededError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
 import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
@@ -74,6 +74,99 @@ async function markRunPaused(runId: string, error: BudgetExceededError): Promise
   }).eq('id', runId);
 }
 
+/** Insert the original text as a baseline variant for Elo comparison. Idempotent via poolIds guard. */
+export function insertBaselineVariant(state: PipelineState, runId: string): void {
+  const baselineId = `baseline-${runId}`;
+  if (state.poolIds.has(baselineId)) return;
+  state.addToPool({
+    id: baselineId,
+    text: state.originalText,
+    version: 0,
+    parentIds: [],
+    strategy: BASELINE_STRATEGY,
+    createdAt: Date.now() / 1000,
+    iterationBorn: 0,
+  });
+}
+
+/** Build a run summary from pipeline state at completion. Works with or without a supervisor. */
+export function buildRunSummary(
+  ctx: ExecutionContext,
+  stopReason: string,
+  durationSeconds: number,
+  supervisor?: PoolSupervisor,
+): EvolutionRunSummary {
+  const state = ctx.state;
+  const topVariants = state.getTopByElo(5).map((v) => ({
+    id: v.id,
+    strategy: v.strategy,
+    elo: state.eloRatings.get(v.id) ?? 1200,
+    isBaseline: v.strategy === BASELINE_STRATEGY,
+  }));
+
+  const allByElo = state.getTopByElo(state.getPoolSize());
+  const baselineIdx = allByElo.findIndex((v) => v.strategy === BASELINE_STRATEGY);
+  const baselineVariant = baselineIdx >= 0 ? allByElo[baselineIdx] : undefined;
+
+  if (baselineIdx < 0) {
+    ctx.logger.warn('Baseline variant not found in pool', { runId: ctx.runId });
+  }
+
+  const matches = state.matchHistory;
+  const avgConfidence = matches.length > 0
+    ? matches.reduce((s, m) => s + m.confidence, 0) / matches.length : 0;
+  const decisiveRate = matches.length > 0
+    ? matches.filter((m) => m.confidence >= 0.7).length / matches.length : 0;
+
+  const strategyEffectiveness: Record<string, { count: number; avgElo: number }> = {};
+  for (const v of state.pool) {
+    const elo = state.eloRatings.get(v.id) ?? 1200;
+    if (!strategyEffectiveness[v.strategy]) {
+      strategyEffectiveness[v.strategy] = { count: 0, avgElo: 0 };
+    }
+    strategyEffectiveness[v.strategy].count++;
+    strategyEffectiveness[v.strategy].avgElo += elo;
+  }
+  for (const s of Object.values(strategyEffectiveness)) {
+    s.avgElo = s.avgElo / s.count;
+  }
+
+  return {
+    version: 1,
+    stopReason,
+    finalPhase: supervisor?.currentPhase ?? 'EXPANSION',
+    totalIterations: state.iteration,
+    durationSeconds,
+    eloHistory: supervisor?.getResumeState().eloHistory ?? [],
+    diversityHistory: supervisor?.getResumeState().diversityHistory ?? [],
+    matchStats: { totalMatches: matches.length, avgConfidence, decisiveRate },
+    topVariants,
+    baselineRank: baselineIdx >= 0 ? baselineIdx + 1 : null,
+    baselineElo: baselineVariant
+      ? (state.eloRatings.get(baselineVariant.id) ?? null)
+      : null,
+    strategyEffectiveness,
+    metaFeedback: state.metaFeedback,
+  };
+}
+
+/** Validate a run summary with Zod safeParse. Returns null on invalid data (non-crashing). */
+export function validateRunSummary(
+  raw: EvolutionRunSummary,
+  logger: EvolutionLogger,
+  runId: string,
+): EvolutionRunSummary | null {
+  const result = EvolutionRunSummarySchema.safeParse(raw);
+  if (!result.success) {
+    logger.error('Run summary Zod validation failed — saving null', {
+      runId,
+      errors: result.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+    });
+    return null;
+  }
+  return result.data;
+}
+
 /**
  * Execute a minimal pipeline: run agents sequentially, checkpoint after each.
  * This is Slice A's simplified version — no phase transitions, single iteration.
@@ -83,6 +176,7 @@ export async function executeMinimalPipeline(
   agents: PipelineAgent[],
   ctx: ExecutionContext,
   logger: EvolutionLogger,
+  options?: { startMs?: number },
 ): Promise<void> {
   // Inject comparison cache if not already present
   if (!ctx.comparisonCache) {
@@ -94,6 +188,8 @@ export async function executeMinimalPipeline(
     status: 'running',
     started_at: new Date().toISOString(),
   }).eq('id', runId);
+
+  insertBaselineVariant(ctx.state, runId);
 
   for (const agent of agents) {
     if (!agent.canExecute(ctx.state)) {
@@ -135,6 +231,20 @@ export async function executeMinimalPipeline(
     total_cost_usd: ctx.costTracker.getTotalSpent(),
   }).eq('id', runId);
 
+  // Persist run summary separately — column may not exist if migration is pending
+  const durationSeconds = (Date.now() - (options?.startMs ?? Date.now())) / 1000;
+  const rawSummary = buildRunSummary(ctx, 'completed', durationSeconds, undefined);
+  const summary = validateRunSummary(rawSummary, logger, runId);
+  if (summary) {
+    const { error: summaryErr } = await supabase.from('content_evolution_runs')
+      .update({ run_summary: summary }).eq('id', runId);
+    if (summaryErr) {
+      logger.warn('Failed to persist run_summary (column may not exist yet)', {
+        runId, error: summaryErr.message,
+      });
+    }
+  }
+
   logger.info('Pipeline completed', {
     poolSize: ctx.state.getPoolSize(),
     totalCost: ctx.costTracker.getTotalSpent(),
@@ -160,6 +270,8 @@ export interface FullPipelineOptions {
   supervisorResume?: SupervisorResumeState;
   /** Per-agent feature flags (defaults to all-enabled if omitted). */
   featureFlags?: EvolutionFeatureFlags;
+  /** Start timestamp for run duration tracking. */
+  startMs?: number;
 }
 
 /**
@@ -206,6 +318,8 @@ export async function executeFullPipeline(
 
     let stopReason = 'completed';
     let previousPhase = supervisor.currentPhase;
+
+    insertBaselineVariant(ctx.state, runId);
 
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
       ctx.state.startNewIteration();
@@ -302,12 +416,26 @@ export async function executeFullPipeline(
     // Mark run completed
     const totalCost = ctx.costTracker.getTotalSpent();
     await supabase.from('content_evolution_runs').update({
-      status: stopReason === 'completed' ? 'completed' : 'completed',
+      status: 'completed',
       completed_at: new Date().toISOString(),
       total_variants: ctx.state.getPoolSize(),
       total_cost_usd: totalCost,
       error_message: stopReason === 'completed' ? null : stopReason,
     }).eq('id', runId);
+
+    // Persist run summary separately — column may not exist if migration is pending
+    const durationSeconds = (Date.now() - (options.startMs ?? Date.now())) / 1000;
+    const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
+    const summary = validateRunSummary(rawSummary, logger, runId);
+    if (summary) {
+      const { error: summaryErr } = await supabase.from('content_evolution_runs')
+        .update({ run_summary: summary }).eq('id', runId);
+      if (summaryErr) {
+        logger.warn('Failed to persist run_summary (column may not exist yet)', {
+          runId, error: summaryErr.message,
+        });
+      }
+    }
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,

@@ -247,7 +247,8 @@ describe('Evolution Pipeline Integration Tests', () => {
 
       expect(updatedRun).toBeTruthy();
       expect(updatedRun!.status).toBe('completed');
-      expect(updatedRun!.total_variants).toBe(0);
+      // Baseline variant is always inserted, so even when all LLM strategies fail we get 1
+      expect(updatedRun!.total_variants).toBe(1);
     });
   });
 
@@ -269,7 +270,8 @@ describe('Evolution Pipeline Integration Tests', () => {
       const agents = [new GenerationAgent(), new CalibrationRanker()];
       await executeMinimalPipeline(runId, agents, ctx, ctx.logger);
 
-      expect(state.pool.length).toBe(0);
+      // Baseline variant is always present even when LLM-generated variants are rejected
+      expect(state.pool.length).toBe(1);
 
       const { data: updatedRun } = await supabase
         .from('content_evolution_runs')

@@ -18,7 +18,8 @@ export type {
   Checkpoint,
   SerializedPipelineState,
 } from './types';
-export { BudgetExceededError, LLMRefusalError } from './types';
+export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from './types';
+export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
 export { createCostTracker } from './core/costTracker';

@@ -9,7 +9,8 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
-import type { EvolutionRunStatus, PipelinePhase } from '@/lib/evolution/types';
+import type { EvolutionRunStatus, PipelinePhase, EvolutionRunSummary } from '@/lib/evolution/types';
+import { EvolutionRunSummarySchema } from '@/lib/evolution/types';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -344,9 +345,10 @@ const _triggerEvolutionRunAction = withLogging(async (
     };
 
     const agents = [new GenerationAgent(), new CalibrationRanker()];
+    const startMs = Date.now();
     state.startNewIteration();
 
-    await executeMinimalPipeline(runId, agents, ctx, evolutionLogger);
+    await executeMinimalPipeline(runId, agents, ctx, evolutionLogger, { startMs });
 
     // Persist variants to DB
     const variantInserts = state.pool.map((v) => ({
@@ -370,6 +372,45 @@ const _triggerEvolutionRunAction = withLogging(async (
 }, 'triggerEvolutionRunAction');
 
 export const triggerEvolutionRunAction = serverReadRequestId(_triggerEvolutionRunAction);
+
+// ─── Get run summary ─────────────────────────────────────────────
+
+const _getEvolutionRunSummaryAction = withLogging(async (
+  runId: string
+): Promise<{ success: boolean; data: EvolutionRunSummary | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('content_evolution_runs')
+      .select('run_summary')
+      .eq('id', runId)
+      .single();
+
+    if (error) {
+      logger.error('Error fetching run summary', { error: error.message });
+      throw error;
+    }
+
+    if (!data?.run_summary) return { success: true, data: null, error: null };
+
+    const parsed = EvolutionRunSummarySchema.safeParse(data.run_summary);
+    if (!parsed.success) {
+      logger.warn('Invalid run_summary in database', {
+        runId,
+        errors: parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`),
+      });
+      return { success: true, data: null, error: null };
+    }
+
+    return { success: true, data: parsed.data, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunSummaryAction', { runId }) };
+  }
+}, 'getEvolutionRunSummaryAction');
+
+export const getEvolutionRunSummaryAction = serverReadRequestId(_getEvolutionRunSummaryAction);
 
 // ─── Cost breakdown by agent ─────────────────────────────────────
 

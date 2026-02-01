@@ -249,10 +249,10 @@ const _getEvolutionComparisonAction = withLogging(async (
     // Get latest evolution history entry
     const { data: historyRow, error: historyError } = await supabase
       .from('content_history')
-      .select('id, created_at')
+      .select('id, applied_at')
       .eq('explanation_id', explanationId)
       .eq('source', 'evolution_pipeline')
-      .order('created_at', { ascending: false })
+      .order('applied_at', { ascending: false })
       .limit(1)
       .single();
 
@@ -260,7 +260,7 @@ const _getEvolutionComparisonAction = withLogging(async (
       return { success: true, data: null, error: null };
     }
 
-    const appliedAt = historyRow.created_at as string;
+    const appliedAt = historyRow.applied_at as string;
 
     // Get all quality scores for this explanation
     const { data: scores, error: scoresError } = await supabase

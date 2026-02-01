@@ -69,7 +69,7 @@ describe('getEvolutionComparisonAction', () => {
       // First call: content_history
       content_history: (b) => {
         b.single.mockResolvedValueOnce({
-          data: { id: 1, created_at: '2026-01-15T12:00:00Z' },
+          data: { id: 1, applied_at: '2026-01-15T12:00:00Z' },
           error: null,
         });
       },
@@ -114,7 +114,7 @@ describe('getEvolutionComparisonAction', () => {
     const mock = createTableAwareMock({
       content_history: (b) => {
         b.single.mockResolvedValueOnce({
-          data: { id: 1, created_at: '2026-01-15T12:00:00Z' },
+          data: { id: 1, applied_at: '2026-01-15T12:00:00Z' },
           error: null,
         });
       },
@@ -133,7 +133,7 @@ describe('getEvolutionComparisonAction', () => {
     const mock = createTableAwareMock({
       content_history: (b) => {
         b.single.mockResolvedValueOnce({
-          data: { id: 1, created_at: '2026-01-15T12:00:00Z' },
+          data: { id: 1, applied_at: '2026-01-15T12:00:00Z' },
           error: null,
         });
       },

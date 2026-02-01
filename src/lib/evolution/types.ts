@@ -230,3 +230,73 @@ export interface SerializedPipelineState {
 // ─── Evolution run status ────────────────────────────────────────
 
 export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused';
+
+export const BASELINE_STRATEGY = 'original_baseline' as const;
+
+// ─── Evolution run summary (persisted as JSONB) ─────────────────
+
+export interface EvolutionRunSummary {
+  version: 1;
+  stopReason: string;
+  finalPhase: PipelinePhase;
+  totalIterations: number;
+  durationSeconds: number;
+  eloHistory: number[];
+  diversityHistory: number[];
+  matchStats: {
+    totalMatches: number;
+    avgConfidence: number;
+    decisiveRate: number;
+  };
+  topVariants: Array<{
+    id: string;
+    strategy: string;
+    elo: number;
+    isBaseline: boolean;
+  }>;
+  baselineRank: number | null;
+  baselineElo: number | null;
+  strategyEffectiveness: Record<string, {
+    count: number;
+    avgElo: number;
+  }>;
+  metaFeedback: {
+    successfulStrategies: string[];
+    recurringWeaknesses: string[];
+    patternsToAvoid: string[];
+    priorityImprovements: string[];
+  } | null;
+}
+
+export const EvolutionRunSummarySchema = z.object({
+  version: z.literal(1),
+  stopReason: z.string().max(200),
+  finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
+  totalIterations: z.number().int().min(0).max(100),
+  durationSeconds: z.number().min(0),
+  eloHistory: z.array(z.number()).max(100),
+  diversityHistory: z.array(z.number()).max(100),
+  matchStats: z.object({
+    totalMatches: z.number().int().min(0),
+    avgConfidence: z.number().min(0).max(1),
+    decisiveRate: z.number().min(0).max(1),
+  }),
+  topVariants: z.array(z.object({
+    id: z.string().max(200),
+    strategy: z.string().max(100),
+    elo: z.number(),
+    isBaseline: z.boolean(),
+  })).max(10),
+  baselineRank: z.number().int().min(1).nullable(),
+  baselineElo: z.number().nullable(),
+  strategyEffectiveness: z.record(z.string(), z.object({
+    count: z.number().int().min(0),
+    avgElo: z.number(),
+  })),
+  metaFeedback: z.object({
+    successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
+    recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
+    patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
+    priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
+  }).nullable(),
+}).strict();

@@ -7,7 +7,7 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
-import { BudgetExceededError } from '../types';
+import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 
 // ─── Evolution strategies ───────────────────────────────────────
 
@@ -87,19 +87,20 @@ Output ONLY the transformed text, no explanations.`;
 
 // ─── Helper functions ───────────────────────────────────────────
 
-/** Identify overrepresented strategies (>1.5x average count). */
+/** Identify overrepresented strategies (>1.5x average count), excluding baseline. */
 export function getDominantStrategies(pool: TextVariation[]): string[] {
-  if (pool.length === 0) return [];
+  const eligible = pool.filter((v) => v.strategy !== BASELINE_STRATEGY);
+  if (eligible.length === 0) return [];
 
   const counts: Record<string, number> = {};
-  for (const v of pool) {
+  for (const v of eligible) {
     counts[v.strategy] = (counts[v.strategy] ?? 0) + 1;
   }
 
   const numStrategies = Object.keys(counts).length;
   if (numStrategies === 0) return [];
 
-  const avg = pool.length / numStrategies;
+  const avg = eligible.length / numStrategies;
   return Object.entries(counts)
     .filter(([, count]) => count > avg * 1.5)
     .map(([strategy]) => strategy);

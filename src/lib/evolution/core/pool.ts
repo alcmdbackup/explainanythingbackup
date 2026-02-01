@@ -2,6 +2,7 @@
 // Provides opponent selection across Elo quartiles and pool health reporting.
 
 import type { PipelineState, TextVariation } from '../types';
+import { BASELINE_STRATEGY } from '../types';
 
 export class PoolManager {
   constructor(private state: PipelineState) {}
@@ -89,9 +90,11 @@ export class PoolManager {
     return [...new Map(opponents.map((id) => [id, id])).values()].slice(0, n);
   }
 
-  /** Get top N parents by Elo for evolution. */
+  /** Get top N parents by Elo for evolution, excluding baseline variant. */
   getEvolutionParents(n: number = 2): TextVariation[] {
-    return this.state.getTopByElo(n);
+    const allByElo = this.state.getTopByElo(this.state.getPoolSize());
+    const eligible = allByElo.filter((v) => v.strategy !== BASELINE_STRATEGY);
+    return eligible.slice(0, n);
   }
 
   /** Report pool health statistics. */

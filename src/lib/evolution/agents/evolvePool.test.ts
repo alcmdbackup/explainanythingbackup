@@ -3,6 +3,7 @@
 import { EvolutionAgent, getDominantStrategies, shouldTriggerCreativeExploration, EVOLUTION_STRATEGIES } from './evolvePool';
 import { PipelineStateImpl } from '../core/state';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation } from '../types';
+import { BASELINE_STRATEGY } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
 const VALID_TEXT = `# Test Title
@@ -106,6 +107,23 @@ describe('getDominantStrategies', () => {
     const pool: TextVariation[] = [
       { id: '1', text: 'a', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: 0, iterationBorn: 0 },
       { id: '2', text: 'b', version: 1, parentIds: [], strategy: 'lexical_simplify', createdAt: 0, iterationBorn: 0 },
+    ];
+    expect(getDominantStrategies(pool)).toEqual([]);
+  });
+
+  it('excludes baseline from strategy count', () => {
+    const pool: TextVariation[] = [
+      { id: 'b', text: 'orig', version: 0, parentIds: [], strategy: BASELINE_STRATEGY, createdAt: 0, iterationBorn: 0 },
+      { id: '1', text: 'a', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: 0, iterationBorn: 0 },
+      { id: '2', text: 'b', version: 1, parentIds: [], strategy: 'lexical_simplify', createdAt: 0, iterationBorn: 0 },
+    ];
+    // Without baseline: 2 variants, 2 strategies, balanced → empty
+    expect(getDominantStrategies(pool)).toEqual([]);
+  });
+
+  it('returns empty when only baseline in pool', () => {
+    const pool: TextVariation[] = [
+      { id: 'b', text: 'orig', version: 0, parentIds: [], strategy: BASELINE_STRATEGY, createdAt: 0, iterationBorn: 0 },
     ];
     expect(getDominantStrategies(pool)).toEqual([]);
   });
