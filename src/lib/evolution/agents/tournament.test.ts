@@ -120,10 +120,11 @@ describe('swissPairing', () => {
     elo.set('v-2', 1100);
     const completed = new Set(['v-0|v-1']);
     const pairs = swissPairing(state.pool, elo, completed, 1200);
-    // v-0 can't play v-1, so pairs v-0 with v-2
+    // v-0 can't play v-1 (completed). Info-theoretic scoring prefers v-1 vs v-2
+    // (higher outcome uncertainty) over v-0 vs v-2 (large Elo gap = low uncertainty)
     expect(pairs).toHaveLength(1);
-    expect(pairs[0][0].id).toBe('v-0');
-    expect(pairs[0][1].id).toBe('v-2');
+    const pairIds = [pairs[0][0].id, pairs[0][1].id].sort();
+    expect(pairIds).toEqual(['v-1', 'v-2']);
   });
 
   it('returns empty when all pairs played', () => {
@@ -136,6 +137,100 @@ describe('swissPairing', () => {
   it('handles odd number of variants (one sits out)', () => {
     const state = makeState(3);
     const pairs = swissPairing(state.pool, new Map(), new Set(), 1200);
+    expect(pairs).toHaveLength(1);
+  });
+
+  it('prefers under-tested variants via sigma proxy', () => {
+    const state = makeState(4);
+    const elo = new Map<string, number>();
+    // All at same rating → equal outcome uncertainty for all pairs
+    elo.set('v-0', 1200);
+    elo.set('v-1', 1200);
+    elo.set('v-2', 1200);
+    elo.set('v-3', 1200);
+    // v-0 and v-1 have many matches (low sigma), v-2 and v-3 are new (high sigma)
+    const matchCounts = new Map<string, number>();
+    matchCounts.set('v-0', 15);
+    matchCounts.set('v-1', 15);
+    matchCounts.set('v-2', 0);
+    matchCounts.set('v-3', 0);
+    const pairs = swissPairing(state.pool, elo, new Set(), 1200, matchCounts);
+    expect(pairs).toHaveLength(2);
+    // v-2 vs v-3 (both high sigma) should be the top-scored pair
+    const topPairIds = [pairs[0][0].id, pairs[0][1].id].sort();
+    expect(topPairIds).toEqual(['v-2', 'v-3']);
+  });
+
+  it('pairs established variants with similar Elo (high outcome uncertainty)', () => {
+    const state = makeState(4);
+    const elo = new Map<string, number>();
+    elo.set('v-0', 1400);
+    elo.set('v-1', 1395);
+    elo.set('v-2', 1000);
+    elo.set('v-3', 1005);
+    // All have equal match counts so sigma is uniform
+    const matchCounts = new Map<string, number>();
+    matchCounts.set('v-0', 5);
+    matchCounts.set('v-1', 5);
+    matchCounts.set('v-2', 5);
+    matchCounts.set('v-3', 5);
+    const pairs = swissPairing(state.pool, elo, new Set(), 1200, matchCounts);
+    expect(pairs).toHaveLength(2);
+    // Close-rated pairs should be preferred: v-0 vs v-1, v-2 vs v-3
+    const pairIds = pairs.map(([a, b]) => [a.id, b.id].sort());
+    expect(pairIds).toContainEqual(['v-0', 'v-1']);
+    expect(pairIds).toContainEqual(['v-2', 'v-3']);
+  });
+
+  it('applies top-K boost to top-quartile matchups', () => {
+    const state = makeState(6);
+    const elo = new Map<string, number>();
+    // Top 2 are close, rest are spread out
+    elo.set('v-0', 1500);
+    elo.set('v-1', 1495);
+    elo.set('v-2', 1300);
+    elo.set('v-3', 1295);
+    elo.set('v-4', 1100);
+    elo.set('v-5', 1095);
+    const matchCounts = new Map<string, number>();
+    for (let i = 0; i < 6; i++) matchCounts.set(`v-${i}`, 5);
+    const pairs = swissPairing(state.pool, elo, new Set(), 1200, matchCounts);
+    // With 6 variants, K = floor(6/3) = 2. Top-K threshold = rating of 2nd highest = 1495
+    // v-0 vs v-1 gets 1.5x top-K boost AND highest outcome uncertainty → must be first pair
+    const topPairIds = [pairs[0][0].id, pairs[0][1].id].sort();
+    expect(topPairIds).toEqual(['v-0', 'v-1']);
+  });
+
+  it('handles empty matchCounts (all sigma = 1.0)', () => {
+    const state = makeState(4);
+    const elo = new Map<string, number>();
+    elo.set('v-0', 1250);
+    elo.set('v-1', 1240);
+    elo.set('v-2', 1100);
+    elo.set('v-3', 1110);
+    // No matchCounts → default empty map, sigma(0) = 1/sqrt(1) = 1.0 for all
+    const pairs = swissPairing(state.pool, elo, new Set(), 1200);
+    expect(pairs).toHaveLength(2);
+    // Close-rated pairs preferred: v-0 vs v-1 and v-2 vs v-3
+    const pairIds = pairs.map(([a, b]) => [a.id, b.id].sort());
+    expect(pairIds).toContainEqual(['v-0', 'v-1']);
+    expect(pairIds).toContainEqual(['v-2', 'v-3']);
+  });
+
+  it('returns empty for single variant', () => {
+    const state = makeState(1);
+    const pairs = swissPairing(state.pool, new Map(), new Set(), 1200);
+    expect(pairs).toHaveLength(0);
+  });
+
+  it('clamps K to 1 when pool < 3', () => {
+    // With 2 variants, K = max(1, floor(2/3)) = max(1, 0) = 1
+    // Should still pair the two variants
+    const state = makeState(2);
+    const elo = new Map<string, number>();
+    elo.set('v-0', 1300);
+    elo.set('v-1', 1200);
+    const pairs = swissPairing(state.pool, elo, new Set(), 1200);
     expect(pairs).toHaveLength(1);
   });
 });

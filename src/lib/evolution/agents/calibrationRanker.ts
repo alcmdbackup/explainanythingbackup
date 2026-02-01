@@ -86,10 +86,12 @@ export class CalibrationRanker extends AgentBase {
       }
     }
 
-    // First comparison: A vs B
-    const { winner: winner1 } = await this.comparePair(ctx, textA, textB);
-    // Second comparison: B vs A (reversed)
-    const { winner: winner2Raw } = await this.comparePair(ctx, textB, textA);
+    // Both rounds run concurrently — they are independent.
+    // Promise.all is correct: only BudgetExceededError propagates, which should abort both.
+    const [{ winner: winner1 }, { winner: winner2Raw }] = await Promise.all([
+      this.comparePair(ctx, textA, textB),
+      this.comparePair(ctx, textB, textA),
+    ]);
 
     // Normalize winner2 to original frame
     let winner2: string | null = winner2Raw;

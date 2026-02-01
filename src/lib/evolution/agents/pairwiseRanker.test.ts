@@ -239,6 +239,38 @@ describe('PairwiseRanker', () => {
     expect(match2.confidence).toBe(1.0);
   });
 
+  it('runs both bias mitigation rounds concurrently (Promise.all)', async () => {
+    // Verify concurrent execution: both comparePair calls should be initiated
+    // before either resolves, proving Promise.all is used (not sequential awaits).
+    let resolveFirst: (v: string) => void;
+    let resolveSecond: (v: string) => void;
+    let callCount = 0;
+
+    const llmClient = makeMockLLMClient([]);
+    (llmClient.complete as jest.Mock).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return new Promise<string>((r) => { resolveFirst = r; });
+      }
+      return new Promise<string>((r) => { resolveSecond = r; });
+    });
+
+    const ctx = makeCtx([], { llmClient });
+    const matchPromise = ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    // Allow microtasks to flush so Promise.all can start both calls
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Both calls should have been initiated before either resolves
+    expect(callCount).toBe(2);
+
+    // Resolve both
+    resolveFirst!('A');
+    resolveSecond!('B'); // B in reversed frame normalizes to A → agreement
+    const match = await matchPromise;
+    expect(match.confidence).toBe(1.0);
+  });
+
   it('failed comparison (null winner) is NOT cached, subsequent call retries LLM', async () => {
     const cache = new ComparisonCache();
     let callCount = 0;

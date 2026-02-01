@@ -50,34 +50,69 @@ function normalizePair(idA: string, idB: string): string {
   return idA < idB ? `${idA}|${idB}` : `${idB}|${idA}`;
 }
 
-/** Swiss pairing: match similar-rated variants that haven't played. */
+/** Uncertainty proxy: variants with fewer matches have higher sigma. */
+function sigma(matchCount: number): number {
+  return 1 / Math.sqrt(Math.min(matchCount, 20) + 1);
+}
+
+/** Elo expected score for player A against player B. */
+function expectedScore(ratingA: number, ratingB: number): number {
+  return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+}
+
+/** Info-theoretic Swiss pairing: score candidate pairs by information gain potential. */
 export function swissPairing(
   variants: TextVariation[],
   eloRatings: Map<string, number>,
   completedPairs: Set<string>,
   initialRating: number,
+  matchCounts: Map<string, number> = new Map(),
 ): Array<[TextVariation, TextVariation]> {
-  const sorted = [...variants].sort(
-    (a, b) => (eloRatings.get(b.id) ?? initialRating) - (eloRatings.get(a.id) ?? initialRating),
-  );
+  if (variants.length < 2) return [];
 
-  const pairs: Array<[TextVariation, TextVariation]> = [];
-  const used = new Set<string>();
+  // Determine top-K threshold (K = max(1, floor(pool/3)))
+  const k = Math.max(1, Math.floor(variants.length / 3));
+  const sortedRatings = [...variants]
+    .map((v) => eloRatings.get(v.id) ?? initialRating)
+    .sort((a, b) => b - a);
+  const topKThreshold = sortedRatings[Math.min(k, sortedRatings.length) - 1];
 
-  for (let i = 0; i < sorted.length; i++) {
-    const varA = sorted[i];
-    if (used.has(varA.id)) continue;
+  // Score all candidate pairs
+  const candidatePairs: Array<{ a: TextVariation; b: TextVariation; score: number }> = [];
+  for (let i = 0; i < variants.length; i++) {
+    for (let j = i + 1; j < variants.length; j++) {
+      const a = variants[i];
+      const b = variants[j];
+      if (completedPairs.has(normalizePair(a.id, b.id))) continue;
 
-    for (let j = i + 1; j < sorted.length; j++) {
-      const varB = sorted[j];
-      if (used.has(varB.id)) continue;
-      if (completedPairs.has(normalizePair(varA.id, varB.id))) continue;
+      const rA = eloRatings.get(a.id) ?? initialRating;
+      const rB = eloRatings.get(b.id) ?? initialRating;
 
-      pairs.push([varA, varB]);
-      used.add(varA.id);
-      used.add(varB.id);
-      break;
+      // Outcome uncertainty: highest when expected score ≈ 0.5
+      const expA = expectedScore(rA, rB);
+      const outcomeUncertainty = 1 - Math.abs(2 * expA - 1);
+
+      // Sigma proxy: preference for under-tested variants
+      const sigmaProxy = (sigma(matchCounts.get(a.id) ?? 0) + sigma(matchCounts.get(b.id) ?? 0)) / 2;
+
+      // Top-K boost: 1.5x if both in top K
+      const bothTopK = rA >= topKThreshold && rB >= topKThreshold;
+      const topKBoost = bothTopK ? 1.5 : 1.0;
+
+      candidatePairs.push({ a, b, score: outcomeUncertainty * sigmaProxy * topKBoost });
     }
+  }
+
+  // Greedy selection by descending score
+  candidatePairs.sort((x, y) => y.score - x.score);
+  const used = new Set<string>();
+  const pairs: Array<[TextVariation, TextVariation]> = [];
+
+  for (const { a, b } of candidatePairs) {
+    if (used.has(a.id) || used.has(b.id)) continue;
+    pairs.push([a, b]);
+    used.add(a.id);
+    used.add(b.id);
   }
 
   return pairs;
@@ -196,7 +231,7 @@ export class Tournament extends AgentBase {
         break;
       }
 
-      const pairs = swissPairing(pool, state.eloRatings, completedPairs, this.cfg.initialRating);
+      const pairs = swissPairing(pool, state.eloRatings, completedPairs, this.cfg.initialRating, state.matchCounts);
 
       if (pairs.length === 0) {
         staleRounds++;

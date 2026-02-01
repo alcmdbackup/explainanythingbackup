@@ -221,11 +221,12 @@ export class PairwiseRanker extends AgentBase {
       }
     }
 
-    // Round 1: A vs B
-    const r1 = await this.comparePair(ctx, textA, textB, structured);
-
-    // Round 2: B vs A (reversed)
-    const r2 = await this.comparePair(ctx, textB, textA, structured);
+    // Round 1 (A vs B) and Round 2 (B vs A) run concurrently — they are independent.
+    // Promise.all is correct: only BudgetExceededError propagates, which should abort both.
+    const [r1, r2] = await Promise.all([
+      this.comparePair(ctx, textA, textB, structured),
+      this.comparePair(ctx, textB, textA, structured),
+    ]);
 
     // Normalize round 2 winner to original frame
     let winner2: string | null = r2.winner;
