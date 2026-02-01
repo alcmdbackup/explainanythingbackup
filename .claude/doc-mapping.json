@@ -249,6 +249,14 @@
     {
       "pattern": "src/lib/services/*recommend*.ts",
       "docs": ["docs/feature_deep_dives/search_generation_pipeline.md"]
+    },
+    {
+      "pattern": "scripts/evolution*.ts",
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
+    },
+    {
+      "pattern": "scripts/run-evolution*.ts",
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
     }
   ],
   "alwaysConsider": [

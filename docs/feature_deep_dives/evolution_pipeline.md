@@ -380,6 +380,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `src/lib/services/evolutionActions.ts` | 8 server actions: queue, trigger, get runs/variants, apply winner, rollback, cost breakdown, history |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
+| `scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
 | `src/app/api/cron/evolution-watchdog/route.ts` | Marks stale runs (heartbeat > 10min) as failed — runs every 15 minutes |
 | `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
@@ -388,7 +389,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 ### Database Tables
 | Table | Purpose |
 |-------|---------|
-| `content_evolution_runs` | Run lifecycle: status, phase, budget, iterations, heartbeat, timing, runner_id |
+| `content_evolution_runs` | Run lifecycle: status, phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs (migration `20260131000008`) |
 | `content_evolution_variants` | Persisted variants with Elo scores, generation, parent lineage, is_winner flag |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
 | `feature_flags` | Three evolution flags seeded by migration `20260131000007` |
@@ -403,7 +404,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000007`)
+1. Run evolution migrations (`20260131000001` through `20260131000008`)
 2. The `claim_evolution_run` RPC function is referenced but not yet created — the batch runner has a fallback using `UPDATE WHERE status='pending'` with optimistic locking
 
 ### Batch Runner
@@ -419,6 +420,23 @@ npx tsx scripts/evolution-runner.ts --dry-run  # Log-only mode
 ```
 
 Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment variables.
+
+### Local CLI Runner
+```bash
+# Mock mode (no API keys needed)
+npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --mock
+
+# Real LLM mode (needs DEEPSEEK_API_KEY or OPENAI_API_KEY)
+npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md
+
+# Full agent suite with 5 iterations
+npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --full --iterations 5
+
+# With specific model
+npx tsx scripts/run-evolution-local.ts --file any-markdown.md --model gpt-4.1-mini
+```
+
+Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Runs are tracked with `source='local:<filename>'` and `explanation_id=NULL`. Pass `--explanation-id N` to link a run to an existing explanation.
 
 ### Monitoring
 - **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes, marks stale runs as failed
