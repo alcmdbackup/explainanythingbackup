@@ -120,64 +120,37 @@ const _addToBankAction = withLogging(async (
   try {
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
+    const trimmedPrompt = input.prompt.trim();
 
-    // Upsert topic (case-insensitive match on trimmed prompt)
-    const { data: topic, error: topicError } = await supabase
+    // Select-or-insert topic (expression index on LOWER(TRIM(prompt)) prevents
+    // PostgREST onConflict — it only accepts column names, not index names)
+    const { data: existing } = await supabase
       .from('article_bank_topics')
-      .upsert(
-        { prompt: input.prompt.trim(), title: input.title ?? null },
-        { onConflict: 'idx_article_bank_topics_prompt_unique' },
-      )
       .select('id')
+      .ilike('prompt', trimmedPrompt)
+      .is('deleted_at', null)
       .single();
 
-    if (topicError || !topic) {
-      // Fallback: try insert then select on conflict
-      const { data: existing } = await supabase
+    let topicId: string;
+
+    if (existing) {
+      topicId = existing.id;
+    } else {
+      const { data: newTopic, error: insertError } = await supabase
         .from('article_bank_topics')
-        .select('id')
-        .ilike('prompt', input.prompt.trim())
-        .is('deleted_at', null)
-        .single();
-
-      if (!existing) throw new Error(`Failed to upsert topic: ${topicError?.message ?? 'unknown'}`);
-
-      const topicId = existing.id;
-
-      const { data: entry, error: entryError } = await supabase
-        .from('article_bank_entries')
-        .insert({
-          topic_id: topicId,
-          content: input.content,
-          generation_method: input.generation_method,
-          model: input.model,
-          total_cost_usd: input.total_cost_usd ?? null,
-          evolution_run_id: input.evolution_run_id ?? null,
-          evolution_variant_id: input.evolution_variant_id ?? null,
-          metadata: input.metadata ?? {},
-        })
+        .insert({ prompt: trimmedPrompt, title: input.title ?? null })
         .select('id')
         .single();
 
-      if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
-
-      // Initialize Elo
-      await supabase.from('article_bank_elo').insert({
-        topic_id: topicId,
-        entry_id: entry.id,
-        elo_rating: INITIAL_ELO,
-        elo_per_dollar: computeEloPerDollar(INITIAL_ELO, input.total_cost_usd ?? null),
-        match_count: 0,
-      });
-
-      return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
+      if (insertError || !newTopic) throw new Error(`Failed to create topic: ${insertError?.message ?? 'unknown'}`);
+      topicId = newTopic.id;
     }
 
-    // Insert entry under the upserted topic
+    // Insert entry under topic
     const { data: entry, error: entryError } = await supabase
       .from('article_bank_entries')
       .insert({
-        topic_id: topic.id,
+        topic_id: topicId,
         content: input.content,
         generation_method: input.generation_method,
         model: input.model,
@@ -193,14 +166,14 @@ const _addToBankAction = withLogging(async (
 
     // Initialize Elo for new entry
     await supabase.from('article_bank_elo').insert({
-      topic_id: topic.id,
+      topic_id: topicId,
       entry_id: entry.id,
       elo_rating: INITIAL_ELO,
       elo_per_dollar: computeEloPerDollar(INITIAL_ELO, input.total_cost_usd ?? null),
       match_count: 0,
     });
 
-    return { success: true, data: { topic_id: topic.id, entry_id: entry.id }, error: null };
+    return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'addToBankAction') };
   }
@@ -345,7 +318,7 @@ const _runBankComparisonAction = withLogging(async (
   rounds: number = 1,
 ): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> => {
   try {
-    await requireAdmin();
+    const adminUserId = await requireAdmin();
     validateUuid(topicId, 'topic ID');
     const supabase = await createSupabaseServiceClient();
 
@@ -381,7 +354,7 @@ const _runBankComparisonAction = withLogging(async (
 
     // Build callLLM wrapper for comparison
     const callLLM = async (prompt: string): Promise<string> => {
-      return callLLMModel(prompt, 'bank_comparison', 'system', judgeModel, false, null);
+      return callLLMModel(prompt, 'bank_comparison', adminUserId, judgeModel, false, null);
     };
 
     // Comparison cache for this run
@@ -653,12 +626,12 @@ const _generateAndAddToBankAction = withLogging(async (
   input: GenerateAndAddInput,
 ): Promise<ActionResult<{ topic_id: string; entry_id: string; title: string; content: string }>> => {
   try {
-    await requireAdmin();
+    const adminUserId = await requireAdmin();
 
     // Step 1: Generate title
     const titlePrompt = createTitlePrompt(input.prompt);
     const titleResponse = await callLLMModel(
-      titlePrompt, 'bank_generate_title', 'system', input.model, false, null,
+      titlePrompt, 'bank_generate_title', adminUserId, input.model, false, null,
     );
 
     let title: string;
@@ -672,7 +645,7 @@ const _generateAndAddToBankAction = withLogging(async (
     // Step 2: Generate article content
     const explanationPrompt = createExplanationPrompt(title, []);
     const content = await callLLMModel(
-      explanationPrompt, 'bank_generate_article', 'system', input.model, false, null,
+      explanationPrompt, 'bank_generate_article', adminUserId, input.model, false, null,
     );
 
     if (!content || content.trim().length === 0) {

@@ -49,7 +49,7 @@ All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `s
 
 | Action | Purpose |
 |--------|---------|
-| `addToBankAction` | Atomic topic upsert + entry insert + Elo initialization |
+| `addToBankAction` | Select-or-insert topic (case-insensitive ilike match) + entry insert + Elo initialization |
 | `generateAndAddToBankAction` | Generate article via LLM (title + content) then add to bank |
 | `getBankTopicAction` | Single topic by ID |
 | `getBankTopicsAction` | All topics with aggregated stats (entry count, Elo range, cost, best method) |
@@ -78,7 +78,7 @@ Two pages under `/admin/quality/article-bank/`:
 **Topic List Page** (`page.tsx`):
 - Cross-topic cost efficiency summary cards (per generation method)
 - Topics table with entry counts, Elo ranges, costs, best method badges
-- "Generate New Article" button (model dropdown, generates via LLM, adds to bank)
+- "Generate New Article" button with topic picker dropdown (select existing topic or create new), model selector, generates via LLM, adds to bank
 - "New Topic" button for empty topic creation
 
 **Topic Detail Page** (`[topicId]/page.tsx`):
@@ -130,6 +130,7 @@ Two pages under `/admin/quality/article-bank/`:
 | File | Purpose |
 |------|---------|
 | `supabase/migrations/20260201000001_article_bank.sql` | 4 tables with indexes and constraints |
+| `supabase/migrations/20260201000002_backfill_variants_generated.sql` | Backfill `variants_generated` from `total_variants` for existing completed evolution runs |
 
 ## Data Flow
 
@@ -139,7 +140,7 @@ User enters prompt + selects model in UI
   → generateAndAddToBankAction
     → createTitlePrompt → callLLMModel (title generation)
     → createExplanationPrompt → callLLMModel (article generation)
-    → Upsert topic (case-insensitive dedup)
+    → Select-or-insert topic (case-insensitive ilike match)
     → Insert entry (generation_method='oneshot')
     → Initialize Elo (1200, match_count=0)
 ```

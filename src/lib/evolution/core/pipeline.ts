@@ -228,6 +228,7 @@ export async function executeMinimalPipeline(
     status: 'completed',
     completed_at: new Date().toISOString(),
     total_variants: ctx.state.getPoolSize(),
+    variants_generated: ctx.state.getPoolSize(),
     total_cost_usd: ctx.costTracker.getTotalSpent(),
   }).eq('id', runId);
 
@@ -429,6 +430,7 @@ export async function executeFullPipeline(
       status: 'completed',
       completed_at: new Date().toISOString(),
       total_variants: ctx.state.getPoolSize(),
+      variants_generated: ctx.state.getPoolSize(),
       total_cost_usd: totalCost,
       error_message: stopReason === 'completed' ? null : stopReason,
     }).eq('id', runId);

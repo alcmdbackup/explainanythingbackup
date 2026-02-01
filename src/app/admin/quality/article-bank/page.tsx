@@ -133,21 +133,28 @@ function NewTopicDialog({ onSubmit, onClose }: {
 
 // ─── Generate New Article dialog ──────────────────────────────────
 
-function GenerateArticleDialog({ onClose, onGenerated }: {
+function GenerateArticleDialog({ onClose, onGenerated, topics }: {
   onClose: () => void;
   onGenerated: (topicId: string) => void;
+  topics: BankTopicWithStats[];
 }) {
-  const [prompt, setPrompt] = useState('');
+  const [selectedTopicId, setSelectedTopicId] = useState<string>('__new__');
+  const [newPrompt, setNewPrompt] = useState('');
   const [model, setModel] = useState<AllowedLLMModelType>('gpt-4.1');
   const [generating, setGenerating] = useState(false);
   const [preview, setPreview] = useState<{ title: string; content: string; topicId: string; entryId: string } | null>(null);
 
+  const effectivePrompt = useMemo(() => {
+    if (selectedTopicId === '__new__') return newPrompt.trim();
+    return topics.find((t) => t.id === selectedTopicId)?.prompt.trim() ?? '';
+  }, [selectedTopicId, newPrompt, topics]);
+
   const handleGenerate = async () => {
-    if (!prompt.trim()) { toast.error('Prompt is required'); return; }
+    if (!effectivePrompt) { toast.error('Prompt is required'); return; }
     setGenerating(true);
     setPreview(null);
 
-    const result = await generateAndAddToBankAction({ prompt: prompt.trim(), model });
+    const result = await generateAndAddToBankAction({ prompt: effectivePrompt, model });
 
     if (result.success && result.data) {
       setPreview({
@@ -178,16 +185,36 @@ function GenerateArticleDialog({ onClose, onGenerated }: {
         </p>
 
         <div>
-          <label className="block text-sm text-[var(--text-secondary)] mb-1">Prompt</label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            data-testid="generate-prompt"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] min-h-[80px]"
-            placeholder="e.g. Explain quantum computing to a 10-year-old"
+          <label className="block text-sm text-[var(--text-secondary)] mb-1">Topic</label>
+          <select
+            value={selectedTopicId}
+            onChange={(e) => setSelectedTopicId(e.target.value)}
+            data-testid="generate-topic-select"
+            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
             disabled={generating}
-          />
+          >
+            <option value="__new__">+ New topic</option>
+            {topics.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.prompt.length > 80 ? t.prompt.slice(0, 80) + '...' : t.prompt} ({t.entry_count} {t.entry_count === 1 ? 'entry' : 'entries'})
+              </option>
+            ))}
+          </select>
         </div>
+
+        {selectedTopicId === '__new__' && (
+          <div>
+            <label className="block text-sm text-[var(--text-secondary)] mb-1">Prompt</label>
+            <textarea
+              value={newPrompt}
+              onChange={(e) => setNewPrompt(e.target.value)}
+              data-testid="generate-prompt"
+              className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] min-h-[80px]"
+              placeholder="e.g. Explain quantum computing to a 10-year-old"
+              disabled={generating}
+            />
+          </div>
+        )}
 
         <div>
           <label className="block text-sm text-[var(--text-secondary)] mb-1">Model</label>
@@ -446,6 +473,7 @@ export default function ArticleBankPage() {
 
       {showGenerate && (
         <GenerateArticleDialog
+          topics={topics}
           onClose={() => { setShowGenerate(false); loadData(); }}
           onGenerated={(topicId) => {
             setShowGenerate(false);

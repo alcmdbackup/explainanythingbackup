@@ -887,6 +887,7 @@ async function main() {
       status: 'completed',
       completed_at: new Date().toISOString(),
       total_variants: ctx.state.getPoolSize(),
+      variants_generated: ctx.state.getPoolSize(),
       total_cost_usd: ctx.costTracker.getTotalSpent(),
     });
 

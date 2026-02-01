@@ -502,7 +502,15 @@ async function callAnthropicModel(
             estimated_cost_usd: cost,
         };
 
-        await saveLlmCallTracking(trackingData);
+        try {
+            await saveLlmCallTracking(trackingData);
+        } catch (trackingError) {
+            logger.error('LLM call tracking save failed (non-fatal)', {
+                error: trackingError instanceof Error ? trackingError.message : String(trackingError),
+                call_source,
+                model: validatedModel,
+            });
+        }
 
         if (debug) {
             logger.debug("Anthropic API call successful", {}, FILE_DEBUG);

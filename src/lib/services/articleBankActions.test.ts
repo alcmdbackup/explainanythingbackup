@@ -91,14 +91,16 @@ beforeEach(() => {
 });
 
 describe('addToBankAction', () => {
-  it('creates topic and entry on first insert', async () => {
+  it('creates topic and entry when no existing topic matches', async () => {
     const eloInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
-      // 1. article_bank_topics upsert
+      // 1. select existing topic → not found
+      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
+      // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 2. article_bank_entries insert
+      // 3. article_bank_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 3. article_bank_elo insert
+      // 4. article_bank_elo insert
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           eloInsertData.push(data);
@@ -123,15 +125,13 @@ describe('addToBankAction', () => {
     expect(eloInsertData[0]).toMatchObject({ elo_rating: 1200, match_count: 0 });
   });
 
-  it('falls back to ilike lookup when upsert fails', async () => {
+  it('uses existing topic when prompt matches', async () => {
     const mock = createTableAwareMock([
-      // 1. article_bank_topics upsert FAILS
-      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'conflict' } }); },
-      // 2. article_bank_topics ilike fallback
+      // 1. select existing topic → found
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. article_bank_entries insert
+      // 2. article_bank_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. article_bank_elo insert
+      // 3. article_bank_elo insert
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -492,8 +492,13 @@ describe('elo_per_dollar edge cases', () => {
   it('initializes with null elo_per_dollar when cost is 0', async () => {
     const eloInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
+      // 1. select existing topic → not found
+      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
+      // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
+      // 3. insert entry
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
+      // 4. insert elo
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           eloInsertData.push(data);
@@ -518,8 +523,13 @@ describe('elo_per_dollar edge cases', () => {
   it('initializes with null elo_per_dollar when cost is null', async () => {
     const eloInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
+      // 1. select existing topic → not found
+      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
+      // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
+      // 3. insert entry
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
+      // 4. insert elo
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           eloInsertData.push(data);
