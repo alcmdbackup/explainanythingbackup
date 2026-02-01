@@ -24,7 +24,78 @@ The argument passed is: `$ARGUMENTS`
 
 Execute these steps in order. If any step fails, fix the issue before proceeding:
 
-### 1. Fetch and Rebase
+### 1. Plan Completion Verification
+
+Verify that the implementation plan has been fully executed before running checks or creating a PR.
+
+**Step 1a: Locate the planning file**
+
+Derive the plan file path from the current branch name:
+
+```bash
+BRANCH=$(git branch --show-current)
+BRANCH_TYPE="${BRANCH%%/*}"
+PROJECT_NAME="${BRANCH#*/}"
+```
+
+Try these paths in order, use the first that exists:
+1. `docs/planning/${BRANCH_TYPE}/${PROJECT_NAME}/_planning.md` (modern with type folder)
+2. `docs/planning/${PROJECT_NAME}/_planning.md` (modern flat)
+3. `docs/planning/${PROJECT_NAME}/${PROJECT_NAME}_planning.md` (legacy)
+
+If none found → display a warning ("No planning file found — skipping plan verification") and proceed to step 2.
+
+**Step 1b: Extract planned work**
+
+Read the planning file and extract:
+- **Planned file modifications** — file paths listed in each phase's "Files modified" or similar sections
+- **Planned tests** — test files or test names listed in "Testing" sections
+- **Planned doc updates** — documentation files listed in "Documentation Updates" sections
+
+**Exclusions:** Skip any items listed under headers containing "Out of Scope", "Deferred", or "Post-MVP". These are intentionally not part of this implementation.
+
+**Step 1c: Compare against actual changes**
+
+Get the actual diff:
+```bash
+git diff --name-only origin/main
+```
+
+Compare the planned work against actual changes:
+
+| Check | How |
+|-------|-----|
+| Planned files not modified | File paths from plan that don't appear in the git diff |
+| Planned tests not present | Test files from plan that don't exist on disk or aren't in the diff |
+| Planned doc updates not done | Doc files from plan that don't appear in the diff |
+
+**Step 1d: Report and decide**
+
+If **no gaps found**: Display "Plan verification PASSED — all planned work appears in the diff" and proceed to step 2.
+
+If **gaps found**: Present a structured gap report:
+
+```
+Plan Verification — Gaps Detected
+──────────────────────────────────
+Missing file changes:
+  - path/to/expected/file.ts (Phase 2)
+
+Missing tests:
+  - path/to/expected/test.test.ts
+
+Missing doc updates:
+  - docs/feature_deep_dives/some_doc.md
+──────────────────────────────────
+```
+
+Then use **AskUserQuestion** with:
+- Question: "Plan verification found gaps. How would you like to proceed?"
+- Options:
+  1. "Proceed anyway" — continue to step 2 (gaps are intentional or deferred)
+  2. "Stop to fix" — abort finalization so the user can address gaps
+
+### 2. Fetch and Rebase
 
 ```bash
 git fetch origin main
@@ -38,7 +109,7 @@ If rebase conflicts occur:
 - Run `git rebase --continue`
 - Repeat until rebase completes
 
-### 2. Run Checks (fix issues as they arise)
+### 3. Run Checks (fix issues as they arise)
 
 Run each check. If it fails, fix the issues and re-run until it passes:
 
@@ -48,13 +119,13 @@ Run each check. If it fails, fix the issues and re-run until it passes:
 4. **Unit Tests**: `npm run test:unit`
 5. **Integration Tests**: `npm run test:integration`
 
-### 3. E2E Tests (if --e2e flag provided)
+### 4. E2E Tests (if --e2e flag provided)
 
 If `$ARGUMENTS` contains `--e2e`:
 - Run: `npm run test:e2e -- --grep @critical`
 - Fix any failures before proceeding
 
-### 4. Commit Changes
+### 5. Commit Changes
 
 If there are uncommitted changes from fixes:
 ```bash
@@ -62,7 +133,7 @@ git add -A
 git commit -m "fix: address lint/type/test issues for PR"
 ```
 
-### 4.5. Documentation Updates
+### 5.5. Documentation Updates
 
 Automatically update documentation based on code changes:
 
@@ -110,7 +181,7 @@ Automatically update documentation based on code changes:
    - Display error and do not proceed to push/PR
    - Suggest manual intervention
 
-### 5. Push and Create PR
+### 6. Push and Create PR
 
 ```bash
 git push -u origin HEAD
@@ -125,6 +196,7 @@ Or if more context is needed, create with title and body describing the changes.
 
 ## Success Criteria
 
+- Plan verification passed (or user chose to proceed with gaps)
 - All checks pass (lint, tsc, build, unit, integration)
 - E2E critical tests pass (if --e2e flag was provided)
 - Branch is rebased on latest origin/main
@@ -134,7 +206,8 @@ Or if more context is needed, create with title and body describing the changes.
 ## Output
 
 When complete, display:
-1. Summary of fixes made (if any)
-2. All check results (pass/fail)
-3. Documentation updates made (list of docs updated)
-4. PR URL
+1. Plan verification result (passed / gaps noted)
+2. Summary of fixes made (if any)
+3. All check results (pass/fail)
+4. Documentation updates made (list of docs updated)
+5. PR URL
