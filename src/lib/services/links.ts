@@ -2,7 +2,7 @@
  * Links service for creating standalone subsection titles and enhancing content with links.
  * Provides utilities for heading-to-link mappings and inline link enhancement.
  */
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { multipleStandaloneTitlesSchema, type MultipleStandaloneTitlesType } from '@/lib/schemas/schemas';
@@ -52,7 +52,7 @@ export function encodeStandaloneTitleParam(title: string): string {
  * • Gracefully handles errors by preserving original headings when generation fails
  * 
  * Used by: returnExplanation (to enhance content before saving to database)
- * Calls: createStandaloneTitlePrompt, callOpenAIModel, logger.debug, logger.error
+ * Calls: createStandaloneTitlePrompt, callLLM, logger.debug, logger.error
  */
 async function createMappingsHeadingsToLinksImpl(
   content: string, 
@@ -101,11 +101,11 @@ async function createMappingsHeadingsToLinksImpl(
       });
     }
 
-    const aiResponse = await callOpenAIModel(
+    const aiResponse = await callLLM(
       prompt, 
       'enhanceContentWithHeadingLinks', 
       userid, 
-      default_model, 
+      DEFAULT_MODEL, 
       false,
       null,
       multipleStandaloneTitlesSchema,
@@ -172,7 +172,7 @@ async function createMappingsHeadingsToLinksImpl(
  * • Specifies link format matching enhanceContentWithStandaloneLinks (/standalone-title?t=encoded+title)
  * • Instructs LLM to ignore headings (lines starting with #) and focus on inline content
  * • Provides clear guidelines for creating appropriate standalone titles
- * • Used with callOpenAIModel to automatically enhance content with relevant links
+ * • Used with callLLM to automatically enhance content with relevant links
  * 
  * Used by: content enhancement workflows requiring inline link generation
  * Calls: none (returns prompt string for LLM processing)
@@ -214,12 +214,12 @@ Return the enhanced content with inline links added. Do not include any explanat
  * 
  * • Takes raw markdown content and identifies important terms and concepts
  * • Uses createLinksInContentPrompt to generate structured AI instructions
- * • Calls callOpenAIModel to process content and add appropriate inline links
+ * • Calls callLLM to process content and add appropriate inline links
  * • Returns enhanced content with clickable links to standalone explanations
  * • Preserves original formatting while adding 3-8 key concept links per section
  * 
  * Used by: content processing workflows requiring automated link enhancement
- * Calls: createLinksInContentPrompt, callOpenAIModel, logger.debug, logger.error
+ * Calls: createLinksInContentPrompt, callLLM, logger.debug, logger.error
  */
 async function enhanceContentWithInlineLinksImpl(
   content: string,
@@ -241,7 +241,7 @@ async function enhanceContentWithInlineLinksImpl(
     const prompt = createLinksInContentPrompt(content);
 
     // Call GPT-4o-mini to enhance the content
-    const enhancedContent = await callOpenAIModel(prompt, 'enhanceContentWithInlineLinks', userid, default_model, false, null, null, null, debug);
+    const enhancedContent = await callLLM(prompt, 'enhanceContentWithInlineLinks', userid, DEFAULT_MODEL, false, null, null, null, debug);
 
     if (debug) {
       logger.debug('Content enhanced with inline links', {

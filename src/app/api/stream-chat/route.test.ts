@@ -8,8 +8,8 @@ import { createMockNextRequest, collectStreamData, parseSSEMessages } from '@/te
 
 // Mock dependencies
 jest.mock('@/lib/services/llms', () => ({
-  callOpenAIModel: jest.fn(),
-  default_model: 'gpt-4.1-mini',
+  callLLM: jest.fn(),
+  DEFAULT_MODEL: 'gpt-4.1-mini',
 }));
 
 jest.mock('@/lib/requestIdContext', () => ({
@@ -41,11 +41,11 @@ jest.mock('@/lib/server_utilities', () => ({
   },
 }));
 
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import { RequestIdContext } from '@/lib/requestIdContext';
 import { validateApiAuth } from '@/lib/utils/supabase/validateApiAuth';
 
-const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+const mockCallOpenAIModel = callLLM as jest.MockedFunction<typeof callLLM>;
 const mockRequestIdContextRun = RequestIdContext.run as jest.MockedFunction<typeof RequestIdContext.run>;
 const mockValidateApiAuth = validateApiAuth as jest.MockedFunction<typeof validateApiAuth>;
 
@@ -101,7 +101,7 @@ describe('POST /api/stream-chat', () => {
     expect(response.headers.get('Connection')).toBe('keep-alive');
   });
 
-  it('should call callOpenAIModel with correct parameters', async () => {
+  it('should call callLLM with correct parameters', async () => {
     mockCallOpenAIModel.mockResolvedValue('Response');
 
     const request = createMockNextRequest({

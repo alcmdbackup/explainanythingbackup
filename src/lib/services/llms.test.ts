@@ -31,7 +31,7 @@ jest.mock('openai/helpers/zod');
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callOpenAIModel, default_model, lighter_model } from './llms';
+import { callLLM, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -84,7 +84,7 @@ describe('llms', () => {
     process.env = originalEnv;
   });
 
-  describe('callOpenAIModel', () => {
+  describe('callLLM', () => {
     it('should make a successful non-streaming API call', async () => {
       const mockResponse = {
         choices: [{
@@ -101,7 +101,7 @@ describe('llms', () => {
 
       mockCreateSpy.mockResolvedValueOnce(mockResponse);
 
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -151,7 +151,7 @@ describe('llms', () => {
       mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
 
       const setText = jest.fn();
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -193,7 +193,7 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       });
 
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -216,7 +216,7 @@ describe('llms', () => {
 
     it('should validate model parameter', async () => {
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -232,7 +232,7 @@ describe('llms', () => {
 
     it('should validate setText for streaming mode', async () => {
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -248,7 +248,7 @@ describe('llms', () => {
 
     it('should validate setText for non-streaming mode', async () => {
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -268,7 +268,7 @@ describe('llms', () => {
       mockCreateSpy.mockRejectedValueOnce(apiError);
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -296,7 +296,7 @@ describe('llms', () => {
       });
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -314,7 +314,7 @@ describe('llms', () => {
       delete process.env.OPENAI_API_KEY;
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -333,7 +333,7 @@ describe('llms', () => {
       (global as any).window = {};
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -372,7 +372,7 @@ describe('llms', () => {
       });
 
       try {
-        await callOpenAIModel(
+        await callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -418,7 +418,7 @@ describe('llms', () => {
       mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
 
       const setText = jest.fn();
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -456,7 +456,7 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       });
 
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -479,15 +479,93 @@ describe('llms', () => {
         })
       );
     });
+
+    it('invokes onUsage callback with correct token metadata after non-streaming call', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, completion_tokens_details: { reasoning_tokens: 5 } },
+        model: 'gpt-4.1-mini'
+      });
+
+      const onUsage = jest.fn();
+      await callLLM('Test prompt', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+
+      expect(onUsage).toHaveBeenCalledTimes(1);
+      const usage: LLMUsageMetadata = onUsage.mock.calls[0][0];
+      expect(usage.promptTokens).toBe(100);
+      expect(usage.completionTokens).toBe(50);
+      expect(usage.totalTokens).toBe(150);
+      expect(usage.reasoningTokens).toBe(5);
+      expect(usage.model).toBe('gpt-4.1-mini');
+      expect(usage.estimatedCostUsd).toBeGreaterThan(0);
+    });
+
+    it('invokes onUsage callback after streaming call', async () => {
+      async function* streamGenerator() {
+        yield { choices: [{ delta: { content: 'Hello' } }] };
+        yield {
+          choices: [{ delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          model: 'gpt-4.1-mini'
+        };
+      }
+      mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
+
+      const onUsage = jest.fn();
+      const setText = jest.fn();
+      await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', true, setText, null, null, false, onUsage);
+
+      expect(onUsage).toHaveBeenCalledTimes(1);
+      expect(onUsage.mock.calls[0][0].promptTokens).toBe(20);
+      expect(onUsage.mock.calls[0][0].completionTokens).toBe(10);
+    });
+
+    it('does not invoke onUsage callback when API call throws', async () => {
+      mockCreateSpy.mockRejectedValueOnce(new Error('API failure'));
+
+      const onUsage = jest.fn();
+      await expect(
+        callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage)
+      ).rejects.toThrow('API failure');
+
+      expect(onUsage).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when onUsage callback is omitted (backward compat)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini'
+      });
+
+      // No onUsage argument — backward compatible
+      const result = await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false);
+      expect(result).toBe('Test response');
+    });
+
+    it('swallows onUsage callback errors without breaking the response', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Good response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini'
+      });
+
+      const onUsage = jest.fn(() => { throw new Error('callback boom'); });
+      const result = await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+
+      expect(result).toBe('Good response');
+      expect(onUsage).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith('onUsage callback failed', expect.objectContaining({ error: 'callback boom' }));
+    });
   });
 
   describe('model constants', () => {
     it('should export correct default model', () => {
-      expect(default_model).toBe('gpt-4.1-mini');
+      expect(DEFAULT_MODEL).toBe('gpt-4.1-mini');
     });
 
     it('should export correct lighter model', () => {
-      expect(lighter_model).toBe('gpt-4.1-nano');
+      expect(LIGHTER_MODEL).toBe('gpt-4.1-nano');
     });
   });
 
@@ -508,7 +586,7 @@ describe('llms', () => {
 
       mockCreateSpy.mockResolvedValueOnce(mockResponse);
 
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -547,7 +625,7 @@ describe('llms', () => {
 
       mockCreateSpy.mockResolvedValueOnce(mockResponse);
 
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -580,7 +658,7 @@ describe('llms', () => {
 
       mockCreateSpy.mockResolvedValueOnce(mockResponse);
 
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -615,7 +693,7 @@ describe('llms', () => {
       });
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -643,7 +721,7 @@ describe('llms', () => {
       });
 
       try {
-        await callOpenAIModel(
+        await callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -675,7 +753,7 @@ describe('llms', () => {
 
       const setText = jest.fn();
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',

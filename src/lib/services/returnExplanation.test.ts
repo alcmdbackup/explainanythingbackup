@@ -7,8 +7,8 @@ describe('returnExplanation', () => {
   beforeAll(() => {
     // Mock llms module
     jest.mock('@/lib/services/llms', () => ({
-      default_model: 'gpt-4',
-      callOpenAIModel: jest.fn()
+      DEFAULT_MODEL: 'gpt-4',
+      callLLM: jest.fn()
     }));
 
     // Mock prompts module
@@ -145,13 +145,13 @@ describe('returnExplanation', () => {
 
     it('should test generateTitleFromUserQuery', async () => {
       // Import mocked modules
-      const { callOpenAIModel } = require('@/lib/services/llms');
+      const { callLLM } = require('@/lib/services/llms');
       const { createTitlePrompt } = require('@/lib/prompts');
       const { titleQuerySchema } = require('@/lib/schemas/schemas');
 
       // Setup mocks
       createTitlePrompt.mockReturnValue('Generate titles for: test query');
-      callOpenAIModel.mockResolvedValue(JSON.stringify({
+      callLLM.mockResolvedValue(JSON.stringify({
         title1: 'Test Title',
         title2: 'Alternative Title',
         title3: 'Another Title'
@@ -174,7 +174,7 @@ describe('returnExplanation', () => {
       const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
       const { evaluateTags } = require('@/lib/services/tagEvaluation');
-      const { callOpenAIModel } = require('@/lib/services/llms');
+      const { callLLM } = require('@/lib/services/llms');
 
       // Setup mocks
       // Headings are no longer embedded - titles are returned separately
@@ -182,8 +182,8 @@ describe('returnExplanation', () => {
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Test': 'Standalone Test Title' });
       evaluateTags.mockResolvedValue({ difficultyLevel: 3 });
       cleanupAfterEnhancements.mockImplementation((c: string) => c);
-      // Mock extractLinkCandidates' call to callOpenAIModel
-      callOpenAIModel.mockResolvedValue(JSON.stringify({ candidates: ['keyword'] }));
+      // Mock extractLinkCandidates' call to callLLM
+      callLLM.mockResolvedValue(JSON.stringify({ candidates: ['keyword'] }));
 
       // Import the function
       const { postprocessNewExplanationContent } = require('./returnExplanation');
@@ -208,7 +208,7 @@ describe('returnExplanation', () => {
 
     it('should test generateNewExplanation', async () => {
       // Import mocked modules
-      const { callOpenAIModel } = require('@/lib/services/llms');
+      const { callLLM } = require('@/lib/services/llms');
       const { createExplanationPrompt } = require('@/lib/prompts');
       const { cleanupAfterEnhancements } = require('@/lib/services/links');
       const { generateHeadingStandaloneTitles } = require('@/lib/services/linkWhitelist');
@@ -218,7 +218,7 @@ describe('returnExplanation', () => {
       // Setup mocks
       createExplanationPrompt.mockReturnValue('explanation prompt');
       // First call: generate explanation content, Second call: extractLinkCandidates
-      callOpenAIModel
+      callLLM
         .mockResolvedValueOnce('Generated content')
         .mockResolvedValueOnce(JSON.stringify({ candidates: [] }));
       generateHeadingStandaloneTitles.mockResolvedValue({ 'Heading': 'Standalone Heading Title' });
@@ -292,7 +292,7 @@ describe('returnExplanation', () => {
 
     it('should generate new explanation when no match found', async () => {
       // Import mocked modules
-      const { callOpenAIModel } = require('@/lib/services/llms');
+      const { callLLM } = require('@/lib/services/llms');
       const { createTitlePrompt, createExplanationPrompt } = require('@/lib/prompts');
       const { findMatchesInVectorDb, calculateAllowedScores } = require('@/lib/services/vectorsim');
       const { findBestMatchFromList } = require('@/lib/services/findMatches');
@@ -302,7 +302,7 @@ describe('returnExplanation', () => {
       // Setup mocks for full flow
       createTitlePrompt.mockReturnValue('title prompt');
       // First call: title generation, Second call: explanation content, Third call: extractLinkCandidates
-      callOpenAIModel
+      callLLM
         .mockResolvedValueOnce(JSON.stringify({ title1: 'Generated Title' }))
         .mockResolvedValueOnce('Generated content')
         .mockResolvedValueOnce(JSON.stringify({ candidates: [] }));

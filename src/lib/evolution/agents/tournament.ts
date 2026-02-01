@@ -164,7 +164,7 @@ export class Tournament extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
     if (!this.canExecute(state)) {
-      return { agentType: 'tournament', success: false, costUsd: 0, error: 'Need at least 2 variations' };
+      return { agentType: 'tournament', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need at least 2 variations' };
     }
 
     const pool = state.pool;
@@ -286,7 +286,7 @@ export class Tournament extends AgentBase {
     return {
       agentType: 'tournament',
       success: true,
-      costUsd: 0,
+      costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: convergenceMetric,
     };

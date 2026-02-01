@@ -1,33 +1,24 @@
-// Evolution LLM client wrapping callOpenAIModel with budget enforcement and structured output parsing.
-// Defaults to DeepSeek v3 (deepseek-chat) for cost efficiency; handles callOpenAIModel → JSON.parse → Zod.validate pipeline.
+// Evolution LLM client wrapping callLLM with budget enforcement and structured output parsing.
+// Defaults to DeepSeek v3 (deepseek-chat) for cost efficiency; handles callLLM → JSON.parse → Zod.validate pipeline.
 
 import { z } from 'zod';
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionLLMClient, CostTracker, EvolutionLogger, LLMCompletionOptions } from '../types';
 import { LLMRefusalError } from '../types';
+import { getModelPricing } from '@/config/llmPricing';
 
 /** Default model for evolution pipeline — DeepSeek v3 is significantly cheaper than gpt-4.1-mini. */
-const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
-
-/** Per-model pricing (cost per 1M tokens). */
-const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'deepseek-chat': { input: 0.00014, output: 0.00028 },
-  'gpt-4.1-mini': { input: 0.0004, output: 0.0016 },
-  'gpt-4.1-nano': { input: 0.0001, output: 0.0004 },
-  'gpt-4o-mini': { input: 0.0004, output: 0.0016 },
-  'gpt-5-mini': { input: 0.0004, output: 0.0016 },
-  'gpt-5-nano': { input: 0.0001, output: 0.0004 },
-};
+export const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
 
 /** Estimate token cost before making a call (rough heuristic: ~4 chars per token). */
 export function estimateTokenCost(prompt: string, model?: string): number {
   const estimatedInputTokens = Math.ceil(prompt.length / 4);
-  const estimatedOutputTokens = Math.ceil(estimatedInputTokens * 0.5); // assume 50% output ratio
-  const pricing = (model && MODEL_PRICING[model]) || MODEL_PRICING['deepseek-chat'];
+  const estimatedOutputTokens = Math.ceil(estimatedInputTokens * 0.5);
+  const pricing = getModelPricing(model ?? EVOLUTION_DEFAULT_MODEL);
   return (
-    (estimatedInputTokens / 1_000_000) * pricing.input +
-    (estimatedOutputTokens / 1_000_000) * pricing.output
+    (estimatedInputTokens / 1_000_000) * pricing.inputPer1M +
+    (estimatedOutputTokens / 1_000_000) * pricing.outputPer1M
   );
 }
 
@@ -45,7 +36,7 @@ export function parseStructuredOutput<T>(raw: string, schema: z.ZodType<T>): T {
   }
 }
 
-/** Create an EvolutionLLMClient wrapping callOpenAIModel with budget enforcement. */
+/** Create an EvolutionLLMClient wrapping callLLM with budget enforcement. */
 export function createEvolutionLLMClient(
   userid: string,
   costTracker: CostTracker,
@@ -57,7 +48,7 @@ export function createEvolutionLLMClient(
       const estimate = estimateTokenCost(prompt, model);
       await costTracker.reserveBudget(agentName, estimate);
 
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         prompt,
         `evolution_${agentName}`,
         userid,
@@ -67,6 +58,9 @@ export function createEvolutionLLMClient(
         null,
         null,
         options?.debug ?? false,
+        (usage) => {
+          costTracker.recordSpend(agentName, usage.estimatedCostUsd);
+        },
       );
 
       if (!result || result.trim() === '') {
@@ -88,9 +82,9 @@ export function createEvolutionLLMClient(
       const estimate = estimateTokenCost(prompt, model);
       await costTracker.reserveBudget(agentName, estimate);
 
-      // callOpenAIModel accepts ZodObject for structured output
+      // callLLM accepts ZodObject for structured output
       const zodObj = schema instanceof z.ZodObject ? schema : null;
-      const raw = await callOpenAIModel(
+      const raw = await callLLM(
         prompt,
         `evolution_${agentName}`,
         userid,
@@ -100,6 +94,9 @@ export function createEvolutionLLMClient(
         zodObj,
         zodObj ? schemaName : null,
         options?.debug ?? false,
+        (usage) => {
+          costTracker.recordSpend(agentName, usage.estimatedCostUsd);
+        },
       );
 
       const parsed = parseStructuredOutput(raw, schema);

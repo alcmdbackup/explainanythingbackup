@@ -135,7 +135,7 @@ abstract class AgentBase {
 Every agent receives an `ExecutionContext` containing:
 - `payload`: Original text, title, explanation ID, run config
 - `state`: Mutable `PipelineState` (pool, Elo ratings, match history, critiques, diversity)
-- `llmClient`: Budget-enforced LLM client wrapping `callOpenAIModel` (`core/llmClient.ts`)
+- `llmClient`: Budget-enforced LLM client wrapping `callLLM` (`core/llmClient.ts`)
 - `logger`: Structured logger with `{subsystem: 'evolution', runId}` context (`core/logger.ts`)
 - `costTracker`: Per-agent and global budget enforcement (`core/costTracker.ts`)
 - `comparisonCache`: Order-invariant SHA-256 cache for bias-mitigated comparison results (`core/comparisonCache.ts`)
@@ -355,7 +355,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `pool.ts` | `PoolManager` — stratified opponent selection (Elo quartile-based) and pool health statistics |
 | `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (Elo populated, matches exist, etc.) |
-| `llmClient.ts` | `createEvolutionLLMClient` — wraps `callOpenAIModel` with budget enforcement and structured JSON output parsing |
+| `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` — factory adding `{subsystem: 'evolution', runId}` to all log entries |
 | `featureFlags.ts` | Reads `feature_flags` table for tournament/evolvePool/dryRun toggles with safe defaults |
 

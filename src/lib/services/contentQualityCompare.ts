@@ -1,7 +1,7 @@
 // Position-bias-free article comparison using LLM-as-judge.
 // Ported from Python compare.py — dual verdict types: independent scoring and pairwise comparison.
 
-import { callOpenAIModel, lighter_model } from './llms';
+import { callLLM, LIGHTER_MODEL } from './llms';
 import {
   articleScoreSchema,
   comparisonResultSchema,
@@ -49,11 +49,11 @@ async function scoreArticle(
 ): Promise<ArticleScore> {
   const prompt = SCORE_PROMPT.replace('{article}', article.slice(0, 6000));
 
-  const raw = await callOpenAIModel(
+  const raw = await callLLM(
     prompt,
     'content_quality_compare_score',
     userid,
-    lighter_model,
+    LIGHTER_MODEL,
     false,
     null,
     articleScoreSchema,
@@ -151,11 +151,11 @@ async function runComparison(
     .replace('{article_1}', article1.slice(0, 4000))
     .replace('{article_2}', article2.slice(0, 4000));
 
-  const raw = await callOpenAIModel(
+  const raw = await callLLM(
     prompt,
     'content_quality_compare_pair',
     userid,
-    lighter_model,
+    LIGHTER_MODEL,
     false,
     null,
     comparisonResultSchema,

@@ -65,7 +65,7 @@ export class GenerationAgent extends AgentBase {
     const text = state.originalText;
 
     if (!text) {
-      return { agentType: 'generation', success: false, costUsd: 0, error: 'No originalText in state' };
+      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No originalText in state' };
     }
 
     const feedback = ctx.state.metaFeedback
@@ -116,10 +116,10 @@ export class GenerationAgent extends AgentBase {
     }
 
     if (variations.length === 0) {
-      return { agentType: 'generation', success: false, costUsd: 0, error: 'All strategies failed' };
+      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All strategies failed' };
     }
 
-    return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: variations.length };
+    return { agentType: 'generation', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length };
   }
 
   estimateCost(payload: AgentPayload): number {

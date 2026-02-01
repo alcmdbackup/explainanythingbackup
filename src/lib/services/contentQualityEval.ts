@@ -1,7 +1,7 @@
 // Evaluates article content quality across configurable dimensions via LLM.
 // Fire-and-forget: errors are logged but never thrown to caller (same pattern as explanationSummarizer).
 
-import { callOpenAIModel, lighter_model } from './llms';
+import { callLLM, LIGHTER_MODEL } from './llms';
 import {
   contentQualityEvalResponseSchema,
   type ContentQualityDimension,
@@ -57,11 +57,11 @@ export async function evaluateContentQuality(
   try {
     const prompt = buildEvalPrompt(title, content, dimensions);
 
-    const result = await callOpenAIModel(
+    const result = await callLLM(
       prompt,
       'content_quality_eval',
       userid,
-      lighter_model,
+      LIGHTER_MODEL,
       false,
       null,
       contentQualityEvalResponseSchema,
@@ -116,7 +116,7 @@ export async function evaluateAndSaveContentQuality(
       dimension: s.dimension,
       score: s.score,
       rationale: s.rationale,
-      model: lighter_model,
+      model: LIGHTER_MODEL,
       eval_run_id: evalRunId ?? null,
       estimated_cost_usd: 0.002, // rough estimate per dimension
     }));

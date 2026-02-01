@@ -110,7 +110,7 @@ export class ReflectionAgent extends AgentBase {
 
     const topVariants = state.getTopByElo(numToCritique);
     if (topVariants.length === 0) {
-      return { agentType: 'reflection', success: false, costUsd: 0, error: 'No variants to critique' };
+      return { agentType: 'reflection', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No variants to critique' };
     }
 
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });
@@ -165,7 +165,7 @@ export class ReflectionAgent extends AgentBase {
     return {
       agentType: 'reflection',
       success: critiques.length > 0,
-      costUsd: 0, // actual cost tracked by llmClient
+      costUsd: ctx.costTracker.getAgentCost(this.name), // actual cost tracked by llmClient
       error: critiques.length === 0 ? 'All critiques failed' : undefined,
     };
   }

@@ -4,14 +4,14 @@
  */
 
 import { generateAndSaveExplanationSummary, updateExplanationSummary } from './explanationSummarizer';
-import { callOpenAIModel } from './llms';
+import { callLLM } from './llms';
 import { logger } from '../server_utilities';
 import { createSupabaseServerClient } from '../utils/supabase/server';
 
 // Mock dependencies
 jest.mock('./llms', () => ({
-    callOpenAIModel: jest.fn(),
-    lighter_model: 'gpt-4.1-nano'
+    callLLM: jest.fn(),
+    LIGHTER_MODEL: 'gpt-4.1-nano'
 }));
 
 jest.mock('../server_utilities', () => ({
@@ -87,7 +87,7 @@ describe('explanationSummarizer', () => {
                 keywords: ['photosynthesis', 'plants', 'sunlight', 'chlorophyll', 'energy']
             });
 
-            (callOpenAIModel as jest.Mock).mockResolvedValue(validResponse);
+            (callLLM as jest.Mock).mockResolvedValue(validResponse);
 
             await generateAndSaveExplanationSummary(
                 123,
@@ -96,7 +96,7 @@ describe('explanationSummarizer', () => {
                 'user123'
             );
 
-            expect(callOpenAIModel).toHaveBeenCalledWith(
+            expect(callLLM).toHaveBeenCalledWith(
                 expect.stringContaining('Photosynthesis Explained'),
                 'explanation_summarization',
                 'user123',
@@ -123,7 +123,7 @@ describe('explanationSummarizer', () => {
         });
 
         it('handles LLM API errors gracefully (fire-and-forget)', async () => {
-            (callOpenAIModel as jest.Mock).mockRejectedValue(new Error('OpenAI API error'));
+            (callLLM as jest.Mock).mockRejectedValue(new Error('OpenAI API error'));
 
             // Should not throw
             await generateAndSaveExplanationSummary(
@@ -146,7 +146,7 @@ describe('explanationSummarizer', () => {
         });
 
         it('handles malformed JSON gracefully', async () => {
-            (callOpenAIModel as jest.Mock).mockResolvedValue('not valid json');
+            (callLLM as jest.Mock).mockResolvedValue('not valid json');
 
             // Should not throw
             await generateAndSaveExplanationSummary(
@@ -168,7 +168,7 @@ describe('explanationSummarizer', () => {
                 keywords: ['one'] // Not enough keywords
             });
 
-            (callOpenAIModel as jest.Mock).mockResolvedValue(invalidResponse);
+            (callLLM as jest.Mock).mockResolvedValue(invalidResponse);
 
             // Should not throw
             await generateAndSaveExplanationSummary(
@@ -197,7 +197,7 @@ describe('explanationSummarizer', () => {
                 keywords: ['word1', 'word2', 'word3', 'word4', 'word5']
             });
 
-            (callOpenAIModel as jest.Mock).mockResolvedValue(validResponse);
+            (callLLM as jest.Mock).mockResolvedValue(validResponse);
 
             await generateAndSaveExplanationSummary(
                 123,
@@ -207,7 +207,7 @@ describe('explanationSummarizer', () => {
             );
 
             // Verify prompt contains truncated content
-            const callArgs = (callOpenAIModel as jest.Mock).mock.calls[0];
+            const callArgs = (callLLM as jest.Mock).mock.calls[0];
             const prompt = callArgs[0];
             expect(prompt.length).toBeLessThan(longContent.length + 500); // Account for prompt template
         });
@@ -219,7 +219,7 @@ describe('explanationSummarizer', () => {
                 keywords: ['machine', 'learning', 'algorithms', 'data', 'training']
             });
 
-            (callOpenAIModel as jest.Mock).mockResolvedValue(validResponse);
+            (callLLM as jest.Mock).mockResolvedValue(validResponse);
             mockSupabase.eq.mockResolvedValue({ error: new Error('DB write failed') });
 
             // Should not throw

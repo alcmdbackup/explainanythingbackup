@@ -154,14 +154,14 @@ export class EvolutionAgent extends AgentBase {
     const { state, llmClient, logger } = ctx;
 
     if (!this.canExecute(state)) {
-      return { agentType: 'evolution', success: false, costUsd: 0, error: 'No rated parents available' };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No rated parents available' };
     }
 
     const poolManager = new PoolManager(state);
     const parents = poolManager.getEvolutionParents(2);
 
     if (parents.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: 0, error: 'No parents available' };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No parents available' };
     }
 
     const feedback = state.metaFeedback
@@ -269,10 +269,10 @@ export class EvolutionAgent extends AgentBase {
     }
 
     if (variations.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: 0, error: 'All evolution strategies failed' };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All evolution strategies failed' };
     }
 
-    return { agentType: 'evolution', success: true, costUsd: 0, variantsAdded: variations.length };
+    return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length };
   }
 
   estimateCost(payload: AgentPayload): number {

@@ -278,7 +278,7 @@ export class PairwiseRanker extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
     if (!this.canExecute(state)) {
-      return { agentType: 'pairwise', success: false, costUsd: 0, error: 'Need at least 2 variations' };
+      return { agentType: 'pairwise', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need at least 2 variations' };
     }
 
     const structured = ctx.payload.config.calibration.opponents > 3; // Use structured in COMPETITION
@@ -305,7 +305,7 @@ export class PairwiseRanker extends AgentBase {
     return {
       agentType: 'pairwise',
       success: true,
-      costUsd: 0,
+      costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: avgConfidence,
     };

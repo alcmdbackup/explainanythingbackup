@@ -3,15 +3,15 @@
 
 import { compareArticlesIndependent, compareArticles } from './contentQualityCompare';
 
-// Mock callOpenAIModel
+// Mock callLLM
 jest.mock('./llms', () => ({
-  callOpenAIModel: jest.fn(),
-  lighter_model: 'gpt-4.1-nano',
+  callLLM: jest.fn(),
+  LIGHTER_MODEL: 'gpt-4.1-nano',
 }));
 
-import { callOpenAIModel } from './llms';
+import { callLLM } from './llms';
 
-const mockCallOpenAI = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+const mockCallOpenAI = callLLM as jest.MockedFunction<typeof callLLM>;
 
 // ─── Independent scoring tests ───────────────────────────────────
 

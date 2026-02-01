@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel, default_model, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { createExplanation } from '@/lib/services/explanations';
 import { explanationInsertSchema, explanationBaseType, type ExplanationInsertType, UserInputType, type UserExplanationEventsType, type ExplanationMetricsType, type ExplanationMetricsTableType, ExplanationStatus, type MatchType } from '@/lib/schemas/schemas';
@@ -1239,7 +1239,7 @@ export const loadFromPineconeUsingExplanationIdAction = serverReadRequestId(_loa
  * • Creates a prompt using the provided text and improvement type
  * • Calls OpenAI model to generate editing suggestions
  * • Returns the AI response for text improvement
- * • Calls: createAISuggestionPrompt, callOpenAIModel
+ * • Calls: createAISuggestionPrompt, callLLM
  * • Used by: Editor test pages for AI-powered text suggestions
  */
 const _generateAISuggestionsAction = withLogging(
@@ -1262,11 +1262,11 @@ const _generateAISuggestionsAction = withLogging(
             }, FILE_DEBUG);
 
             // Call OpenAI with structured output validation using the schema
-            const response = await callOpenAIModel(
+            const response = await callLLM(
                 prompt,
                 'editor_ai_suggestions',
                 userid,
-                default_model,
+                DEFAULT_MODEL,
                 false,
                 null,
                 aiSuggestionSchema,
@@ -1309,7 +1309,7 @@ export const generateAISuggestionsAction = serverReadRequestId(_generateAISugges
  * • Creates a prompt using createApplyEditsPrompt to apply AI suggestions
  * • Calls OpenAI model to generate the final edited text
  * • Returns the complete text with all edits applied
- * • Calls: createApplyEditsPrompt, callOpenAIModel
+ * • Calls: createApplyEditsPrompt, callLLM
  * • Used by: Editor test pages to apply AI suggestions to content
  */
 const _applyAISuggestionsAction = withLogging(
@@ -1332,11 +1332,11 @@ const _applyAISuggestionsAction = withLogging(
                 userid
             }, FILE_DEBUG);
 
-            const response = await callOpenAIModel(
+            const response = await callLLM(
                 prompt,
                 'editor_apply_suggestions',
                 userid,
-                default_model,
+                DEFAULT_MODEL,
                 false,
                 null
             );

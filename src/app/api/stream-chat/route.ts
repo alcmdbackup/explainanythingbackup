@@ -1,6 +1,6 @@
 'use server';
 
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { RequestIdContext } from '@/lib/requestIdContext';
@@ -58,12 +58,12 @@ export async function POST(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          // Use callOpenAIModel with streaming
-          await callOpenAIModel(
+          // Use callLLM with streaming
+          await callLLM(
             prompt,
             "stream-chat-api",
             verifiedUserId,
-            default_model,
+            DEFAULT_MODEL,
             true,
             (text: string) => {
               // Send incremental updates

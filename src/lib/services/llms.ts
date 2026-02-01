@@ -15,13 +15,23 @@ import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 import { calculateLLMCost } from '@/config/llmPricing';
 
+/** Metadata about token usage and cost from an LLM call, passed to onUsage callbacks. */
+export interface LLMUsageMetadata {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+  estimatedCostUsd: number;
+  model: string;
+}
+
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
 
 // Default model configuration
-export const default_model: AllowedLLMModelType = 'gpt-4.1-mini';
-export const lighter_model: AllowedLLMModelType = 'gpt-4.1-nano';
+export const DEFAULT_MODEL: AllowedLLMModelType = 'gpt-4.1-mini';
+export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 
 // Nil UUID for anonymous/unauthenticated users (RFC 4122 standard)
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
@@ -31,7 +41,7 @@ export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
  * • Validates input data against llmCallTrackingSchema before saving
  * • Inserts call metrics and details into llmCallTracking table
  * • Handles validation and database errors gracefully with logging
- * • Used by callOpenAIModel to persist API call information
+ * • Used by callLLM to persist API call information
  * • Called after successful API completion to track usage
  */
 async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
@@ -138,7 +148,7 @@ function isDeepSeekModel(model: string): boolean {
 
 
 /**
- * Makes a call to Openai model with structured output support
+ * Makes a call to an LLM with structured output support
  * @param prompt - The input prompt to send to the model
  * @param call_source - Identifier for the source/context making this call
  * @param userid - User identifier for tracking purposes
@@ -148,9 +158,10 @@ function isDeepSeekModel(model: string): boolean {
  * @param response_obj - Optional Zod schema for structured output
  * @param response_obj_name - Optional name for the response schema
  * @param debug - Enable debug logging
+ * @param onUsage - Optional callback invoked with token/cost metadata after a successful call
  * @returns Promise<string> - The model's response
  */
-async function callOpenAIModel(
+async function callLLM(
     prompt: string,
     call_source: string,
     userid: string,
@@ -159,7 +170,8 @@ async function callOpenAIModel(
     setText: ((text: string) => void) | null,
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
-    debug: boolean = true
+    debug: boolean = true,
+    onUsage?: (usage: LLMUsageMetadata) => void,
 ): Promise<string> {
     try {
         // Validate model parameter
@@ -297,6 +309,25 @@ async function callOpenAIModel(
         };
         
         await saveLlmCallTracking(trackingData);
+
+        if (onUsage) {
+            try {
+                onUsage({
+                    promptTokens,
+                    completionTokens,
+                    totalTokens: usage.total_tokens ?? 0,
+                    reasoningTokens,
+                    estimatedCostUsd: trackingData.estimated_cost_usd ?? 0,
+                    model: modelUsed,
+                });
+            } catch (callbackError) {
+                logger.error('onUsage callback failed', {
+                    error: callbackError instanceof Error ? callbackError.message : String(callbackError),
+                    call_source,
+                });
+            }
+        }
+
         if (debug) {
             logger.debug("API call successful", {}, FILE_DEBUG);
             logger.debug("GPT4omini Response", {
@@ -322,10 +353,10 @@ async function callOpenAIModel(
 }
 
 // Wrap with automatic logging for entry/exit/timing
-const callOpenAIModelWithLogging = withLogging(callOpenAIModel, 'callOpenAIModel', {
+const callLLMWithLogging = withLogging(callLLM, 'callLLM', {
     logInputs: false, // Prompts can be large, avoid logging full input
     logOutputs: false, // Responses can be large, avoid logging full output
     logErrors: true
 });
 
-export { callOpenAIModelWithLogging as callOpenAIModel };
+export { callLLMWithLogging as callLLM };

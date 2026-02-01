@@ -151,7 +151,7 @@ export class CalibrationRanker extends AgentBase {
     const { state, logger } = ctx;
 
     if (!this.canExecute(state)) {
-      return { agentType: 'calibration', success: false, costUsd: 0, error: 'No new entrants to calibrate' };
+      return { agentType: 'calibration', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No new entrants to calibrate' };
     }
 
     const newEntrants = [...state.newEntrantsThisIteration];
@@ -241,7 +241,7 @@ export class CalibrationRanker extends AgentBase {
     return {
       agentType: 'calibration',
       success: true,
-      costUsd: 0,
+      costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: avgConfidence,
     };

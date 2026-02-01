@@ -113,7 +113,7 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
  * • Restricts model parameter to approved OpenAI models only
  * • Ensures consistent model usage across the application
  * • Provides type safety for LLM API calls
- * Used by: callOpenAIModel function for parameter validation
+ * Used by: callLLM function for parameter validation
  * Calls: N/A (validation schema)
  */
 export const allowedLLMModelSchema = z.enum(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano", "deepseek-chat"]);
@@ -1128,7 +1128,7 @@ export type ContentQualityScore = z.infer<typeof contentQualityScoreSchema>;
 
 /**
  * Schema for LLM structured output: multi-dimension eval response.
- * Used with callOpenAIModel + zodResponseFormat.
+ * Used with callLLM + zodResponseFormat.
  */
 export const contentQualityEvalResponseSchema = z.object({
   scores: z.array(contentQualityScoreSchema).min(1).max(8),

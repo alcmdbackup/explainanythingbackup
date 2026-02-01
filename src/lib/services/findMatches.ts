@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { matchFoundFromListSchema, type matchWithCurrentContentType, MatchMode, type VectorSearchResult } from '@/lib/schemas/schemas';
@@ -130,7 +130,7 @@ function formatTopMatches(matches: matchWithCurrentContentType[], savedId: numbe
       
       // Call the LLM with the schema to force an integer response
       logger.debug('Calling GPT-4 for source selection', { prompt_length: selectionPrompt.length });
-      const result = await callOpenAIModel(selectionPrompt, 'findBestMatchFromList', userid, default_model, false, null, matchFoundFromListSchema, 'matchSelection');
+      const result = await callLLM(selectionPrompt, 'findBestMatchFromList', userid, DEFAULT_MODEL, false, null, matchFoundFromListSchema, 'matchSelection');
       
       // Parse the result
       const parsedResult = matchFoundFromListSchema.safeParse(JSON.parse(result));

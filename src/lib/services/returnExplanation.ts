@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { createExplanationPrompt, createTitlePrompt, editExplanationPrompt, createLinkCandidatesPrompt, createExplanationWithSourcesPrompt } from '@/lib/prompts';
 import { explanationBaseType, explanationBaseSchema, MatchMode, UserInputType, titleQuerySchema, AnchorSet, linkCandidatesExtractionSchema, type SourceCacheFullType, type SourceForPromptType } from '@/lib/schemas/schemas';
 import { findMatchesInVectorDb, maxNumberAnchors, calculateAllowedScores, searchForSimilarVectors } from '@/lib/services/vectorsim';
@@ -32,7 +32,7 @@ const MIN_SIMILARITY_INDEX = 0;
  * - Generates article title from user query using LLM
  * - Validates the response format and returns first title
  * - Used by returnExplanation for title creation
- * - Calls createTitlePrompt, callOpenAIModel
+ * - Calls createTitlePrompt, callLLM
  */
 export const generateTitleFromUserQuery = withLogging(
     async function generateTitleFromUserQuery(userQuery: string, userid:string): Promise<{
@@ -42,7 +42,7 @@ export const generateTitleFromUserQuery = withLogging(
     }> {
         try {
             const titlePrompt = createTitlePrompt(userQuery);
-            const titleResult = await callOpenAIModel(titlePrompt, "generateTitleFromUserQuery", userid, default_model, false, null, titleQuerySchema, 'titleQuery');
+            const titleResult = await callLLM(titlePrompt, "generateTitleFromUserQuery", userid, DEFAULT_MODEL, false, null, titleQuerySchema, 'titleQuery');
             const parsedTitles = titleQuerySchema.safeParse(JSON.parse(titleResult));
 
             if (!parsedTitles.success || !parsedTitles.data.title1) {
@@ -81,7 +81,7 @@ export const generateTitleFromUserQuery = withLogging(
  * - Runs in parallel with other postprocessing tasks
  *
  * Used by: postprocessNewExplanationContent
- * Calls: callOpenAIModel with linkCandidatesExtractionSchema
+ * Calls: callLLM with linkCandidatesExtractionSchema
  */
 export const extractLinkCandidates = withLogging(
     async function extractLinkCandidates(
@@ -92,11 +92,11 @@ export const extractLinkCandidates = withLogging(
         try {
             const prompt = createLinkCandidatesPrompt(content, articleTitle);
 
-            const aiResponse = await callOpenAIModel(
+            const aiResponse = await callLLM(
                 prompt,
                 'extractLinkCandidates',
                 userid,
-                default_model,
+                DEFAULT_MODEL,
                 false,
                 null,
                 linkCandidatesExtractionSchema,
@@ -213,7 +213,7 @@ export const postprocessNewExplanationContent = withLogging(
  * - Returns enhanced explanation data or error
  * 
  * Used by: returnExplanationLogic
- * Calls: callOpenAIModel, postprocessExplanationContent
+ * Calls: callLLM, postprocessExplanationContent
  */
 export const generateNewExplanation = withLogging(
     async function generateNewExplanation(
@@ -268,11 +268,11 @@ export const generateNewExplanation = withLogging(
             // Determine if we should stream based on presence of callback
             const shouldStream = onStreamingText !== undefined;
             
-            const newExplanationContent = await callOpenAIModel(
+            const newExplanationContent = await callLLM(
                 formattedPrompt, 
                 "generateNewExplanation", 
                 userid, 
-                default_model, 
+                DEFAULT_MODEL, 
                 shouldStream, 
                 shouldStream ? onStreamingText : null, 
                 null, 

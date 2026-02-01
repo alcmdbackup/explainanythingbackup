@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server'
 
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { tagEvaluationSchema } from '@/lib/schemas/schemas';
 import { createTagEvaluationPrompt } from '@/lib/prompts';
@@ -23,7 +23,7 @@ type ErrorResponse = {
  * • Calls OpenAI GPT-4 model with tagEvaluationSchema for validation
  * • Returns difficulty level (1-3), length (4-6), and simple tags array
  * • Used by returnExplanation service for automatic multi-tag assignment
- * • Calls createTagEvaluationPrompt and callOpenAIModel functions
+ * • Calls createTagEvaluationPrompt and callLLM functions
  */
 export async function evaluateTags(
   explanationTitle: string,
@@ -45,11 +45,11 @@ export async function evaluateTags(
       title: explanationTitle 
     });
     
-    const result = await callOpenAIModel(
+    const result = await callLLM(
       evaluationPrompt, 
       'evaluateTags', 
       userid, 
-      default_model,
+      DEFAULT_MODEL,
       false,      
       null,                  // streaming parameter
       tagEvaluationSchema, 

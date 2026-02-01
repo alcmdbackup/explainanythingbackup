@@ -85,8 +85,8 @@ import * as llmsModule from '@/lib/services/llms';
 // Mock external APIs (OpenAI, Pinecone)
 jest.mock('@/lib/services/llms', () => ({
   ...jest.requireActual('@/lib/services/llms'),
-  callOpenAIModel: jest.fn(),
-  default_model: 'gpt-4',
+  callLLM: jest.fn(),
+  DEFAULT_MODEL: 'gpt-4',
 }));
 
 describe('My Integration Test Suite', () => {
@@ -120,7 +120,7 @@ describe('My Integration Test Suite', () => {
 
   it('should do something', async () => {
     // Arrange
-    const mockCallOpenAIModel = llmsModule.callOpenAIModel as jest.MockedFunction<typeof llmsModule.callOpenAIModel>;
+    const mockCallOpenAIModel = llmsModule.callLLM as jest.MockedFunction<typeof llmsModule.callLLM>;
     mockCallOpenAIModel.mockImplementation(async (...args) => {
       // Your mock implementation
       return { success: true };
@@ -240,7 +240,7 @@ afterAll(async () => {
 ```typescript
 jest.mock('@/lib/services/llms', () => ({
   ...jest.requireActual('@/lib/services/llms'),
-  callOpenAIModel: jest.fn(),
+  callLLM: jest.fn(),
 }));
 ```
 
@@ -343,11 +343,11 @@ Key differences from unit test config:
 import * as llmsModule from '@/lib/services/llms';
 jest.mock('@/lib/services/llms', () => ({
   ...jest.requireActual('@/lib/services/llms'),
-  callOpenAIModel: jest.fn(),
+  callLLM: jest.fn(),
 }));
 
 // In test:
-const mockFn = llmsModule.callOpenAIModel as jest.MockedFunction<typeof llmsModule.callOpenAIModel>;
+const mockFn = llmsModule.callLLM as jest.MockedFunction<typeof llmsModule.callLLM>;
 mockFn.mockImplementation(...);
 ```
 

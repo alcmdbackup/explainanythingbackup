@@ -6,7 +6,7 @@
  */
 
 import { z } from 'zod';
-import { callOpenAIModel, default_model } from './llms';
+import { callLLM, DEFAULT_MODEL } from './llms';
 import { type ImportSource } from '@/lib/schemas/schemas';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 
@@ -159,11 +159,11 @@ async function cleanupAndReformatImpl(
 ): Promise<ReformatResponse> {
     const prompt = REFORMAT_PROMPT.replace('{content}', content);
 
-    const response = await callOpenAIModel(
+    const response = await callLLM(
         prompt,
         `importArticle:${source}`,
         userId,
-        default_model,
+        DEFAULT_MODEL,
         false,
         null,
         reformatResponseSchema,

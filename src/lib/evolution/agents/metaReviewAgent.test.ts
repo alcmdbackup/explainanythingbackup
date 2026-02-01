@@ -10,10 +10,11 @@ function makeMockLogger(): EvolutionLogger {
 }
 
 function makeMockCostTracker(): CostTracker {
+  const agentCosts = new Map<string, number>();
   return {
     reserveBudget: jest.fn().mockResolvedValue(undefined),
-    recordSpend: jest.fn(),
-    getAgentCost: jest.fn().mockReturnValue(0),
+    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
+    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
     getTotalSpent: jest.fn().mockReturnValue(0),
     getAvailableBudget: jest.fn().mockReturnValue(5),
   };

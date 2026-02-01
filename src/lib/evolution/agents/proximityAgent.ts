@@ -26,7 +26,7 @@ export class ProximityAgent extends AgentBase {
     }
 
     if (newIds.size === 0) {
-      return { agentType: 'proximity', success: true, costUsd: 0 };
+      return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name) };
     }
 
     const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
@@ -76,7 +76,7 @@ export class ProximityAgent extends AgentBase {
       diversityScore: state.diversityScore.toFixed(3),
     });
 
-    return { agentType: 'proximity', success: true, costUsd: 0 };
+    return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name) };
   }
 
   estimateCost(payload: AgentPayload): number {
