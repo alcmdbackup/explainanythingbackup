@@ -1,9 +1,10 @@
-// Unit tests for PairwiseRanker: parsing, bias mitigation, and disagreement resolution.
+// Unit tests for PairwiseRanker: parsing, bias mitigation, model passthrough, caching, and disagreement resolution.
 
 import { PairwiseRanker, parseWinner, parseStructuredResponse } from './pairwiseRanker';
 import { PipelineStateImpl } from '../core/state';
+import { ComparisonCache } from '../core/comparisonCache';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
-import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 
 function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
   let callIndex = 0;
@@ -199,5 +200,63 @@ describe('PairwiseRanker', () => {
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
     expect(cost).toBeGreaterThan(0);
+  });
+
+  it('passes judgeModel to LLM client in comparePair', async () => {
+    const config = resolveConfig({ judgeModel: 'gpt-4.1-nano' });
+    const ctx = makeCtx(['A', 'B'], {
+      payload: {
+        originalText: '# Test\n\n## S\n\nOriginal text here. With content.',
+        title: 'Test',
+        explanationId: 1,
+        runId: 'test-run',
+        config,
+      },
+    });
+    await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    const completeFn = ctx.llmClient.complete as jest.Mock;
+    expect(completeFn).toHaveBeenCalled();
+    for (const call of completeFn.mock.calls) {
+      expect(call[2]).toEqual({ model: 'gpt-4.1-nano' });
+    }
+  });
+
+  it('second call with same texts returns cached result (zero LLM calls)', async () => {
+    const cache = new ComparisonCache();
+    const ctx = makeCtx(['A', 'B'], { comparisonCache: cache });
+    const completeFn = ctx.llmClient.complete as jest.Mock;
+
+    // First call: LLM is called
+    await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+    const callsAfterFirst = completeFn.mock.calls.length;
+    expect(callsAfterFirst).toBe(2); // forward + reverse
+
+    // Second call with same texts: should hit cache
+    const match2 = await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+    expect(completeFn.mock.calls.length).toBe(callsAfterFirst); // no new calls
+    expect(match2.confidence).toBe(1.0);
+  });
+
+  it('failed comparison (null winner) is NOT cached, subsequent call retries LLM', async () => {
+    const cache = new ComparisonCache();
+    let callCount = 0;
+    const llmClient = makeMockLLMClient([]);
+    (llmClient.complete as jest.Mock).mockImplementation(() => {
+      callCount++;
+      if (callCount <= 2) throw new Error('API error'); // both calls fail
+      return Promise.resolve('A');
+    });
+    const ctx = makeCtx([], { llmClient, comparisonCache: cache });
+
+    // First call: both LLM calls fail → partial failure, not cached
+    const match1 = await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+    expect(match1.confidence).toBe(0.0);
+    expect(cache.size).toBe(0);
+
+    // Second call: LLM now works, should make new calls
+    const match2 = await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+    expect(match2.confidence).toBeGreaterThan(0.0);
+    expect(callCount).toBe(4); // 2 failed + 2 successful
   });
 });

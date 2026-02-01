@@ -5,6 +5,7 @@ import { AgentBase } from './base';
 import { PoolManager } from '../core/pool';
 import { getAdaptiveK, updateEloWithConfidence, updateEloDraw } from '../core/elo';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
+import { BudgetExceededError } from '../types';
 
 function buildComparisonPrompt(textA: string, textB: string): string {
   return `You are an expert writing evaluator. Compare the following two text variations and determine which is better.
@@ -53,9 +54,12 @@ export class CalibrationRanker extends AgentBase {
   ): Promise<{ winner: string | null; response: string | null }> {
     const prompt = buildComparisonPrompt(textA, textB);
     try {
-      const response = await ctx.llmClient.complete(prompt, this.name);
+      const response = await ctx.llmClient.complete(prompt, this.name, {
+        model: ctx.payload.config.judgeModel,
+      });
       return { winner: parseWinner(response), response };
     } catch (error) {
+      if (error instanceof BudgetExceededError) throw error;
       ctx.logger.error('Comparison error', { error: String(error) });
       return { winner: null, response: null };
     }
@@ -68,6 +72,20 @@ export class CalibrationRanker extends AgentBase {
     idB: string,
     textB: string,
   ): Promise<Match> {
+    // Check cache first (order-invariant key — safe because we cache the full bias-mitigated result)
+    if (ctx.comparisonCache) {
+      const cached = ctx.comparisonCache.get(textA, textB, false);
+      if (cached) {
+        ctx.logger.debug('Cache hit for calibration comparison', { idA, idB });
+        const winner = cached.isDraw ? idA : (cached.winnerId === null ? idA : cached.winnerId);
+        return {
+          variationA: idA, variationB: idB,
+          winner, confidence: cached.confidence,
+          turns: 2, dimensionScores: {},
+        };
+      }
+    }
+
     // First comparison: A vs B
     const { winner: winner1 } = await this.comparePair(ctx, textA, textB);
     // Second comparison: B vs A (reversed)
@@ -81,29 +99,52 @@ export class CalibrationRanker extends AgentBase {
     ctx.logger.debug('Comparison results', { idA, idB, round1: winner1, round2Normalized: winner2 });
 
     // Determine final winner and confidence
+    let match: Match;
+
     if (winner1 === null || winner2 === null) {
-      // Partial failure
+      // Partial failure — NOT cached (allow retry on next encounter)
       const partialWinner = winner1 ?? winner2;
       if (partialWinner === 'A') return { variationA: idA, variationB: idB, winner: idA, confidence: 0.3, turns: 2, dimensionScores: {} };
       if (partialWinner === 'B') return { variationA: idA, variationB: idB, winner: idB, confidence: 0.3, turns: 2, dimensionScores: {} };
       return { variationA: idA, variationB: idB, winner: idA, confidence: 0.0, turns: 2, dimensionScores: {} };
-    }
-
-    if (winner1 === winner2) {
+    } else if (winner1 === winner2) {
       // Full agreement
       const winnerId = winner1 === 'B' ? idB : idA;
-      return { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: {} };
-    }
-
-    // Disagreement
-    if (winner1 === 'TIE' || winner2 === 'TIE') {
+      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: {} };
+    } else if (winner1 === 'TIE' || winner2 === 'TIE') {
+      // Partial disagreement with TIE
       const nonTie = winner1 === 'TIE' ? winner2 : winner1;
       const winnerId = nonTie === 'B' ? idB : idA;
-      return { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: {} };
+      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: {} };
+    } else {
+      // Complete disagreement — inconclusive
+      match = { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: {} };
     }
 
-    // Complete disagreement (A vs B) — inconclusive
-    return { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: {} };
+    // Cache valid bias-mitigated results
+    const loserId = match.winner === idA ? idB : idA;
+    ctx.comparisonCache?.set(textA, textB, false, {
+      winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
+    });
+    return match;
+  }
+
+  /** Apply Elo rating update for a single match result. */
+  private applyEloUpdate(state: PipelineState, match: Match, entrantId: string): void {
+    const winnerId = match.winner;
+    const loserId = winnerId === entrantId ? match.variationB : entrantId;
+    const oppId = match.variationA === entrantId ? match.variationB : match.variationA;
+
+    if (match.confidence === 0 || (match.winner === entrantId && winnerId === loserId)) {
+      const k = (getAdaptiveK(state.matchCounts.get(entrantId) ?? 0) +
+                 getAdaptiveK(state.matchCounts.get(oppId) ?? 0)) / 2;
+      updateEloDraw(state, entrantId, oppId, k);
+    } else {
+      const entrantK = getAdaptiveK(state.matchCounts.get(entrantId) ?? 0);
+      const oppK = getAdaptiveK(state.matchCounts.get(oppId) ?? 0);
+      const kFactor = (entrantK + oppK) / 2;
+      updateEloWithConfidence(state, winnerId, loserId, match.confidence, kFactor);
+    }
   }
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
@@ -133,28 +174,57 @@ export class CalibrationRanker extends AgentBase {
         ctx.payload.config.calibration.opponents,
       );
 
-      for (const oppId of opponentIds) {
-        const oppVar = varLookup.get(oppId);
-        if (!oppVar) continue;
+      const minOpp = ctx.payload.config.calibration.minOpponents ?? 2;
 
-        const match = await this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, oppId, oppVar.text);
+      // Filter to valid opponents upfront
+      const validOpponents = opponentIds
+        .map((id) => ({ id, var: varLookup.get(id) }))
+        .filter((o): o is { id: string; var: typeof entrantVar } => o.var !== undefined);
+
+      // Batched parallelism: run first batch, check for early exit, then remaining
+      const firstBatch = validOpponents.slice(0, minOpp);
+      const remainingBatch = validOpponents.slice(minOpp);
+
+      // Run first batch in parallel
+      const firstResults = await Promise.allSettled(
+        firstBatch.map(async (opp) =>
+          this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, opp.id, opp.var.text),
+        ),
+      );
+
+      // Apply Elo updates sequentially for first batch
+      const firstMatches: Match[] = [];
+      for (const r of firstResults) {
+        if (r.status !== 'fulfilled') continue;
+        const match = r.value;
+        firstMatches.push(match);
         matches.push(match);
         state.matchHistory.push(match);
+        this.applyEloUpdate(state, match, entrantId);
+      }
 
-        // Determine winner/loser for Elo update
-        const winnerId = match.winner;
-        const loserId = winnerId === entrantId ? oppId : entrantId;
+      // Check for early exit: all first-batch results decisive?
+      const allDecisive = firstMatches.length >= minOpp &&
+        firstMatches.every((m) => m.confidence >= 0.7);
 
-        if (match.confidence === 0 || (match.winner === entrantId && winnerId === loserId)) {
-          // Draw case (confidence=0 means inconclusive → treat as draw)
-          const k = (getAdaptiveK(state.matchCounts.get(entrantId) ?? 0) +
-                     getAdaptiveK(state.matchCounts.get(oppId) ?? 0)) / 2;
-          updateEloDraw(state, entrantId, oppId, k);
-        } else {
-          const entrantK = getAdaptiveK(state.matchCounts.get(entrantId) ?? 0);
-          const oppK = getAdaptiveK(state.matchCounts.get(oppId) ?? 0);
-          const kFactor = (entrantK + oppK) / 2;
-          updateEloWithConfidence(state, winnerId, loserId, match.confidence, kFactor);
+      if (allDecisive) {
+        logger.debug('Adaptive calibration: early exit after first batch', {
+          entrantId, matchesPlayed: firstMatches.length,
+        });
+      } else if (remainingBatch.length > 0) {
+        // Run remaining opponents in parallel
+        const moreResults = await Promise.allSettled(
+          remainingBatch.map(async (opp) =>
+            this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, opp.id, opp.var.text),
+          ),
+        );
+        // Apply Elo updates sequentially
+        for (const r of moreResults) {
+          if (r.status !== 'fulfilled') continue;
+          const match = r.value;
+          matches.push(match);
+          state.matchHistory.push(match);
+          this.applyEloUpdate(state, match, entrantId);
         }
       }
     }

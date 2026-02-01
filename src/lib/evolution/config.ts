@@ -1,6 +1,7 @@
 // Default configuration for the evolution pipeline.
 // Per-run overrides stored in content_evolution_runs.config JSONB column.
 
+import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { EvolutionRunConfig } from './types';
 
 export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
@@ -14,7 +15,7 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
     maxIterations: 8,
   },
   generation: { strategies: 3 },
-  calibration: { opponents: 5 },
+  calibration: { opponents: 5, minOpponents: 2 },
   budgetCaps: {
     generation: 0.25,
     calibration: 0.20,
@@ -23,7 +24,9 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
     reflection: 0.05,
   },
   useEmbeddings: false,
-} as const;
+  judgeModel: 'gpt-4.1-nano' as AllowedLLMModelType,
+  generationModel: 'gpt-4.1-mini' as AllowedLLMModelType,
+};
 
 /** Merge per-run config overrides with defaults. */
 export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
@@ -35,6 +38,8 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
     generation: { ...DEFAULT_EVOLUTION_CONFIG.generation, ...overrides.generation },
     calibration: { ...DEFAULT_EVOLUTION_CONFIG.calibration, ...overrides.calibration },
     budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...overrides.budgetCaps },
+    judgeModel: overrides.judgeModel ?? DEFAULT_EVOLUTION_CONFIG.judgeModel,
+    generationModel: overrides.generationModel ?? DEFAULT_EVOLUTION_CONFIG.generationModel,
   };
 }
 

@@ -7,6 +7,7 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
+import { BudgetExceededError } from '../types';
 
 // ─── Evolution strategies ───────────────────────────────────────
 
@@ -168,10 +169,9 @@ export class EvolutionAgent extends AgentBase {
 
     logger.info('Evolution start', { numParents: parents.length, parentIds: parents.map((p) => p.id) });
 
-    const variations: TextVariation[] = [];
-
-    for (const strategy of EVOLUTION_STRATEGIES) {
-      try {
+    // Run all evolution strategy LLM calls in parallel
+    const results = await Promise.allSettled(
+      EVOLUTION_STRATEGIES.map(async (strategy) => {
         let prompt: string;
         let parentIds: string[];
 
@@ -185,31 +185,44 @@ export class EvolutionAgent extends AgentBase {
         }
 
         logger.debug('Evolution call', { strategy, promptLength: prompt.length });
-
         const generatedText = await llmClient.complete(prompt, this.name);
         const fmtResult = validateFormat(generatedText);
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy, issues: fmtResult.issues });
-          continue;
+          return null;
         }
 
         const maxParentVersion = Math.max(...parents.filter((p) => parentIds.includes(p.id)).map((p) => p.version));
+        return { text: generatedText.trim(), strategy, parentIds, version: maxParentVersion + 1 };
+      }),
+    );
+
+    // Re-throw BudgetExceededError so pipeline can pause the run
+    for (const result of results) {
+      if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
+        throw result.reason;
+      }
+    }
+
+    // Mutate state sequentially after all promises resolve
+    const variations: TextVariation[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
+        const v = result.value;
         const variation: TextVariation = {
           id: uuidv4(),
-          text: generatedText.trim(),
-          version: maxParentVersion + 1,
-          parentIds,
-          strategy,
+          text: v.text,
+          version: v.version,
+          parentIds: v.parentIds,
+          strategy: v.strategy,
           createdAt: Date.now() / 1000,
           iterationBorn: state.iteration,
         };
-
         variations.push(variation);
         state.addToPool(variation);
-        logger.info('Evolution variation', { strategy, variationId: variation.id, textLength: variation.text.length });
-      } catch (error) {
-        logger.error('Evolution error', { strategy, error: String(error) });
-        continue;
+        logger.info('Evolution variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
+      } else if (result.status === 'rejected') {
+        logger.error('Evolution error', { error: String(result.reason) });
       }
     }
 

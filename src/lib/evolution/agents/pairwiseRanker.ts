@@ -3,6 +3,7 @@
 
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
+import { BudgetExceededError } from '../types';
 
 // Phase 7: Structured evaluation dimensions
 export const EVALUATION_DIMENSIONS: Record<string, string> = {
@@ -182,12 +183,15 @@ export class PairwiseRanker extends AgentBase {
       ? buildStructuredPrompt(textA, textB)
       : buildComparisonPrompt(textA, textB);
     try {
-      const response = await ctx.llmClient.complete(prompt, this.name);
+      const response = await ctx.llmClient.complete(prompt, this.name, {
+        model: ctx.payload.config.judgeModel,
+      });
       if (structured) {
         return parseStructuredResponse(response);
       }
       return { winner: parseWinner(response), dimensionScores: {}, confidence: 0.7 };
     } catch (error) {
+      if (error instanceof BudgetExceededError) throw error;
       ctx.logger.error('Comparison error', { error: String(error) });
       return { winner: null, dimensionScores: {}, confidence: 0.0 };
     }
@@ -202,6 +206,21 @@ export class PairwiseRanker extends AgentBase {
     textB: string,
     structured = false,
   ): Promise<Match> {
+    // Check cache first (order-invariant — safe because we cache the full bias-mitigated result)
+    if (ctx.comparisonCache) {
+      const cached = ctx.comparisonCache.get(textA, textB, structured);
+      if (cached) {
+        ctx.logger.debug('Cache hit for bias-mitigated comparison', { idA, idB, structured });
+        // Map cached winnerId/loserId back to the current call's id params
+        const winner = cached.isDraw ? idA : (cached.winnerId === null ? idA : cached.winnerId);
+        return {
+          variationA: idA, variationB: idB,
+          winner, confidence: cached.confidence,
+          turns: 2, dimensionScores: {},
+        };
+      }
+    }
+
     // Round 1: A vs B
     const r1 = await this.comparePair(ctx, textA, textB, structured);
 
@@ -226,29 +245,34 @@ export class PairwiseRanker extends AgentBase {
     const mergedDims = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
 
     // Determine final winner and confidence
+    let match: Match;
+
     if (r1.winner === null || winner2 === null) {
-      // Partial failure
+      // Partial failure — NOT cached (allow retry on next encounter)
       const partial = r1.winner ?? winner2;
       if (partial === 'A') return { variationA: idA, variationB: idB, winner: idA, confidence: 0.3, turns: 2, dimensionScores: mergedDims };
       if (partial === 'B') return { variationA: idA, variationB: idB, winner: idB, confidence: 0.3, turns: 2, dimensionScores: mergedDims };
       return { variationA: idA, variationB: idB, winner: idA, confidence: 0.0, turns: 2, dimensionScores: mergedDims };
-    }
-
-    if (r1.winner === winner2) {
+    } else if (r1.winner === winner2) {
       // Full agreement
       const winnerId = r1.winner === 'B' ? idB : idA;
-      return { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: mergedDims };
-    }
-
-    // Disagreement
-    if (r1.winner === 'TIE' || winner2 === 'TIE') {
+      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: mergedDims };
+    } else if (r1.winner === 'TIE' || winner2 === 'TIE') {
+      // Partial disagreement with TIE
       const nonTie = r1.winner === 'TIE' ? winner2 : r1.winner;
       const winnerId = nonTie === 'B' ? idB : idA;
-      return { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: mergedDims };
+      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: mergedDims };
+    } else {
+      // Complete disagreement (A vs B)
+      match = { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: mergedDims };
     }
 
-    // Complete disagreement (A vs B)
-    return { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: mergedDims };
+    // Cache valid bias-mitigated results
+    const loserId = match.winner === idA ? idB : idA;
+    ctx.comparisonCache?.set(textA, textB, structured, {
+      winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
+    });
+    return match;
   }
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {

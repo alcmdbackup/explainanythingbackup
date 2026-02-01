@@ -22,6 +22,8 @@ export { BudgetExceededError, LLMRefusalError } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
 export { createCostTracker } from './core/costTracker';
+export { ComparisonCache } from './core/comparisonCache';
+export type { CachedMatch } from './core/comparisonCache';
 export { createEvolutionLogger } from './core/logger';
 export { createEvolutionLLMClient } from './core/llmClient';
 export { executeMinimalPipeline, executeFullPipeline } from './core/pipeline';

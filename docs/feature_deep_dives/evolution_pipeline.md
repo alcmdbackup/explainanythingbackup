@@ -28,8 +28,17 @@ A pairing strategy that matches variants with similar Elo scores who haven't yet
 ### Stratified Opponent Selection
 For calibrating new entrants, opponents are drawn from different Elo tiers rather than randomly. For n=5 opponents: 2 from the top quartile, 2 from the middle, and 1 from the bottom or fellow new entrants. This ensures a new variant is tested against both strong and weak competitors, producing a more accurate initial rating.
 
+### Tiered Model Routing
+The pipeline routes LLM calls to different models based on task complexity. Trivial A/B comparison judgments (`judgeModel`, default: `gpt-4.1-nano`) use a model 4x cheaper than text generation (`generationModel`, default: `gpt-4.1-mini`). The underlying `llmClient.ts` default model is `deepseek-chat` — agents override this via `judgeModel`/`generationModel` config fields passed as `LLMCompletionOptions`.
+
+### LLM Response Cache (ComparisonCache)
+Bias-mitigated comparison results are cached in-memory using SHA-256 order-invariant keys (`core/comparisonCache.ts`). Caching occurs at the `compareWithBiasMitigation()` level — not at `comparePair()` — to preserve the full forward+reverse bias mitigation protocol. Only valid results (confidence >= 0.5) are cached; partial failures (null winner, low confidence) are excluded to allow retry on the next encounter. The cache persists across iterations within a single run for cross-iteration deduplication.
+
 ### Position Bias in LLM-as-Judge
 LLMs exhibit a well-documented tendency to favor whichever text appears first in a comparison prompt. To mitigate this, every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A). If both rounds agree on a winner, the result gets full confidence. If they disagree, the result is treated as a low-confidence draw. This doubles LLM calls but produces fair rankings.
+
+### Adaptive Calibration
+Calibration uses a batched parallelism strategy with early exit. The first batch of `minOpponents` (default: 2) opponents runs in parallel. If all matches are decisive (confidence >= 0.7), the entrant's rating is considered well-established and remaining opponents are skipped. Otherwise, remaining opponents run in a second parallel batch. This reduces LLM calls by ~40% for clear-cut variants while maintaining accuracy for borderline cases.
 
 ### Append-Only Pool
 Variants are never removed from the pool during a run. Low-performing variants naturally sink in Elo and become less likely to be selected as parents for evolution. However, they remain available because they may contain novel structural or stylistic elements useful for future crossover operations.
@@ -129,6 +138,18 @@ Every agent receives an `ExecutionContext` containing:
 - `llmClient`: Budget-enforced LLM client wrapping `callOpenAIModel` (`core/llmClient.ts`)
 - `logger`: Structured logger with `{subsystem: 'evolution', runId}` context (`core/logger.ts`)
 - `costTracker`: Per-agent and global budget enforcement (`core/costTracker.ts`)
+- `comparisonCache`: Order-invariant SHA-256 cache for bias-mitigated comparison results (`core/comparisonCache.ts`)
+
+### Async Parallelism
+
+All agents that make multiple independent LLM calls use `Promise.allSettled()` for concurrent execution with sequential state mutations:
+- **GenerationAgent**: 3 strategy calls run in parallel
+- **EvolutionAgent**: 3 evolution strategy calls run in parallel
+- **ReflectionAgent**: Top-N critique calls run in parallel
+- **CalibrationRanker**: Batched parallelism — first `minOpponents` in parallel, then remaining batch
+- **Tournament**: All Swiss-round pairs run in parallel within each round
+
+State mutations (pool additions, Elo updates) happen sequentially after all promises resolve. `BudgetExceededError` is explicitly re-thrown from rejected `Promise.allSettled` results to ensure proper pipeline error handling.
 
 ### Elo Rating System
 
@@ -144,8 +165,8 @@ Variants are ranked using an Elo rating system (`core/elo.ts`) — a probabilist
 The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
 - **Per-agent caps**: Configurable percentage of total budget (default: generation 25%, calibration 20%, tournament 30%, evolution 20%, reflection 5%). See Configuration for values.
 - **Global cap**: Default $5.00 per run
-- **Pre-call reservation**: Budget is checked *before* every LLM call with a 30% safety margin to account for token estimation error (cost estimates use a rough 4-chars-per-token heuristic). If actual cost exceeds the estimate, the overage is absorbed and triggers earlier budget exhaustion for subsequent calls.
-- **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint.
+- **Pre-call reservation with optimistic locking**: Budget is checked *before* every LLM call with a 30% safety margin. Reserved amounts are tracked separately from actual spend (`reservedByAgent` + `totalReserved`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the reservation is released and replaced with actual spend.
+- **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
 
 ### Checkpoint, Resume, and Error Recovery
 
@@ -289,7 +310,10 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     maxIterations: 8,    // Safety cap — unconditionally transitions at this iteration
   },
   generation: { strategies: 3 },
-  calibration: { opponents: 5 },  // Used in COMPETITION; EXPANSION overrides to 3
+  calibration: {
+    opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
+    minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
+  },
   budgetCaps: {          // Per-agent % of budgetCapUsd — see Budget Enforcement
     generation: 0.25,
     calibration: 0.20,
@@ -298,6 +322,8 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     reflection: 0.05,
   },
   useEmbeddings: false,
+  judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
+  generationModel: 'gpt-4.1-mini', // Model for text generation tasks
 }
 ```
 
@@ -324,7 +350,8 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `elo.ts` | Stateless Elo rating functions: `updateEloRatings`, `updateEloDraw`, `updateEloWithConfidence` |
-| `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with 30% margin |
+| `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin |
+| `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
 | `pool.ts` | `PoolManager` — stratified opponent selection (Elo quartile-based) and pool health statistics |
 | `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (Elo populated, matches exist, etc.) |

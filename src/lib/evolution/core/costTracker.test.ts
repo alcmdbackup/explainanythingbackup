@@ -65,4 +65,35 @@ describe('CostTrackerImpl', () => {
     // But 0.06 → 0.06*1.3 = 0.078 → 1.228 < 1.25 → should pass
     await expect(tracker.reserveBudget('generation', 0.06)).resolves.toBeUndefined();
   });
+
+  it('concurrent reservations do not exceed total budget', async () => {
+    // Budget=1.0, make N concurrent reservations that individually fit but
+    // collectively would exceed the budget without optimistic locking
+    const tracker = new CostTrackerImpl(1.0, { test: 1.0 });
+    const estimate = 0.20; // 0.20*1.3=0.26 per reservation
+
+    // 4 concurrent reservations: 4×0.26=1.04 > 1.0 → 4th should fail
+    const results = await Promise.allSettled([
+      tracker.reserveBudget('test', estimate),
+      tracker.reserveBudget('test', estimate),
+      tracker.reserveBudget('test', estimate),
+      tracker.reserveBudget('test', estimate),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === 'fulfilled').length;
+    const rejected = results.filter((r) => r.status === 'rejected').length;
+    // At most 3 should succeed (3×0.26=0.78 < 1.0), 4th should be rejected
+    expect(fulfilled).toBeLessThanOrEqual(3);
+    expect(rejected).toBeGreaterThanOrEqual(1);
+  });
+
+  it('recordSpend releases reservation', async () => {
+    const tracker = new CostTrackerImpl(1.0, { test: 1.0 });
+    // Reserve 0.50 → with margin = 0.65
+    await tracker.reserveBudget('test', 0.50);
+    // Record actual spend of 0.30 (less than reserved)
+    tracker.recordSpend('test', 0.30);
+    // Available budget should reflect actual spend, not reservation
+    expect(tracker.getAvailableBudget()).toBe(0.70);
+  });
 });

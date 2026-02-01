@@ -7,6 +7,7 @@ import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
 import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext } from '../types';
 import { BudgetExceededError } from '../types';
+import { ComparisonCache } from './comparisonCache';
 import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
 
@@ -83,6 +84,11 @@ export async function executeMinimalPipeline(
   ctx: ExecutionContext,
   logger: EvolutionLogger,
 ): Promise<void> {
+  // Inject comparison cache if not already present
+  if (!ctx.comparisonCache) {
+    ctx.comparisonCache = new ComparisonCache();
+  }
+
   const supabase = await createSupabaseServiceClient();
   await supabase.from('content_evolution_runs').update({
     status: 'running',
@@ -184,6 +190,11 @@ export async function executeFullPipeline(
     // Construct supervisor
     const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
     const supervisor = new PoolSupervisor(supervisorCfg);
+
+    // Inject comparison cache for cross-iteration deduplication
+    if (!ctx.comparisonCache) {
+      ctx.comparisonCache = new ComparisonCache();
+    }
 
     // Restore from checkpoint if resuming
     if (options.supervisorResume) {

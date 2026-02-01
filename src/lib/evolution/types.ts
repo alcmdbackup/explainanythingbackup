@@ -82,6 +82,8 @@ export interface ExecutionContext {
   logger: EvolutionLogger;
   costTracker: CostTracker;
   runId: string;
+  /** Optional comparison cache shared across agents within a run. */
+  comparisonCache?: import('./core/comparisonCache').ComparisonCache;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────
@@ -190,9 +192,13 @@ export interface EvolutionRunConfig {
     maxIterations: number;
   };
   generation: { strategies: number };
-  calibration: { opponents: number };
+  calibration: { opponents: number; minOpponents?: number };
   budgetCaps: Record<string, number>;
   useEmbeddings: boolean;
+  /** Model for comparison/judge calls (calibration, pairwise, tournament). */
+  judgeModel?: AllowedLLMModelType;
+  /** Model for text generation calls (generation, evolution). */
+  generationModel?: AllowedLLMModelType;
 }
 
 // ─── Checkpoint types ────────────────────────────────────────────

@@ -3,6 +3,7 @@
 
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique } from '../types';
+import { BudgetExceededError } from '../types';
 
 export const CRITIQUE_DIMENSIONS = [
   'clarity',
@@ -114,27 +115,39 @@ export class ReflectionAgent extends AgentBase {
 
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });
 
-    const critiques: Critique[] = [];
-
-    for (const variant of topVariants) {
-      try {
+    // Run all critique LLM calls in parallel
+    const results = await Promise.allSettled(
+      topVariants.map(async (variant) => {
         const prompt = buildCritiquePrompt(variant.text, this.dimensions);
         logger.debug('Critique call', { variantId: variant.id.slice(0, 8) });
-
         const response = await llmClient.complete(prompt, this.name);
-        const critique = parseCritiqueResponse(response, variant.id);
+        return { response, variantId: variant.id };
+      }),
+    );
 
+    // Re-throw BudgetExceededError so pipeline can pause the run
+    for (const result of results) {
+      if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
+        throw result.reason;
+      }
+    }
+
+    // Parse and collect results sequentially
+    const critiques: Critique[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { response, variantId } = result.value;
+        const critique = parseCritiqueResponse(response, variantId);
         if (critique) {
           critiques.push(critique);
           const scores = Object.values(critique.dimensionScores);
           const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-          logger.info('Critique generated', { variantId: variant.id.slice(0, 8), avgScore: avgScore.toFixed(1) });
+          logger.info('Critique generated', { variantId: variantId.slice(0, 8), avgScore: avgScore.toFixed(1) });
         } else {
-          logger.warn('Critique parse failed', { variantId: variant.id.slice(0, 8) });
+          logger.warn('Critique parse failed', { variantId: variantId.slice(0, 8) });
         }
-      } catch (error) {
-        logger.error('Critique error', { variantId: variant.id.slice(0, 8), error: String(error) });
-        continue;
+      } else {
+        logger.error('Critique error', { error: String(result.reason) });
       }
     }
 

@@ -208,19 +208,36 @@ export class Tournament extends AgentBase {
       }
       staleRounds = 0;
 
-      for (const [varA, varB] of pairs) {
-        if (totalComparisons >= maxComparisons) break;
+      // Cap pairs to remaining comparison budget
+      const remainingBudget = maxComparisons - totalComparisons;
+      const cappedPairs = pairs.slice(0, remainingBudget);
 
+      // Pre-compute multi-turn flags before parallel execution
+      const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
           varA.id, varB.id, state.eloRatings, budgetCfg, multiTurnCount,
         );
         if (useMultiTurn) multiTurnCount++;
+        return { varA, varB, useMultiTurn };
+      });
 
-        const match = await this.runComparison(ctx, varA, varB, useMultiTurn, structured);
+      // Run all pairs in this round in parallel
+      const roundResults = await Promise.allSettled(
+        pairConfigs.map(async ({ varA, varB, useMultiTurn }) =>
+          this.runComparison(ctx, varA, varB, useMultiTurn, structured),
+        ),
+      );
+
+      // Apply Elo updates sequentially after all round promises resolve
+      for (let pi = 0; pi < roundResults.length; pi++) {
+        const result = roundResults[pi];
+        if (result.status !== 'fulfilled') continue;
+
+        const match = result.value;
+        const { varA, varB } = pairConfigs[pi];
         matches.push(match);
         state.matchHistory.push(match);
 
-        // Update Elo with adaptive K
         const kA = getAdaptiveK(state.matchCounts.get(varA.id) ?? 0);
         const kB = getAdaptiveK(state.matchCounts.get(varB.id) ?? 0);
         const kFactor = (kA + kB) / 2;

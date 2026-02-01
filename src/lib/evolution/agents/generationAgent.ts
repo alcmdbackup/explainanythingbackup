@@ -6,6 +6,7 @@ import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
+import { BudgetExceededError } from '../types';
 
 const STRATEGIES = ['structural_transform', 'lexical_simplify', 'grounding_enhance'] as const;
 type Strategy = typeof STRATEGIES[number];
@@ -71,36 +72,46 @@ export class GenerationAgent extends AgentBase {
       ? ctx.state.metaFeedback.priorityImprovements.join('\n')
       : null;
 
-    const variations: TextVariation[] = [];
-
-    for (const strategy of STRATEGIES) {
-      try {
+    // Run all strategy LLM calls in parallel, then mutate state sequentially
+    const results = await Promise.allSettled(
+      STRATEGIES.map(async (strategy) => {
         const prompt = buildPrompt(strategy, text, feedback);
         logger.debug('Generation call', { strategy, promptLength: prompt.length });
-
         const generatedText = await llmClient.complete(prompt, this.name);
         const fmtResult = validateFormat(generatedText);
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy, issues: fmtResult.issues });
-          continue;
+          return null;
         }
+        return { text: generatedText.trim(), strategy };
+      }),
+    );
 
+    // Re-throw BudgetExceededError so pipeline can pause the run
+    for (const result of results) {
+      if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
+        throw result.reason;
+      }
+    }
+
+    // Mutate state sequentially after all promises resolve
+    const variations: TextVariation[] = [];
+    for (const result of results) {
+      if (result.status === 'fulfilled' && result.value) {
         const variation: TextVariation = {
           id: uuidv4(),
-          text: generatedText.trim(),
+          text: result.value.text,
           version: state.iteration + 1,
           parentIds: [],
-          strategy,
+          strategy: result.value.strategy,
           createdAt: Date.now() / 1000,
           iterationBorn: state.iteration,
         };
-
         variations.push(variation);
         state.addToPool(variation);
-        logger.info('Generated variation', { strategy, variationId: variation.id, textLength: variation.text.length });
-      } catch (error) {
-        logger.error('Generation error', { strategy, error: String(error) });
-        continue;
+        logger.info('Generated variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
+      } else if (result.status === 'rejected') {
+        logger.error('Generation error', { error: String(result.reason) });
       }
     }
 

@@ -10,16 +10,24 @@ import { LLMRefusalError } from '../types';
 /** Default model for evolution pipeline — DeepSeek v3 is significantly cheaper than gpt-4.1-mini. */
 const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
 
+/** Per-model pricing (cost per 1M tokens). */
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'deepseek-chat': { input: 0.00014, output: 0.00028 },
+  'gpt-4.1-mini': { input: 0.0004, output: 0.0016 },
+  'gpt-4.1-nano': { input: 0.0001, output: 0.0004 },
+  'gpt-4o-mini': { input: 0.0004, output: 0.0016 },
+  'gpt-5-mini': { input: 0.0004, output: 0.0016 },
+  'gpt-5-nano': { input: 0.0001, output: 0.0004 },
+};
+
 /** Estimate token cost before making a call (rough heuristic: ~4 chars per token). */
-export function estimateTokenCost(prompt: string): number {
+export function estimateTokenCost(prompt: string, model?: string): number {
   const estimatedInputTokens = Math.ceil(prompt.length / 4);
   const estimatedOutputTokens = Math.ceil(estimatedInputTokens * 0.5); // assume 50% output ratio
-  // Rough cost per 1M tokens (use deepseek-chat pricing as default)
-  const costPer1MInput = 0.14;
-  const costPer1MOutput = 0.28;
+  const pricing = (model && MODEL_PRICING[model]) || MODEL_PRICING['deepseek-chat'];
   return (
-    (estimatedInputTokens / 1_000_000) * costPer1MInput +
-    (estimatedOutputTokens / 1_000_000) * costPer1MOutput
+    (estimatedInputTokens / 1_000_000) * pricing.input +
+    (estimatedOutputTokens / 1_000_000) * pricing.output
   );
 }
 
@@ -46,7 +54,7 @@ export function createEvolutionLLMClient(
   return {
     async complete(prompt: string, agentName: string, options?: LLMCompletionOptions): Promise<string> {
       const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
-      const estimate = estimateTokenCost(prompt);
+      const estimate = estimateTokenCost(prompt, model);
       await costTracker.reserveBudget(agentName, estimate);
 
       const result = await callOpenAIModel(
@@ -77,7 +85,7 @@ export function createEvolutionLLMClient(
       options?: LLMCompletionOptions,
     ): Promise<T> {
       const model = options?.model ?? EVOLUTION_DEFAULT_MODEL;
-      const estimate = estimateTokenCost(prompt);
+      const estimate = estimateTokenCost(prompt, model);
       await costTracker.reserveBudget(agentName, estimate);
 
       // callOpenAIModel accepts ZodObject for structured output
