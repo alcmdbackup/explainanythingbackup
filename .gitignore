@@ -57,3 +57,6 @@ client.log
 
 # Claude Code
 .claude/review-state/
+
+# Evolution pipeline output
+evolution-output-*.json

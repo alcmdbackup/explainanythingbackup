@@ -6,12 +6,16 @@
 //   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md
 //   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --full --iterations 3
 
+import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
 import { z } from 'zod';
+
+// Load .env.local for API keys (DEEPSEEK_API_KEY, SUPABASE_*, etc.)
+dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 // Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
 import { PipelineStateImpl, serializeState } from '../src/lib/evolution/core/state';
@@ -705,6 +709,29 @@ async function main() {
       total_variants: ctx.state.getPoolSize(),
       total_cost_usd: ctx.costTracker.getTotalSpent(),
     });
+
+    // Persist variants to content_evolution_variants so the admin UI can display them
+    if (dbTracking && supabase) {
+      const variantInserts = ctx.state.pool.map((v) => ({
+        run_id: runId,
+        explanation_id: args.explanationId,
+        variant_content: v.text,
+        elo_score: ctx.state.eloRatings.get(v.id) ?? 1200,
+        generation: v.version,
+        agent_name: v.strategy,
+        match_count: ctx.state.matchCounts.get(v.id) ?? 0,
+      }));
+      if (variantInserts.length > 0) {
+        const { error: insertError } = await supabase
+          .from('content_evolution_variants')
+          .insert(variantInserts);
+        if (insertError) {
+          logger.warn('Failed to persist variants', { error: insertError.message });
+        } else {
+          logger.info('Variants persisted to DB', { count: variantInserts.length });
+        }
+      }
+    }
 
     // Build and write output
     const output = buildOutput(ctx, stopReason, durationMs, dbTracking);

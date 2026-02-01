@@ -3,6 +3,7 @@
 // Queue new runs, view variant rankings, apply winning content, rollback, and view quality impact.
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   queueEvolutionRunAction,
@@ -364,6 +365,7 @@ function VariantPanel({
 // ─── Main page ──────────────────────────────────────────────────
 
 export default function EvolutionAdminPage() {
+  const router = useRouter();
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -576,8 +578,9 @@ export default function EvolutionAdminPage() {
               runs.map((run) => (
                 <tr
                   key={run.id}
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]"
+                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
                   data-testid={`run-row-${run.id}`}
+                  onClick={() => router.push(`/admin/quality/evolution/run/${run.id}`)}
                 >
                   <td className="p-3">
                     <Link
@@ -597,7 +600,7 @@ export default function EvolutionAdminPage() {
                   <td className="p-3 text-[var(--text-muted)] text-xs">
                     {new Date(run.created_at).toLocaleDateString()}
                   </td>
-                  <td className="p-3">
+                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-2">
                       <button
                         onClick={() => handleViewVariants(run)}
