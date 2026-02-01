@@ -15,6 +15,8 @@ const config = {
     '^@pinecone-database/pinecone$': '<rootDir>/src/testing/mocks/@pinecone-database/pinecone.ts',
     '^@supabase/supabase-js$': '<rootDir>/src/testing/mocks/@supabase/supabase-js.ts',
     '^langchain/text_splitter$': '<rootDir>/src/testing/mocks/langchain-text-splitter.ts',
+    '^d3$': '<rootDir>/src/testing/mocks/d3.ts',
+    '^d3-dag$': '<rootDir>/src/testing/mocks/d3-dag.ts',
   },
 
   // Setup files - runs BEFORE module imports (for shims and polyfills)

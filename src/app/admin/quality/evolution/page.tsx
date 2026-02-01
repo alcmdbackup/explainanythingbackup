@@ -22,6 +22,8 @@ import {
   type EvolutionComparison,
 } from '@/lib/services/contentQualityActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
+import Link from 'next/link';
+import { EvolutionStatusBadge } from '@/components/evolution';
 
 // ─── Date range options ──────────────────────────────────────────
 
@@ -33,19 +35,6 @@ function getStartDate(range: DateRange): string | undefined {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString();
-}
-
-// ─── Status badge colors ────────────────────────────────────────
-
-function statusColor(status: EvolutionRunStatus): string {
-  switch (status) {
-    case 'pending': return 'bg-yellow-800 text-yellow-100';
-    case 'running': return 'bg-blue-800 text-blue-100';
-    case 'completed': return 'bg-green-800 text-green-100';
-    case 'failed': return 'bg-red-800 text-red-100';
-    case 'paused': return 'bg-orange-800 text-orange-100';
-    default: return 'bg-gray-800 text-gray-100';
-  }
 }
 
 // ─── Summary cards ───────────────────────────────────────────────
@@ -281,9 +270,7 @@ function VariantPanel({
             </h2>
             <p className="text-sm text-[var(--text-muted)]">
               Explanation #{run.explanation_id} &middot; {run.variants_generated} variants &middot;{' '}
-              <span className={`px-2 py-0.5 rounded text-xs ${statusColor(run.status)}`}>
-                {run.status}
-              </span>
+              <EvolutionStatusBadge status={run.status} />
             </p>
           </div>
           <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xl">&times;</button>
@@ -508,6 +495,13 @@ export default function EvolutionAdminPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Link
+            href="/admin/quality/evolution/dashboard"
+            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] text-sm"
+            data-testid="dashboard-link"
+          >
+            Dashboard
+          </Link>
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value as DateRange)}
@@ -586,12 +580,15 @@ export default function EvolutionAdminPage() {
                   data-testid={`run-row-${run.id}`}
                 >
                   <td className="p-3">
-                    <span className="font-mono text-xs text-[var(--text-muted)]">#{run.explanation_id}</span>
+                    <Link
+                      href={`/admin/quality/evolution/run/${run.id}`}
+                      className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+                    >
+                      #{run.explanation_id}
+                    </Link>
                   </td>
                   <td className="p-3">
-                    <span className={`px-2 py-1 rounded text-xs ${statusColor(run.status)}`}>
-                      {run.status}
-                    </span>
+                    <EvolutionStatusBadge status={run.status} />
                   </td>
                   <td className="p-3 text-[var(--text-secondary)] text-xs">{run.phase}</td>
                   <td className="p-3 text-right">{run.variants_generated}</td>

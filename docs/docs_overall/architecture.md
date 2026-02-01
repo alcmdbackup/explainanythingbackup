@@ -97,6 +97,9 @@ export const functionName = serverReadRequestId(_functionName);
 
 For detailed implementation of each feature, see [feature_deep_dives/](../feature_deep_dives/).
 
+Key features include:
+- [Evolution Pipeline Visualization](../feature_deep_dives/evolution_pipeline_visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
+
 ---
 
 ## Testing

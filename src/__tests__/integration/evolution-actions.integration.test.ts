@@ -7,6 +7,7 @@ import {
   cleanupEvolutionData,
   createTestEvolutionRun,
   createTestVariant,
+  createTestLLMCallTracking,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
 } from '@/testing/utils/evolution-test-helpers';
@@ -314,25 +315,9 @@ describe('Evolution Server Actions Integration Tests', () => {
       });
       const runId = run.id as string;
 
-      const trackingRows = [
-        {
-          call_source: 'evolution_generation',
-          estimated_cost: 0.005,
-          created_at: new Date(now.getTime() - 30000).toISOString(),
-        },
-        {
-          call_source: 'evolution_generation',
-          estimated_cost: 0.004,
-          created_at: new Date(now.getTime() - 20000).toISOString(),
-        },
-        {
-          call_source: 'evolution_calibration',
-          estimated_cost: 0.003,
-          created_at: new Date(now.getTime() - 10000).toISOString(),
-        },
-      ];
-
-      await supabase.from('llmCallTracking').insert(trackingRows);
+      await createTestLLMCallTracking(supabase, 'evolution_generation', 0.005, new Date(now.getTime() - 30000).toISOString());
+      await createTestLLMCallTracking(supabase, 'evolution_generation', 0.004, new Date(now.getTime() - 20000).toISOString());
+      await createTestLLMCallTracking(supabase, 'evolution_calibration', 0.003, new Date(now.getTime() - 10000).toISOString());
 
       const result = await getEvolutionCostBreakdownAction(runId);
 

@@ -2,7 +2,7 @@
 // Provides NOOP_SPAN, DB cleanup, test data factories, mock LLM client, and mock logger.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EvolutionLLMClient, EvolutionLogger } from '@/lib/evolution/types';
+import type { EvolutionLLMClient, EvolutionLogger, SerializedPipelineState } from '@/lib/evolution/types';
 
 // ─── NOOP_SPAN ──────────────────────────────────────────────────
 // Mirrors the noopSpan in instrumentation.ts for use in mocked instrumentation modules.
@@ -181,4 +181,83 @@ export function createMockEvolutionLogger(): EvolutionLogger {
     error: jest.fn(),
     debug: jest.fn(),
   };
+}
+
+// ─── Checkpoint factory ─────────────────────────────────────────
+
+/** Creates a test checkpoint row in evolution_checkpoints. */
+export async function createTestCheckpoint(
+  supabase: SupabaseClient,
+  runId: string,
+  iteration: number,
+  lastAgent: string,
+  snapshotOverrides: Partial<SerializedPipelineState> = {},
+): Promise<string> {
+  const defaultSnapshot: SerializedPipelineState = {
+    iteration,
+    originalText: VALID_VARIANT_TEXT,
+    pool: [{
+      id: `v-${iteration}-1`,
+      text: VALID_VARIANT_TEXT,
+      version: 1,
+      parentIds: [],
+      strategy: 'structural_transform',
+      createdAt: Date.now(),
+      iterationBorn: iteration,
+    }],
+    newEntrantsThisIteration: [`v-${iteration}-1`],
+    eloRatings: { [`v-${iteration}-1`]: 1200 + iteration * 20 },
+    matchCounts: { [`v-${iteration}-1`]: iteration * 2 },
+    matchHistory: [],
+    dimensionScores: null,
+    allCritiques: null,
+    similarityMatrix: null,
+    diversityScore: null,
+    metaFeedback: null,
+    ...snapshotOverrides,
+  };
+
+  const { data, error } = await supabase
+    .from('evolution_checkpoints')
+    .insert({
+      run_id: runId,
+      iteration,
+      last_agent: lastAgent,
+      phase: 'EXPANSION',
+      state_snapshot: defaultSnapshot,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw error;
+  return data.id;
+}
+
+// ─── LLM call tracking factory ──────────────────────────────────
+
+/** Creates a test llmCallTracking row for cost testing. */
+export async function createTestLLMCallTracking(
+  supabase: SupabaseClient,
+  callSource: string,
+  estimatedCostUsd: number,
+  createdAt: string = new Date().toISOString(),
+): Promise<void> {
+  const { error } = await supabase
+    .from('llmCallTracking')
+    .insert({
+      call_source: callSource,
+      estimated_cost_usd: estimatedCostUsd,
+      created_at: createdAt,
+      userid: '00000000-0000-4000-8000-000000000099',
+      prompt: '[test] evolution cost tracking',
+      content: '[test] response content',
+      raw_api_response: '{}',
+      model: 'gpt-4o-mini',
+      prompt_tokens: 10,
+      completion_tokens: 20,
+      total_tokens: 30,
+      finish_reason: 'stop',
+    });
+
+  if (error) throw error;
 }

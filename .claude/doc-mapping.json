@@ -240,7 +240,7 @@
     },
     {
       "pattern": "src/lib/services/evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md"]
     },
     {
       "pattern": "src/lib/evolution/**",
@@ -257,6 +257,10 @@
     {
       "pattern": "scripts/run-evolution*.ts",
       "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
+    },
+    {
+      "pattern": "src/components/evolution/**",
+      "docs": ["docs/feature_deep_dives/evolution_pipeline_visualization.md"]
     }
   ],
   "alwaysConsider": [

@@ -394,7 +394,7 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
     // Query LLM call tracking for evolution calls within the run window
     let query = supabase
       .from('llmCallTracking')
-      .select('call_source, estimated_cost')
+      .select('call_source, estimated_cost_usd')
       .like('call_source', 'evolution_%');
 
     if (run.started_at) {
@@ -417,7 +417,7 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
       const agent = (call.call_source as string).replace(/^evolution_/, '');
       const entry = agentMap.get(agent) ?? { calls: 0, costUsd: 0 };
       entry.calls += 1;
-      entry.costUsd += (call.estimated_cost as number) ?? 0;
+      entry.costUsd += (call.estimated_cost_usd as number) ?? 0;
       agentMap.set(agent, entry);
     }
 

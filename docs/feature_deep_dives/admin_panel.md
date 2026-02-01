@@ -156,6 +156,9 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/costs` - LLM cost analytics (see Cost Analytics section below)
 - `/admin/quality` - Content quality dashboard
 - `/admin/quality/evolution` - Evolution pipeline management (queue runs, apply winners, rollback)
+- `/admin/quality/evolution/dashboard` - Evolution ops dashboard (stats, trends, auto-polling)
+- `/admin/quality/evolution/run/[runId]` - Run detail with 5 tabs (Timeline, Elo, Lineage, Budget, Variants)
+- `/admin/quality/evolution/run/[runId]/compare` - Before/after text diff and quality comparison
 - `/admin/audit` - Audit log
 - `/admin/settings` - System settings
 - `/admin/dev-tools` - Development utilities

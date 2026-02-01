@@ -79,9 +79,9 @@ describe('Evolution Actions', () => {
         // This is the terminal for the second query
         return Promise.resolve({
           data: [
-            { call_source: 'evolution_generation', estimated_cost: 0.01 },
-            { call_source: 'evolution_generation', estimated_cost: 0.02 },
-            { call_source: 'evolution_calibration', estimated_cost: 0.005 },
+            { call_source: 'evolution_generation', estimated_cost_usd: 0.01 },
+            { call_source: 'evolution_generation', estimated_cost_usd: 0.02 },
+            { call_source: 'evolution_calibration', estimated_cost_usd: 0.005 },
           ],
           error: null,
         });

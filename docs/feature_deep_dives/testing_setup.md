@@ -15,11 +15,11 @@ ExplainAnything uses a **four-tier testing strategy**:
 ### Test Statistics
 - **Unit**: 60+ colocated `.test.ts` files
 - **ESM**: 1 file for AST diffing (bypasses Jest ESM limitations)
-- **Integration**: 18 test files (17 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
+- **Integration**: 19 test files (18 in `src/__tests__/integration/` + 1 in `__tests__/integration/`)
   - **Critical** (run on PRs to main): 5 tests
-  - **Full** (run on PRs to production): 18 tests
-  - **Evolution** (3 files): Auto-skip when evolution DB tables not yet migrated
-- **E2E**: 22 spec files in `__tests__/e2e/specs/`
+  - **Full** (run on PRs to production): 19 tests
+  - **Evolution** (4 files): Auto-skip when evolution DB tables not yet migrated
+- **E2E**: 23 spec files in `__tests__/e2e/specs/`
   - **Critical** (`@critical` tag): 10 tests (run on PRs to main)
   - **Full**: 163 tests (run on PRs to production)
 - **Exploratory**: `/user-test` skill for AI-driven exploration (see [User Testing](./user_testing.md))
