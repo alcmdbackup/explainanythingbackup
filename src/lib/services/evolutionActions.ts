@@ -352,11 +352,13 @@ const _triggerEvolutionRunAction = withLogging(async (
 
     // Persist variants to DB
     const variantInserts = state.pool.map((v) => ({
+      id: v.id,
       run_id: runId,
       explanation_id: explanation.id,
       variant_content: v.text,
       elo_score: state.eloRatings.get(v.id) ?? 1200,
       generation: v.version,
+      parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
       agent_name: v.strategy,
       match_count: state.matchCounts.get(v.id) ?? 0,
     }));

@@ -271,6 +271,7 @@ function createDirectLLMClient(
   model: string,
   costTracker: ReturnType<typeof createCostTracker>,
   logger: EvolutionLogger,
+  supabase: SupabaseClient | null = null,
 ): EvolutionLLMClient {
   const isDeepSeek = model.startsWith('deepseek-');
 
@@ -307,11 +308,35 @@ function createDirectLLMClient(
         throw new LLMRefusalError(`Empty response from ${agentName}`);
       }
 
-      if (response.usage) {
-        const cost =
-          (response.usage.prompt_tokens / 1_000_000) * inputRate +
-          (response.usage.completion_tokens / 1_000_000) * outputRate;
+      const usage = response.usage;
+      let cost = 0;
+      if (usage) {
+        cost =
+          (usage.prompt_tokens / 1_000_000) * inputRate +
+          (usage.completion_tokens / 1_000_000) * outputRate;
         costTracker.recordSpend(agentName, cost);
+      }
+
+      // Persist call to llmCallTracking so the budget tab can visualize it
+      if (supabase) {
+        void Promise.resolve(
+          supabase.from('llmCallTracking').insert({
+            userid: '00000000-0000-0000-0000-000000000000',
+            prompt,
+            content,
+            call_source: `evolution_${agentName}`,
+            raw_api_response: JSON.stringify(response.choices[0] ?? {}),
+            model,
+            prompt_tokens: usage?.prompt_tokens ?? 0,
+            completion_tokens: usage?.completion_tokens ?? 0,
+            total_tokens: usage?.total_tokens ?? 0,
+            reasoning_tokens: 0,
+            finish_reason: response.choices[0]?.finish_reason ?? 'unknown',
+            estimated_cost_usd: cost,
+          }),
+        ).then(({ error: trackErr }) => {
+          if (trackErr) logger.warn('llmCallTracking insert failed', { error: String(trackErr) });
+        }).catch(() => { /* non-critical tracking */ });
       }
 
       return content;
@@ -665,7 +690,7 @@ async function main() {
   const costTracker = createCostTracker(config);
   const llmClient = args.mock
     ? createMockLLMClient(logger)
-    : createDirectLLMClient(args.model, costTracker, logger);
+    : createDirectLLMClient(args.model, costTracker, logger, supabase);
 
   const ctx: ExecutionContext = {
     payload: {
@@ -713,11 +738,13 @@ async function main() {
     // Persist variants to content_evolution_variants so the admin UI can display them
     if (dbTracking && supabase) {
       const variantInserts = ctx.state.pool.map((v) => ({
+        id: v.id,
         run_id: runId,
         explanation_id: args.explanationId,
         variant_content: v.text,
         elo_score: ctx.state.eloRatings.get(v.id) ?? 1200,
         generation: v.version,
+        parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
         agent_name: v.strategy,
         match_count: ctx.state.matchCounts.get(v.id) ?? 0,
       }));

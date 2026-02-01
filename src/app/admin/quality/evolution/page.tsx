@@ -2,7 +2,7 @@
 // Admin page for managing evolution pipeline runs.
 // Queue new runs, view variant rankings, apply winning content, rollback, and view quality impact.
 
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
@@ -295,9 +295,8 @@ function VariantPanel({
             </thead>
             <tbody>
               {variants.map((v, i) => (
-                <>
+                <Fragment key={v.id}>
                   <tr
-                    key={v.id}
                     className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] ${v.is_winner ? 'bg-[var(--status-success)]/5' : ''}`}
                     data-testid={`variant-row-${i}`}
                   >
@@ -338,7 +337,7 @@ function VariantPanel({
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               ))}
             </tbody>
           </table>

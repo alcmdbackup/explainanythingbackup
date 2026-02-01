@@ -2,7 +2,7 @@
 // Sortable variants table with Elo sparklines, strategy filtering, and text expansion.
 // Displays all variants from an evolution run ranked by Elo score.
 
-import { useEffect, useState, useMemo } from 'react';
+import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { EloSparkline } from '@/components/evolution';
 import {
@@ -119,9 +119,8 @@ export function VariantsTab({ runId }: { runId: string }) {
           </thead>
           <tbody>
             {filtered.map((v, i) => (
-              <>
+              <Fragment key={v.id}>
                 <tr
-                  key={v.id}
                   className={`border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] ${v.is_winner ? 'bg-[var(--status-success)]/5' : ''}`}
                 >
                   <td className="p-3 text-[var(--text-muted)]">
@@ -154,7 +153,7 @@ export function VariantsTab({ runId }: { runId: string }) {
                     </td>
                   </tr>
                 )}
-              </>
+              </Fragment>
             ))}
           </tbody>
         </table>

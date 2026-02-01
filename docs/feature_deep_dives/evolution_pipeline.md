@@ -380,7 +380,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `src/lib/services/evolutionActions.ts` | 8 server actions: queue, trigger, get runs/variants, apply winner, rollback, cost breakdown, history |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
-| `scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |
+| `scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available. Preserves pipeline-generated variant UUIDs and `parent_variant_id` on insert so dashboard IDs match CLI output. Writes each LLM call to `llmCallTracking` for budget tab visualization. |
 | `src/app/api/cron/evolution-watchdog/route.ts` | Marks stale runs (heartbeat > 10min) as failed — runs every 15 minutes |
 | `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
@@ -399,7 +399,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 - **OpenTelemetry spans** (distributed tracing segments viewable in Grafana/Honeycomb): `evolution.pipeline.full`, `evolution.iteration`, `evolution.agent.{name}` — each carries attributes for cost, variant count, phase, and timing
 - **Structured logging**: Every log entry includes `{subsystem: 'evolution', runId, agentName}` for filtering
 - **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog cron
-- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`
+- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. CLI runs also write to `llmCallTracking` with `call_source = 'evolution_{agentName}'` so the budget tab's burn curve and agent breakdown charts work for local runs.
 
 ## Production Deployment
 
