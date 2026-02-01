@@ -163,6 +163,10 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     CalibrationRanker,
     Tournament,
     EvolutionAgent,
+    ReflectionAgent,
+    DebateAgent,
+    ProximityAgent,
+    MetaReviewAgent,
   } = await import('../src/lib/evolution/index');
 
   const config = resolveConfig(run.config as Record<string, unknown>);
@@ -192,6 +196,10 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     calibration: new CalibrationRanker(),
     tournament: new Tournament(),
     evolution: new EvolutionAgent(),
+    reflection: new ReflectionAgent(),
+    debate: new DebateAgent(),
+    proximity: new ProximityAgent(),
+    metaReview: new MetaReviewAgent(),
   };
 
   const heartbeat = startHeartbeat(run.id);

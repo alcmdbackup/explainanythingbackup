@@ -25,6 +25,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       tournamentEnabled: true,
       evolvePoolEnabled: true,
       dryRunOnly: false,
+      debateEnabled: true,
     });
   });
 
@@ -40,6 +41,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       tournamentEnabled: false,
       evolvePoolEnabled: false,
       dryRunOnly: true,
+      debateEnabled: true,
     });
   });
 

@@ -125,5 +125,34 @@ describe('serializeState / deserializeState', () => {
     expect(restored.eloRatings.get('v1')).toBe(1250);
     expect(restored.matchCounts.get('v1')).toBe(3);
     expect(restored.matchHistory).toHaveLength(1);
+    expect(restored.debateTranscripts).toEqual([]);
+  });
+
+  it('round-trips debateTranscripts', () => {
+    const state = new PipelineStateImpl('test');
+    state.debateTranscripts = [{
+      variantAId: 'v1',
+      variantBId: 'v2',
+      turns: [{ role: 'advocate_a', content: 'A is better' }],
+      synthesisVariantId: 'v3',
+      iteration: 1,
+    }];
+
+    const serialized = serializeState(state);
+    expect(serialized.debateTranscripts).toHaveLength(1);
+
+    const restored = deserializeState(serialized);
+    expect(restored.debateTranscripts).toHaveLength(1);
+    expect(restored.debateTranscripts[0].variantAId).toBe('v1');
+    expect(restored.debateTranscripts[0].turns[0].role).toBe('advocate_a');
+  });
+
+  it('deserializes missing debateTranscripts as empty array', () => {
+    const snapshot = serializeState(new PipelineStateImpl('test'));
+    // Simulate old checkpoint without debateTranscripts
+    const legacy = { ...snapshot } as Record<string, unknown>;
+    delete legacy.debateTranscripts;
+    const restored = deserializeState(legacy as never);
+    expect(restored.debateTranscripts).toEqual([]);
   });
 });

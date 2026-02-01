@@ -143,6 +143,7 @@ describe('PoolSupervisor', () => {
       expect(config.generationPayload.strategies).toHaveLength(3);
       expect(config.runEvolution).toBe(false);
       expect(config.runReflection).toBe(false);
+      expect(config.runDebate).toBe(false);
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(3);
     });
 
@@ -166,6 +167,7 @@ describe('PoolSupervisor', () => {
       expect(config.phase).toBe('COMPETITION');
       expect(config.runEvolution).toBe(true);
       expect(config.runReflection).toBe(true);
+      expect(config.runDebate).toBe(true);
       expect(config.runMetaReview).toBe(true);
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(5);
     });

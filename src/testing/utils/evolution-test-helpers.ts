@@ -214,6 +214,7 @@ export async function createTestCheckpoint(
     similarityMatrix: null,
     diversityScore: null,
     metaFeedback: null,
+    debateTranscripts: [],
     ...snapshotOverrides,
   };
 

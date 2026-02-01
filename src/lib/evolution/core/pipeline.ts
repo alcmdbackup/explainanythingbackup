@@ -260,6 +260,7 @@ export interface PipelineAgents {
   tournament: PipelineAgent;
   evolution: PipelineAgent;
   reflection?: PipelineAgent;
+  debate?: PipelineAgent;
   proximity?: PipelineAgent;
   metaReview?: PipelineAgent;
 }
@@ -371,6 +372,15 @@ export async function executeFullPipeline(
         // === Reflection (Slice C — optional) ===
         if (config.runReflection && agents.reflection) {
           await runAgent(runId, agents.reflection, ctx, phase, logger);
+        }
+
+        // === Debate (COMPETITION only — optional) ===
+        if (config.runDebate && agents.debate) {
+          if (options.featureFlags?.debateEnabled === false) {
+            logger.info('Debate agent disabled by feature flag', { iteration: ctx.state.iteration });
+          } else {
+            await runAgent(runId, agents.debate, ctx, phase, logger);
+          }
         }
 
         // === Evolution (evolvePool) ===

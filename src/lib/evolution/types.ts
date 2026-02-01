@@ -42,6 +42,14 @@ export interface MetaFeedback {
   patternsToAvoid: string[];
 }
 
+export interface DebateTranscript {
+  variantAId: string;
+  variantBId: string;
+  turns: Array<{ role: 'advocate_a' | 'advocate_b' | 'judge'; content: string }>;
+  synthesisVariantId: string | null;
+  iteration: number;
+}
+
 export interface Match {
   variationA: string;
   variationB: string;
@@ -111,6 +119,9 @@ export interface PipelineState {
 
   // Phase 5: Meta-review fields
   metaFeedback: MetaFeedback | null;
+
+  // Phase 6: Debate fields
+  debateTranscripts: DebateTranscript[];
 
   // Pool management methods
   addToPool(variation: TextVariation): void;
@@ -225,6 +236,7 @@ export interface SerializedPipelineState {
   similarityMatrix: Record<string, Record<string, number>> | null;
   diversityScore: number | null;
   metaFeedback: MetaFeedback | null;
+  debateTranscripts: DebateTranscript[];
 }
 
 // ─── Evolution run status ────────────────────────────────────────

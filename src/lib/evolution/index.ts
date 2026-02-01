@@ -39,6 +39,8 @@ export { EvolutionAgent } from './agents/evolvePool';
 export { ReflectionAgent, CRITIQUE_DIMENSIONS, getCritiqueForVariant, getWeakestDimension, getImprovementSuggestions } from './agents/reflectionAgent';
 export type { CritiqueDimension } from './agents/reflectionAgent';
 export { MetaReviewAgent } from './agents/metaReviewAgent';
+export { DebateAgent } from './agents/debateAgent';
+export type { DebateTranscript } from './types';
 export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
 export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTracker';
 export type { DiversityStatus } from './core/diversityTracker';

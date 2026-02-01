@@ -19,9 +19,10 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   budgetCaps: {
     generation: 0.25,
     calibration: 0.20,
-    tournament: 0.30,
+    tournament: 0.25,
     evolution: 0.20,
     reflection: 0.05,
+    debate: 0.05,
   },
   useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano' as AllowedLLMModelType,

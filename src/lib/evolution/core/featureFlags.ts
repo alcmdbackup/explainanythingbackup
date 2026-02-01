@@ -11,6 +11,8 @@ export interface EvolutionFeatureFlags {
   evolvePoolEnabled: boolean;
   /** When true, skip all pipeline execution — log only. */
   dryRunOnly: boolean;
+  /** Whether the DebateAgent runs in COMPETITION phase. */
+  debateEnabled: boolean;
 }
 
 /** Safe defaults: agents enabled, dry-run off. */
@@ -18,6 +20,7 @@ export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   tournamentEnabled: true,
   evolvePoolEnabled: true,
   dryRunOnly: false,
+  debateEnabled: true,
 };
 
 /** Flag name → field mapping. */
@@ -25,6 +28,7 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_tournament_enabled: 'tournamentEnabled',
   evolution_evolve_pool_enabled: 'evolvePoolEnabled',
   evolution_dry_run_only: 'dryRunOnly',
+  evolution_debate_enabled: 'debateEnabled',
 };
 
 const FLAG_NAMES = Object.keys(FLAG_MAP);

@@ -7,6 +7,7 @@ import type {
   Match,
   Critique,
   MetaFeedback,
+  DebateTranscript,
   SerializedPipelineState,
 } from '../types';
 import { ELO_CONSTANTS } from '../config';
@@ -29,6 +30,8 @@ export class PipelineStateImpl implements PipelineState {
   diversityScore: number | null = null;
 
   metaFeedback: MetaFeedback | null = null;
+
+  debateTranscripts: DebateTranscript[] = [];
 
   constructor(originalText: string = '') {
     this.originalText = originalText;
@@ -82,6 +85,7 @@ export function serializeState(state: PipelineState): SerializedPipelineState {
     similarityMatrix: state.similarityMatrix,
     diversityScore: state.diversityScore,
     metaFeedback: state.metaFeedback,
+    debateTranscripts: state.debateTranscripts,
   };
 }
 
@@ -100,5 +104,6 @@ export function deserializeState(snapshot: SerializedPipelineState): PipelineSta
   state.similarityMatrix = snapshot.similarityMatrix;
   state.diversityScore = snapshot.diversityScore;
   state.metaFeedback = snapshot.metaFeedback;
+  state.debateTranscripts = snapshot.debateTranscripts ?? [];
   return state;
 }

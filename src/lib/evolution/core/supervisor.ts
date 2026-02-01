@@ -17,6 +17,7 @@ export interface PhaseConfig {
   phase: PipelinePhase;
   runGeneration: boolean;
   runReflection: boolean;
+  runDebate: boolean;
   runEvolution: boolean;
   runCalibration: boolean;
   runProximity: boolean;
@@ -156,6 +157,7 @@ export class PoolSupervisor {
         phase: 'EXPANSION',
         runGeneration: true,
         runReflection: false,
+        runDebate: false,
         runEvolution: false,
         runCalibration: true,
         runProximity: true,
@@ -171,6 +173,7 @@ export class PoolSupervisor {
       phase: 'COMPETITION',
       runGeneration: true,
       runReflection: true,
+      runDebate: true,
       runEvolution: true,
       runCalibration: true,
       runProximity: true,

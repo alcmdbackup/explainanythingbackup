@@ -103,6 +103,7 @@ async function seedVisualizationData(): Promise<SeededVizData> {
       similarityMatrix: null,
       diversityScore: null,
       metaFeedback: null,
+      debateTranscripts: [],
     },
   });
 

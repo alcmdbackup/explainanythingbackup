@@ -11,7 +11,8 @@ Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool)
                  │                              │
                  ├─ GenerationAgent              ├─ GenerationAgent (focused strategy)
                  ├─ CalibrationRanker            ├─ ReflectionAgent (critique top 3)
-                 ├─ ProximityAgent               ├─ EvolutionAgent (mutate/crossover)
+                 ├─ ProximityAgent               ├─ DebateAgent (structured 3-turn debate)
+                 │                              ├─ EvolutionAgent (mutate/crossover)
                  │                              ├─ CalibrationRanker or Tournament
                  │                              ├─ ProximityAgent (diversity tracking)
                  │                              └─ MetaReviewAgent (meta-feedback)
@@ -107,6 +108,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 **COMPETITION** (iterations N+1 to max): Refine the best variants
 - GenerationAgent creates 1 variant using a rotating single strategy per iteration (cycles through the three strategies).
 - ReflectionAgent critiques top 3 variants across 5 dimensions: clarity, structure, engagement, precision, coherence. Produces per-dimension scores (1–10), examples, and notes.
+- DebateAgent selects the top 2 non-baseline variants by Elo and runs a structured 3-turn debate: Advocate A argues for Variant A, Advocate B rebuts and argues for Variant B, a Judge synthesizes recommendations into JSON. A fourth LLM call generates an improved variant from the judge's recommendations. Consumes ReflectionAgent critiques as optional context. Produces a `debate_synthesis` variant with both debated variants as parents. Gated by `debateEnabled` feature flag. Inspired by Google DeepMind's AI Co-Scientist (arxiv 2502.18864).
 - EvolutionAgent creates children from top parents via mutation (clarity/structure), crossover (combine two parents), and creative exploration (30% random chance or when diversity is low — generates a "wild card" variant with completely different approach to prevent pool homogenization).
 - Ranking agent: **Tournament** (Swiss-style, default) or **CalibrationRanker** (if `evolution_tournament_enabled` flag is false). Uses 5 opponents per entrant in this phase.
 - ProximityAgent continues diversity monitoring.
@@ -163,7 +165,7 @@ Variants are ranked using an Elo rating system (`core/elo.ts`) — a probabilist
 ### Budget Enforcement
 
 The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
-- **Per-agent caps**: Configurable percentage of total budget (default: generation 25%, calibration 20%, tournament 30%, evolution 20%, reflection 5%). See Configuration for values.
+- **Per-agent caps**: Configurable percentage of total budget (default: generation 25%, calibration 20%, tournament 25%, evolution 20%, reflection 5%, debate 5%). See Configuration for values.
 - **Global cap**: Default $5.00 per run
 - **Pre-call reservation with optimistic locking**: Budget is checked *before* every LLM call with a 30% safety margin. Reserved amounts are tracked separately from actual spend (`reservedByAgent` + `totalReserved`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the reservation is released and replaced with actual spend.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
@@ -234,6 +236,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
    ├─ [COMPETITION]
    │   ├─ GenerationAgent → 1 variant (rotating strategy)
    │   ├─ ReflectionAgent → critique top 3 variants (5 dimensions)
+   │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
    │   ├─ EvolutionAgent → mutate_clarity, mutate_structure, crossover, creative_exploration
    │   ├─ Tournament or CalibrationRanker → ranking with 5 opponents per entrant
    │   ├─ ProximityAgent → diversity score update
@@ -268,12 +271,14 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | Tournament | `pool`, `eloRatings`, `matchCounts`, `config.budgetCapUsd`, `config.calibration.opponents` | `eloRatings`, `matchCounts`, `matchHistory` |
 | EvolutionAgent | `pool` (top by Elo), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
 | ReflectionAgent | `pool` (top 3 by Elo) | `allCritiques`, `dimensionScores` |
+| DebateAgent | `pool` (top 2 non-baseline by Elo), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
 | MetaReviewAgent | `pool`, `eloRatings`, `diversityScore` | `metaFeedback` |
 
 **State lifecycle notes:**
 - `newEntrantsThisIteration`: Populated by `addToPool()` whenever a variant enters the pool. Cleared by `startNewIteration()` at the top of each iteration loop.
 - `metaFeedback`: Written by MetaReviewAgent at end of COMPETITION iterations. Read by GenerationAgent and EvolutionAgent in the *next* iteration to steer prompt construction.
+- `debateTranscripts`: Appended by DebateAgent after each debate (including partial transcripts on failure). Serialized to checkpoints for debugging and observability.
 - All pool mutations go through `PipelineStateImpl.addToPool()`, which enforces deduplication via `poolIds` Set and initializes Elo to 1200.
 
 ## Edge Cases & Guards
@@ -282,6 +287,7 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 - **CalibrationRanker**: Requires `pool.length >= 2` (`canExecute` guard). Skipped on first iteration if GenerationAgent produced < 2 variants.
 - **Tournament**: Requires `pool.length >= 2`.
 - **EvolutionAgent**: Requires `pool.length >= 1` and `eloRatings.size >= 1`. Crossover requires 2 parents — falls back to mutation if only 1 parent available.
+- **DebateAgent**: Requires 2+ non-baseline variants with Elo ratings. Baselines (`original_baseline` strategy) are excluded from both `canExecute` and parent selection.
 - **ProximityAgent**: Requires `pool.length >= 2`.
 
 ### Format Validation Failures
@@ -317,9 +323,10 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
   budgetCaps: {          // Per-agent % of budgetCapUsd — see Budget Enforcement
     generation: 0.25,
     calibration: 0.20,
-    tournament: 0.30,
+    tournament: 0.25,
     evolution: 0.20,
     reflection: 0.05,
+    debate: 0.05,
   },
   useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
@@ -331,13 +338,14 @@ Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via 
 
 ## Feature Flags
 
-Three flags are managed by the evolution feature flag system (`core/featureFlags.ts`) and stored in the `feature_flags` table:
+Four flags are managed by the evolution feature flag system (`core/featureFlags.ts`) and stored in the `feature_flags` table:
 
 | Flag | Default | Effect |
 |------|---------|--------|
 | `evolution_tournament_enabled` | `true` | When `false`, CalibrationRanker used in COMPETITION instead of Tournament |
 | `evolution_evolve_pool_enabled` | `true` | When `false`, EvolutionAgent skipped entirely |
 | `evolution_dry_run_only` | `false` | When `true`, pipeline logs only — no LLM calls |
+| `evolution_debate_enabled` | `true` | When `false`, DebateAgent skipped in COMPETITION phase |
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
 
@@ -357,7 +365,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (Elo populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` — factory adding `{subsystem: 'evolution', runId}` to all log entries |
-| `featureFlags.ts` | Reads `feature_flags` table for tournament/evolvePool/dryRun toggles with safe defaults |
+| `featureFlags.ts` | Reads `feature_flags` table for tournament/evolvePool/dryRun/debate toggles with safe defaults |
 
 ### Agents (`src/lib/evolution/agents/`)
 | File | Purpose |
@@ -369,6 +377,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `tournament.ts` | Swiss-style tournament — budget-adaptive depth, multi-turn tiebreakers for top-quartile close matches, convergence detection |
 | `evolvePool.ts` | Genetic evolution — mutation (clarity/structure), crossover (two parents), creative exploration (30% wild card) |
 | `reflectionAgent.ts` | Dimensional critique of top 3 variants: per-dimension scores 1–10, good/bad examples, improvement notes |
+| `debateAgent.ts` | Structured 3-turn debate (Advocate A / Advocate B / Judge) over top 2 non-baseline variants by Elo, produces `debate_synthesis` variant. 4 sequential LLM calls. Consumes ReflectionAgent critiques. COMPETITION only. |
 | `metaReviewAgent.ts` | Analyzes strategy performance, detects weaknesses in bottom-quartile variants, recommends priority improvements (computation-only, no LLM calls) |
 | `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
