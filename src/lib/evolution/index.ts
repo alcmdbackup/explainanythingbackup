@@ -25,6 +25,8 @@ export { PipelineStateImpl, serializeState, deserializeState } from './core/stat
 export { createCostTracker } from './core/costTracker';
 export { ComparisonCache } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
+export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './comparison';
+export type { ComparisonResult } from './comparison';
 export { createEvolutionLogger } from './core/logger';
 export { createEvolutionLLMClient } from './core/llmClient';
 export { executeMinimalPipeline, executeFullPipeline } from './core/pipeline';

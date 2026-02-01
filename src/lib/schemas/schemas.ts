@@ -110,13 +110,19 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
 
 /**
  * Schema for validating allowed LLM models
- * • Restricts model parameter to approved OpenAI models only
+ * • Restricts model parameter to approved models (OpenAI, DeepSeek, Anthropic)
  * • Ensures consistent model usage across the application
  * • Provides type safety for LLM API calls
  * Used by: callLLM function for parameter validation
  * Calls: N/A (validation schema)
  */
-export const allowedLLMModelSchema = z.enum(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano", "deepseek-chat"]);
+export const allowedLLMModelSchema = z.enum([
+  "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
+  "gpt-5-mini", "gpt-5-nano",
+  "o3-mini",
+  "deepseek-chat",
+  "claude-sonnet-4-20250514",
+]);
 
 export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;
 

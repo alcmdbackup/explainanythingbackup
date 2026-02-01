@@ -3,11 +3,13 @@
  */
 
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 
 // Mock dependencies
 jest.mock('openai');
+jest.mock('@anthropic-ai/sdk');
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn()
 }));
@@ -31,7 +33,7 @@ jest.mock('openai/helpers/zod');
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callLLM, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -767,6 +769,181 @@ describe('llms', () => {
       ).rejects.toThrow('Stream interrupted');
 
       expect(setText).toHaveBeenCalledWith('Partial ');
+    });
+  });
+
+  describe('isAnthropicModel', () => {
+    it('should identify claude models as Anthropic', () => {
+      expect(isAnthropicModel('claude-sonnet-4-20250514')).toBe(true);
+      expect(isAnthropicModel('claude-3-5-sonnet-20241022')).toBe(true);
+      expect(isAnthropicModel('claude-3-haiku-20240307')).toBe(true);
+    });
+
+    it('should not identify non-Claude models as Anthropic', () => {
+      expect(isAnthropicModel('gpt-4.1-mini')).toBe(false);
+      expect(isAnthropicModel('deepseek-chat')).toBe(false);
+      expect(isAnthropicModel('o3-mini')).toBe(false);
+    });
+  });
+
+  describe('Anthropic model routing', () => {
+    let mockAnthropicCreate: jest.Mock;
+    let mockAnthropicInstance: any;
+
+    beforeAll(() => {
+      mockAnthropicInstance = {
+        messages: {
+          create: jest.fn(),
+          stream: jest.fn(),
+        },
+      };
+      (Anthropic as jest.MockedClass<typeof Anthropic>).mockImplementation(() => mockAnthropicInstance);
+    });
+
+    beforeEach(() => {
+      mockAnthropicCreate = mockAnthropicInstance.messages.create;
+      mockAnthropicCreate.mockReset();
+      process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+    });
+
+    it('should route Claude models to Anthropic provider', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        id: 'msg_test',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Claude response' }],
+        model: 'claude-sonnet-4-20250514',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 50, output_tokens: 100 },
+      });
+
+      const result = await callLLMModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(result).toBe('Claude response');
+      expect(mockAnthropicCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 8192,
+          messages: [{ role: 'user', content: 'Test prompt' }],
+        })
+      );
+      // Verify OpenAI was NOT called
+      expect(mockCreateSpy).not.toHaveBeenCalled();
+    });
+
+    it('should track Anthropic call costs in llmCallTracking', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Response' }],
+        usage: { input_tokens: 1000, output_tokens: 500 },
+        stop_reason: 'end_turn',
+      });
+
+      await callLLMModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(mockSupabase.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'claude-sonnet-4-20250514',
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500,
+          finish_reason: 'end_turn',
+          estimated_cost_usd: expect.any(Number),
+        })
+      );
+
+      // claude-sonnet-4: (1000/1M * 3.00) + (500/1M * 15.00) = 0.003 + 0.0075 = 0.0105
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.0105, 5);
+    });
+
+    it('should throw when ANTHROPIC_API_KEY is missing for Claude model', async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+
+      await expect(
+        callLLMModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'claude-sonnet-4-20250514',
+          false,
+          null,
+        )
+      ).rejects.toThrow('ANTHROPIC_API_KEY required for Claude models');
+    });
+
+    it('should route non-Claude models to OpenAI provider', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'OpenAI response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+
+      const result = await callLLMModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini',
+        false,
+        null,
+      );
+
+      expect(result).toBe('OpenAI response');
+      expect(mockCreateSpy).toHaveBeenCalled();
+      expect(mockAnthropicCreate).not.toHaveBeenCalled();
+    });
+
+    it('should handle empty Anthropic response', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: '' }],
+        usage: { input_tokens: 50, output_tokens: 0 },
+        stop_reason: 'end_turn',
+      });
+
+      await expect(
+        callLLMModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'claude-sonnet-4-20250514',
+          false,
+          null,
+        )
+      ).rejects.toThrow('No response received from Anthropic');
+    });
+
+    it('callOpenAIModel backward compat should also route Claude to Anthropic', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Via backward compat' }],
+        usage: { input_tokens: 50, output_tokens: 100 },
+        stop_reason: 'end_turn',
+      });
+
+      // callOpenAIModel is now an alias for callLLMModel
+      const result = await callOpenAIModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(result).toBe('Via backward compat');
+      expect(mockAnthropicCreate).toHaveBeenCalled();
     });
   });
 });

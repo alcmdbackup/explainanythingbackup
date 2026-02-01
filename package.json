@@ -29,6 +29,7 @@
     "test:eslint-rules": "node eslint-rules/no-hardcoded-colors.test.js && node eslint-rules/no-arbitrary-text-sizes.test.js && node eslint-rules/prefer-design-system-fonts.test.js && node eslint-rules/prefer-warm-shadows.test.js && node eslint-rules/no-tailwind-color-classes.test.js && node eslint-rules/prefer-design-radius.test.js && node eslint-rules/enforce-heading-typography.test.js && node eslint-rules/enforce-prose-font.test.js && node eslint-rules/no-inline-typography.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.72.1",
     "@heroicons/react": "^2.2.0",
     "@hookform/resolvers": "^5.2.2",
     "@langchain/community": "^0.3.36",

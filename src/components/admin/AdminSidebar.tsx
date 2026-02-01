@@ -21,6 +21,7 @@ const navItems: NavItem[] = [
   { href: '/admin/users', label: 'Users', icon: '👥', testId: 'admin-sidebar-nav-users' },
   { href: '/admin/costs', label: 'Costs', icon: '💰', testId: 'admin-sidebar-nav-costs' },
   { href: '/admin/quality/evolution', label: 'Evolution', icon: '🧬', testId: 'admin-sidebar-nav-evolution' },
+  { href: '/admin/quality/article-bank', label: 'Article Bank', icon: '🏦', testId: 'admin-sidebar-nav-article-bank' },
   { href: '/admin/quality', label: 'Quality Scores', icon: '📈', testId: 'admin-sidebar-nav-quality' },
   { href: '/admin/whitelist', label: 'Whitelist', icon: '🔗', testId: 'admin-sidebar-nav-whitelist' },
   { href: '/admin/audit', label: 'Audit Log', icon: '📋', testId: 'admin-sidebar-nav-audit' },

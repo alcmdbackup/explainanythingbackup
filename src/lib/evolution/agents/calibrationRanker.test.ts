@@ -156,10 +156,10 @@ describe('CalibrationRanker', () => {
 
   describe('adaptive early exit', () => {
     it('exits early after minOpponents decisive matches in first batch', async () => {
-      // With parallel bias mitigation (Promise.all inside compareWithBiasMitigation),
-      // each comparison's fwd+rev calls are grouped: comp1-fwd, comp1-rev, comp2-fwd, comp2-rev
-      // For both to agree (conf 1.0): comp1: fwd='A', rev='B'(norm→A)→agree; comp2 same
-      const responses = ['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B'];
+      // With standalone compareWithBiasMitigation (sequential fwd+rev) + Promise.allSettled,
+      // calls interleave: comp1-fwd, comp2-fwd, comp1-rev, comp2-rev
+      // For both to agree (conf 1.0): fwd='A' for both, rev='B'(norm→A) for both
+      const responses = ['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'A', 'B', 'B'];
       const ctx = makeCtx(responses, { calibration: { opponents: 5, minOpponents: 2 } });
       const completeFn = ctx.llmClient.complete as jest.Mock;
 

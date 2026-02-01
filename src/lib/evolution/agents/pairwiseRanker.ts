@@ -2,6 +2,7 @@
 // Supports simple (A/B/TIE) and structured (5-dimension) comparison modes.
 
 import { AgentBase } from './base';
+import { buildComparisonPrompt, parseWinner } from '../comparison';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
 import { BudgetExceededError } from '../types';
 
@@ -15,32 +16,6 @@ export const EVALUATION_DIMENSIONS: Record<string, string> = {
 };
 
 // ─── Prompt builders ────────────────────────────────────────────
-
-function buildComparisonPrompt(textA: string, textB: string): string {
-  return `You are an expert writing evaluator. Compare the following two text variations and determine which is better.
-
-## Text A
-${textA}
-
-## Text B
-${textB}
-
-## Evaluation Criteria
-Consider the following when making your decision:
-- Clarity and readability
-- Structure and flow
-- Engagement and impact
-- Grammar and style
-- Overall effectiveness
-
-## Instructions
-Respond with ONLY one of these exact answers:
-- "A" if Text A is better
-- "B" if Text B is better
-- "TIE" if they are equally good
-
-Your answer:`;
-}
 
 function buildStructuredPrompt(textA: string, textB: string): string {
   const dimensionsList = Object.entries(EVALUATION_DIMENSIONS)
@@ -80,18 +55,10 @@ OVERALL_WINNER: [your choice]
 CONFIDENCE: [your choice]`;
 }
 
-// ─── Response parsers ───────────────────────────────────────────
+// Re-export parseWinner from shared comparison module for backward compatibility
+export { parseWinner } from '../comparison';
 
-export function parseWinner(response: string): string | null {
-  const upper = response.trim().toUpperCase();
-  if (['A', 'B', 'TIE'].includes(upper)) return upper;
-  if (upper.startsWith('A')) return 'A';
-  if (upper.startsWith('B')) return 'B';
-  if (upper.includes('TIE')) return 'TIE';
-  if (upper.includes('TEXT A') && !upper.includes('TEXT B')) return 'A';
-  if (upper.includes('TEXT B') && !upper.includes('TEXT A')) return 'B';
-  return null;
-}
+// ─── Response parsers ───────────────────────────────────────────
 
 export function parseStructuredResponse(
   response: string,

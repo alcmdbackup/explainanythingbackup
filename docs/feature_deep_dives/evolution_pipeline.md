@@ -462,6 +462,34 @@ Unit tests exist for all agents and core modules:
 - `src/__tests__/e2e/specs/09-admin/admin-evolution.spec.ts` — Admin UI E2E tests (Playwright)
 - `src/testing/utils/evolution-test-helpers.ts` — Shared factories: `createMockEvolutionLLMClient`, `createTestEvolutionRun`, `createTestVariant`, `evolutionTablesExist`, `cleanupEvolutionData`
 
+## Prompt-Based Seeding
+
+The evolution pipeline supports starting from a text prompt instead of an existing article file. This enables the **Comparison Infrastructure** workflow where articles are generated from scratch and then evolved.
+
+### Usage
+
+```bash
+# Generate seed article from prompt, then evolve it
+npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --seed-model gpt-4.1
+
+# With bank auto-insertion (adds winner + baseline to article bank)
+npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank
+```
+
+### How It Works
+
+1. `--prompt` flag triggers `generateSeedArticle()` which:
+   - Generates a title via `createTitlePrompt` → LLM call
+   - Generates article content via `createExplanationPrompt` → LLM call
+   - Returns the generated article as the `originalText` for the pipeline
+2. `--seed-model` optionally specifies which model generates the seed (default: pipeline's `generationModel`)
+3. The `--prompt` flag is mutually exclusive with `--file` (one or the other, not both)
+4. When `--bank` is also set, the pipeline winner and baseline are added to the article bank after completion
+
+### Article Bank Integration
+
+The `--bank` flag on both `generate-article.ts` (1-shot) and `run-evolution-local.ts` (pipeline) adds results to the persistent article bank for cross-method comparison. See [Comparison Infrastructure](./comparison_infrastructure.md) for the full bank system.
+
 ## Related Documentation
 
 - [Search & Generation Pipeline](./search_generation_pipeline.md) — Compare pipeline orchestration patterns; evolution operates on articles produced by this pipeline

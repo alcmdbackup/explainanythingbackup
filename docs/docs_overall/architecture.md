@@ -99,6 +99,7 @@ For detailed implementation of each feature, see [feature_deep_dives/](../featur
 
 Key features include:
 - [Evolution Pipeline Visualization](../feature_deep_dives/evolution_pipeline_visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
+- [Comparison Infrastructure](../feature_deep_dives/comparison_infrastructure.md) — Article bank for cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
 
 ---
 
@@ -146,6 +147,14 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | `userQueries` | Search history with matches |
 | `userExplanationEvents` | Analytics events |
 | `explanationMetrics` | Aggregated metrics |
+
+### Article Bank Tables
+| Table | Purpose |
+|-------|---------|
+| `article_bank_topics` | Prompt-based grouping for cross-method comparison |
+| `article_bank_entries` | Generated articles with method, model, cost metadata |
+| `article_bank_comparisons` | Head-to-head match results with confidence scores |
+| `article_bank_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
 
 ### Link System Tables
 | Table | Purpose |

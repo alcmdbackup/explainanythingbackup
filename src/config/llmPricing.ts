@@ -52,8 +52,14 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'gpt-3.5-turbo': { inputPer1M: 0.50, outputPer1M: 1.50 },
   'gpt-3.5-turbo-0125': { inputPer1M: 0.50, outputPer1M: 1.50 },
 
+  // OpenAI o3 reasoning models
+  'o3-mini': { inputPer1M: 1.10, outputPer1M: 4.40 },
+
   // DeepSeek
   'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
+
+  // Anthropic Claude 4
+  'claude-sonnet-4-20250514': { inputPer1M: 3.00, outputPer1M: 15.00 },
 
   // Anthropic Claude 3.5
   'claude-3-5-sonnet-20241022': { inputPer1M: 3.00, outputPer1M: 15.00 },

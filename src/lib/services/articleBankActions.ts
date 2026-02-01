@@ -1,0 +1,854 @@
+'use server';
+// Server actions for the article bank: CRUD operations, Elo-based comparison,
+// and cross-topic aggregation for the persistent cross-method comparison system.
+
+import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import { requireAdmin } from '@/lib/services/adminAuth';
+import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
+import { serverReadRequestId } from '@/lib/serverReadRequestId';
+import { handleError, type ErrorResponse } from '@/lib/errorHandling';
+import { compareWithBiasMitigation, type ComparisonResult } from '@/lib/evolution/comparison';
+import { callLLMModel } from '@/lib/services/llms';
+import { createTitlePrompt, createExplanationPrompt } from '@/lib/prompts';
+import { titleQuerySchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
+
+type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function validateUuid(id: string, label: string): void {
+  if (!UUID_REGEX.test(id)) {
+    throw new Error(`Invalid ${label} format: ${id}`);
+  }
+}
+
+// ─── Elo math (stateless, operates on DB-fetched values) ────────
+
+const INITIAL_ELO = 1200;
+const ELO_K = 32;
+
+function computeEloUpdate(
+  ratingA: number, ratingB: number, scoreA: number, k: number = ELO_K,
+): [number, number] {
+  const expectedA = 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
+  const expectedB = 1 - expectedA;
+  const newA = Math.max(0, ratingA + k * (scoreA - expectedA));
+  const newB = Math.max(0, ratingB + k * (1 - scoreA - expectedB));
+  return [newA, newB];
+}
+
+function computeEloPerDollar(eloRating: number, totalCostUsd: number | null): number | null {
+  if (totalCostUsd === null || totalCostUsd === 0) return null;
+  return (eloRating - INITIAL_ELO) / totalCostUsd;
+}
+
+// ─── Types ──────────────────────────────────────────────────────
+
+export type BankGenerationMethod = 'oneshot' | 'evolution_winner' | 'evolution_baseline';
+
+export interface BankTopic {
+  id: string;
+  prompt: string;
+  title: string | null;
+  created_at: string;
+}
+
+export interface BankEntry {
+  id: string;
+  topic_id: string;
+  content: string;
+  generation_method: BankGenerationMethod;
+  model: string;
+  total_cost_usd: number | null;
+  evolution_run_id: string | null;
+  evolution_variant_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface BankEloEntry {
+  id: string;
+  entry_id: string;
+  elo_rating: number;
+  elo_per_dollar: number | null;
+  match_count: number;
+  generation_method: BankGenerationMethod;
+  model: string;
+  total_cost_usd: number | null;
+  created_at: string;
+}
+
+export interface BankComparison {
+  id: string;
+  topic_id: string;
+  entry_a_id: string;
+  entry_b_id: string;
+  winner_id: string | null;
+  confidence: number | null;
+  judge_model: string;
+  dimension_scores: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface CrossTopicMethodSummary {
+  generation_method: BankGenerationMethod;
+  avg_elo: number;
+  avg_cost: number | null;
+  avg_elo_per_dollar: number | null;
+  win_rate: number;
+  entry_count: number;
+}
+
+export interface AddToBankInput {
+  prompt: string;
+  title?: string;
+  content: string;
+  generation_method: BankGenerationMethod;
+  model: string;
+  total_cost_usd?: number | null;
+  evolution_run_id?: string | null;
+  evolution_variant_id?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+// ─── Actions ────────────────────────────────────────────────────
+
+/** Upsert topic by prompt and insert entry atomically. */
+const _addToBankAction = withLogging(async (
+  input: AddToBankInput,
+): Promise<ActionResult<{ topic_id: string; entry_id: string }>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    // Upsert topic (case-insensitive match on trimmed prompt)
+    const { data: topic, error: topicError } = await supabase
+      .from('article_bank_topics')
+      .upsert(
+        { prompt: input.prompt.trim(), title: input.title ?? null },
+        { onConflict: 'idx_article_bank_topics_prompt_unique' },
+      )
+      .select('id')
+      .single();
+
+    if (topicError || !topic) {
+      // Fallback: try insert then select on conflict
+      const { data: existing } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .ilike('prompt', input.prompt.trim())
+        .is('deleted_at', null)
+        .single();
+
+      if (!existing) throw new Error(`Failed to upsert topic: ${topicError?.message ?? 'unknown'}`);
+
+      const topicId = existing.id;
+
+      const { data: entry, error: entryError } = await supabase
+        .from('article_bank_entries')
+        .insert({
+          topic_id: topicId,
+          content: input.content,
+          generation_method: input.generation_method,
+          model: input.model,
+          total_cost_usd: input.total_cost_usd ?? null,
+          evolution_run_id: input.evolution_run_id ?? null,
+          evolution_variant_id: input.evolution_variant_id ?? null,
+          metadata: input.metadata ?? {},
+        })
+        .select('id')
+        .single();
+
+      if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
+
+      // Initialize Elo
+      await supabase.from('article_bank_elo').insert({
+        topic_id: topicId,
+        entry_id: entry.id,
+        elo_rating: INITIAL_ELO,
+        elo_per_dollar: computeEloPerDollar(INITIAL_ELO, input.total_cost_usd ?? null),
+        match_count: 0,
+      });
+
+      return { success: true, data: { topic_id: topicId, entry_id: entry.id }, error: null };
+    }
+
+    // Insert entry under the upserted topic
+    const { data: entry, error: entryError } = await supabase
+      .from('article_bank_entries')
+      .insert({
+        topic_id: topic.id,
+        content: input.content,
+        generation_method: input.generation_method,
+        model: input.model,
+        total_cost_usd: input.total_cost_usd ?? null,
+        evolution_run_id: input.evolution_run_id ?? null,
+        evolution_variant_id: input.evolution_variant_id ?? null,
+        metadata: input.metadata ?? {},
+      })
+      .select('id')
+      .single();
+
+    if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
+
+    // Initialize Elo for new entry
+    await supabase.from('article_bank_elo').insert({
+      topic_id: topic.id,
+      entry_id: entry.id,
+      elo_rating: INITIAL_ELO,
+      elo_per_dollar: computeEloPerDollar(INITIAL_ELO, input.total_cost_usd ?? null),
+      match_count: 0,
+    });
+
+    return { success: true, data: { topic_id: topic.id, entry_id: entry.id }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'addToBankAction') };
+  }
+}, 'addToBankAction');
+
+export const addToBankAction = serverReadRequestId(_addToBankAction);
+
+/** Get a single topic by ID. */
+const _getBankTopicAction = withLogging(async (
+  topicId: string,
+): Promise<ActionResult<BankTopic>> => {
+  try {
+    await requireAdmin();
+    validateUuid(topicId, 'topic ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('article_bank_topics')
+      .select('id, prompt, title, created_at')
+      .eq('id', topicId)
+      .is('deleted_at', null)
+      .single();
+
+    if (error || !data) throw new Error(`Topic not found: ${topicId}`);
+    return { success: true, data, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getBankTopicAction') };
+  }
+}, 'getBankTopicAction');
+
+export const getBankTopicAction = serverReadRequestId(_getBankTopicAction);
+
+/** Get all active entries for a topic. */
+const _getBankEntriesAction = withLogging(async (
+  topicId: string,
+): Promise<ActionResult<BankEntry[]>> => {
+  try {
+    await requireAdmin();
+    validateUuid(topicId, 'topic ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('article_bank_entries')
+      .select('*')
+      .eq('topic_id', topicId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`Failed to fetch entries: ${error.message}`);
+    return { success: true, data: data ?? [], error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getBankEntriesAction') };
+  }
+}, 'getBankEntriesAction');
+
+export const getBankEntriesAction = serverReadRequestId(_getBankEntriesAction);
+
+/** Get full entry detail including metadata. */
+const _getBankEntryDetailAction = withLogging(async (
+  entryId: string,
+): Promise<ActionResult<BankEntry>> => {
+  try {
+    await requireAdmin();
+    validateUuid(entryId, 'entry ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('article_bank_entries')
+      .select('*')
+      .eq('id', entryId)
+      .is('deleted_at', null)
+      .single();
+
+    if (error || !data) throw new Error(`Entry not found: ${entryId}`);
+    return { success: true, data, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getBankEntryDetailAction') };
+  }
+}, 'getBankEntryDetailAction');
+
+export const getBankEntryDetailAction = serverReadRequestId(_getBankEntryDetailAction);
+
+/** Get Elo-ranked leaderboard for a topic. Joins entries to get method/model/cost. */
+const _getBankLeaderboardAction = withLogging(async (
+  topicId: string,
+): Promise<ActionResult<BankEloEntry[]>> => {
+  try {
+    await requireAdmin();
+    validateUuid(topicId, 'topic ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: eloRows, error: eloError } = await supabase
+      .from('article_bank_elo')
+      .select('id, entry_id, elo_rating, elo_per_dollar, match_count, updated_at')
+      .eq('topic_id', topicId)
+      .order('elo_rating', { ascending: false });
+
+    if (eloError) throw new Error(`Failed to fetch leaderboard: ${eloError.message}`);
+    if (!eloRows || eloRows.length === 0) return { success: true, data: [], error: null };
+
+    // Fetch associated entries for method/model/cost
+    const entryIds = eloRows.map((r) => r.entry_id);
+    const { data: entries, error: entryError } = await supabase
+      .from('article_bank_entries')
+      .select('id, generation_method, model, total_cost_usd, created_at')
+      .in('id', entryIds)
+      .is('deleted_at', null);
+
+    if (entryError) throw new Error(`Failed to fetch entry details: ${entryError.message}`);
+
+    const entryMap = new Map((entries ?? []).map((e) => [e.id, e]));
+
+    const leaderboard: BankEloEntry[] = eloRows
+      .filter((r) => entryMap.has(r.entry_id))
+      .map((r) => {
+        const entry = entryMap.get(r.entry_id)!;
+        return {
+          id: r.id,
+          entry_id: r.entry_id,
+          elo_rating: r.elo_rating,
+          elo_per_dollar: r.elo_per_dollar,
+          match_count: r.match_count,
+          generation_method: entry.generation_method,
+          model: entry.model,
+          total_cost_usd: entry.total_cost_usd,
+          created_at: entry.created_at,
+        };
+      });
+
+    return { success: true, data: leaderboard, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getBankLeaderboardAction') };
+  }
+}, 'getBankLeaderboardAction');
+
+export const getBankLeaderboardAction = serverReadRequestId(_getBankLeaderboardAction);
+
+/** Run bias-mitigated comparisons between all entry pairs for a topic. Updates Elo. */
+const _runBankComparisonAction = withLogging(async (
+  topicId: string,
+  judgeModel: AllowedLLMModelType = 'gpt-4.1-nano',
+  rounds: number = 1,
+): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> => {
+  try {
+    await requireAdmin();
+    validateUuid(topicId, 'topic ID');
+    const supabase = await createSupabaseServiceClient();
+
+    // Fetch active entries
+    const { data: entries, error: entriesError } = await supabase
+      .from('article_bank_entries')
+      .select('id, content, total_cost_usd')
+      .eq('topic_id', topicId)
+      .is('deleted_at', null);
+
+    if (entriesError) throw new Error(`Failed to fetch entries: ${entriesError.message}`);
+    if (!entries || entries.length < 2) {
+      return { success: true, data: { comparisons_run: 0, entries_updated: 0 }, error: null };
+    }
+
+    // Fetch current Elo state
+    const { data: eloRows } = await supabase
+      .from('article_bank_elo')
+      .select('entry_id, elo_rating, match_count')
+      .eq('topic_id', topicId);
+
+    const eloMap = new Map<string, { rating: number; matchCount: number }>();
+    for (const row of eloRows ?? []) {
+      eloMap.set(row.entry_id, { rating: row.elo_rating, matchCount: row.match_count });
+    }
+
+    // Initialize missing Elo entries
+    for (const entry of entries) {
+      if (!eloMap.has(entry.id)) {
+        eloMap.set(entry.id, { rating: INITIAL_ELO, matchCount: 0 });
+      }
+    }
+
+    // Build callLLM wrapper for comparison
+    const callLLM = async (prompt: string): Promise<string> => {
+      return callLLMModel(prompt, 'bank_comparison', 'system', judgeModel, false, null);
+    };
+
+    // Comparison cache for this run
+    const cache = new Map<string, ComparisonResult>();
+    let comparisonsRun = 0;
+
+    // Run all pairs for each round
+    const effectiveRounds = Math.max(1, Math.min(rounds, 10));
+    for (let round = 0; round < effectiveRounds; round++) {
+    for (let i = 0; i < entries.length; i++) {
+      for (let j = i + 1; j < entries.length; j++) {
+        const entryA = entries[i];
+        const entryB = entries[j];
+
+        const result = await compareWithBiasMitigation(
+          entryA.content, entryB.content, callLLM, cache,
+        );
+
+        // Map result to winner entry ID
+        let winnerId: string | null = null;
+        if (result.winner === 'A') winnerId = entryA.id;
+        else if (result.winner === 'B') winnerId = entryB.id;
+        // TIE: winnerId stays null
+
+        // Insert comparison record
+        await supabase.from('article_bank_comparisons').insert({
+          topic_id: topicId,
+          entry_a_id: entryA.id,
+          entry_b_id: entryB.id,
+          winner_id: winnerId,
+          confidence: result.confidence,
+          judge_model: judgeModel,
+          dimension_scores: null,
+        });
+
+        // Update Elo ratings in memory
+        const eloA = eloMap.get(entryA.id)!;
+        const eloB = eloMap.get(entryB.id)!;
+
+        let scoreA: number;
+        if (result.winner === 'A') scoreA = 0.5 + 0.5 * result.confidence;
+        else if (result.winner === 'B') scoreA = 0.5 - 0.5 * result.confidence;
+        else scoreA = 0.5; // TIE
+
+        const [newRatingA, newRatingB] = computeEloUpdate(
+          eloA.rating, eloB.rating, scoreA,
+        );
+
+        eloA.rating = newRatingA;
+        eloA.matchCount += 1;
+        eloB.rating = newRatingB;
+        eloB.matchCount += 1;
+
+        comparisonsRun++;
+      }
+    }
+    } // end rounds loop
+
+    // Persist updated Elo ratings
+    const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
+
+    for (const [entryId, elo] of eloMap) {
+      const cost = costMap.get(entryId) ?? null;
+      await supabase
+        .from('article_bank_elo')
+        .upsert({
+          topic_id: topicId,
+          entry_id: entryId,
+          elo_rating: Math.round(elo.rating * 100) / 100,
+          elo_per_dollar: computeEloPerDollar(elo.rating, cost),
+          match_count: elo.matchCount,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'topic_id,entry_id' });
+    }
+
+    return {
+      success: true,
+      data: { comparisons_run: comparisonsRun, entries_updated: eloMap.size },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'runBankComparisonAction') };
+  }
+}, 'runBankComparisonAction');
+
+export const runBankComparisonAction = serverReadRequestId(_runBankComparisonAction);
+
+/** Aggregate stats across all topics by generation method. */
+const _getCrossTopicSummaryAction = withLogging(async (): Promise<ActionResult<CrossTopicMethodSummary[]>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    // Fetch all active entries with their Elo
+    const { data: entries, error: entriesError } = await supabase
+      .from('article_bank_entries')
+      .select('id, topic_id, generation_method, total_cost_usd')
+      .is('deleted_at', null);
+
+    if (entriesError) throw new Error(`Failed to fetch entries: ${entriesError.message}`);
+    if (!entries || entries.length === 0) return { success: true, data: [], error: null };
+
+    const entryIds = entries.map((e) => e.id);
+    const { data: eloRows, error: eloError } = await supabase
+      .from('article_bank_elo')
+      .select('entry_id, elo_rating, elo_per_dollar')
+      .in('entry_id', entryIds);
+
+    if (eloError) throw new Error(`Failed to fetch Elo data: ${eloError.message}`);
+
+    const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
+
+    // Find best method per topic (highest Elo)
+    const topicBest = new Map<string, { method: BankGenerationMethod; elo: number }>();
+    for (const entry of entries) {
+      const elo = eloMap.get(entry.id);
+      if (!elo) continue;
+      const current = topicBest.get(entry.topic_id);
+      if (!current || elo.elo_rating > current.elo) {
+        topicBest.set(entry.topic_id, { method: entry.generation_method, elo: elo.elo_rating });
+      }
+    }
+    const totalTopics = topicBest.size;
+
+    // Aggregate by method
+    const methodStats = new Map<BankGenerationMethod, {
+      eloSum: number; costSum: number; epdSum: number;
+      count: number; costCount: number; epdCount: number; wins: number;
+    }>();
+
+    for (const entry of entries) {
+      const elo = eloMap.get(entry.id);
+      if (!elo) continue;
+
+      const stats = methodStats.get(entry.generation_method) ?? {
+        eloSum: 0, costSum: 0, epdSum: 0,
+        count: 0, costCount: 0, epdCount: 0, wins: 0,
+      };
+
+      stats.eloSum += elo.elo_rating;
+      stats.count += 1;
+      if (entry.total_cost_usd !== null) {
+        stats.costSum += entry.total_cost_usd;
+        stats.costCount += 1;
+      }
+      if (elo.elo_per_dollar !== null) {
+        stats.epdSum += elo.elo_per_dollar;
+        stats.epdCount += 1;
+      }
+
+      methodStats.set(entry.generation_method, stats);
+    }
+
+    // Count wins per method
+    for (const best of topicBest.values()) {
+      const stats = methodStats.get(best.method);
+      if (stats) stats.wins += 1;
+    }
+
+    const summary: CrossTopicMethodSummary[] = [];
+    for (const [method, stats] of methodStats) {
+      summary.push({
+        generation_method: method,
+        avg_elo: stats.count > 0 ? Math.round((stats.eloSum / stats.count) * 100) / 100 : 0,
+        avg_cost: stats.costCount > 0 ? Math.round((stats.costSum / stats.costCount) * 1e6) / 1e6 : null,
+        avg_elo_per_dollar: stats.epdCount > 0 ? Math.round((stats.epdSum / stats.epdCount) * 100) / 100 : null,
+        win_rate: totalTopics > 0 ? Math.round((stats.wins / totalTopics) * 1000) / 1000 : 0,
+        entry_count: stats.count,
+      });
+    }
+
+    return { success: true, data: summary, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getCrossTopicSummaryAction') };
+  }
+}, 'getCrossTopicSummaryAction');
+
+export const getCrossTopicSummaryAction = serverReadRequestId(_getCrossTopicSummaryAction);
+
+/** Soft-delete an entry and hard-delete its comparisons/Elo rows. */
+const _deleteBankEntryAction = withLogging(async (
+  entryId: string,
+): Promise<ActionResult<{ deleted: boolean }>> => {
+  try {
+    await requireAdmin();
+    validateUuid(entryId, 'entry ID');
+    const supabase = await createSupabaseServiceClient();
+
+    // Soft-delete the entry
+    const { error: softError } = await supabase
+      .from('article_bank_entries')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', entryId);
+
+    if (softError) throw new Error(`Failed to soft-delete entry: ${softError.message}`);
+
+    // Hard-delete comparisons involving this entry
+    await supabase
+      .from('article_bank_comparisons')
+      .delete()
+      .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
+
+    // Hard-delete Elo row for this entry
+    await supabase
+      .from('article_bank_elo')
+      .delete()
+      .eq('entry_id', entryId);
+
+    return { success: true, data: { deleted: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'deleteBankEntryAction') };
+  }
+}, 'deleteBankEntryAction');
+
+export const deleteBankEntryAction = serverReadRequestId(_deleteBankEntryAction);
+
+/** Soft-delete a topic, hard-delete comparisons/Elo, soft-delete all entries. */
+const _deleteBankTopicAction = withLogging(async (
+  topicId: string,
+): Promise<ActionResult<{ deleted: boolean }>> => {
+  try {
+    await requireAdmin();
+    validateUuid(topicId, 'topic ID');
+    const supabase = await createSupabaseServiceClient();
+
+    // Soft-delete the topic
+    const { error: topicError } = await supabase
+      .from('article_bank_topics')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', topicId);
+
+    if (topicError) throw new Error(`Failed to soft-delete topic: ${topicError.message}`);
+
+    // Hard-delete all comparisons for this topic
+    await supabase
+      .from('article_bank_comparisons')
+      .delete()
+      .eq('topic_id', topicId);
+
+    // Hard-delete all Elo rows for this topic
+    await supabase
+      .from('article_bank_elo')
+      .delete()
+      .eq('topic_id', topicId);
+
+    // Soft-delete all entries for this topic
+    await supabase
+      .from('article_bank_entries')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('topic_id', topicId);
+
+    return { success: true, data: { deleted: true }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'deleteBankTopicAction') };
+  }
+}, 'deleteBankTopicAction');
+
+export const deleteBankTopicAction = serverReadRequestId(_deleteBankTopicAction);
+
+// ─── Generate and add to bank ──────────────────────────────────
+
+export interface GenerateAndAddInput {
+  prompt: string;
+  model: AllowedLLMModelType;
+}
+
+/** Generate a new article via LLM and add it to the bank as a 1-shot entry. */
+const _generateAndAddToBankAction = withLogging(async (
+  input: GenerateAndAddInput,
+): Promise<ActionResult<{ topic_id: string; entry_id: string; title: string; content: string }>> => {
+  try {
+    await requireAdmin();
+
+    // Step 1: Generate title
+    const titlePrompt = createTitlePrompt(input.prompt);
+    const titleResponse = await callLLMModel(
+      titlePrompt, 'bank_generate_title', 'system', input.model, false, null,
+    );
+
+    let title: string;
+    try {
+      const parsed = titleQuerySchema.parse(JSON.parse(titleResponse));
+      title = parsed.title1;
+    } catch {
+      title = titleResponse.replace(/["\n]/g, '').trim().slice(0, 200);
+    }
+
+    // Step 2: Generate article content
+    const explanationPrompt = createExplanationPrompt(title, []);
+    const content = await callLLMModel(
+      explanationPrompt, 'bank_generate_article', 'system', input.model, false, null,
+    );
+
+    if (!content || content.trim().length === 0) {
+      throw new Error('LLM returned empty content');
+    }
+
+    // Step 3: Add to bank
+    const supabase = await createSupabaseServiceClient();
+
+    // Upsert topic
+    const { data: existing } = await supabase
+      .from('article_bank_topics')
+      .select('id')
+      .ilike('prompt', input.prompt.trim())
+      .is('deleted_at', null)
+      .single();
+
+    let topicId: string;
+    if (existing) {
+      topicId = existing.id;
+    } else {
+      const { data: newTopic, error: topicError } = await supabase
+        .from('article_bank_topics')
+        .insert({ prompt: input.prompt.trim(), title })
+        .select('id')
+        .single();
+      if (topicError || !newTopic) throw new Error(`Failed to create topic: ${topicError?.message}`);
+      topicId = newTopic.id;
+    }
+
+    // Insert entry
+    const { data: entry, error: entryError } = await supabase
+      .from('article_bank_entries')
+      .insert({
+        topic_id: topicId,
+        content,
+        generation_method: 'oneshot',
+        model: input.model,
+        total_cost_usd: null, // Cost tracked in llmCallTracking, not easily available here
+        metadata: { call_source: `oneshot_${input.model}`, generated_title: title },
+      })
+      .select('id')
+      .single();
+
+    if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
+
+    // Initialize Elo
+    await supabase.from('article_bank_elo').insert({
+      topic_id: topicId,
+      entry_id: entry.id,
+      elo_rating: INITIAL_ELO,
+      elo_per_dollar: null,
+      match_count: 0,
+    });
+
+    return { success: true, data: { topic_id: topicId, entry_id: entry.id, title, content }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'generateAndAddToBankAction') };
+  }
+}, 'generateAndAddToBankAction');
+
+export const generateAndAddToBankAction = serverReadRequestId(_generateAndAddToBankAction);
+
+// ─── Topic list with aggregated stats ────────────────────────────
+
+export interface BankTopicWithStats extends BankTopic {
+  entry_count: number;
+  elo_min: number | null;
+  elo_max: number | null;
+  total_cost: number | null;
+  best_method: BankGenerationMethod | null;
+}
+
+/** List all active topics with aggregated entry/Elo stats. */
+const _getBankTopicsAction = withLogging(async (): Promise<ActionResult<BankTopicWithStats[]>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: topics, error: topicsError } = await supabase
+      .from('article_bank_topics')
+      .select('id, prompt, title, created_at')
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false });
+
+    if (topicsError) throw new Error(`Failed to fetch topics: ${topicsError.message}`);
+    if (!topics || topics.length === 0) return { success: true, data: [], error: null };
+
+    const topicIds = topics.map((t) => t.id);
+
+    // Fetch entries for counts and costs
+    const { data: entries } = await supabase
+      .from('article_bank_entries')
+      .select('id, topic_id, generation_method, total_cost_usd')
+      .in('topic_id', topicIds)
+      .is('deleted_at', null);
+
+    // Fetch Elo data for ranges
+    const { data: eloRows } = await supabase
+      .from('article_bank_elo')
+      .select('topic_id, entry_id, elo_rating')
+      .in('topic_id', topicIds);
+
+    // Build lookup maps
+    const entryMap = new Map<string, typeof entries>();
+    for (const entry of entries ?? []) {
+      const list = entryMap.get(entry.topic_id) ?? [];
+      list.push(entry);
+      entryMap.set(entry.topic_id, list);
+    }
+
+    const eloByTopic = new Map<string, { entry_id: string; elo_rating: number; generation_method?: string }[]>();
+    for (const row of eloRows ?? []) {
+      const list = eloByTopic.get(row.topic_id) ?? [];
+      list.push(row);
+      eloByTopic.set(row.topic_id, list);
+    }
+
+    // Build entry method lookup for best method
+    const entryMethodMap = new Map<string, BankGenerationMethod>();
+    for (const entry of entries ?? []) {
+      entryMethodMap.set(entry.id, entry.generation_method);
+    }
+
+    const result: BankTopicWithStats[] = topics.map((topic) => {
+      const topicEntries = entryMap.get(topic.id) ?? [];
+      const topicElos = eloByTopic.get(topic.id) ?? [];
+      const eloValues = topicElos.map((e) => e.elo_rating);
+
+      // Best method = method of highest Elo entry
+      let bestMethod: BankGenerationMethod | null = null;
+      if (topicElos.length > 0) {
+        const bestElo = topicElos.reduce((a, b) => a.elo_rating > b.elo_rating ? a : b);
+        bestMethod = entryMethodMap.get(bestElo.entry_id) ?? null;
+      }
+
+      const totalCost = topicEntries.reduce((sum, e) => sum + (e.total_cost_usd ?? 0), 0);
+
+      return {
+        ...topic,
+        entry_count: topicEntries.length,
+        elo_min: eloValues.length > 0 ? Math.min(...eloValues) : null,
+        elo_max: eloValues.length > 0 ? Math.max(...eloValues) : null,
+        total_cost: topicEntries.length > 0 ? totalCost : null,
+        best_method: bestMethod,
+      };
+    });
+
+    return { success: true, data: result, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getBankTopicsAction') };
+  }
+}, 'getBankTopicsAction');
+
+export const getBankTopicsAction = serverReadRequestId(_getBankTopicsAction);
+
+/** Get match history (comparisons) for a topic. */
+const _getBankMatchHistoryAction = withLogging(async (
+  topicId: string,
+): Promise<ActionResult<BankComparison[]>> => {
+  try {
+    await requireAdmin();
+    validateUuid(topicId, 'topic ID');
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('article_bank_comparisons')
+      .select('*')
+      .eq('topic_id', topicId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new Error(`Failed to fetch comparisons: ${error.message}`);
+    return { success: true, data: data ?? [], error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getBankMatchHistoryAction') };
+  }
+}, 'getBankMatchHistoryAction');
+
+export const getBankMatchHistoryAction = serverReadRequestId(_getBankMatchHistoryAction);

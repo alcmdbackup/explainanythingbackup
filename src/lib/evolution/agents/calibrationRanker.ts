@@ -4,66 +4,12 @@
 import { AgentBase } from './base';
 import { PoolManager } from '../core/pool';
 import { getAdaptiveK, updateEloWithConfidence, updateEloDraw } from '../core/elo';
+import { compareWithBiasMitigation as compareStandalone } from '../comparison';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
 import { BudgetExceededError } from '../types';
 
-function buildComparisonPrompt(textA: string, textB: string): string {
-  return `You are an expert writing evaluator. Compare the following two text variations and determine which is better.
-
-## Text A
-${textA}
-
-## Text B
-${textB}
-
-## Evaluation Criteria
-Consider the following when making your decision:
-- Clarity and readability
-- Structure and flow
-- Engagement and impact
-- Grammar and style
-- Overall effectiveness
-
-## Instructions
-Respond with ONLY one of these exact answers:
-- "A" if Text A is better
-- "B" if Text B is better
-- "TIE" if they are equally good
-
-Your answer:`;
-}
-
-function parseWinner(response: string): string | null {
-  const upper = response.trim().toUpperCase();
-  if (['A', 'B', 'TIE'].includes(upper)) return upper;
-  if (upper.startsWith('A')) return 'A';
-  if (upper.startsWith('B')) return 'B';
-  if (upper.includes('TIE')) return 'TIE';
-  if (upper.includes('TEXT A') && !upper.includes('TEXT B')) return 'A';
-  if (upper.includes('TEXT B') && !upper.includes('TEXT A')) return 'B';
-  return null;
-}
-
 export class CalibrationRanker extends AgentBase {
   readonly name = 'calibration';
-
-  private async comparePair(
-    ctx: ExecutionContext,
-    textA: string,
-    textB: string,
-  ): Promise<{ winner: string | null; response: string | null }> {
-    const prompt = buildComparisonPrompt(textA, textB);
-    try {
-      const response = await ctx.llmClient.complete(prompt, this.name, {
-        model: ctx.payload.config.judgeModel,
-      });
-      return { winner: parseWinner(response), response };
-    } catch (error) {
-      if (error instanceof BudgetExceededError) throw error;
-      ctx.logger.error('Comparison error', { error: String(error) });
-      return { winner: null, response: null };
-    }
-  }
 
   private async compareWithBiasMitigation(
     ctx: ExecutionContext,
@@ -72,7 +18,7 @@ export class CalibrationRanker extends AgentBase {
     idB: string,
     textB: string,
   ): Promise<Match> {
-    // Check cache first (order-invariant key — safe because we cache the full bias-mitigated result)
+    // Check ComparisonCache first (order-invariant key — safe because we cache the full bias-mitigated result)
     if (ctx.comparisonCache) {
       const cached = ctx.comparisonCache.get(textA, textB, false);
       if (cached) {
@@ -86,48 +32,43 @@ export class CalibrationRanker extends AgentBase {
       }
     }
 
-    // Both rounds run concurrently — they are independent.
-    // Promise.all is correct: only BudgetExceededError propagates, which should abort both.
-    const [{ winner: winner1 }, { winner: winner2Raw }] = await Promise.all([
-      this.comparePair(ctx, textA, textB),
-      this.comparePair(ctx, textB, textA),
-    ]);
+    // Build callLLM wrapper that handles errors like the original comparePair
+    const callLLM = async (prompt: string): Promise<string> => {
+      try {
+        return await ctx.llmClient.complete(prompt, this.name, {
+          model: ctx.payload.config.judgeModel,
+        });
+      } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
+        ctx.logger.error('Comparison error', { error: String(error) });
+        return ''; // parseWinner('') → null → partial failure handling
+      }
+    };
 
-    // Normalize winner2 to original frame
-    let winner2: string | null = winner2Raw;
-    if (winner2Raw === 'A') winner2 = 'B';
-    else if (winner2Raw === 'B') winner2 = 'A';
+    // Delegate to standalone comparison (no cache — we manage ComparisonCache separately)
+    const result = await compareStandalone(textA, textB, callLLM);
 
-    ctx.logger.debug('Comparison results', { idA, idB, round1: winner1, round2Normalized: winner2 });
+    ctx.logger.debug('Comparison results', { idA, idB, winner: result.winner, confidence: result.confidence });
 
-    // Determine final winner and confidence
-    let match: Match;
+    // Map ComparisonResult to Match
+    let winnerId: string;
+    if (result.winner === 'A') winnerId = idA;
+    else if (result.winner === 'B') winnerId = idB;
+    else winnerId = idA; // TIE: default to first text (preserves existing Elo behavior)
 
-    if (winner1 === null || winner2 === null) {
-      // Partial failure — NOT cached (allow retry on next encounter)
-      const partialWinner = winner1 ?? winner2;
-      if (partialWinner === 'A') return { variationA: idA, variationB: idB, winner: idA, confidence: 0.3, turns: 2, dimensionScores: {} };
-      if (partialWinner === 'B') return { variationA: idA, variationB: idB, winner: idB, confidence: 0.3, turns: 2, dimensionScores: {} };
-      return { variationA: idA, variationB: idB, winner: idA, confidence: 0.0, turns: 2, dimensionScores: {} };
-    } else if (winner1 === winner2) {
-      // Full agreement
-      const winnerId = winner1 === 'B' ? idB : idA;
-      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: {} };
-    } else if (winner1 === 'TIE' || winner2 === 'TIE') {
-      // Partial disagreement with TIE
-      const nonTie = winner1 === 'TIE' ? winner2 : winner1;
-      const winnerId = nonTie === 'B' ? idB : idA;
-      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: {} };
-    } else {
-      // Complete disagreement — inconclusive
-      match = { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: {} };
+    const match: Match = {
+      variationA: idA, variationB: idB,
+      winner: winnerId, confidence: result.confidence,
+      turns: result.turns, dimensionScores: {},
+    };
+
+    // Cache valid bias-mitigated results in ComparisonCache
+    if (result.confidence > 0) {
+      const loserId = winnerId === idA ? idB : idA;
+      ctx.comparisonCache?.set(textA, textB, false, {
+        winnerId, loserId, confidence: result.confidence, isDraw: result.winner === 'TIE',
+      });
     }
-
-    // Cache valid bias-mitigated results
-    const loserId = match.winner === idA ? idB : idA;
-    ctx.comparisonCache?.set(textA, textB, false, {
-      winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
-    });
     return match;
   }
 

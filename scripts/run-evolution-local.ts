@@ -1,10 +1,10 @@
-// Standalone CLI for running evolution pipeline on a local markdown file.
+// Standalone CLI for running evolution pipeline on a local markdown file or a topic prompt.
 // Creates its own LLM client and Supabase client to avoid Next.js import chain.
 //
 // Usage:
 //   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --mock
-//   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md
 //   npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/filler_words.md --full --iterations 3
+//   npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum entanglement" --model deepseek-chat --full --iterations 5
 
 import dotenv from 'dotenv';
 import fs from 'fs';
@@ -12,12 +12,17 @@ import path from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 
 // Load .env.local for API keys (DEEPSEEK_API_KEY, SUPABASE_*, etc.)
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 // Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
+import { calculateLLMCost } from '../src/config/llmPricing';
+import { addEntryToBank } from './lib/bankUtils';
+import { createTitlePrompt, createExplanationPrompt } from '../src/lib/prompts';
+import { titleQuerySchema } from '../src/lib/schemas/schemas';
 import { PipelineStateImpl, serializeState } from '../src/lib/evolution/core/state';
 import { createCostTracker } from '../src/lib/evolution/core/costTracker';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../src/lib/evolution/config';
@@ -46,7 +51,9 @@ interface PipelineAgent {
 }
 
 interface CLIArgs {
-  file: string;
+  file: string | null;
+  prompt: string | null;
+  seedModel: string | null;
   mock: boolean;
   full: boolean;
   iterations: number;
@@ -54,6 +61,7 @@ interface CLIArgs {
   output: string;
   explanationId: number | null;
   model: string;
+  bank: boolean;
 }
 
 // ─── CLI Argument Parsing ────────────────────────────────────────
@@ -74,7 +82,9 @@ function parseArgs(): CLIArgs {
     console.log(`Usage: npx tsx scripts/run-evolution-local.ts [options]
 
 Options:
-  --file <path>            Markdown file to evolve (required)
+  --file <path>            Markdown file to evolve (required unless --prompt)
+  --prompt <text>          Topic prompt — generates seed article then evolves (required unless --file)
+  --seed-model <name>      Model for seed article generation (default: same as --model)
   --mock                   Use mock LLM (no API keys needed)
   --full                   Run full agent suite (default: minimal)
   --iterations <n>         Number of iterations (default: 3)
@@ -82,20 +92,31 @@ Options:
   --output <path>          Output JSON path (default: auto-generated)
   --explanation-id <n>     Optional: link run to an explanation in DB
   --model <name>           LLM model (default: deepseek-chat)
+  --bank                   Add winner (+ baseline) to article bank after completion
   --help                   Show this help message`);
     process.exit(0);
   }
 
   const file = getValue('file');
-  if (!file) {
-    console.error('Error: --file is required');
+  const prompt = getValue('prompt');
+
+  if (!file && !prompt) {
+    console.error('Error: either --file or --prompt is required');
     process.exit(1);
   }
 
-  const resolvedFile = path.resolve(file);
-  if (!fs.existsSync(resolvedFile)) {
-    console.error(`Error: File not found: ${resolvedFile}`);
+  if (file && prompt) {
+    console.error('Error: --file and --prompt are mutually exclusive');
     process.exit(1);
+  }
+
+  let resolvedFile: string | null = null;
+  if (file) {
+    resolvedFile = path.resolve(file);
+    if (!fs.existsSync(resolvedFile)) {
+      console.error(`Error: File not found: ${resolvedFile}`);
+      process.exit(1);
+    }
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -103,6 +124,8 @@ Options:
 
   return {
     file: resolvedFile,
+    prompt: prompt ?? null,
+    seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
     full: getFlag('full'),
     iterations: parseInt(getValue('iterations') ?? '3', 10),
@@ -110,6 +133,7 @@ Options:
     output: getValue('output') ?? defaultOutput,
     explanationId: getValue('explanation-id') ? parseInt(getValue('explanation-id')!, 10) : null,
     model: getValue('model') ?? 'deepseek-chat',
+    bank: getFlag('bank'),
   };
 }
 
@@ -266,7 +290,7 @@ function createMockLLMClient(logger: EvolutionLogger): EvolutionLLMClient {
   };
 }
 
-// ─── Direct LLM Client (DeepSeek / OpenAI) ──────────────────────
+// ─── Direct LLM Client (DeepSeek / OpenAI / Anthropic) ──────────
 
 function createDirectLLMClient(
   model: string,
@@ -275,7 +299,74 @@ function createDirectLLMClient(
   supabase: SupabaseClient | null = null,
 ): EvolutionLLMClient {
   const isDeepSeek = model.startsWith('deepseek-');
+  const isAnthropic = model.startsWith('claude-');
 
+  // Build complete function for Anthropic models
+  if (isAnthropic) {
+    const key = process.env.ANTHROPIC_API_KEY;
+    if (!key) throw new Error('ANTHROPIC_API_KEY required for Claude models');
+    const anthropicClient = new Anthropic({ apiKey: key, maxRetries: 3, timeout: 60000 });
+
+    return {
+      async complete(prompt: string, agentName: string): Promise<string> {
+        const estimate = estimateTokenCost(prompt);
+        await costTracker.reserveBudget(agentName, estimate);
+
+        logger.debug('LLM call (Anthropic)', { agentName, model, promptLength: prompt.length });
+
+        const message = await anthropicClient.messages.create({
+          model,
+          max_tokens: 8192,
+          messages: [{ role: 'user', content: prompt }],
+        });
+
+        const content = message.content[0]?.type === 'text' ? message.content[0].text : '';
+        if (!content || content.trim() === '') {
+          throw new LLMRefusalError(`Empty response from ${agentName}`);
+        }
+
+        const promptTokens = message.usage.input_tokens;
+        const completionTokens = message.usage.output_tokens;
+        const cost = calculateLLMCost(model, promptTokens, completionTokens, 0);
+        costTracker.recordSpend(agentName, cost);
+
+        if (supabase) {
+          void Promise.resolve(
+            supabase.from('llmCallTracking').insert({
+              userid: '00000000-0000-0000-0000-000000000000',
+              prompt,
+              content,
+              call_source: `evolution_${agentName}`,
+              raw_api_response: JSON.stringify({ provider: 'anthropic', model, usage: message.usage }),
+              model,
+              prompt_tokens: promptTokens,
+              completion_tokens: completionTokens,
+              total_tokens: promptTokens + completionTokens,
+              reasoning_tokens: 0,
+              finish_reason: message.stop_reason ?? 'end_turn',
+              estimated_cost_usd: cost,
+            }),
+          ).then(({ error: trackErr }) => {
+            if (trackErr) logger.warn('llmCallTracking insert failed', { error: String(trackErr) });
+          }).catch(() => { /* non-critical tracking */ });
+        }
+
+        return content;
+      },
+
+      async completeStructured<T>(
+        prompt: string,
+        schema: z.ZodType<T>,
+        _schemaName: string,
+        agentName: string,
+      ): Promise<T> {
+        const raw = await this.complete(prompt, agentName);
+        return parseStructuredOutput(raw, schema);
+      },
+    };
+  }
+
+  // OpenAI / DeepSeek path (OpenAI-compatible API)
   const client = (() => {
     if (isDeepSeek) {
       const key = process.env.DEEPSEEK_API_KEY;
@@ -286,10 +377,6 @@ function createDirectLLMClient(
     if (!key) throw new Error('OPENAI_API_KEY required for OpenAI models');
     return new OpenAI({ apiKey: key, maxRetries: 3, timeout: 60000 });
   })();
-
-  // Pricing per 1M tokens
-  const inputRate = isDeepSeek ? 0.14 : 0.40;
-  const outputRate = isDeepSeek ? 0.28 : 1.60;
 
   return {
     async complete(prompt: string, agentName: string): Promise<string> {
@@ -310,11 +397,10 @@ function createDirectLLMClient(
       }
 
       const usage = response.usage;
-      let cost = 0;
+      const promptTokens = usage?.prompt_tokens ?? 0;
+      const completionTokens = usage?.completion_tokens ?? 0;
+      const cost = calculateLLMCost(model, promptTokens, completionTokens, 0);
       if (usage) {
-        cost =
-          (usage.prompt_tokens / 1_000_000) * inputRate +
-          (usage.completion_tokens / 1_000_000) * outputRate;
         costTracker.recordSpend(agentName, cost);
       }
 
@@ -328,8 +414,8 @@ function createDirectLLMClient(
             call_source: `evolution_${agentName}`,
             raw_api_response: JSON.stringify(response.choices[0] ?? {}),
             model,
-            prompt_tokens: usage?.prompt_tokens ?? 0,
-            completion_tokens: usage?.completion_tokens ?? 0,
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
             total_tokens: usage?.total_tokens ?? 0,
             reasoning_tokens: 0,
             finish_reason: response.choices[0]?.finish_reason ?? 'unknown',
@@ -625,6 +711,45 @@ function buildOutput(
   };
 }
 
+// ─── Seed Article Generation (for --prompt mode) ─────────────────
+
+interface SeedResult {
+  title: string;
+  content: string;
+}
+
+async function generateSeedArticle(
+  prompt: string,
+  seedModel: string,
+  llmClient: EvolutionLLMClient,
+  logger: EvolutionLogger,
+): Promise<SeedResult> {
+  // Generate title
+  logger.info('Generating seed title...', { model: seedModel });
+  const titlePromptText = createTitlePrompt(prompt);
+  const titleRaw = await llmClient.complete(titlePromptText, 'seed_title');
+
+  let title: string;
+  try {
+    const parsed = titleQuerySchema.parse(JSON.parse(titleRaw));
+    title = parsed.title1;
+  } catch {
+    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
+  }
+
+  logger.info('Seed title generated', { title });
+
+  // Generate article
+  logger.info('Generating seed article...', { title });
+  const articlePrompt = createExplanationPrompt(title, []);
+  const content = await llmClient.complete(articlePrompt, 'seed_article');
+
+  const fullContent = `# ${title}\n\n${content}`;
+  logger.info('Seed article generated', { words: fullContent.split(/\s+/).length });
+
+  return { title, content: fullContent };
+}
+
 // ─── Main ────────────────────────────────────────────────────────
 
 async function main() {
@@ -636,19 +761,20 @@ async function main() {
   console.log('│  Evolution Pipeline — Local CLI          │');
   console.log('└─────────────────────────────────────────┘\n');
 
+  const inputLabel = args.prompt
+    ? `prompt: "${args.prompt}"`
+    : `file: ${path.basename(args.file!)}`;
+
   logger.info('Configuration', {
-    file: path.basename(args.file),
+    input: inputLabel,
     mode: args.mock ? 'mock' : 'real',
     pipeline: args.full ? 'full' : 'minimal',
     iterations: args.iterations,
     budget: args.budget,
     model: args.model,
+    seedModel: args.seedModel ?? args.model,
     runId: runId.slice(0, 8),
   });
-
-  // Read input file
-  const originalText = fs.readFileSync(args.file, 'utf-8');
-  logger.info('Input loaded', { chars: originalText.length, words: originalText.split(/\s+/).length });
 
   // Build config — adjust constraints for full mode with low iteration counts
   const configOverrides: Partial<ReturnType<typeof resolveConfig>> = {
@@ -680,7 +806,9 @@ async function main() {
   if (supabase) {
     const source = args.explanationId !== null
       ? 'explanation'
-      : `local:${path.basename(args.file)}`;
+      : args.prompt
+        ? `prompt:${args.prompt.slice(0, 50)}`
+        : `local:${path.basename(args.file!)}`;
     dbTracking = await createRunRecord(supabase, runId, args.explanationId, source, config);
     if (dbTracking) {
       logger.info('DB tracking enabled', { source, explanationId: args.explanationId });
@@ -689,17 +817,40 @@ async function main() {
     logger.info('Supabase not configured — file output only');
   }
 
-  // Build components
-  const state = new PipelineStateImpl(originalText);
+  // Build the seed model client for prompt mode (may differ from evolution model)
+  const seedModel = args.seedModel ?? args.model;
   const costTracker = createCostTracker(config);
   const llmClient = args.mock
     ? createMockLLMClient(logger)
     : createDirectLLMClient(args.model, costTracker, logger, supabase);
 
+  // Resolve original text — from file or from prompt-based generation
+  let originalText: string;
+  let title: string;
+
+  if (args.prompt) {
+    // Create a seed LLM client for the seed model (may differ from pipeline model)
+    const seedClient = (args.mock || seedModel === args.model)
+      ? llmClient
+      : createDirectLLMClient(seedModel, costTracker, logger, supabase);
+
+    const seed = await generateSeedArticle(args.prompt, seedModel, seedClient, logger);
+    originalText = seed.content;
+    title = seed.title;
+  } else {
+    originalText = fs.readFileSync(args.file!, 'utf-8');
+    title = path.basename(args.file!, path.extname(args.file!));
+  }
+
+  logger.info('Input loaded', { chars: originalText.length, words: originalText.split(/\s+/).length });
+
+  // Build components
+  const state = new PipelineStateImpl(originalText);
+
   const ctx: ExecutionContext = {
     payload: {
       originalText,
-      title: path.basename(args.file, path.extname(args.file)),
+      title,
       explanationId: args.explanationId ?? 0,
       runId,
       config,
@@ -769,6 +920,46 @@ async function main() {
     const outputPath = path.resolve(args.output);
     fs.writeFileSync(outputPath, JSON.stringify(output, null, 2));
     logger.info('Output written', { path: outputPath });
+
+    // Add to bank if requested
+    if (args.bank && args.prompt && supabase) {
+      const topVariants = state.getTopByElo(5);
+      const winner = topVariants[0];
+      if (winner) {
+        logger.info('Adding winner to article bank...');
+        const bankResult = await addEntryToBank(supabase, {
+          prompt: args.prompt,
+          content: winner.text,
+          generation_method: 'evolution_winner',
+          model: args.model,
+          total_cost_usd: costTracker.getTotalSpent(),
+          metadata: {
+            iterations: state.iteration,
+            duration_seconds: Math.round(durationMs / 1000),
+            stop_reason: stopReason,
+            seed_model: args.seedModel ?? args.model,
+            winning_strategy: winner.strategy,
+          },
+        });
+        logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
+
+        // Also add baseline
+        const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
+        if (baseline && baseline.id !== winner.id) {
+          const baselineResult = await addEntryToBank(supabase, {
+            prompt: args.prompt,
+            content: baseline.text,
+            generation_method: 'evolution_baseline',
+            model: args.model,
+            total_cost_usd: null,
+            metadata: { seed_model: args.seedModel ?? args.model },
+          });
+          logger.info('Baseline added to bank', { entry_id: baselineResult.entry_id });
+        }
+      }
+    } else if (args.bank && !args.prompt) {
+      logger.warn('--bank requires --prompt for topic grouping. Skipping bank insertion.');
+    }
 
     // Print summary
     console.log('\n┌─────────────────────────────────────────┐');
