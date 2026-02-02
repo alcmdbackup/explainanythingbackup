@@ -56,6 +56,41 @@ async function persistCheckpoint(
   }
 }
 
+/** Persist all pool variants to content_evolution_variants. Best-effort — errors are logged, not thrown. */
+async function persistVariants(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const supabase = await createSupabaseServiceClient();
+  const topVariant = ctx.state.getTopByElo(1)[0];
+
+  const rows = ctx.state.pool.map((v) => ({
+    id: v.id,
+    run_id: runId,
+    explanation_id: ctx.payload.explanationId || null,
+    variant_content: v.text,
+    elo_score: ctx.state.eloRatings.get(v.id) ?? 1200,
+    generation: v.version,
+    parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
+    agent_name: v.strategy,
+    match_count: ctx.state.matchCounts.get(v.id) ?? 0,
+    is_winner: topVariant ? v.id === topVariant.id : false,
+  }));
+
+  if (rows.length === 0) return;
+
+  const { error } = await supabase
+    .from('content_evolution_variants')
+    .upsert(rows, { onConflict: 'id' });
+
+  if (error) {
+    logger.warn('Failed to persist variants (non-fatal)', { runId, error: error.message });
+  } else {
+    logger.info('Variants persisted', { runId, count: rows.length });
+  }
+}
+
 /** Mark run as failed in DB. */
 async function markRunFailed(runId: string, agentName: string, error: unknown): Promise<void> {
   const supabase = await createSupabaseServiceClient();
@@ -245,6 +280,9 @@ export async function executeMinimalPipeline(
       });
     }
   }
+
+  // Persist variants to content_evolution_variants for admin UI
+  await persistVariants(runId, ctx, logger);
 
   logger.info('Pipeline completed', {
     poolSize: ctx.state.getPoolSize(),
@@ -448,6 +486,9 @@ export async function executeFullPipeline(
         });
       }
     }
+
+    // Persist variants to content_evolution_variants for admin UI
+    await persistVariants(runId, ctx, logger);
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,

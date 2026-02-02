@@ -21,7 +21,7 @@ import {
   type BankEntry,
   type BankComparison,
 } from '@/lib/services/articleBankActions';
-import { getEvolutionRunsAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
+import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 // ─── Scatter chart (SSR-disabled) ────────────────────────────────
@@ -244,9 +244,10 @@ function EntryDetail({ entry }: { entry: BankEntry }) {
 
 // ─── Run comparison dialog ──────────────────────────────────────
 
-function RunComparisonDialog({ onRun, onClose }: {
+function RunComparisonDialog({ onRun, onClose, entryCount }: {
   onRun: (judgeModel: string, rounds: number) => void;
   onClose: () => void;
+  entryCount: number;
 }) {
   const [model, setModel] = useState('gpt-4.1-nano');
   const [rounds, setRounds] = useState(1);
@@ -262,7 +263,12 @@ function RunComparisonDialog({ onRun, onClose }: {
           Run Comparison
         </h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Compare all entries head-to-head using a judge LLM. Updates Elo ratings.
+          Swiss-style pairwise comparison using a judge LLM. Updates Elo ratings.
+          {entryCount >= 2 && (
+            <span className="block mt-1">
+              ~{Math.floor(entryCount / 2) * rounds} comparisons across {rounds} round{rounds > 1 ? 's' : ''} ({entryCount} entries)
+            </span>
+          )}
         </p>
         <div>
           <label className="block text-sm text-[var(--text-secondary)] mb-1">Judge Model</label>
@@ -273,8 +279,15 @@ function RunComparisonDialog({ onRun, onClose }: {
             className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
           >
             <option value="gpt-4.1-nano">gpt-4.1-nano (cheapest)</option>
-            <option value="gpt-4.1-mini">gpt-4.1-mini (balanced)</option>
-            <option value="gpt-4.1">gpt-4.1 (best)</option>
+            <option value="gpt-4.1-mini">gpt-4.1-mini</option>
+            <option value="gpt-4.1">gpt-4.1</option>
+            <option value="gpt-4o-mini">gpt-4o-mini</option>
+            <option value="gpt-4o">gpt-4o</option>
+            <option value="gpt-5-nano">gpt-5-nano</option>
+            <option value="gpt-5-mini">gpt-5-mini</option>
+            <option value="o3-mini">o3-mini</option>
+            <option value="deepseek-chat">deepseek-chat</option>
+            <option value="claude-sonnet-4-20250514">claude-sonnet-4</option>
           </select>
         </div>
         <div>
@@ -352,9 +365,25 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
     const metadata: Record<string, unknown> = {
       winning_strategy: winner.agent_name,
       winner_elo: winner.elo_score,
+      winner_match_count: winner.match_count,
       variants_generated: selectedRun.variants_generated,
       explanation_id: selectedRun.explanation_id,
+      total_iterations: selectedRun.current_iteration,
     };
+
+    // Fetch run summary for richer metadata (non-blocking — don't fail if unavailable)
+    try {
+      const summaryRes = await getEvolutionRunSummaryAction(selectedRun.id);
+      if (summaryRes.success && summaryRes.data) {
+        const s = summaryRes.data;
+        metadata.strategy_effectiveness = s.strategyEffectiveness;
+        metadata.match_stats = s.matchStats;
+        metadata.duration_seconds = s.durationSeconds;
+        metadata.baseline_rank = s.baselineRank;
+        metadata.baseline_elo = s.baselineElo;
+        metadata.meta_feedback = s.metaFeedback;
+      }
+    } catch { /* non-fatal */ }
 
     const result = await addToBankAction({
       prompt,
@@ -624,7 +653,7 @@ export default function ArticleBankTopicDetailPage() {
             data-testid="run-comparison-btn"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50"
           >
-            {comparisonRunning ? 'Running...' : 'Run Comparison'}
+            {comparisonRunning ? `Comparing ${entries.length} entries...` : 'Run Comparison'}
           </button>
         </div>
       </div>
@@ -928,6 +957,7 @@ export default function ArticleBankTopicDetailPage() {
         <RunComparisonDialog
           onRun={handleRunComparison}
           onClose={() => setShowComparisonDialog(false)}
+          entryCount={entries.length}
         />
       )}
 

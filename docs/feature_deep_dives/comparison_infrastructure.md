@@ -7,7 +7,7 @@ The comparison infrastructure extends the evolution pipeline with a persistent *
 The system operates through three workflows:
 - **Workflow A** (1-shot): Generate an article from a prompt using any supported LLM model, add to bank
 - **Workflow B** (evolution): Add an evolution pipeline winner (and optionally its baseline) to the bank
-- **Workflow C** (comparison): Run pairwise comparisons between all entries in a topic using a judge LLM
+- **Workflow C** (comparison): Run Swiss-style pairwise comparisons between entries in a topic using a judge LLM
 
 ## Key Concepts
 
@@ -28,7 +28,7 @@ Every pairwise comparison runs twice with reversed presentation order (A-vs-B, t
 
 ### Multi-Provider LLM Support
 
-Articles can be generated using OpenAI (gpt-4.1, gpt-4.1-mini, gpt-4o), DeepSeek (deepseek-chat), or Anthropic (claude-sonnet-4) models. The `callLLMModel` router dispatches to the correct provider based on model prefix. Comparisons use a separate judge model (typically `gpt-4.1-nano` for cost efficiency).
+Articles can be generated using OpenAI (gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-5-mini, gpt-5-nano, o3-mini), DeepSeek (deepseek-chat), or Anthropic (claude-sonnet-4) models. The `callLLMModel` router dispatches to the correct provider based on model prefix. Comparisons can use any supported model as judge (all 10 models available in the UI selector).
 
 ## Architecture
 
@@ -49,14 +49,14 @@ All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `s
 
 | Action | Purpose |
 |--------|---------|
-| `addToBankAction` | Select-or-insert topic (case-insensitive ilike match) + entry insert + Elo initialization |
-| `generateAndAddToBankAction` | Generate article via LLM (title + content) then add to bank |
+| `addToBankAction` | Upsert topic via `upsertTopicByPrompt` (retry on unique constraint race) + entry insert + Elo initialization |
+| `generateAndAddToBankAction` | Generate article via LLM (title + content), accumulate cost via `onUsage` callbacks, add to bank with `total_cost_usd` |
 | `getBankTopicAction` | Single topic by ID |
 | `getBankTopicsAction` | All topics with aggregated stats (entry count, Elo range, cost, best method) |
 | `getBankEntriesAction` | All active entries for a topic |
 | `getBankEntryDetailAction` | Full entry detail including metadata |
 | `getBankLeaderboardAction` | Elo-ranked entries joined with entry details |
-| `runBankComparisonAction` | All-pairs comparison with configurable rounds, updates Elo |
+| `runBankComparisonAction` | Swiss-style pairwise comparison with configurable rounds, updates Elo |
 | `getCrossTopicSummaryAction` | Cross-topic aggregation by generation method |
 | `getBankMatchHistoryAction` | All comparisons for a topic |
 | `deleteBankEntryAction` | Soft-delete entry + cascade comparisons/Elo |
@@ -88,8 +88,8 @@ Two pages under `/admin/quality/article-bank/`:
 - Agent cost breakdown and meta-feedback display for evolution entries
 - Cost vs Elo scatter chart (Recharts, SSR-disabled) with bidirectional linking
 - Word-level text diff using `diffWordsWithSpace`
-- "Run Comparison" dialog with judge model + rounds selector
-- "Add from Evolution Run" dialog listing completed runs
+- "Run Comparison" dialog with all-model judge selector (10 models), rounds picker, estimated comparison count
+- "Add from Evolution Run" dialog listing completed runs, enriched metadata from `run_summary`
 
 **Integration with Evolution Run Detail**:
 - "Add to Bank" button on completed run pages
@@ -102,7 +102,7 @@ Two pages under `/admin/quality/article-bank/`:
 | File | Purpose |
 |------|---------|
 | `src/lib/services/articleBankActions.ts` | 12 server actions for bank CRUD, comparison, aggregation |
-| `src/lib/services/articleBankActions.test.ts` | 25 unit tests with table-aware Supabase mock |
+| `src/lib/services/articleBankActions.test.ts` | 27 unit tests with table-aware Supabase mock (includes retry and cost accumulation tests) |
 
 ### Standalone Comparison
 | File | Purpose |
@@ -138,11 +138,11 @@ Two pages under `/admin/quality/article-bank/`:
 ```
 User enters prompt + selects model in UI
   → generateAndAddToBankAction
-    → createTitlePrompt → callLLMModel (title generation)
-    → createExplanationPrompt → callLLMModel (article generation)
-    → Select-or-insert topic (case-insensitive ilike match)
-    → Insert entry (generation_method='oneshot')
-    → Initialize Elo (1200, match_count=0)
+    → createTitlePrompt → callLLMModel (title, onUsage accumulates cost)
+    → createExplanationPrompt → callLLMModel (article, onUsage accumulates cost)
+    → upsertTopicByPrompt (case-insensitive ilike, retry on 23505)
+    → Insert entry (generation_method='oneshot', total_cost_usd from accumulated onUsage)
+    → Initialize Elo (1200, elo_per_dollar computed from cost)
 ```
 
 ### Workflow B: Evolution Winner → Bank
@@ -153,13 +153,15 @@ Admin clicks "Add to Bank" on completed run
   → Optional: addToBankAction for baseline (generation_method='evolution_baseline')
 ```
 
-### Workflow C: Pairwise Comparison
+### Workflow C: Swiss-Style Pairwise Comparison
 ```
-Admin clicks "Run Comparison" on topic detail
+Admin clicks "Run Comparison" on topic detail (dialog shows estimated pair count)
   → runBankComparisonAction(topicId, judgeModel, rounds)
-    → Fetch all active entries
+    → Fetch all active entries + current Elo state
     → For each round:
-      → For each pair (i, j):
+      → Sort entries by Elo (descending)
+      → Swiss-pair adjacent entries, skip already-compared pairs
+      → For each pair:
         → compareWithBiasMitigation(textA, textB, callLLM)
         → Record comparison (winner, confidence, judge)
         → Update in-memory Elo (confidence-weighted)
@@ -170,7 +172,7 @@ Admin clicks "Run Comparison" on topic detail
 
 | File | Type | Tests |
 |------|------|-------|
-| `src/lib/services/articleBankActions.test.ts` | Unit | 25 — CRUD, Elo updates, aggregation, soft-delete cascade |
+| `src/lib/services/articleBankActions.test.ts` | Unit | 27 — CRUD, Elo updates, aggregation, soft-delete cascade, retry on race, cost accumulation |
 | `src/lib/evolution/comparison.test.ts` | Unit | 23 — bias mitigation, caching, prompt building, winner parsing |
 | `scripts/lib/bankUtils.test.ts` | Unit | 5 — bank insertion, topic upsert, Elo init |
 | `scripts/run-bank-comparison.test.ts` | Unit | Elo math, CLI arg parsing, comparison flow |

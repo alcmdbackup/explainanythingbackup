@@ -3,6 +3,7 @@
 
 import {
   addToBankAction,
+  generateAndAddToBankAction,
   getBankTopicAction,
   getBankTopicsAction,
   getBankEntriesAction,
@@ -38,9 +39,31 @@ jest.mock('@/lib/evolution/comparison', () => ({
   compareWithBiasMitigation: jest.fn(),
 }));
 
+const mockCallLLMModel = jest.fn().mockImplementation(
+  async (_prompt: string, _source: string, _userId: string, _model: string,
+    _streaming: boolean, _setText: null, _respObj: null, _respName: null,
+    _debug: boolean, onUsage?: (u: { estimatedCostUsd: number }) => void,
+  ) => {
+    if (onUsage) onUsage({ estimatedCostUsd: 0.001 });
+    return '{"title1":"Test Title"}';
+  },
+);
 jest.mock('@/lib/services/llms', () => ({
-  callLLMModel: jest.fn().mockResolvedValue('A'),
+  callLLMModel: (...args: unknown[]) => mockCallLLMModel(...args),
 }));
+
+jest.mock('@/lib/prompts', () => ({
+  createTitlePrompt: jest.fn((p: string) => `title:${p}`),
+  createExplanationPrompt: jest.fn((t: string) => `explain:${t}`),
+}));
+
+jest.mock('@/lib/schemas/schemas', () => {
+  const actual = jest.requireActual('@/lib/schemas/schemas');
+  return {
+    ...actual,
+    titleQuerySchema: { parse: (data: unknown) => data },
+  };
+});
 
 jest.mock('@/lib/errorHandling', () => ({
   handleError: jest.fn((error: Error, context: string) => ({
@@ -677,5 +700,94 @@ describe('getBankMatchHistoryAction', () => {
   it('rejects invalid UUID', async () => {
     const result = await getBankMatchHistoryAction('not-a-uuid');
     expect(result.success).toBe(false);
+  });
+});
+
+describe('addToBankAction — retry on unique constraint violation', () => {
+  it('retries select after unique violation on insert', async () => {
+    let fromCallIdx = 0;
+    const mock = {
+      from: jest.fn(() => {
+        const b = makeBuilder();
+        fromCallIdx++;
+        if (fromCallIdx === 1) {
+          // First select: not found
+          b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+        } else if (fromCallIdx === 2) {
+          // Insert fails with unique constraint (23505)
+          b.single.mockResolvedValueOnce({ data: null, error: { code: '23505', message: 'unique violation' } });
+        } else if (fromCallIdx === 3) {
+          // Retry select: found
+          b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null });
+        } else if (fromCallIdx === 4) {
+          // Entry insert
+          b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
+        } else if (fromCallIdx === 5) {
+          // Elo insert
+          b.insert.mockResolvedValueOnce({ data: null, error: null });
+        }
+        return b;
+      }),
+    };
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await addToBankAction({
+      prompt: 'Concurrent test',
+      content: 'Content',
+      generation_method: 'oneshot',
+      model: 'gpt-4.1',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.topic_id).toBe(TOPIC_UUID);
+    // 5 from() calls: select, insert(fail), retry select, entry insert, elo insert
+    expect(mock.from).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe('generateAndAddToBankAction', () => {
+  it('accumulates cost from LLM calls and stores in entry', async () => {
+    const entryInsertData: Record<string, unknown>[] = [];
+    const eloInsertData: Record<string, unknown>[] = [];
+    const mock = createTableAwareMock([
+      // 1. topic select → not found
+      (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
+      // 2. topic insert
+      (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
+      // 3. entry insert — capture data
+      (b) => {
+        b.insert.mockImplementation((data: Record<string, unknown>) => {
+          entryInsertData.push(data);
+          const chain = () => b;
+          b.select = jest.fn(chain);
+          b.single = jest.fn().mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null });
+          return b;
+        });
+      },
+      // 4. elo insert — capture data
+      (b) => {
+        b.insert.mockImplementation((data: Record<string, unknown>) => {
+          eloInsertData.push(data);
+          return Promise.resolve({ data: null, error: null });
+        });
+      },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    // Each callLLMModel mock invokes onUsage with 0.001, two calls = 0.002
+    const result = await generateAndAddToBankAction({
+      prompt: 'Test generation',
+      model: 'gpt-4.1-mini',
+    });
+
+    expect(result.success).toBe(true);
+
+    // Entry should have accumulated cost from 2 LLM calls
+    expect(entryInsertData.length).toBe(1);
+    expect(entryInsertData[0].total_cost_usd).toBeCloseTo(0.002);
+
+    // Elo should use computeEloPerDollar with the cost
+    expect(eloInsertData.length).toBe(1);
+    expect(eloInsertData[0].elo_per_dollar).not.toBeNull();
   });
 });

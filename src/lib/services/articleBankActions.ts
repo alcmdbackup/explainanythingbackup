@@ -8,7 +8,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { compareWithBiasMitigation, type ComparisonResult } from '@/lib/evolution/comparison';
-import { callLLMModel } from '@/lib/services/llms';
+import { callLLMModel, type LLMUsageMetadata } from '@/lib/services/llms';
 import { createTitlePrompt, createExplanationPrompt } from '@/lib/prompts';
 import { titleQuerySchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
 
@@ -113,6 +113,40 @@ export interface AddToBankInput {
 
 // ─── Actions ────────────────────────────────────────────────────
 
+/** Select-or-insert topic with retry on unique constraint race. */
+async function upsertTopicByPrompt(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  trimmedPrompt: string,
+  title: string | null,
+  maxRetries = 2,
+): Promise<string> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const { data: existing } = await supabase
+      .from('article_bank_topics')
+      .select('id')
+      .ilike('prompt', trimmedPrompt)
+      .is('deleted_at', null)
+      .single();
+
+    if (existing) return existing.id;
+
+    const { data: newTopic, error: insertError } = await supabase
+      .from('article_bank_topics')
+      .insert({ prompt: trimmedPrompt, title })
+      .select('id')
+      .single();
+
+    if (newTopic) return newTopic.id;
+
+    // Unique constraint violation → concurrent insert won; retry select
+    const isUniqueViolation = insertError?.code === '23505';
+    if (isUniqueViolation && attempt < maxRetries) continue;
+
+    throw new Error(`Failed to create topic: ${insertError?.message ?? 'unknown'}`);
+  }
+  throw new Error('Topic upsert exhausted retries');
+}
+
 /** Upsert topic by prompt and insert entry atomically. */
 const _addToBankAction = withLogging(async (
   input: AddToBankInput,
@@ -122,29 +156,7 @@ const _addToBankAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
     const trimmedPrompt = input.prompt.trim();
 
-    // Select-or-insert topic (expression index on LOWER(TRIM(prompt)) prevents
-    // PostgREST onConflict — it only accepts column names, not index names)
-    const { data: existing } = await supabase
-      .from('article_bank_topics')
-      .select('id')
-      .ilike('prompt', trimmedPrompt)
-      .is('deleted_at', null)
-      .single();
-
-    let topicId: string;
-
-    if (existing) {
-      topicId = existing.id;
-    } else {
-      const { data: newTopic, error: insertError } = await supabase
-        .from('article_bank_topics')
-        .insert({ prompt: trimmedPrompt, title: input.title ?? null })
-        .select('id')
-        .single();
-
-      if (insertError || !newTopic) throw new Error(`Failed to create topic: ${insertError?.message ?? 'unknown'}`);
-      topicId = newTopic.id;
-    }
+    const topicId = await upsertTopicByPrompt(supabase, trimmedPrompt, input.title ?? null);
 
     // Insert entry under topic
     const { data: entry, error: entryError } = await supabase
@@ -361,14 +373,45 @@ const _runBankComparisonAction = withLogging(async (
     const cache = new Map<string, ComparisonResult>();
     let comparisonsRun = 0;
 
-    // Run all pairs for each round
+    // Swiss-style pairing: sort by Elo, pair adjacent entries. O(N/2) per round
+    // instead of all-pairs O(N²). With small entry counts this falls back gracefully.
     const effectiveRounds = Math.max(1, Math.min(rounds, 10));
-    for (let round = 0; round < effectiveRounds; round++) {
-    for (let i = 0; i < entries.length; i++) {
-      for (let j = i + 1; j < entries.length; j++) {
-        const entryA = entries[i];
-        const entryB = entries[j];
+    const comparedPairs = new Set<string>();
 
+    for (let round = 0; round < effectiveRounds; round++) {
+      // Sort entries by current Elo (descending) for Swiss pairing
+      const sorted = [...entries].sort((a, b) => {
+        const eloA = eloMap.get(a.id)?.rating ?? INITIAL_ELO;
+        const eloB = eloMap.get(b.id)?.rating ?? INITIAL_ELO;
+        return eloB - eloA;
+      });
+
+      // Build pairs: match adjacent entries, skip already-compared pairs
+      const pairs: [typeof entries[0], typeof entries[0]][] = [];
+      const used = new Set<number>();
+      for (let i = 0; i < sorted.length; i++) {
+        if (used.has(i)) continue;
+        for (let j = i + 1; j < sorted.length; j++) {
+          if (used.has(j)) continue;
+          const pairKey = [sorted[i].id, sorted[j].id].sort().join(':');
+          if (!comparedPairs.has(pairKey)) {
+            pairs.push([sorted[i], sorted[j]]);
+            comparedPairs.add(pairKey);
+            used.add(i);
+            used.add(j);
+            break;
+          }
+        }
+      }
+
+      // If no new pairs found (all compared), fall back to re-matching adjacent
+      if (pairs.length === 0 && sorted.length >= 2) {
+        for (let i = 0; i + 1 < sorted.length; i += 2) {
+          pairs.push([sorted[i], sorted[i + 1]]);
+        }
+      }
+
+      for (const [entryA, entryB] of pairs) {
         const result = await compareWithBiasMitigation(
           entryA.content, entryB.content, callLLM, cache,
         );
@@ -410,7 +453,6 @@ const _runBankComparisonAction = withLogging(async (
 
         comparisonsRun++;
       }
-    }
     } // end rounds loop
 
     // Persist updated Elo ratings
@@ -628,10 +670,15 @@ const _generateAndAddToBankAction = withLogging(async (
   try {
     const adminUserId = await requireAdmin();
 
+    // Accumulate cost from both LLM calls via onUsage callbacks
+    let totalCostUsd = 0;
+    const onUsage = (usage: LLMUsageMetadata) => { totalCostUsd += usage.estimatedCostUsd; };
+
     // Step 1: Generate title
     const titlePrompt = createTitlePrompt(input.prompt);
     const titleResponse = await callLLMModel(
       titlePrompt, 'bank_generate_title', adminUserId, input.model, false, null,
+      null, null, true, onUsage,
     );
 
     let title: string;
@@ -646,6 +693,7 @@ const _generateAndAddToBankAction = withLogging(async (
     const explanationPrompt = createExplanationPrompt(title, []);
     const content = await callLLMModel(
       explanationPrompt, 'bank_generate_article', adminUserId, input.model, false, null,
+      null, null, true, onUsage,
     );
 
     if (!content || content.trim().length === 0) {
@@ -654,27 +702,7 @@ const _generateAndAddToBankAction = withLogging(async (
 
     // Step 3: Add to bank
     const supabase = await createSupabaseServiceClient();
-
-    // Upsert topic
-    const { data: existing } = await supabase
-      .from('article_bank_topics')
-      .select('id')
-      .ilike('prompt', input.prompt.trim())
-      .is('deleted_at', null)
-      .single();
-
-    let topicId: string;
-    if (existing) {
-      topicId = existing.id;
-    } else {
-      const { data: newTopic, error: topicError } = await supabase
-        .from('article_bank_topics')
-        .insert({ prompt: input.prompt.trim(), title })
-        .select('id')
-        .single();
-      if (topicError || !newTopic) throw new Error(`Failed to create topic: ${topicError?.message}`);
-      topicId = newTopic.id;
-    }
+    const topicId = await upsertTopicByPrompt(supabase, input.prompt.trim(), title);
 
     // Insert entry
     const { data: entry, error: entryError } = await supabase
@@ -684,7 +712,7 @@ const _generateAndAddToBankAction = withLogging(async (
         content,
         generation_method: 'oneshot',
         model: input.model,
-        total_cost_usd: null, // Cost tracked in llmCallTracking, not easily available here
+        total_cost_usd: totalCostUsd > 0 ? totalCostUsd : null,
         metadata: { call_source: `oneshot_${input.model}`, generated_title: title },
       })
       .select('id')
@@ -693,11 +721,12 @@ const _generateAndAddToBankAction = withLogging(async (
     if (entryError || !entry) throw new Error(`Failed to insert entry: ${entryError?.message}`);
 
     // Initialize Elo
+    const entryCost = totalCostUsd > 0 ? totalCostUsd : null;
     await supabase.from('article_bank_elo').insert({
       topic_id: topicId,
       entry_id: entry.id,
       elo_rating: INITIAL_ELO,
-      elo_per_dollar: null,
+      elo_per_dollar: computeEloPerDollar(INITIAL_ELO, entryCost),
       match_count: 0,
     });
 
