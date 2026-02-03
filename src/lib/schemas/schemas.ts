@@ -1165,3 +1165,50 @@ export const comparisonResultSchema = z.object({
   second_strengths: z.array(z.string()).min(1).max(3),
 });
 export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
+
+// =============================================================================
+// ARTICLE BANK INPUT SCHEMAS
+// =============================================================================
+
+/**
+ * Generation method enum for article bank entries.
+ * Tracks how an entry was produced: direct oneshot, evolution winner, or evolution baseline.
+ */
+export const bankGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline']);
+export type BankGenerationMethod = z.infer<typeof bankGenerationMethodSchema>;
+
+/**
+ * Schema for adding an article entry to the bank.
+ * Validates server action input at the trust boundary.
+ */
+export const addToBankInputSchema = z.object({
+  prompt: z.string().min(1),
+  title: z.string().optional(),
+  content: z.string().min(1),
+  generation_method: bankGenerationMethodSchema,
+  model: z.string().min(1),
+  total_cost_usd: z.number().nonnegative().nullable().optional(),
+  evolution_run_id: z.string().uuid().nullable().optional(),
+  evolution_variant_id: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type AddToBankInputType = z.infer<typeof addToBankInputSchema>;
+
+/**
+ * Schema for generating an article via LLM and adding it to the bank.
+ */
+export const generateAndAddInputSchema = z.object({
+  prompt: z.string().min(1),
+  model: allowedLLMModelSchema,
+});
+export type GenerateAndAddInputType = z.infer<typeof generateAndAddInputSchema>;
+
+/**
+ * Schema for run bank comparison action parameters.
+ */
+export const runBankComparisonInputSchema = z.object({
+  topicId: z.string().uuid(),
+  judgeModel: allowedLLMModelSchema.default('gpt-4.1-nano'),
+  rounds: z.number().int().min(1).max(10).default(1),
+});
+export type RunBankComparisonInputType = z.infer<typeof runBankComparisonInputSchema>;

@@ -10,7 +10,14 @@ import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { compareWithBiasMitigation, type ComparisonResult } from '@/lib/evolution/comparison';
 import { callLLMModel, type LLMUsageMetadata } from '@/lib/services/llms';
 import { createTitlePrompt, createExplanationPrompt } from '@/lib/prompts';
-import { titleQuerySchema, type AllowedLLMModelType } from '@/lib/schemas/schemas';
+import {
+  titleQuerySchema,
+  addToBankInputSchema,
+  generateAndAddInputSchema,
+  runBankComparisonInputSchema,
+  type AllowedLLMModelType,
+  type BankGenerationMethod,
+} from '@/lib/schemas/schemas';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 
@@ -44,7 +51,7 @@ function computeEloPerDollar(eloRating: number, totalCostUsd: number | null): nu
 
 // ─── Types ──────────────────────────────────────────────────────
 
-export type BankGenerationMethod = 'oneshot' | 'evolution_winner' | 'evolution_baseline';
+export type { BankGenerationMethod };
 
 export interface BankTopic {
   id: string;
@@ -99,7 +106,7 @@ export interface CrossTopicMethodSummary {
   entry_count: number;
 }
 
-export interface AddToBankInput {
+export type AddToBankInput = {
   prompt: string;
   title?: string;
   content: string;
@@ -109,7 +116,7 @@ export interface AddToBankInput {
   evolution_run_id?: string | null;
   evolution_variant_id?: string | null;
   metadata?: Record<string, unknown>;
-}
+};
 
 // ─── Actions ────────────────────────────────────────────────────
 
@@ -153,23 +160,24 @@ const _addToBankAction = withLogging(async (
 ): Promise<ActionResult<{ topic_id: string; entry_id: string }>> => {
   try {
     await requireAdmin();
+    const validated = addToBankInputSchema.parse(input);
     const supabase = await createSupabaseServiceClient();
-    const trimmedPrompt = input.prompt.trim();
+    const trimmedPrompt = validated.prompt.trim();
 
-    const topicId = await upsertTopicByPrompt(supabase, trimmedPrompt, input.title ?? null);
+    const topicId = await upsertTopicByPrompt(supabase, trimmedPrompt, validated.title ?? null);
 
     // Insert entry under topic
     const { data: entry, error: entryError } = await supabase
       .from('article_bank_entries')
       .insert({
         topic_id: topicId,
-        content: input.content,
-        generation_method: input.generation_method,
-        model: input.model,
-        total_cost_usd: input.total_cost_usd ?? null,
-        evolution_run_id: input.evolution_run_id ?? null,
-        evolution_variant_id: input.evolution_variant_id ?? null,
-        metadata: input.metadata ?? {},
+        content: validated.content,
+        generation_method: validated.generation_method,
+        model: validated.model,
+        total_cost_usd: validated.total_cost_usd ?? null,
+        evolution_run_id: validated.evolution_run_id ?? null,
+        evolution_variant_id: validated.evolution_variant_id ?? null,
+        metadata: validated.metadata ?? {},
       })
       .select('id')
       .single();
@@ -181,7 +189,7 @@ const _addToBankAction = withLogging(async (
       topic_id: topicId,
       entry_id: entry.id,
       elo_rating: INITIAL_ELO,
-      elo_per_dollar: computeEloPerDollar(INITIAL_ELO, input.total_cost_usd ?? null),
+      elo_per_dollar: computeEloPerDollar(INITIAL_ELO, validated.total_cost_usd ?? null),
       match_count: 0,
     });
 
@@ -331,14 +339,15 @@ const _runBankComparisonAction = withLogging(async (
 ): Promise<ActionResult<{ comparisons_run: number; entries_updated: number }>> => {
   try {
     const adminUserId = await requireAdmin();
-    validateUuid(topicId, 'topic ID');
+    const { topicId: vTopicId, judgeModel: vJudgeModel, rounds: vRounds } =
+      runBankComparisonInputSchema.parse({ topicId, judgeModel, rounds });
     const supabase = await createSupabaseServiceClient();
 
     // Fetch active entries
     const { data: entries, error: entriesError } = await supabase
       .from('article_bank_entries')
       .select('id, content, total_cost_usd')
-      .eq('topic_id', topicId)
+      .eq('topic_id', vTopicId)
       .is('deleted_at', null);
 
     if (entriesError) throw new Error(`Failed to fetch entries: ${entriesError.message}`);
@@ -350,7 +359,7 @@ const _runBankComparisonAction = withLogging(async (
     const { data: eloRows } = await supabase
       .from('article_bank_elo')
       .select('entry_id, elo_rating, match_count')
-      .eq('topic_id', topicId);
+      .eq('topic_id', vTopicId);
 
     const eloMap = new Map<string, { rating: number; matchCount: number }>();
     for (const row of eloRows ?? []) {
@@ -366,7 +375,7 @@ const _runBankComparisonAction = withLogging(async (
 
     // Build callLLM wrapper for comparison
     const callLLM = async (prompt: string): Promise<string> => {
-      return callLLMModel(prompt, 'bank_comparison', adminUserId, judgeModel, false, null);
+      return callLLMModel(prompt, 'bank_comparison', adminUserId, vJudgeModel, false, null);
     };
 
     // Comparison cache for this run
@@ -375,7 +384,8 @@ const _runBankComparisonAction = withLogging(async (
 
     // Swiss-style pairing: sort by Elo, pair adjacent entries. O(N/2) per round
     // instead of all-pairs O(N²). With small entry counts this falls back gracefully.
-    const effectiveRounds = Math.max(1, Math.min(rounds, 10));
+    // vRounds already clamped 1-10 by schema
+    const effectiveRounds = vRounds;
     const comparedPairs = new Set<string>();
 
     for (let round = 0; round < effectiveRounds; round++) {
@@ -424,12 +434,12 @@ const _runBankComparisonAction = withLogging(async (
 
         // Insert comparison record
         await supabase.from('article_bank_comparisons').insert({
-          topic_id: topicId,
+          topic_id: vTopicId,
           entry_a_id: entryA.id,
           entry_b_id: entryB.id,
           winner_id: winnerId,
           confidence: result.confidence,
-          judge_model: judgeModel,
+          judge_model: vJudgeModel,
           dimension_scores: null,
         });
 
@@ -463,7 +473,7 @@ const _runBankComparisonAction = withLogging(async (
       await supabase
         .from('article_bank_elo')
         .upsert({
-          topic_id: topicId,
+          topic_id: vTopicId,
           entry_id: entryId,
           elo_rating: Math.round(elo.rating * 100) / 100,
           elo_per_dollar: computeEloPerDollar(elo.rating, cost),
@@ -669,15 +679,16 @@ const _generateAndAddToBankAction = withLogging(async (
 ): Promise<ActionResult<{ topic_id: string; entry_id: string; title: string; content: string }>> => {
   try {
     const adminUserId = await requireAdmin();
+    const validated = generateAndAddInputSchema.parse(input);
 
     // Accumulate cost from both LLM calls via onUsage callbacks
     let totalCostUsd = 0;
     const onUsage = (usage: LLMUsageMetadata) => { totalCostUsd += usage.estimatedCostUsd; };
 
     // Step 1: Generate title
-    const titlePrompt = createTitlePrompt(input.prompt);
+    const titlePrompt = createTitlePrompt(validated.prompt);
     const titleResponse = await callLLMModel(
-      titlePrompt, 'bank_generate_title', adminUserId, input.model, false, null,
+      titlePrompt, 'bank_generate_title', adminUserId, validated.model, false, null,
       null, null, true, onUsage,
     );
 
@@ -692,7 +703,7 @@ const _generateAndAddToBankAction = withLogging(async (
     // Step 2: Generate article content
     const explanationPrompt = createExplanationPrompt(title, []);
     const content = await callLLMModel(
-      explanationPrompt, 'bank_generate_article', adminUserId, input.model, false, null,
+      explanationPrompt, 'bank_generate_article', adminUserId, validated.model, false, null,
       null, null, true, onUsage,
     );
 
@@ -702,7 +713,7 @@ const _generateAndAddToBankAction = withLogging(async (
 
     // Step 3: Add to bank
     const supabase = await createSupabaseServiceClient();
-    const topicId = await upsertTopicByPrompt(supabase, input.prompt.trim(), title);
+    const topicId = await upsertTopicByPrompt(supabase, validated.prompt.trim(), title);
 
     // Insert entry
     const { data: entry, error: entryError } = await supabase
@@ -711,9 +722,9 @@ const _generateAndAddToBankAction = withLogging(async (
         topic_id: topicId,
         content,
         generation_method: 'oneshot',
-        model: input.model,
+        model: validated.model,
         total_cost_usd: totalCostUsd > 0 ? totalCostUsd : null,
-        metadata: { call_source: `oneshot_${input.model}`, generated_title: title },
+        metadata: { call_source: `oneshot_${validated.model}`, generated_title: title },
       })
       .select('id')
       .single();

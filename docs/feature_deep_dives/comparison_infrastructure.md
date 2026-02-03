@@ -45,7 +45,7 @@ Four tables (migration `20260201000001_article_bank.sql`):
 
 ### Server Actions
 
-All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `serverReadRequestId` pattern:
+All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `serverReadRequestId` pattern. Mutation actions (`addToBankAction`, `generateAndAddToBankAction`, `runBankComparisonAction`) additionally validate inputs with Zod schemas (`addToBankInputSchema`, `generateAndAddInputSchema`, `runBankComparisonInputSchema` from `schemas.ts`) before processing:
 
 | Action | Purpose |
 |--------|---------|
