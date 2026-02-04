@@ -2,7 +2,7 @@
   "mcpServers": {
     "honeycomb": {
       "url": "https://mcp.honeycomb.io/mcp",
-      "type": "http"
+      "type": "sse"
     }
   }
 }
