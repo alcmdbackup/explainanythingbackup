@@ -1,0 +1,12 @@
+{
+  "project": "feat/manage_sources_20260201",
+  "branch": "feat/manage_sources_20260201",
+  "created_at": "2026-02-02T14:10:34Z",
+  "prerequisites": {
+    "testing_overview_read": "2026-02-02T14:10:34Z",
+    "getting_started_read": "2026-02-02T14:11:30Z",
+    "project_workflow_read": "2026-02-02T14:11:31Z",
+    "todos_created": "2026-02-02T14:11:31Z",
+    "design_style_guide_read": "2026-02-02T14:22:49Z"
+  }
+}

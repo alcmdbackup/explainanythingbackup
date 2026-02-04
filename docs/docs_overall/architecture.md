@@ -36,7 +36,7 @@ User Query → Vector Search (Pinecone) → Match Found? → Return Existing
 | Codebase | 60k+ LOC TypeScript |
 | Services | 17 domain services |
 | Actions | 50+ server actions |
-| Tests | 150+ unit, 18 integration, 9 E2E specs |
+| Tests | 3400+ unit, 22 integration suites, 9 E2E specs |
 
 ---
 
@@ -100,6 +100,8 @@ For detailed implementation of each feature, see [feature_deep_dives/](../featur
 Key features include:
 - [Evolution Pipeline Visualization](../feature_deep_dives/evolution_pipeline_visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
 - [Comparison Infrastructure](../feature_deep_dives/comparison_infrastructure.md) — Article bank for cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
+- [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
+- [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 
 ---
 
@@ -155,6 +157,18 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | `article_bank_entries` | Generated articles with method, model, cost metadata |
 | `article_bank_comparisons` | Head-to-head match results with confidence scores |
 | `article_bank_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
+
+### Source Management Tables
+| Table | Purpose |
+|-------|---------|
+| `source_cache` | Global URL cache with extracted content, metadata |
+| `article_sources` | Junction table linking sources to explanations (max 5, ordered) |
+
+### Source Management RPCs
+| Function | Purpose |
+|----------|---------|
+| `get_source_citation_counts` | Ranked sources by citation count for leaderboard |
+| `get_co_cited_sources` | Sources frequently co-cited with a given source |
 
 ### Link System Tables
 | Table | Purpose |

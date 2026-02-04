@@ -1062,6 +1062,8 @@ export const sourceChipSchema = z.object({
   domain: z.string(),
   status: z.enum(['loading', 'success', 'failed']),
   error_message: z.string().nullable(),
+  /** Database ID from source_cache table; present when loaded from DB, absent for newly-added URLs */
+  source_cache_id: z.number().int().positive().optional(),
 });
 
 export type SourceChipType = z.infer<typeof sourceChipSchema>;
@@ -1212,3 +1214,57 @@ export const runBankComparisonInputSchema = z.object({
   rounds: z.number().int().min(1).max(10).default(1),
 });
 export type RunBankComparisonInputType = z.infer<typeof runBankComparisonInputSchema>;
+
+// =============================================================================
+// SOURCE MANAGEMENT SCHEMAS
+// =============================================================================
+
+/**
+ * Input schema for replacing all sources on an explanation atomically.
+ */
+export const updateSourcesInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceIds: z.array(z.number().int().positive()).max(5),
+});
+
+/**
+ * Input schema for adding a new source to an explanation by URL.
+ * Only HTTP/HTTPS URLs are allowed (rejects ftp:, data:, javascript:).
+ */
+export const addSourceInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceUrl: z.string().url().refine(
+    url => url.startsWith('http://') || url.startsWith('https://'),
+    'Only HTTP/HTTPS URLs are allowed'
+  ),
+});
+
+/**
+ * Input schema for removing a single source from an explanation.
+ */
+export const removeSourceInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceCacheId: z.number().int().positive(),
+});
+
+/**
+ * Input schema for reordering sources on an explanation.
+ * sourceIds must contain the same IDs currently linked, in the desired order.
+ */
+export const reorderSourcesInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceIds: z.array(z.number().int().positive()).min(1).max(5),
+});
+
+/**
+ * Schema for source citation count results from get_source_citation_counts RPC.
+ */
+export const sourceCitationCountSchema = z.object({
+  source_cache_id: z.number().int(),
+  total_citations: z.number().int(),
+  unique_explanations: z.number().int(),
+  domain: z.string(),
+  title: z.string().nullable(),
+  favicon_url: z.string().nullable(),
+});
+export type SourceCitationCountType = z.infer<typeof sourceCitationCountSchema>;

@@ -206,6 +206,7 @@ export default function AdvancedAIEditorModal({
               }}
               maxSources={5}
               disabled={isLoading}
+              explanationId={explanationId}
             />
           </div>
 

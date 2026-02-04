@@ -20,8 +20,8 @@ import {
 } from '@/lib/services/metrics';
 import { createTags, getTagsById, updateTag, deleteTag, getTagsByPresetId, getAllTags, getTempTagsForRewriteWithTags } from '@/lib/services/tags';
 import { addTagsToExplanation, removeTagsFromExplanation, getTagsForExplanation } from '@/lib/services/explanationTags';
-import { getSourcesByExplanationId } from '@/lib/services/sourceCache';
-import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType, type SourceChipType } from '@/lib/schemas/schemas';
+import { getSourcesByExplanationId, updateSourcesForExplanation, addSourceToExplanation, removeSourceFromExplanation, reorderSources } from '@/lib/services/sourceCache';
+import { type TagInsertType, type TagFullDbType, type ExplanationTagFullDbType, type TagUIType, type SourceChipType, updateSourcesInputSchema, addSourceInputSchema, removeSourceInputSchema, reorderSourcesInputSchema } from '@/lib/schemas/schemas';
 import { createAISuggestionPrompt, createApplyEditsPrompt, aiSuggestionSchema } from '../editorFiles/aiSuggestion';
 import { checkAndSaveTestingPipelineRecord, updateTestingPipelineRecordSetName, type TestingPipelineRecord } from '../lib/services/testingPipeline';
 import { createSupabaseServerClient } from '../lib/utils/supabase/server';
@@ -949,7 +949,8 @@ const _getSourcesForExplanationAction = withLogging(
                 status: source.fetch_status === 'success' ? 'success'
                       : source.fetch_status === 'pending' ? 'loading'
                       : 'failed',
-                error_message: source.error_message
+                error_message: source.error_message,
+                source_cache_id: source.id,
             }));
 
             return {
@@ -2241,4 +2242,236 @@ const _getArticleLinkOverridesAction = withLogging(
 );
 
 export const getArticleLinkOverridesAction = serverReadRequestId(_getArticleLinkOverridesAction);
+
+// =============================================================================
+// SOURCE MANAGEMENT ACTIONS
+// =============================================================================
+
+/**
+ * Atomically replace all sources for an explanation (server action)
+ *
+ * • Validates input with updateSourcesInputSchema
+ * • Calls replace_explanation_sources RPC
+ * • Used by: SourceEditor apply button
+ */
+const _updateSourcesForExplanationAction = withLogging(
+    async function updateSourcesForExplanationAction(params: { explanationId: number; sourceIds: number[] }): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const validated = updateSourcesInputSchema.safeParse(params);
+            if (!validated.success) {
+                return { success: false, error: createValidationError(validated.error.message) };
+            }
+
+            await updateSourcesForExplanation(validated.data.explanationId, validated.data.sourceIds);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'updateSourcesForExplanationAction', { explanationId: params.explanationId })
+            };
+        }
+    },
+    'updateSourcesForExplanationAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const updateSourcesForExplanationAction = serverReadRequestId(_updateSourcesForExplanationAction);
+
+/**
+ * Add a new source to an explanation by URL (server action)
+ *
+ * • Validates input with addSourceInputSchema
+ * • Fetches/caches the source content, then links it
+ * • Returns the created SourceChipType for immediate UI display
+ * • Used by: SourceEditor add URL input
+ */
+const _addSourceToExplanationAction = withLogging(
+    async function addSourceToExplanationAction(params: { explanationId: number; sourceUrl: string; userid: string }): Promise<{
+        success: boolean;
+        data: SourceChipType | null;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const validated = addSourceInputSchema.safeParse({
+                explanationId: params.explanationId,
+                sourceUrl: params.sourceUrl,
+            });
+            if (!validated.success) {
+                return { success: false, data: null, error: createValidationError(validated.error.message) };
+            }
+
+            const source = await addSourceToExplanation(
+                validated.data.explanationId,
+                validated.data.sourceUrl,
+                params.userid
+            );
+
+            const chip: SourceChipType = {
+                url: source.url,
+                title: source.title,
+                favicon_url: source.favicon_url,
+                domain: source.domain,
+                status: source.fetch_status === 'success' ? 'success'
+                      : source.fetch_status === 'pending' ? 'loading'
+                      : 'failed',
+                error_message: source.error_message,
+                source_cache_id: source.id,
+            };
+
+            return { success: true, data: chip, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                data: null,
+                error: handleError(error, 'addSourceToExplanationAction', { explanationId: params.explanationId })
+            };
+        }
+    },
+    'addSourceToExplanationAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const addSourceToExplanationAction = serverReadRequestId(_addSourceToExplanationAction);
+
+/**
+ * Remove a specific source from an explanation (server action)
+ *
+ * • Validates input with removeSourceInputSchema
+ * • Calls remove_and_renumber_source RPC
+ * • Used by: SourceEditor remove button on each chip
+ */
+const _removeSourceFromExplanationAction = withLogging(
+    async function removeSourceFromExplanationAction(params: { explanationId: number; sourceCacheId: number }): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const validated = removeSourceInputSchema.safeParse(params);
+            if (!validated.success) {
+                return { success: false, error: createValidationError(validated.error.message) };
+            }
+
+            await removeSourceFromExplanation(validated.data.explanationId, validated.data.sourceCacheId);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'removeSourceFromExplanationAction', { explanationId: params.explanationId })
+            };
+        }
+    },
+    'removeSourceFromExplanationAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const removeSourceFromExplanationAction = serverReadRequestId(_removeSourceFromExplanationAction);
+
+/**
+ * Reorder sources on an explanation (server action)
+ *
+ * • Validates input with reorderSourcesInputSchema
+ * • Calls reorder_explanation_sources RPC
+ * • Used by: SourceEditor drag-and-drop reorder
+ */
+const _reorderSourcesAction = withLogging(
+    async function reorderSourcesAction(params: { explanationId: number; sourceIds: number[] }): Promise<{
+        success: boolean;
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const validated = reorderSourcesInputSchema.safeParse(params);
+            if (!validated.success) {
+                return { success: false, error: createValidationError(validated.error.message) };
+            }
+
+            await reorderSources(validated.data.explanationId, validated.data.sourceIds);
+            return { success: true, error: null };
+        } catch (error) {
+            return {
+                success: false,
+                error: handleError(error, 'reorderSourcesAction', { explanationId: params.explanationId })
+            };
+        }
+    },
+    'reorderSourcesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const reorderSourcesAction = serverReadRequestId(_reorderSourcesAction);
+
+// ============================================================================
+// Source Leaderboard Actions
+// ============================================================================
+
+import { getTopSources, getPopularSourcesByTopic, getSimilarArticleSources, type SourceLeaderboardFilters, type DiscoveredSource } from '@/lib/services/sourceDiscovery';
+
+const _getTopSourcesAction = withLogging(
+    async function (params: SourceLeaderboardFilters): Promise<{
+        data: import('@/lib/schemas/schemas').SourceCitationCountType[];
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const data = await getTopSources(params);
+            return { data, error: null };
+        } catch (error) {
+            return {
+                data: [],
+                error: handleError(error, 'getTopSourcesAction', params)
+            };
+        }
+    },
+    'getTopSourcesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getTopSourcesAction = _getTopSourcesAction;
+
+// ============================================================================
+// Source Discovery Actions
+// ============================================================================
+
+const _getPopularSourcesByTopicAction = withLogging(
+    async function (params: { topicId: number; limit?: number }): Promise<{
+        data: DiscoveredSource[];
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const data = await getPopularSourcesByTopic(params.topicId, params.limit);
+            return { data, error: null };
+        } catch (error) {
+            return {
+                data: [],
+                error: handleError(error, 'getPopularSourcesByTopicAction', params)
+            };
+        }
+    },
+    'getPopularSourcesByTopicAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getPopularSourcesByTopicAction = _getPopularSourcesByTopicAction;
+
+const _getSimilarArticleSourcesAction = withLogging(
+    async function (params: { explanationId: number; limit?: number }): Promise<{
+        data: DiscoveredSource[];
+        error: ErrorResponse | null;
+    }> {
+        try {
+            const data = await getSimilarArticleSources(params.explanationId, params.limit);
+            return { data, error: null };
+        } catch (error) {
+            return {
+                data: [],
+                error: handleError(error, 'getSimilarArticleSourcesAction', params)
+            };
+        }
+    },
+    'getSimilarArticleSourcesAction',
+    { enabled: FILE_DEBUG }
+);
+
+export const getSimilarArticleSourcesAction = _getSimilarArticleSourcesAction;
 

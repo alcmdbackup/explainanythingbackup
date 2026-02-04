@@ -199,6 +199,45 @@ export function createTestVectorBatch(
 }
 
 /**
+ * Creates a test source_cache record for integration testing.
+ * Uses domain pattern test-source-{uuid}.example.com for discoverable cleanup.
+ */
+export function createTestSourceCache(overrides: Record<string, unknown> = {}) {
+  const uuid = Math.random().toString(36).substr(2, 9);
+  const domain = `test-source-${uuid}.example.com`;
+
+  return {
+    url: `https://${domain}/article`,
+    title: `${TEST_PREFIX}Source - ${uuid}`,
+    favicon_url: `https://www.google.com/s2/favicons?domain=${domain}&sz=32`,
+    domain,
+    extracted_text: 'Test source content for integration testing.',
+    is_summarized: false,
+    original_length: 10,
+    fetch_status: 'success',
+    error_message: null,
+    expires_at: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    ...overrides,
+  };
+}
+
+/**
+ * Creates a test article_sources junction record.
+ * Links a source_cache entry to an explanation at a given position.
+ */
+export function createTestArticleSource(
+  explanationId: number,
+  sourceCacheId: number,
+  position: number
+) {
+  return {
+    explanation_id: explanationId,
+    source_cache_id: sourceCacheId,
+    position,
+  };
+}
+
+/**
  * Preset tag definitions for testing tag conflict scenarios
  */
 export const presetTestTags = {

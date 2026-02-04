@@ -281,6 +281,26 @@
     {
       "pattern": "src/components/evolution/**",
       "docs": ["docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md"]
+    },
+    {
+      "pattern": "src/lib/services/source*.ts",
+      "docs": ["docs/feature_deep_dives/manage_sources.md", "docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/actions/*source*.ts",
+      "docs": ["docs/feature_deep_dives/manage_sources.md"]
+    },
+    {
+      "pattern": "src/components/*source*.tsx",
+      "docs": ["docs/feature_deep_dives/manage_sources.md"]
+    },
+    {
+      "pattern": "src/app/sources/**",
+      "docs": ["docs/feature_deep_dives/manage_sources.md"]
+    },
+    {
+      "pattern": "src/hooks/useSourceSubmit.ts",
+      "docs": ["docs/feature_deep_dives/manage_sources.md", "docs/feature_deep_dives/add_sources_citations.md"]
     }
   ],
   "alwaysConsider": [

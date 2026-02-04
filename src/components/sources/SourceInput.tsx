@@ -1,11 +1,15 @@
+/**
+ * URL input field for adding source URLs.
+ * Delegates validation and metadata fetching to useSourceSubmit hook.
+ */
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState } from 'react';
 import { PlusIcon } from '@heroicons/react/24/outline';
 import { type SourceChipType } from '@/lib/schemas/schemas';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { fetchWithTracing } from '@/lib/tracing/fetchWithTracing';
+import useSourceSubmit from '@/hooks/useSourceSubmit';
 
 interface SourceInputProps {
   onSourceAdded: (source: SourceChipType) => void;
@@ -15,10 +19,6 @@ interface SourceInputProps {
   className?: string;
 }
 
-/**
- * URL input field for adding source URLs
- * Fetches metadata from API and returns SourceChipType
- */
 export default function SourceInput({
   onSourceAdded,
   disabled = false,
@@ -27,80 +27,16 @@ export default function SourceInput({
   className = ''
 }: SourceInputProps) {
   const [url, setUrl] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { submitUrl, isSubmitting, error, clearError } = useSourceSubmit(onSourceAdded);
 
   const isAtLimit = currentCount >= maxSources;
 
-  const validateUrl = (input: string): boolean => {
-    try {
-      const parsed = new URL(input);
-      return ['http:', 'https:'].includes(parsed.protocol);
-    } catch {
-      return false;
-    }
-  };
-
-  const handleSubmit = useCallback(async (e?: React.FormEvent) => {
+  const handleSubmit = async (e?: React.FormEvent) => {
     e?.preventDefault();
-
-    const trimmedUrl = url.trim();
-    if (!trimmedUrl || isLoading || disabled || isAtLimit) return;
-
-    // Validate URL format
-    if (!validateUrl(trimmedUrl)) {
-      setError('Please enter a valid URL (starting with http:// or https://)');
-      return;
-    }
-
-    setError(null);
-    setIsLoading(true);
-
-    // Create loading chip immediately for optimistic UI
-    const loadingChip: SourceChipType = {
-      url: trimmedUrl,
-      title: null,
-      favicon_url: null,
-      domain: new URL(trimmedUrl).hostname.replace(/^www\./, ''),
-      status: 'loading',
-      error_message: null
-    };
-    onSourceAdded(loadingChip);
+    if (!url.trim() || isSubmitting || disabled || isAtLimit) return;
+    await submitUrl(url);
     setUrl('');
-
-    try {
-      const response = await fetchWithTracing('/api/fetchSourceMetadata', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: trimmedUrl })
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.data) {
-        // Update with fetched data - parent should handle updating the loading chip
-        onSourceAdded(result.data);
-      } else {
-        // Update with error state
-        const errorChip: SourceChipType = {
-          ...loadingChip,
-          status: 'failed',
-          error_message: result.error || 'Failed to fetch source'
-        };
-        onSourceAdded(errorChip);
-      }
-    } catch {
-      // Update with error state
-      const errorChip: SourceChipType = {
-        ...loadingChip,
-        status: 'failed',
-        error_message: 'Network error'
-      };
-      onSourceAdded(errorChip);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [url, isLoading, disabled, isAtLimit, onSourceAdded]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -125,12 +61,12 @@ export default function SourceInput({
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
-            setError(null);
+            clearError();
           }}
           onKeyDown={handleKeyDown}
           placeholder="Paste source URL..."
           data-testid="source-url-input"
-          disabled={disabled || isLoading}
+          disabled={disabled || isSubmitting}
           className={cn(
             'flex-1 px-3 py-2 rounded-page text-sm',
             'bg-[var(--surface-input)] border border-[var(--border-default)]',
@@ -144,12 +80,12 @@ export default function SourceInput({
         <Button
           type="button"
           onClick={() => handleSubmit()}
-          disabled={disabled || isLoading || !url.trim()}
+          disabled={disabled || isSubmitting || !url.trim()}
           variant="outline"
           data-testid="source-add-button"
           className="shrink-0 h-auto py-2 px-3 text-sm"
         >
-          {isLoading ? (
+          {isSubmitting ? (
             <span className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
           ) : (
             <PlusIcon className="w-4 h-4" />

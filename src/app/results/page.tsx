@@ -17,7 +17,8 @@ import { SEOHead } from '@/components/SEOHead';
 import LexicalEditor, { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import AIEditorPanel from '@/components/AIEditorPanel';
 import AdvancedAIEditorModal, { type AIEditData } from '@/components/AdvancedAIEditorModal';
-import Bibliography from '@/components/sources/Bibliography';
+import SourceEditor from '@/components/sources/SourceEditor';
+
 import { RawMarkdownEditor } from '@/components/RawMarkdownEditor';
 import { ReportContentButton } from '@/components/ReportContentButton';
 import { tagModeReducer, createInitialTagModeState, isTagsModified } from '@/reducers/tagModeReducer';
@@ -1218,7 +1219,7 @@ function ResultsPageContent() {
                                                     </button>
                                                 </div>
                                                 {tagState.mode === 'normal' && tagState.showRegenerateDropdown && (
-                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-10">
+                                                    <div className="absolute top-full left-0 mt-1 w-48 bg-[var(--surface-secondary)] rounded-page shadow-warm-lg border border-[var(--border-default)] z-50">
                                                         <div className="py-1">
                                                             <button
                                                                 data-testid="advanced-ai-editor"
@@ -1418,7 +1419,12 @@ function ResultsPageContent() {
                                                     sources={bibliographySources}
                                                     onPendingSuggestionsChange={setHasPendingSuggestions}
                                                 />
-                                                <Bibliography sources={bibliographySources} />
+                                                <SourceEditor
+                                                    explanationId={explanationId}
+                                                    sources={sources}
+                                                    bibliographySources={bibliographySources}
+                                                    onSourcesChanged={setSources}
+                                                />
                                             </>
                                         ) : (
                                             <>
@@ -1427,7 +1433,12 @@ function ResultsPageContent() {
                                                     onChange={handleRawMarkdownChange}
                                                     isEditMode={isEditMode && !isStreaming}
                                                 />
-                                                <Bibliography sources={bibliographySources} />
+                                                <SourceEditor
+                                                    explanationId={explanationId}
+                                                    sources={sources}
+                                                    bibliographySources={bibliographySources}
+                                                    onSourcesChanged={setSources}
+                                                />
                                             </>
                                         )}
                                     </div>

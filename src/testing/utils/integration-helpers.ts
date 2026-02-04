@@ -320,3 +320,37 @@ export function createTestDataId(type: string, suffix?: string): string {
   const baseSuffix = suffix || Math.random().toString(36).substr(2, 9);
   return `${process.env.TEST_DATA_PREFIX || TEST_ID_PREFIX}${type}-${baseSuffix}`;
 }
+
+/**
+ * Cleans up test source_cache rows created by createTestSourceCache fixtures.
+ * Matches on domain pattern: test-source-%.example.com
+ */
+export async function cleanupTestSourceCache(supabase: SupabaseClient): Promise<void> {
+  try {
+    await supabase
+      .from('source_cache')
+      .delete()
+      .ilike('domain', 'test-source-%.example.com');
+  } catch (error) {
+    console.error('Error cleaning up test source_cache:', error);
+  }
+}
+
+/**
+ * Cleans up test article_sources rows for given explanation IDs.
+ * Same pattern as explanation_tags cleanup.
+ */
+export async function cleanupTestArticleSources(
+  supabase: SupabaseClient,
+  explanationIds: number[]
+): Promise<void> {
+  if (explanationIds.length === 0) return;
+  try {
+    await supabase
+      .from('article_sources')
+      .delete()
+      .in('explanation_id', explanationIds);
+  } catch (error) {
+    console.error('Error cleaning up test article_sources:', error);
+  }
+}

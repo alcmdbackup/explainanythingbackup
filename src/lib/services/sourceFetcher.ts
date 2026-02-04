@@ -1,5 +1,6 @@
 import { Readability } from '@mozilla/readability';
 import { parseHTML } from 'linkedom';
+import { lookup } from 'dns/promises';
 import { logger } from '@/lib/server_utilities';
 import {
   FetchStatus,
@@ -11,6 +12,39 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 const FETCH_TIMEOUT_MS = 10000; // 10 seconds
 const WORD_THRESHOLD = 3000; // Words before summarization
 const CACHE_EXPIRY_DAYS = 7;
+
+// SSRF protection: IP ranges that must never be fetched
+const PRIVATE_IP_PATTERNS = [
+  /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
+  /^169\.254\./, /^0\./, /^::1$/, /^fc/i, /^fd/i,
+];
+
+const BLOCKED_HOSTNAMES = [/^localhost$/i, /^0\.0\.0\.0$/];
+
+/**
+ * Validate that a URL does not point to a private/internal IP address.
+ * Two-layer defense: hostname pre-check + DNS resolution check.
+ */
+export async function validateUrlNotPrivate(url: string): Promise<void> {
+  const hostname = new URL(url).hostname;
+
+  // Layer 1: Block obviously private hostnames
+  if (BLOCKED_HOSTNAMES.some(p => p.test(hostname))) {
+    throw new Error('URL points to a blocked hostname');
+  }
+
+  // Layer 2: Resolve DNS and check the actual IP
+  try {
+    const { address } = await lookup(hostname);
+    if (PRIVATE_IP_PATTERNS.some(p => p.test(address))) {
+      throw new Error('URL resolves to a private IP address');
+    }
+  } catch (err) {
+    if (err instanceof Error && err.message.includes('private IP')) throw err;
+    if (err instanceof Error && err.message.includes('blocked hostname')) throw err;
+    // DNS resolution failure — let the fetch attempt handle it
+  }
+}
 
 /**
  * Result type for source fetching operations
@@ -102,6 +136,17 @@ async function fetchAndExtractSourceImpl(url: string): Promise<FetchSourceResult
       success: false,
       data: null,
       error: 'Invalid URL format'
+    };
+  }
+
+  // SSRF protection: reject private/internal IPs before fetching
+  try {
+    await validateUrlNotPrivate(url);
+  } catch (ssrfError) {
+    return {
+      success: false,
+      data: null,
+      error: ssrfError instanceof Error ? ssrfError.message : 'URL validation failed'
     };
   }
 

@@ -12,7 +12,8 @@ import {
   detectPaywall,
   needsSummarization,
   getWordThreshold,
-  fetchAndExtractSource
+  fetchAndExtractSource,
+  validateUrlNotPrivate
 } from './sourceFetcher';
 
 // Mock the logger to avoid console noise in tests
@@ -24,6 +25,14 @@ jest.mock('@/lib/server_utilities', () => ({
     warn: jest.fn()
   }
 }));
+
+// Mock dns/promises for SSRF tests
+jest.mock('dns/promises', () => ({
+  lookup: jest.fn()
+}));
+
+import { lookup } from 'dns/promises';
+const mockLookup = lookup as jest.MockedFunction<typeof lookup>;
 
 describe('sourceFetcher', () => {
   beforeEach(() => {
@@ -368,6 +377,113 @@ describe('sourceFetcher', () => {
       const result = await fetchAndExtractSource('https://example.com/empty');
       expect(result.success).toBe(false);
       expect(result.error).toContain('Unable to extract readable content');
+    });
+
+    it('should reject URLs resolving to private IPs (SSRF protection)', async () => {
+      mockLookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
+
+      const result = await fetchAndExtractSource('https://evil.com/internal');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('private IP');
+    });
+
+    it('should reject localhost URLs (SSRF protection)', async () => {
+      const result = await fetchAndExtractSource('https://localhost/admin');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('blocked hostname');
+    });
+  });
+
+  // ============================================================================
+  // validateUrlNotPrivate - SSRF protection tests
+  // ============================================================================
+  describe('validateUrlNotPrivate', () => {
+    beforeEach(() => {
+      mockLookup.mockReset();
+    });
+
+    it('should block localhost hostname', async () => {
+      await expect(validateUrlNotPrivate('https://localhost/path'))
+        .rejects.toThrow('blocked hostname');
+    });
+
+    it('should block 0.0.0.0 hostname', async () => {
+      await expect(validateUrlNotPrivate('https://0.0.0.0/path'))
+        .rejects.toThrow('blocked hostname');
+    });
+
+    it('should block 127.x.x.x IPs via DNS resolution', async () => {
+      mockLookup.mockResolvedValue({ address: '127.0.0.1', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should block 10.x.x.x IPs via DNS resolution', async () => {
+      mockLookup.mockResolvedValue({ address: '10.0.0.1', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should block 172.16-31.x.x IPs via DNS resolution', async () => {
+      mockLookup.mockResolvedValue({ address: '172.16.0.1', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+
+      mockLookup.mockResolvedValue({ address: '172.31.255.1', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil2.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should allow 172.32.x.x (not private)', async () => {
+      mockLookup.mockResolvedValue({ address: '172.32.0.1', family: 4 });
+      await expect(validateUrlNotPrivate('https://legit.com/path'))
+        .resolves.toBeUndefined();
+    });
+
+    it('should block 192.168.x.x IPs via DNS resolution', async () => {
+      mockLookup.mockResolvedValue({ address: '192.168.1.1', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should block 169.254.x.x link-local IPs', async () => {
+      mockLookup.mockResolvedValue({ address: '169.254.169.254', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should block 0.x.x.x IPs', async () => {
+      mockLookup.mockResolvedValue({ address: '0.0.0.0', family: 4 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should block IPv6 loopback ::1', async () => {
+      mockLookup.mockResolvedValue({ address: '::1', family: 6 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should block IPv6 fc/fd unique local addresses', async () => {
+      mockLookup.mockResolvedValue({ address: 'fc00::1', family: 6 });
+      await expect(validateUrlNotPrivate('https://evil.com/path'))
+        .rejects.toThrow('private IP');
+
+      mockLookup.mockResolvedValue({ address: 'fd12::1', family: 6 });
+      await expect(validateUrlNotPrivate('https://evil2.com/path'))
+        .rejects.toThrow('private IP');
+    });
+
+    it('should allow public IPs', async () => {
+      mockLookup.mockResolvedValue({ address: '93.184.216.34', family: 4 });
+      await expect(validateUrlNotPrivate('https://example.com/path'))
+        .resolves.toBeUndefined();
+    });
+
+    it('should allow DNS resolution failure (let fetch handle it)', async () => {
+      mockLookup.mockRejectedValue(new Error('ENOTFOUND'));
+      await expect(validateUrlNotPrivate('https://nonexistent.example.com/path'))
+        .resolves.toBeUndefined();
     });
   });
 });

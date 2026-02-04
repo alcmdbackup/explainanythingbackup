@@ -1,9 +1,17 @@
+/**
+ * Container for source chips with input field.
+ * Conditionally renders SourceCombobox (with discovery) when explanationId is provided,
+ * otherwise falls back to the lightweight SourceInput.
+ */
 'use client';
 
+import React, { Suspense } from 'react';
 import { type SourceChipType } from '@/lib/schemas/schemas';
 import { cn } from '@/lib/utils';
 import SourceChip from './SourceChip';
 import SourceInput from './SourceInput';
+
+const LazySourceCombobox = React.lazy(() => import('./SourceCombobox'));
 
 interface SourceListProps {
   sources: SourceChipType[];
@@ -13,12 +21,12 @@ interface SourceListProps {
   disabled?: boolean;
   showInput?: boolean;
   className?: string;
+  /** When provided, enables the unified SourceCombobox with discovery */
+  explanationId?: number;
+  /** Topic ID for discovery — popular sources by topic */
+  topicId?: number | null;
 }
 
-/**
- * Container for source chips with input field
- * Displays list of sources and allows adding/removing
- */
 export default function SourceList({
   sources,
   onSourceAdded,
@@ -26,7 +34,9 @@ export default function SourceList({
   maxSources = 5,
   disabled = false,
   showInput = true,
-  className = ''
+  className = '',
+  explanationId,
+  topicId,
 }: SourceListProps) {
   const hasFailedSources = sources.some(s => s.status === 'failed');
 
@@ -44,6 +54,8 @@ export default function SourceList({
 
     onSourceAdded(source);
   };
+
+  const existingUrls = sources.filter(s => s.status === 'success').map(s => s.url);
 
   return (
     <div className={cn('flex flex-col gap-3', className)}>
@@ -73,14 +85,37 @@ export default function SourceList({
         </div>
       )}
 
-      {/* Input field */}
+      {/* Input field — SourceCombobox when explanationId provided, SourceInput otherwise */}
       {showInput && (
-        <SourceInput
-          onSourceAdded={handleSourceAdded}
-          disabled={disabled}
-          maxSources={maxSources}
-          currentCount={sources.length}
-        />
+        explanationId ? (
+          <Suspense
+            fallback={
+              <SourceInput
+                onSourceAdded={handleSourceAdded}
+                disabled={disabled}
+                maxSources={maxSources}
+                currentCount={sources.length}
+              />
+            }
+          >
+            <LazySourceCombobox
+              explanationId={explanationId}
+              topicId={topicId}
+              onSourceAdded={handleSourceAdded}
+              existingUrls={existingUrls}
+              maxSources={maxSources}
+              currentCount={sources.length}
+              disabled={disabled}
+            />
+          </Suspense>
+        ) : (
+          <SourceInput
+            onSourceAdded={handleSourceAdded}
+            disabled={disabled}
+            maxSources={maxSources}
+            currentCount={sources.length}
+          />
+        )
       )}
 
       {/* Empty state */}
