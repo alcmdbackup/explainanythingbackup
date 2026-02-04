@@ -14,6 +14,8 @@ import {
   getCrossTopicSummaryAction,
   deleteBankEntryAction,
   deleteBankTopicAction,
+  getPromptBankCoverageAction,
+  getPromptBankMethodSummaryAction,
 } from './articleBankActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -789,5 +791,381 @@ describe('generateAndAddToBankAction', () => {
     // Elo should use computeEloPerDollar with the cost
     expect(eloInsertData.length).toBe(1);
     expect(eloInsertData[0].elo_per_dollar).not.toBeNull();
+  });
+});
+
+// ─── Prompt Bank Coverage Action ────────────────────────────────
+
+describe('getPromptBankCoverageAction', () => {
+  it('returns coverage matrix with correct structure', async () => {
+    // For each of the 5 prompts, we need:
+    //   1. topic select (ilike) → found
+    //   2. entries select → some entries
+    //   3. elo select → some elo data
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+
+    for (let i = 0; i < 5; i++) {
+      // topic select
+      setups.push((b) => {
+        b.single.mockResolvedValueOnce({ data: { id: `topic-${i}` }, error: null });
+      });
+      // entries select
+      setups.push((b) => {
+        b.single.mockImplementation(() => b); // chain
+        const entries = i === 0 ? [
+          { id: 'e1', generation_method: 'oneshot', model: 'gpt-4.1-mini', metadata: {} },
+        ] : [];
+        // Override the final promise resolution
+        b.is.mockReturnValue(Promise.resolve({ data: entries, error: null }));
+      });
+      // elo select
+      setups.push((b) => {
+        b.eq.mockReturnValue(Promise.resolve({
+          data: i === 0 ? [{ entry_id: 'e1', elo_rating: 1250, match_count: 3 }] : [],
+          error: null,
+        }));
+      });
+    }
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankCoverageAction();
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(5);
+    expect(result.data![0]).toHaveProperty('prompt');
+    expect(result.data![0]).toHaveProperty('difficulty');
+    expect(result.data![0]).toHaveProperty('domain');
+    expect(result.data![0]).toHaveProperty('methods');
+  });
+
+  it('marks missing topics with null topicId', async () => {
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+    for (let i = 0; i < 5; i++) {
+      // topic not found for all
+      setups.push((b) => {
+        b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+      });
+    }
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankCoverageAction();
+
+    expect(result.success).toBe(true);
+    expect(result.data!.every((r) => r.topicId === null)).toBe(true);
+    expect(result.data!.every((r) =>
+      Object.values(r.methods).every((c) => !c.exists),
+    )).toBe(true);
+  });
+});
+
+// ─── Prompt Bank Method Summary Action ──────────────────────────
+
+describe('getPromptBankMethodSummaryAction', () => {
+  it('returns empty array when no topics exist', async () => {
+    // 5 topic lookups, all not found
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+    for (let i = 0; i < 5; i++) {
+      setups.push((b) => {
+        b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+      });
+    }
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankMethodSummaryAction();
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+  });
+
+  it('groups entries by method label including evolution checkpoints', async () => {
+    const T0 = 'a0000000-0000-0000-0000-000000000000';
+    const T1 = 'b0000000-0000-0000-0000-000000000000';
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+
+    // Topic lookups: first 2 found, rest not
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T0 }, error: null }); });
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T1 }, error: null }); });
+    for (let i = 2; i < 5; i++) {
+      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
+    }
+
+    // Entries across 2 topics: oneshot + evolution with metadata.iterations
+    setups.push((b) => {
+      b.is.mockReturnValue(Promise.resolve({
+        data: [
+          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
+          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
+          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.02, metadata: {} },
+          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.08, metadata: { iterations: 3 } },
+        ],
+        error: null,
+      }));
+    });
+
+    // Elo: all have match_count > 0
+    setups.push((b) => {
+      b.in.mockReturnValue(Promise.resolve({
+        data: [
+          { entry_id: 'e1', elo_rating: 1250, elo_per_dollar: 1666, match_count: 5 },
+          { entry_id: 'e2', elo_rating: 1300, elo_per_dollar: 1000, match_count: 5 },
+          { entry_id: 'e3', elo_rating: 1180, elo_per_dollar: null, match_count: 3 },
+          { entry_id: 'e4', elo_rating: 1350, elo_per_dollar: 1875, match_count: 3 },
+        ],
+        error: null,
+      }));
+    });
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankMethodSummaryAction();
+    expect(result.success).toBe(true);
+    const data = result.data!;
+
+    // 6 labels: 3 oneshot + 3 evolution checkpoints
+    expect(data).toHaveLength(6);
+
+    const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
+    const evo10 = data.find((d) => d.label === 'evolution_deepseek_10iter');
+    const evo3 = data.find((d) => d.label === 'evolution_deepseek_3iter');
+    const evo5 = data.find((d) => d.label === 'evolution_deepseek_5iter');
+
+    // oneshot_gpt-4.1-mini: 2 entries, avg Elo = (1250+1180)/2 = 1215
+    expect(oneshotMini!.avgElo).toBe(1215);
+    expect(oneshotMini!.entryCount).toBe(2);
+    expect(oneshotMini!.type).toBe('oneshot');
+
+    // evolution_deepseek_10iter: 1 entry matched by metadata.iterations=10
+    expect(evo10!.avgElo).toBe(1300);
+    expect(evo10!.entryCount).toBe(1);
+    expect(evo10!.type).toBe('evolution');
+
+    // evolution_deepseek_3iter: 1 entry matched by metadata.iterations=3
+    expect(evo3!.avgElo).toBe(1350);
+    expect(evo3!.entryCount).toBe(1);
+
+    // evolution_deepseek_5iter: no entries
+    expect(evo5!.avgElo).toBe(0);
+    expect(evo5!.entryCount).toBe(0);
+  });
+
+  it('calculates win rates across multiple topics', async () => {
+    const T0 = 'a0000000-0000-0000-0000-000000000000';
+    const T1 = 'b0000000-0000-0000-0000-000000000000';
+    const T2 = 'c0000000-0000-0000-0000-000000000000';
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+
+    // 3 topics found, 2 not
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T0 }, error: null }); });
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T1 }, error: null }); });
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T2 }, error: null }); });
+    for (let i = 3; i < 5; i++) {
+      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
+    }
+
+    // Topic 0: oneshot_mini wins; Topic 1 & 2: evo_10iter wins
+    setups.push((b) => {
+      b.is.mockReturnValue(Promise.resolve({
+        data: [
+          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
+          { id: 'e2', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
+          { id: 'e3', topic_id: T1, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
+          { id: 'e4', topic_id: T1, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
+          { id: 'e5', topic_id: T2, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {} },
+          { id: 'e6', topic_id: T2, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
+        ],
+        error: null,
+      }));
+    });
+
+    setups.push((b) => {
+      b.in.mockReturnValue(Promise.resolve({
+        data: [
+          { entry_id: 'e1', elo_rating: 1300, elo_per_dollar: 3333, match_count: 5 },
+          { entry_id: 'e2', elo_rating: 1250, elo_per_dollar: 500, match_count: 5 },
+          { entry_id: 'e3', elo_rating: 1200, elo_per_dollar: 0, match_count: 3 },
+          { entry_id: 'e4', elo_rating: 1350, elo_per_dollar: 1500, match_count: 3 },
+          { entry_id: 'e5', elo_rating: 1100, elo_per_dollar: -2000, match_count: 2 },
+          { entry_id: 'e6', elo_rating: 1400, elo_per_dollar: 2000, match_count: 2 },
+        ],
+        error: null,
+      }));
+    });
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankMethodSummaryAction();
+    expect(result.success).toBe(true);
+    const data = result.data!;
+
+    const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
+    const evo10 = data.find((d) => d.label === 'evolution_deepseek_10iter');
+    const oneshotFull = data.find((d) => d.label === 'oneshot_gpt-4.1');
+
+    // oneshot_gpt-4.1-mini: wins topic 0 only → winCount=1, winRate=1/3
+    expect(oneshotMini!.winCount).toBe(1);
+    expect(oneshotMini!.winRate).toBeCloseTo(0.333, 2);
+
+    // evolution_deepseek_10iter: wins topics 1 and 2 → winCount=2, winRate=2/3
+    expect(evo10!.winCount).toBe(2);
+    expect(evo10!.winRate).toBeCloseTo(0.667, 2);
+
+    // oneshot_gpt-4.1: loses topic 2 → winCount=0
+    expect(oneshotFull!.winCount).toBe(0);
+    expect(oneshotFull!.winRate).toBe(0);
+  });
+
+  it('excludes entries with match_count=0 from Elo averages', async () => {
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+
+    // 1 topic found, 4 not
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); });
+    for (let i = 1; i < 5; i++) {
+      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
+    }
+
+    // 2 entries: one compared (match_count=4), one uncompared (match_count=0)
+    setups.push((b) => {
+      b.is.mockReturnValue(Promise.resolve({
+        data: [
+          { id: 'e1', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
+          { id: 'e2', topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {} },
+        ],
+        error: null,
+      }));
+    });
+
+    setups.push((b) => {
+      b.in.mockReturnValue(Promise.resolve({
+        data: [
+          { entry_id: 'e1', elo_rating: 1280, elo_per_dollar: 2666, match_count: 4 },
+          { entry_id: 'e2', elo_rating: 1200, elo_per_dollar: 0, match_count: 0 },
+        ],
+        error: null,
+      }));
+    });
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankMethodSummaryAction();
+    expect(result.success).toBe(true);
+    const data = result.data!;
+
+    const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
+    const oneshotFull = data.find((d) => d.label === 'oneshot_gpt-4.1');
+
+    // e1: match_count=4 → included in avgElo
+    expect(oneshotMini!.avgElo).toBe(1280);
+    expect(oneshotMini!.entryCount).toBe(1);
+
+    // e2: match_count=0 → excluded from avgElo, but counted via countUncomparedEntries
+    expect(oneshotFull!.avgElo).toBe(0);
+    expect(oneshotFull!.entryCount).toBe(1);
+  });
+
+  it('sorts results by avgElo descending', async () => {
+    const T0 = 'a0000000-0000-0000-0000-000000000000';
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+
+    setups.push((b) => { b.single.mockResolvedValueOnce({ data: { id: T0 }, error: null }); });
+    for (let i = 1; i < 5; i++) {
+      setups.push((b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); });
+    }
+
+    setups.push((b) => {
+      b.is.mockReturnValue(Promise.resolve({
+        data: [
+          { id: 'e1', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
+          { id: 'e2', topic_id: T0, generation_method: 'oneshot', model: 'gpt-4.1', total_cost_usd: 0.05, metadata: {} },
+          { id: 'e3', topic_id: T0, generation_method: 'evolution_winner', model: 'deepseek-chat', total_cost_usd: 0.10, metadata: { iterations: 10 } },
+        ],
+        error: null,
+      }));
+    });
+
+    setups.push((b) => {
+      b.in.mockReturnValue(Promise.resolve({
+        data: [
+          { entry_id: 'e1', elo_rating: 1100, elo_per_dollar: -3333, match_count: 3 },
+          { entry_id: 'e2', elo_rating: 1350, elo_per_dollar: 3000, match_count: 3 },
+          { entry_id: 'e3', elo_rating: 1250, elo_per_dollar: 500, match_count: 3 },
+        ],
+        error: null,
+      }));
+    });
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankMethodSummaryAction();
+    expect(result.success).toBe(true);
+    const data = result.data!;
+
+    // Methods with entries should be sorted by avgElo descending
+    const withElo = data.filter((d) => d.avgElo > 0);
+    expect(withElo.length).toBe(3);
+    expect(withElo[0].label).toBe('oneshot_gpt-4.1');       // 1350
+    expect(withElo[1].label).toBe('evolution_deepseek_10iter'); // 1250
+    expect(withElo[2].label).toBe('oneshot_gpt-4.1-mini');  // 1100
+  });
+
+  it('computes summary with correct fields', async () => {
+    // 5 topic lookups: first found, rest not
+    const setups: Array<(b: Record<string, jest.Mock>) => void> = [];
+
+    // First prompt: topic found
+    setups.push((b) => {
+      b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null });
+    });
+    // Rest: not found
+    for (let i = 1; i < 5; i++) {
+      setups.push((b) => {
+        b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+      });
+    }
+
+    // Entries fetch (for the found topics)
+    setups.push((b) => {
+      b.is.mockReturnValue(Promise.resolve({
+        data: [
+          { id: ENTRY_UUID_A, topic_id: TOPIC_UUID, generation_method: 'oneshot', model: 'gpt-4.1-mini', total_cost_usd: 0.03, metadata: {} },
+        ],
+        error: null,
+      }));
+    });
+
+    // Elo fetch
+    setups.push((b) => {
+      b.in.mockReturnValue(Promise.resolve({
+        data: [
+          { entry_id: ENTRY_UUID_A, elo_rating: 1250, elo_per_dollar: 1666, match_count: 5 },
+        ],
+        error: null,
+      }));
+    });
+
+    const mock = createTableAwareMock(setups);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getPromptBankMethodSummaryAction();
+
+    expect(result.success).toBe(true);
+    expect(result.data!.length).toBeGreaterThan(0);
+    const firstMethod = result.data![0];
+    expect(firstMethod).toHaveProperty('label');
+    expect(firstMethod).toHaveProperty('type');
+    expect(firstMethod).toHaveProperty('avgElo');
+    expect(firstMethod).toHaveProperty('avgCostUsd');
+    expect(firstMethod).toHaveProperty('winCount');
+    expect(firstMethod).toHaveProperty('winRate');
+    expect(firstMethod).toHaveProperty('entryCount');
   });
 });

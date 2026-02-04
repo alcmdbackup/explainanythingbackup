@@ -11,9 +11,15 @@ import {
   addToBankAction,
   deleteBankTopicAction,
   generateAndAddToBankAction,
+  getPromptBankCoverageAction,
+  getPromptBankMethodSummaryAction,
+  runBankComparisonAction,
   type BankTopicWithStats,
   type CrossTopicMethodSummary,
+  type PromptBankCoverageRow,
+  type PromptBankMethodSummary,
 } from '@/lib/services/articleBankActions';
+import { PROMPT_BANK, type MethodConfig } from '@/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
 // ─── Method badge ──────────────────────────────────────────────
@@ -76,6 +82,186 @@ function CrossTopicSummary({ summaries }: { summaries: CrossTopicMethodSummary[]
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Prompt Bank helpers ──────────────────────────────────────
+
+function expandMethodLabels(methods: MethodConfig[]): string[] {
+  const labels: string[] = [];
+  for (const m of methods) {
+    if (m.type === 'oneshot') {
+      labels.push(m.label);
+    } else {
+      for (const cp of m.checkpoints) {
+        labels.push(`${m.label}_${cp}iter`);
+      }
+    }
+  }
+  return labels;
+}
+
+// ─── Coverage matrix ────────────────────────────────────────────
+
+function PromptBankCoverage({
+  coverage,
+  methodSummary,
+  onRunComparisons,
+  comparisonsRunning,
+  comparisonProgress,
+}: {
+  coverage: PromptBankCoverageRow[];
+  methodSummary: PromptBankMethodSummary[];
+  onRunComparisons: () => void;
+  comparisonsRunning: boolean;
+  comparisonProgress: string;
+}) {
+  const allLabels = expandMethodLabels(PROMPT_BANK.methods);
+  const totalSlots = coverage.length * allLabels.length;
+  const filledSlots = coverage.reduce(
+    (sum, r) => sum + Object.values(r.methods).filter((c) => c.exists).length, 0,
+  );
+  const comparedSlots = coverage.reduce(
+    (sum, r) => sum + Object.values(r.methods).filter((c) => c.exists && (c.matchCount ?? 0) > 0).length, 0,
+  );
+
+  const allCompared = filledSlots > 0 && filledSlots === comparedSlots;
+
+  const [sortField, setSortField] = useState<keyof PromptBankMethodSummary | null>(null);
+  const [sortAsc, setSortAsc] = useState(false);
+
+  const handleSort = (field: keyof PromptBankMethodSummary) => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortField(field);
+      setSortAsc(false);
+    }
+  };
+
+  const sortedSummary = useMemo(() => {
+    if (!sortField) return methodSummary;
+    return [...methodSummary].sort((a, b) => {
+      const va = a[sortField] ?? 0;
+      const vb = b[sortField] ?? 0;
+      return sortAsc ? (Number(va) - Number(vb)) : (Number(vb) - Number(va));
+    });
+  }, [methodSummary, sortField, sortAsc]);
+
+  // Find best values for highlighting
+  const bestElo = Math.max(...methodSummary.map((m) => m.avgElo || 0));
+  const bestWinRate = Math.max(...methodSummary.map((m) => m.winRate || 0));
+  const lowestCost = Math.min(...methodSummary.filter((m) => m.avgCostUsd > 0).map((m) => m.avgCostUsd));
+
+  return (
+    <div className="space-y-4 bg-[var(--surface-secondary)] border border-[var(--border-default)] rounded-book p-4" data-testid="prompt-bank-section">
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">Prompt Bank</h2>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+            {filledSlots}/{totalSlots} entries generated, {comparedSlots}/{totalSlots} compared
+          </p>
+        </div>
+        <button
+          onClick={onRunComparisons}
+          disabled={comparisonsRunning || allCompared || filledSlots === 0}
+          data-testid="run-all-comparisons-btn"
+          className="px-3 py-1.5 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page text-sm hover:opacity-90 disabled:opacity-50"
+        >
+          {comparisonsRunning ? comparisonProgress : allCompared ? 'All Compared' : 'Run All Comparisons'}
+        </button>
+      </div>
+
+      {/* Coverage Grid */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-[var(--border-default)]">
+              <th className="p-2 text-left text-[var(--text-muted)] font-ui">Prompt</th>
+              {allLabels.map((label) => (
+                <th key={label} className="p-2 text-center text-[var(--text-muted)] font-ui whitespace-nowrap">
+                  {label.replace('oneshot_', '').replace('evolution_', 'evo_')}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {coverage.map((row) => (
+              <tr key={row.prompt} className="border-b border-[var(--border-default)]/50">
+                <td className="p-2 text-[var(--text-primary)] max-w-[250px] truncate font-ui">
+                  <span className="text-[var(--text-muted)] mr-1">[{row.difficulty[0].toUpperCase()}]</span>
+                  {row.prompt}
+                </td>
+                {allLabels.map((label) => {
+                  const cell = row.methods[label];
+                  return (
+                    <td key={label} className="p-2 text-center">
+                      {cell?.exists ? (
+                        (cell.matchCount ?? 0) > 0 ? (
+                          <span className="text-[var(--status-success)]" title={`Elo: ${cell.elo?.toFixed(0) ?? '?'}, ${cell.matchCount} matches`}>&#x2713;</span>
+                        ) : (
+                          <span className="text-[var(--status-warning)]" title="Entry exists, no matches yet">&#x25CF;</span>
+                        )
+                      ) : (
+                        <span className="text-[var(--text-muted)]">&#xB7;</span>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Method Summary Table */}
+      {methodSummary.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm" data-testid="method-summary-table">
+            <thead>
+              <tr className="border-b border-[var(--border-default)]">
+                <th className="p-2 text-left text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('label')}>Method</th>
+                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('avgElo')}>Avg Elo</th>
+                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('avgCostUsd')}>Avg Cost</th>
+                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('avgEloPerDollar')}>Elo/$</th>
+                <th className="p-2 text-right text-[var(--text-muted)] font-ui cursor-pointer" onClick={() => handleSort('winRate')}>Win Rate</th>
+                <th className="p-2 text-right text-[var(--text-muted)] font-ui">Entries</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sortedSummary.map((m) => {
+                const isOneshot = m.type === 'oneshot';
+                const rowBg = isOneshot
+                  ? 'bg-blue-600/5 dark:bg-blue-400/5'
+                  : 'bg-[var(--status-success)]/5';
+                return (
+                  <tr key={m.label} className={`border-b border-[var(--border-default)]/50 ${rowBg}`}>
+                    <td className="p-2 text-[var(--text-primary)] font-ui font-medium">
+                      {m.label}
+                    </td>
+                    <td className={`p-2 text-right font-mono ${m.avgElo === bestElo && m.avgElo > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
+                      {m.avgElo > 0 ? m.avgElo.toFixed(0) : '—'}
+                    </td>
+                    <td className={`p-2 text-right font-mono ${m.avgCostUsd === lowestCost && m.avgCostUsd > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
+                      {m.avgCostUsd > 0 ? `$${m.avgCostUsd.toFixed(4)}` : '—'}
+                    </td>
+                    <td className="p-2 text-right font-mono">
+                      {m.avgEloPerDollar !== null ? m.avgEloPerDollar.toFixed(1) : '—'}
+                    </td>
+                    <td className={`p-2 text-right font-mono ${m.winRate === bestWinRate && m.winRate > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
+                      {(m.winRate * 100).toFixed(0)}%
+                    </td>
+                    <td className="p-2 text-right text-[var(--text-muted)]">
+                      {m.entryCount}/{PROMPT_BANK.prompts.length}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -285,14 +471,20 @@ export default function ArticleBankPage() {
   const [showNewTopic, setShowNewTopic] = useState(false);
   const [showGenerate, setShowGenerate] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [promptBankCoverage, setPromptBankCoverage] = useState<PromptBankCoverageRow[]>([]);
+  const [promptBankSummary, setPromptBankSummary] = useState<PromptBankMethodSummary[]>([]);
+  const [comparisonsRunning, setComparisonsRunning] = useState(false);
+  const [comparisonProgress, setComparisonProgress] = useState('');
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
 
-    const [topicsResult, summaryResult] = await Promise.all([
+    const [topicsResult, summaryResult, coverageResult, methodSummaryResult] = await Promise.all([
       getBankTopicsAction(),
       getCrossTopicSummaryAction(),
+      getPromptBankCoverageAction(),
+      getPromptBankMethodSummaryAction(),
     ]);
 
     if (topicsResult.success && topicsResult.data) {
@@ -303,6 +495,14 @@ export default function ArticleBankPage() {
 
     if (summaryResult.success && summaryResult.data) {
       setSummaries(summaryResult.data);
+    }
+
+    if (coverageResult.success && coverageResult.data) {
+      setPromptBankCoverage(coverageResult.data);
+    }
+
+    if (methodSummaryResult.success && methodSummaryResult.data) {
+      setPromptBankSummary(methodSummaryResult.data);
     }
 
     setLoading(false);
@@ -347,6 +547,35 @@ export default function ArticleBankPage() {
     setActionLoading(false);
   };
 
+  const handleRunAllComparisons = async () => {
+    const topicIds = promptBankCoverage
+      .map((row) => row.topicId)
+      .filter((id): id is string => id !== null);
+
+    if (topicIds.length === 0) {
+      toast.error('No prompt bank topics found');
+      return;
+    }
+
+    setComparisonsRunning(true);
+    let completed = 0;
+    let totalRun = 0;
+
+    for (const topicId of topicIds) {
+      completed++;
+      setComparisonProgress(`${completed}/${topicIds.length}...`);
+      const result = await runBankComparisonAction(topicId, 'gpt-4.1-nano', PROMPT_BANK.comparison.rounds);
+      if (result.success && result.data) {
+        totalRun += result.data.comparisons_run;
+      }
+    }
+
+    setComparisonsRunning(false);
+    setComparisonProgress('');
+    toast.success(`Ran ${totalRun} comparisons across ${topicIds.length} topics`);
+    loadData();
+  };
+
   // Show cross-topic summary only when there's meaningful data
   const showSummary = useMemo(
     () => summaries.length >= 2 && topics.some((t) => t.elo_max !== null),
@@ -387,6 +616,15 @@ export default function ArticleBankPage() {
 
       {/* Cross-topic summary */}
       {showSummary && <CrossTopicSummary summaries={summaries} />}
+
+      {/* Prompt Bank coverage + method summary */}
+      <PromptBankCoverage
+        coverage={promptBankCoverage}
+        methodSummary={promptBankSummary}
+        onRunComparisons={handleRunAllComparisons}
+        comparisonsRunning={comparisonsRunning}
+        comparisonProgress={comparisonProgress}
+      />
 
       {/* Error */}
       {error && (

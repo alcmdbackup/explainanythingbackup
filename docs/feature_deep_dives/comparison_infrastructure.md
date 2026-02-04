@@ -61,15 +61,20 @@ All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `s
 | `getBankMatchHistoryAction` | All comparisons for a topic |
 | `deleteBankEntryAction` | Soft-delete entry + cascade comparisons/Elo |
 | `deleteBankTopicAction` | Soft-delete topic + cascade entries/comparisons/Elo |
+| `getPromptBankCoverageAction` | Coverage matrix: prompts × methods with exists/elo/matchCount per cell |
+| `getPromptBankMethodSummaryAction` | Per-method aggregated stats: avg Elo, cost, elo/$, win rate |
 
 ### CLI Scripts
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/generate-article.ts` | Standalone article generation with `--bank` flag for auto-insertion |
+| `scripts/generate-article.ts` | Standalone article generation with `--bank` flag for auto-insertion (uses shared `oneshotGenerator`) |
 | `scripts/run-bank-comparison.ts` | CLI for running pairwise comparisons with multi-provider judge support |
 | `scripts/add-to-bank.ts` | Add existing evolution run winner to bank |
-| `scripts/run-evolution-local.ts` | Extended with `--prompt` for seed generation and `--bank` for auto-insertion |
+| `scripts/run-evolution-local.ts` | Extended with `--prompt`, `--bank`, and `--bank-checkpoints` for checkpoint snapshots |
+| `scripts/run-prompt-bank.ts` | Batch generation orchestrator — reads `PROMPT_BANK` config, builds coverage matrix, generates missing entries (oneshot + evolution) |
+| `scripts/run-prompt-bank-comparisons.ts` | Batch comparison runner — all-pairs Elo comparisons across prompt bank topics with aggregate summary |
+| `scripts/lib/oneshotGenerator.ts` | Shared LLM generation library extracted from `generate-article.ts` |
 
 ### Admin UI
 
@@ -77,6 +82,7 @@ Two pages under `/admin/quality/article-bank/`:
 
 **Topic List Page** (`page.tsx`):
 - Cross-topic cost efficiency summary cards (per generation method)
+- **Prompt Bank section**: coverage grid (prompts × methods) with color-coded status (green check = compared, yellow dot = exists but uncompared, grey = missing), sortable method summary table with gold highlighting for best values, "Run All Comparisons" button with sequential per-topic progress
 - Topics table with entry counts, Elo ranges, costs, best method badges
 - "Generate New Article" button with topic picker dropdown (select existing topic or create new), model selector, generates via LLM, adds to bank
 - "New Topic" button for empty topic creation
@@ -98,11 +104,17 @@ Two pages under `/admin/quality/article-bank/`:
 
 ## Key Files
 
+### Config & Types
+| File | Purpose |
+|------|---------|
+| `src/config/promptBankConfig.ts` | Prompt bank config: 5 prompts × 4 methods, comparison settings |
+| `src/config/promptBankConfig.test.ts` | 14 tests validating config correctness |
+
 ### Server Actions & Types
 | File | Purpose |
 |------|---------|
-| `src/lib/services/articleBankActions.ts` | 12 server actions for bank CRUD, comparison, aggregation |
-| `src/lib/services/articleBankActions.test.ts` | 27 unit tests with table-aware Supabase mock (includes retry and cost accumulation tests) |
+| `src/lib/services/articleBankActions.ts` | 14 server actions for bank CRUD, comparison, aggregation, prompt bank coverage |
+| `src/lib/services/articleBankActions.test.ts` | 31 unit tests with table-aware Supabase mock (includes retry, cost accumulation, and coverage tests) |
 
 ### Standalone Comparison
 | File | Purpose |
@@ -113,9 +125,12 @@ Two pages under `/admin/quality/article-bank/`:
 ### CLI
 | File | Purpose |
 |------|---------|
-| `scripts/generate-article.ts` | Article generation with `--bank` flag |
+| `scripts/generate-article.ts` | Article generation with `--bank` flag (uses shared oneshotGenerator) |
 | `scripts/run-bank-comparison.ts` | Pairwise comparison runner |
 | `scripts/add-to-bank.ts` | Add evolution run winner to bank |
+| `scripts/run-prompt-bank.ts` | Batch generation: reads config, builds coverage matrix, generates missing entries |
+| `scripts/run-prompt-bank-comparisons.ts` | Batch comparison: all-pairs Elo across prompt bank topics |
+| `scripts/lib/oneshotGenerator.ts` | Shared LLM generation (callLLM, trackLLMCall, generateOneshotArticle) |
 | `scripts/lib/bankUtils.ts` | Shared bank insertion logic for CLI scripts |
 
 ### UI
@@ -172,12 +187,48 @@ Admin clicks "Run Comparison" on topic detail (dialog shows estimated pair count
 
 | File | Type | Tests |
 |------|------|-------|
-| `src/lib/services/articleBankActions.test.ts` | Unit | 27 — CRUD, Elo updates, aggregation, soft-delete cascade, retry on race, cost accumulation |
+| `src/config/promptBankConfig.test.ts` | Unit | 14 — config validation, prompt/method counts, label uniqueness |
+| `src/lib/services/articleBankActions.test.ts` | Unit | 31 — CRUD, Elo updates, aggregation, soft-delete cascade, retry on race, cost accumulation, prompt bank coverage |
 | `src/lib/evolution/comparison.test.ts` | Unit | 23 — bias mitigation, caching, prompt building, winner parsing |
 | `scripts/lib/bankUtils.test.ts` | Unit | 5 — bank insertion, topic upsert, Elo init |
+| `scripts/lib/oneshotGenerator.test.ts` | Unit | 13 — provider routing, title parsing, cost calculation |
 | `scripts/run-bank-comparison.test.ts` | Unit | Elo math, CLI arg parsing, comparison flow |
+| `scripts/run-prompt-bank.test.ts` | Unit | 22 — CLI parsing, coverage matrix, method filtering, cost caps |
+| `scripts/run-prompt-bank-comparisons.test.ts` | Unit | 14 — CLI parsing, prompt filtering, entry labeling, aggregation |
+| `scripts/run-evolution-local.test.ts` | Unit | 20 — checkpoint parsing, sorting, iteration adjustment, pipeline flow |
 | `src/__tests__/integration/article-bank-actions.integration.test.ts` | Integration | Real Supabase: CRUD cycle, cascade deletes, concurrent upsert |
 | `src/__tests__/e2e/specs/09-admin/admin-article-bank.spec.ts` | E2E | 11 Playwright tests: navigation, CRUD, diff, chart, comparison |
+
+## Prompt Bank System
+
+The **Prompt Bank** extends the article bank with a curated set of prompts and generation methods for systematic cross-method comparison. It is configured in `src/config/promptBankConfig.ts` and uses two batch CLI scripts for generation and comparison.
+
+### Config (`src/config/promptBankConfig.ts`)
+- 5 prompts across difficulty tiers (easy/medium/hard) and domains (science, technology, history, philosophy, economics)
+- 4 methods: 3 oneshot (gpt-4.1-mini, gpt-4.1, deepseek-chat) + 1 evolution (deepseek-chat with checkpoints at 3, 5, 10 iterations)
+- Evolution checkpoints expand to 3 columns in the coverage grid (e.g., `evolution_deepseek_3iter`, `_5iter`, `_10iter`)
+- Total coverage matrix: 5 prompts × 6 method slots = 30 cells
+
+### Generation Pipeline
+```
+run-prompt-bank.ts → for each prompt × method:
+  ├─ oneshot → oneshotGenerator.generateOneshotArticle() → addEntryToBank()
+  └─ evolution → execFileSync(run-evolution-local.ts --bank-checkpoints 3,5,10)
+                   → snapshotCheckpointToBank() at each checkpoint iteration
+```
+
+### Comparison Pipeline
+```
+run-prompt-bank-comparisons.ts → for each topic with ≥ min-entries:
+  → fetch entries → all-pairs × rounds → Elo updates → persist
+  → aggregate summary: avg Elo, win rate per method label
+```
+
+### Admin UI
+The topic list page includes a `PromptBankCoverage` component:
+- **Coverage grid**: prompts × methods with status indicators (compared/uncompared/missing)
+- **Method summary table**: sortable by avg Elo, cost, elo/$, win rate; gold highlighting for best values
+- **Run All Comparisons**: sequential per-topic execution with progress feedback
 
 ## Related Documentation
 

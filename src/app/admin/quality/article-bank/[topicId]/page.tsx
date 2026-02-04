@@ -84,11 +84,15 @@ const METHOD_COLORS: Record<string, string> = {
   evolution_baseline: 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]',
 };
 
-function MethodBadge({ method }: { method: string }) {
+function MethodBadge({ method, iterations }: { method: string; iterations?: number | null }) {
   const colors = METHOD_COLORS[method] ?? 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]';
+  let label = method.replace(/_/g, ' ');
+  if (iterations != null && method.startsWith('evolution_')) {
+    label += ` (${iterations} iter)`;
+  }
   return (
     <span className={`inline-block px-2 py-0.5 rounded-page text-xs font-ui font-medium ${colors}`}>
-      {method.replace(/_/g, ' ')}
+      {label}
     </span>
   );
 }
@@ -722,7 +726,7 @@ export default function ArticleBankTopicDetailPage() {
                               <span className="ml-1 text-[var(--status-success)] text-xs">★</span>
                             )}
                           </td>
-                          <td className="p-3"><MethodBadge method={entry.generation_method} /></td>
+                          <td className="p-3"><MethodBadge method={entry.generation_method} iterations={fullEntry?.metadata ? (fullEntry.metadata as Record<string, unknown>).iterations as number | undefined : undefined} /></td>
                           <td className="p-3 font-mono text-xs">{entry.model}</td>
                           <td className="p-3 text-right font-semibold">{entry.elo_rating.toFixed(0)}</td>
                           <td className={`p-3 text-right font-mono text-xs ${entry.elo_per_dollar !== null && entry.elo_per_dollar < 0 ? 'text-[var(--status-error)]' : ''}`}>
@@ -857,14 +861,14 @@ export default function ArticleBankTopicDetailPage() {
                       <tr key={m.id} className="border-t border-[var(--border-default)]">
                         <td className="p-3 text-xs">
                           {aEntry ? (
-                            <span className="font-mono">{aEntry.model} <MethodBadge method={aEntry.generation_method} /></span>
+                            <span className="font-mono">{aEntry.model} <MethodBadge method={aEntry.generation_method} iterations={(aEntry.metadata as Record<string, unknown> | null)?.iterations as number | undefined} /></span>
                           ) : (
                             <span className="text-[var(--text-muted)]">{m.entry_a_id.slice(0, 8)}</span>
                           )}
                         </td>
                         <td className="p-3 text-xs">
                           {bEntry ? (
-                            <span className="font-mono">{bEntry.model} <MethodBadge method={bEntry.generation_method} /></span>
+                            <span className="font-mono">{bEntry.model} <MethodBadge method={bEntry.generation_method} iterations={(bEntry.metadata as Record<string, unknown> | null)?.iterations as number | undefined} /></span>
                           ) : (
                             <span className="text-[var(--text-muted)]">{m.entry_b_id.slice(0, 8)}</span>
                           )}
@@ -918,11 +922,16 @@ export default function ArticleBankTopicDetailPage() {
                   className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] text-sm"
                 >
                   <option value="">Select...</option>
-                  {entries.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.generation_method} ({e.model})
-                    </option>
-                  ))}
+                  {entries.map((e) => {
+                    const meta = e.metadata as Record<string, unknown> | null;
+                    const iter = meta?.iterations;
+                    const suffix = iter != null ? ` ${iter}iter` : '';
+                    return (
+                      <option key={e.id} value={e.id}>
+                        {e.generation_method} ({e.model}{suffix})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
               <div className="flex-1">
@@ -933,11 +942,16 @@ export default function ArticleBankTopicDetailPage() {
                   className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] text-sm"
                 >
                   <option value="">Select...</option>
-                  {entries.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.generation_method} ({e.model})
-                    </option>
-                  ))}
+                  {entries.map((e) => {
+                    const meta = e.metadata as Record<string, unknown> | null;
+                    const iter = meta?.iterations;
+                    const suffix = iter != null ? ` ${iter}iter` : '';
+                    return (
+                      <option key={e.id} value={e.id}>
+                        {e.generation_method} ({e.model}{suffix})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>

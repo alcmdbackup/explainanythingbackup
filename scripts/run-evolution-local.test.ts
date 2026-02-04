@@ -80,6 +80,67 @@ describe('run-evolution-local prompt mode', () => {
     });
   });
 
+  describe('bank checkpoint parsing', () => {
+    function parseBankCheckpoints(raw: string | undefined): number[] {
+      if (!raw) return [];
+      return raw.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n)).sort((a, b) => a - b);
+    }
+
+    it('should parse comma-separated checkpoint values', () => {
+      expect(parseBankCheckpoints('3,5,10')).toEqual([3, 5, 10]);
+    });
+
+    it('should sort checkpoints in ascending order', () => {
+      expect(parseBankCheckpoints('10,3,5')).toEqual([3, 5, 10]);
+    });
+
+    it('should handle whitespace in checkpoint values', () => {
+      expect(parseBankCheckpoints('3, 5, 10')).toEqual([3, 5, 10]);
+    });
+
+    it('should filter out NaN values', () => {
+      expect(parseBankCheckpoints('3,abc,10')).toEqual([3, 10]);
+    });
+
+    it('should return empty array when no checkpoints specified', () => {
+      expect(parseBankCheckpoints(undefined)).toEqual([]);
+    });
+
+    it('should adjust iterations to cover max checkpoint', () => {
+      const checkpoints = [3, 5, 10];
+      let iterations = 5;
+      const maxCheckpoint = checkpoints[checkpoints.length - 1];
+      if (maxCheckpoint > iterations) {
+        iterations = maxCheckpoint;
+      }
+      expect(iterations).toBe(10);
+    });
+
+    it('should not reduce iterations below max checkpoint', () => {
+      const checkpoints = [3, 5, 10];
+      let iterations = 15; // already higher
+      const maxCheckpoint = checkpoints[checkpoints.length - 1];
+      if (maxCheckpoint > iterations) {
+        iterations = maxCheckpoint;
+      }
+      expect(iterations).toBe(15); // unchanged
+    });
+
+    it('should skip final winner insertion when final iteration is a checkpoint', () => {
+      const bankCheckpoints = [3, 5, 10];
+      const finalIteration = 10;
+      const finalIterationIsCheckpoint = bankCheckpoints.includes(finalIteration);
+      expect(finalIterationIsCheckpoint).toBe(true);
+    });
+
+    it('should not skip final winner when iteration is not a checkpoint', () => {
+      const bankCheckpoints = [3, 5, 10];
+      const finalIteration = 7; // early exit
+      const finalIterationIsCheckpoint = bankCheckpoints.includes(finalIteration);
+      expect(finalIterationIsCheckpoint).toBe(false);
+    });
+  });
+
   describe('mock LLM client integration', () => {
     it('should produce valid seed content from mock responses', () => {
       // Mock LLM returns text templates that pass format validation

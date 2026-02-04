@@ -2,7 +2,8 @@
  * Admin article bank E2E tests.
  * Tests topic list page, topic detail leaderboard, entry expansion, source links,
  * Elo comparison, side-by-side diff, entry deletion, "Add from Evolution Run" button,
- * "Add to Bank" on evolution run detail, and the cost-vs-Elo scatter chart.
+ * "Add to Bank" on evolution run detail, the cost-vs-Elo scatter chart,
+ * and prompt bank coverage/method summary UI.
  * Conditionally skipped via adminTest.describe.skip until article bank tables are migrated.
  */
 
@@ -502,6 +503,185 @@ adminTest.describe.skip('Admin Article Bank', () => {
       // Legend items are visible
       await expect(chartContainer.locator('text=1-shot')).toBeVisible();
       await expect(chartContainer.locator('text=Evolution winner')).toBeVisible();
+    },
+  );
+});
+
+// ─── Prompt Bank UI Tests ─────────────────────────────────────────
+// Separate describe for prompt bank coverage grid, method summary table,
+// and "Run All Comparisons" button on the topic list page.
+
+interface PromptBankSeededData {
+  topicIds: string[];
+  entryIds: string[];
+}
+
+async function seedPromptBankData(): Promise<PromptBankSeededData> {
+  const supabase = getServiceClient();
+  const topicIds: string[] = [];
+  const entryIds: string[] = [];
+
+  // Create 2 topics matching PROMPT_BANK config prompts
+  const prompts = ['Explain photosynthesis', 'Explain how blockchain technology works'];
+
+  for (const prompt of prompts) {
+    const { data: topic, error } = await supabase
+      .from('article_bank_topics')
+      .insert({ prompt, title: null })
+      .select('id')
+      .single();
+    if (error || !topic) throw new Error(`Failed to seed prompt bank topic: ${error?.message}`);
+    topicIds.push(topic.id);
+
+    // Add oneshot entry
+    const { data: oneshot, error: e1 } = await supabase
+      .from('article_bank_entries')
+      .insert({
+        topic_id: topic.id,
+        content: `Oneshot article for: ${prompt}`,
+        generation_method: 'oneshot',
+        model: 'gpt-4.1-mini',
+        total_cost_usd: 0.003,
+        metadata: {},
+      })
+      .select('id')
+      .single();
+    if (e1 || !oneshot) throw new Error(`Failed to seed oneshot entry: ${e1?.message}`);
+    entryIds.push(oneshot.id);
+
+    // Add evolution entry with metadata.iterations
+    const { data: evo, error: e2 } = await supabase
+      .from('article_bank_entries')
+      .insert({
+        topic_id: topic.id,
+        content: `Evolution 10-iter article for: ${prompt}`,
+        generation_method: 'evolution_winner',
+        model: 'deepseek-chat',
+        total_cost_usd: 0.012,
+        metadata: { iterations: 10 },
+      })
+      .select('id')
+      .single();
+    if (e2 || !evo) throw new Error(`Failed to seed evolution entry: ${e2?.message}`);
+    entryIds.push(evo.id);
+
+    // Init Elo for both
+    await supabase.from('article_bank_elo').insert([
+      { topic_id: topic.id, entry_id: oneshot.id, elo_rating: 1180, match_count: 3 },
+      { topic_id: topic.id, entry_id: evo.id, elo_rating: 1320, match_count: 3 },
+    ]);
+  }
+
+  return { topicIds, entryIds };
+}
+
+async function cleanupPromptBankData(data: PromptBankSeededData | undefined) {
+  if (!data) return;
+  const supabase = getServiceClient();
+
+  for (const topicId of data.topicIds) {
+    await supabase.from('article_bank_comparisons').delete().eq('topic_id', topicId);
+    await supabase.from('article_bank_elo').delete().eq('topic_id', topicId);
+    await supabase.from('article_bank_entries').delete().eq('topic_id', topicId);
+    await supabase.from('article_bank_topics').delete().eq('id', topicId);
+  }
+}
+
+adminTest.describe.skip('Admin Article Bank — Prompt Bank UI', () => {
+  let pbData: PromptBankSeededData;
+
+  adminTest.beforeAll(async () => {
+    pbData = await seedPromptBankData();
+  });
+
+  adminTest.afterAll(async () => {
+    await cleanupPromptBankData(pbData);
+  });
+
+  // ── 12. Prompt bank section renders on topic list page ──
+
+  adminTest(
+    'prompt bank section renders with coverage grid',
+    async ({ adminPage }) => {
+      await adminPage.goto('/admin/quality/article-bank');
+      await adminPage.waitForLoadState('networkidle');
+
+      // Prompt Bank section is visible
+      const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
+      await expect(pbSection).toBeVisible();
+
+      // Section heading
+      await expect(pbSection.locator('h2')).toContainText('Prompt Bank');
+
+      // Status text shows coverage counts
+      const statusText = await pbSection.locator('p').first().textContent();
+      expect(statusText).toMatch(/\d+\/\d+ entries generated/);
+    },
+  );
+
+  // ── 13. Coverage grid shows expected method columns ──
+
+  adminTest(
+    'coverage grid shows expected method columns',
+    async ({ adminPage }) => {
+      await adminPage.goto('/admin/quality/article-bank');
+      await adminPage.waitForLoadState('networkidle');
+
+      const pbSection = adminPage.locator('[data-testid="prompt-bank-section"]');
+      const headers = pbSection.locator('thead th');
+      const headerTexts = await headers.allTextContents();
+
+      // First column is "Prompt", rest are method labels (shortened)
+      expect(headerTexts[0]).toBe('Prompt');
+      // At minimum: gpt-4.1-mini, gpt-4.1, deepseek-chat, evo_ variants
+      expect(headerTexts.length).toBeGreaterThanOrEqual(4);
+
+      // Rows match the 5 prompts in PROMPT_BANK config
+      const rows = pbSection.locator('tbody tr');
+      await expect(rows).toHaveCount(5);
+    },
+  );
+
+  // ── 14. Method summary table renders with expected columns ──
+
+  adminTest(
+    'method summary table renders with Avg Elo, Win Rate columns',
+    async ({ adminPage }) => {
+      await adminPage.goto('/admin/quality/article-bank');
+      await adminPage.waitForLoadState('networkidle');
+
+      const summaryTable = adminPage.locator('[data-testid="method-summary-table"]');
+      await expect(summaryTable).toBeVisible();
+
+      const headers = summaryTable.locator('thead th');
+      const headerTexts = await headers.allTextContents();
+      expect(headerTexts).toEqual(
+        expect.arrayContaining(['Method', 'Avg Elo', 'Win Rate', 'Entries']),
+      );
+
+      // At least one row with data (we seeded oneshot_gpt-4.1-mini entries)
+      const rows = summaryTable.locator('tbody tr');
+      const rowCount = await rows.count();
+      expect(rowCount).toBeGreaterThanOrEqual(1);
+    },
+  );
+
+  // ── 15. "Run All Comparisons" button exists ──
+
+  adminTest(
+    '"Run All Comparisons" button is visible on prompt bank section',
+    async ({ adminPage }) => {
+      await adminPage.goto('/admin/quality/article-bank');
+      await adminPage.waitForLoadState('networkidle');
+
+      const runBtn = adminPage.locator('[data-testid="run-all-comparisons-btn"]');
+      await expect(runBtn).toBeVisible();
+
+      // Button should not be disabled when there are entries
+      const isDisabled = await runBtn.isDisabled();
+      // Either enabled or showing "All Compared" text
+      const btnText = await runBtn.textContent();
+      expect(isDisabled || btnText === 'All Compared').toBeTruthy();
     },
   );
 });

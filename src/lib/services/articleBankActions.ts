@@ -865,3 +865,308 @@ const _getBankMatchHistoryAction = withLogging(async (
 }, 'getBankMatchHistoryAction');
 
 export const getBankMatchHistoryAction = serverReadRequestId(_getBankMatchHistoryAction);
+
+// ─── Prompt Bank Coverage + Method Summary ──────────────────────
+
+import { PROMPT_BANK, type MethodConfig } from '@/config/promptBankConfig';
+
+export interface PromptBankCoverageCell {
+  exists: boolean;
+  entryId?: string;
+  elo?: number;
+  costUsd?: number;
+  matchCount?: number;
+}
+
+export interface PromptBankCoverageRow {
+  prompt: string;
+  difficulty: string;
+  domain: string;
+  topicId: string | null;
+  entryCount: number;
+  methods: Record<string, PromptBankCoverageCell>;
+}
+
+/** Get coverage matrix showing which prompt × method combinations exist. */
+const _getPromptBankCoverageAction = withLogging(async (): Promise<ActionResult<PromptBankCoverageRow[]>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    const allLabels = expandMethodLabels(PROMPT_BANK.methods);
+    const rows: PromptBankCoverageRow[] = [];
+
+    for (const p of PROMPT_BANK.prompts) {
+      const normalizedPrompt = p.prompt.trim().toLowerCase();
+
+      const { data: topic } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .ilike('prompt', normalizedPrompt)
+        .is('deleted_at', null)
+        .single();
+
+      const methodCoverage: Record<string, PromptBankCoverageCell> = {};
+      for (const label of allLabels) {
+        methodCoverage[label] = { exists: false };
+      }
+
+      let entryCount = 0;
+
+      if (topic) {
+        const { data: entries } = await supabase
+          .from('article_bank_entries')
+          .select('id, generation_method, model, metadata')
+          .eq('topic_id', topic.id)
+          .is('deleted_at', null);
+
+        const { data: eloRows } = await supabase
+          .from('article_bank_elo')
+          .select('entry_id, elo_rating, match_count')
+          .eq('topic_id', topic.id);
+
+        const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
+        entryCount = entries?.length ?? 0;
+
+        for (const entry of entries ?? []) {
+          const elo = eloMap.get(entry.id);
+          for (const m of PROMPT_BANK.methods) {
+            if (m.type === 'oneshot' && entry.generation_method === 'oneshot' && entry.model === m.model) {
+              methodCoverage[m.label] = {
+                exists: true,
+                entryId: entry.id,
+                elo: elo?.elo_rating,
+                matchCount: elo?.match_count ?? 0,
+              };
+            } else if (m.type === 'evolution' && entry.generation_method === 'evolution_winner') {
+              const meta = entry.metadata as Record<string, unknown> | null;
+              const iterations = meta?.iterations;
+              if (typeof iterations === 'number' && m.checkpoints.includes(iterations)) {
+                const label = `${m.label}_${iterations}iter`;
+                methodCoverage[label] = {
+                  exists: true,
+                  entryId: entry.id,
+                  elo: elo?.elo_rating,
+                  matchCount: elo?.match_count ?? 0,
+                };
+              }
+            }
+          }
+        }
+      }
+
+      rows.push({
+        prompt: p.prompt,
+        difficulty: p.difficulty,
+        domain: p.domain,
+        topicId: topic?.id ?? null,
+        entryCount,
+        methods: methodCoverage,
+      });
+    }
+
+    return { success: true, data: rows, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getPromptBankCoverageAction') };
+  }
+}, 'getPromptBankCoverageAction');
+
+export const getPromptBankCoverageAction = serverReadRequestId(_getPromptBankCoverageAction);
+
+export interface PromptBankMethodSummary {
+  label: string;
+  type: 'oneshot' | 'evolution';
+  avgElo: number;
+  avgCostUsd: number;
+  avgEloPerDollar: number | null;
+  winCount: number;
+  winRate: number;
+  entryCount: number;
+}
+
+/** Compute per-method-label stats across all prompt bank topics. */
+const _getPromptBankMethodSummaryAction = withLogging(async (): Promise<ActionResult<PromptBankMethodSummary[]>> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    // Fetch all prompt bank topics
+    const topicIds: string[] = [];
+    const topicMap = new Map<string, string>(); // topicId → prompt
+
+    for (const p of PROMPT_BANK.prompts) {
+      const { data: topic } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .ilike('prompt', p.prompt.trim().toLowerCase())
+        .is('deleted_at', null)
+        .single();
+
+      if (topic) {
+        topicIds.push(topic.id);
+        topicMap.set(topic.id, p.prompt);
+      }
+    }
+
+    if (topicIds.length === 0) return { success: true, data: [], error: null };
+
+    // Fetch entries + Elo for all prompt bank topics
+    const { data: entries } = await supabase
+      .from('article_bank_entries')
+      .select('id, topic_id, generation_method, model, total_cost_usd, metadata')
+      .in('topic_id', topicIds)
+      .is('deleted_at', null);
+
+    if (!entries || entries.length === 0) return { success: true, data: [], error: null };
+
+    const entryIds = entries.map((e) => e.id);
+    const { data: eloRows } = await supabase
+      .from('article_bank_elo')
+      .select('entry_id, elo_rating, elo_per_dollar, match_count')
+      .in('entry_id', entryIds);
+
+    const eloMap = new Map((eloRows ?? []).map((r) => [r.entry_id, r]));
+
+    // Build per-label stats
+    const allLabels = expandMethodLabels(PROMPT_BANK.methods);
+    const labelType = new Map<string, 'oneshot' | 'evolution'>();
+    for (const m of PROMPT_BANK.methods) {
+      if (m.type === 'oneshot') {
+        labelType.set(m.label, 'oneshot');
+      } else {
+        for (const cp of m.checkpoints) {
+          labelType.set(`${m.label}_${cp}iter`, 'evolution');
+        }
+      }
+    }
+
+    const stats = new Map<string, {
+      elos: number[]; costs: number[]; epds: number[]; topicWins: Map<string, number>;
+    }>();
+
+    for (const label of allLabels) {
+      stats.set(label, { elos: [], costs: [], epds: [], topicWins: new Map() });
+    }
+
+    // Find best entry per topic (for win tracking)
+    const topicBest = new Map<string, { label: string; elo: number }>();
+
+    for (const entry of entries) {
+      const elo = eloMap.get(entry.id);
+      if (!elo) continue;
+
+      // Match entry to a method label
+      const matchedLabel = matchEntryToLabel(entry, PROMPT_BANK.methods);
+      if (!matchedLabel) continue;
+
+      const s = stats.get(matchedLabel);
+      if (!s) continue;
+
+      // Only count entries with matches for Elo average (exclude default 1200)
+      if (elo.match_count > 0) {
+        s.elos.push(elo.elo_rating);
+      }
+
+      if (entry.total_cost_usd !== null && entry.total_cost_usd > 0) {
+        s.costs.push(entry.total_cost_usd);
+      }
+
+      if (elo.elo_per_dollar !== null) {
+        s.epds.push(elo.elo_per_dollar);
+      }
+
+      // Track topic-level wins
+      const current = topicBest.get(entry.topic_id);
+      if (!current || elo.elo_rating > current.elo) {
+        topicBest.set(entry.topic_id, { label: matchedLabel, elo: elo.elo_rating });
+      }
+    }
+
+    // Count wins
+    const topicsWithComparisons = new Set<string>();
+    for (const entry of entries) {
+      const elo = eloMap.get(entry.id);
+      if (elo && elo.match_count > 0) {
+        topicsWithComparisons.add(entry.topic_id);
+      }
+    }
+
+    const winCounts = new Map<string, number>();
+    for (const best of topicBest.values()) {
+      winCounts.set(best.label, (winCounts.get(best.label) ?? 0) + 1);
+    }
+
+    const totalTopicsWithComparisons = topicsWithComparisons.size;
+
+    // Build summary
+    const summary: PromptBankMethodSummary[] = allLabels.map((label) => {
+      const s = stats.get(label)!;
+      const wins = winCounts.get(label) ?? 0;
+      return {
+        label,
+        type: labelType.get(label) ?? 'oneshot',
+        avgElo: s.elos.length > 0 ? Math.round((s.elos.reduce((a, b) => a + b, 0) / s.elos.length) * 100) / 100 : 0,
+        avgCostUsd: s.costs.length > 0 ? Math.round((s.costs.reduce((a, b) => a + b, 0) / s.costs.length) * 1e6) / 1e6 : 0,
+        avgEloPerDollar: s.epds.length > 0 ? Math.round((s.epds.reduce((a, b) => a + b, 0) / s.epds.length) * 100) / 100 : null,
+        winCount: wins,
+        winRate: totalTopicsWithComparisons > 0 ? Math.round((wins / totalTopicsWithComparisons) * 1000) / 1000 : 0,
+        entryCount: s.elos.length + (s.elos.length === 0 ? countUncomparedEntries(entries, eloMap, label, PROMPT_BANK.methods) : 0),
+      };
+    }).sort((a, b) => b.avgElo - a.avgElo);
+
+    return { success: true, data: summary, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getPromptBankMethodSummaryAction') };
+  }
+}, 'getPromptBankMethodSummaryAction');
+
+export const getPromptBankMethodSummaryAction = serverReadRequestId(_getPromptBankMethodSummaryAction);
+
+// ─── Helpers for prompt bank actions ────────────────────────────
+
+function expandMethodLabels(methods: MethodConfig[]): string[] {
+  const labels: string[] = [];
+  for (const m of methods) {
+    if (m.type === 'oneshot') {
+      labels.push(m.label);
+    } else {
+      for (const cp of m.checkpoints) {
+        labels.push(`${m.label}_${cp}iter`);
+      }
+    }
+  }
+  return labels;
+}
+
+function matchEntryToLabel(
+  entry: { generation_method: string; model: string; metadata: unknown },
+  methods: MethodConfig[],
+): string | null {
+  for (const m of methods) {
+    if (m.type === 'oneshot' && entry.generation_method === 'oneshot' && entry.model === m.model) {
+      return m.label;
+    }
+    if (m.type === 'evolution' && entry.generation_method === 'evolution_winner') {
+      const meta = entry.metadata as Record<string, unknown> | null;
+      const iterations = meta?.iterations;
+      if (typeof iterations === 'number' && m.checkpoints.includes(iterations)) {
+        return `${m.label}_${iterations}iter`;
+      }
+    }
+  }
+  return null;
+}
+
+function countUncomparedEntries(
+  entries: Array<{ id: string; generation_method: string; model: string; metadata: unknown }>,
+  eloMap: Map<string, { match_count: number }>,
+  label: string,
+  methods: MethodConfig[],
+): number {
+  return entries.filter((entry) => {
+    const matched = matchEntryToLabel(entry, methods);
+    if (matched !== label) return false;
+    const elo = eloMap.get(entry.id);
+    return !elo || elo.match_count === 0;
+  }).length;
+}

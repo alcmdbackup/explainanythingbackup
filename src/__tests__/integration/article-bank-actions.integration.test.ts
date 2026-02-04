@@ -117,6 +117,7 @@ async function insertEntry(
   generationMethod: string = 'oneshot',
   model: string = 'gpt-4.1',
   totalCostUsd: number | null = null,
+  metadata: Record<string, unknown> = {},
 ) {
   const { data, error } = await supabase
     .from('article_bank_entries')
@@ -126,7 +127,7 @@ async function insertEntry(
       generation_method: generationMethod,
       model,
       total_cost_usd: totalCostUsd,
-      metadata: {},
+      metadata,
     })
     .select('id, topic_id, content, generation_method, model, total_cost_usd, created_at')
     .single();
@@ -435,7 +436,139 @@ const describeSuite = () => {
       expect(eloRows).toHaveLength(0);
     });
 
-    // ─── Test 6: Concurrent topic upsert dedup ─────────────────────
+    // ─── Test 6: JSONB metadata.iterations round-trip ────────────────
+
+    it('stores and retrieves JSONB metadata.iterations correctly', async () => {
+      if (!tablesReady) return;
+
+      const prompt = uniquePrompt();
+      const topic = await insertTopic(prompt);
+
+      const entry = await insertEntry(
+        topic.id,
+        'Evolution winner content with iteration metadata.',
+        'evolution_winner',
+        'deepseek-chat',
+        0.12,
+        { iterations: 10, winning_strategy: 'structural_transform', duration_seconds: 60 },
+      );
+
+      // Query back with metadata
+      const { data: fetched, error } = await supabase
+        .from('article_bank_entries')
+        .select('id, metadata')
+        .eq('id', entry.id)
+        .single();
+
+      expect(error).toBeNull();
+      expect(fetched).toBeTruthy();
+
+      const meta = fetched!.metadata as Record<string, unknown>;
+      expect(meta.iterations).toBe(10);
+      expect(meta.winning_strategy).toBe('structural_transform');
+      expect(meta.duration_seconds).toBe(60);
+
+      // Query using containedBy / contains filter on JSONB
+      const { data: filtered } = await supabase
+        .from('article_bank_entries')
+        .select('id')
+        .eq('topic_id', topic.id)
+        .contains('metadata', { iterations: 10 });
+
+      expect(filtered).toBeTruthy();
+      expect(filtered!.length).toBe(1);
+      expect(filtered![0].id).toBe(entry.id);
+
+      // Negative filter: iterations=5 should return nothing
+      const { data: noMatch } = await supabase
+        .from('article_bank_entries')
+        .select('id')
+        .eq('topic_id', topic.id)
+        .contains('metadata', { iterations: 5 });
+
+      expect(noMatch).toHaveLength(0);
+    });
+
+    // ─── Test 7: Case-insensitive topic lookup via ilike ────────────
+
+    it('finds topics via case-insensitive ilike lookup', async () => {
+      if (!tablesReady) return;
+
+      const basePrompt = uniquePrompt();
+      const topic = await insertTopic(basePrompt);
+
+      // Search with uppercase should still find it
+      const { data: found } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .ilike('prompt', basePrompt.toUpperCase())
+        .is('deleted_at', null)
+        .single();
+
+      expect(found).toBeTruthy();
+      expect(found!.id).toBe(topic.id);
+
+      // Search with mixed case
+      const mixed = basePrompt.charAt(0).toUpperCase() + basePrompt.slice(1).toLowerCase();
+      const { data: found2 } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .ilike('prompt', mixed)
+        .is('deleted_at', null)
+        .single();
+
+      expect(found2).toBeTruthy();
+      expect(found2!.id).toBe(topic.id);
+    });
+
+    // ─── Test 8: Multiple methods coexist per topic with Elo ────────
+
+    it('supports multiple generation methods with Elo on the same topic', async () => {
+      if (!tablesReady) return;
+
+      const prompt = uniquePrompt();
+      const topic = await insertTopic(prompt);
+
+      // Insert 3 entries: oneshot, evolution_winner (3 iter), evolution_winner (10 iter)
+      const oneshot = await insertEntry(topic.id, 'Oneshot content.', 'oneshot', 'gpt-4.1-mini', 0.03);
+      const evo3 = await insertEntry(topic.id, 'Evo 3 iter content.', 'evolution_winner', 'deepseek-chat', 0.08, { iterations: 3 });
+      const evo10 = await insertEntry(topic.id, 'Evo 10 iter content.', 'evolution_winner', 'deepseek-chat', 0.15, { iterations: 10 });
+
+      // Init Elo for each
+      await insertElo(topic.id, oneshot.id, 1200, 0);
+      await insertElo(topic.id, evo3.id, 1250, 3);
+      await insertElo(topic.id, evo10.id, 1310, 5);
+
+      // Query all entries for this topic
+      const { data: entries } = await supabase
+        .from('article_bank_entries')
+        .select('id, generation_method, metadata')
+        .eq('topic_id', topic.id)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: true });
+
+      expect(entries).toHaveLength(3);
+      expect(entries![0].generation_method).toBe('oneshot');
+      expect(entries![1].generation_method).toBe('evolution_winner');
+      expect((entries![1].metadata as Record<string, unknown>).iterations).toBe(3);
+      expect(entries![2].generation_method).toBe('evolution_winner');
+      expect((entries![2].metadata as Record<string, unknown>).iterations).toBe(10);
+
+      // Query Elo ranked by rating
+      const { data: eloRows } = await supabase
+        .from('article_bank_elo')
+        .select('entry_id, elo_rating, match_count')
+        .eq('topic_id', topic.id)
+        .order('elo_rating', { ascending: false });
+
+      expect(eloRows).toHaveLength(3);
+      expect(eloRows![0].entry_id).toBe(evo10.id);
+      expect(eloRows![0].elo_rating).toBe(1310);
+      expect(eloRows![1].entry_id).toBe(evo3.id);
+      expect(eloRows![2].entry_id).toBe(oneshot.id);
+    });
+
+    // ─── Test 9: Concurrent topic upsert dedup ─────────────────────
 
     it('deduplicates concurrent topic inserts for the same prompt', async () => {
       if (!tablesReady) return;

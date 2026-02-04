@@ -271,6 +271,14 @@
       "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
     },
     {
+      "pattern": "src/config/promptBankConfig.ts",
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+    },
+    {
+      "pattern": "scripts/run-prompt-bank*.ts",
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+    },
+    {
       "pattern": "src/components/evolution/**",
       "docs": ["docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md"]
     }

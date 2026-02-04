@@ -159,7 +159,7 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/quality/evolution/dashboard` - Evolution ops dashboard (stats, trends, auto-polling)
 - `/admin/quality/evolution/run/[runId]` - Run detail with 5 tabs (Timeline, Elo, Lineage, Budget, Variants)
 - `/admin/quality/evolution/run/[runId]/compare` - Before/after text diff and quality comparison
-- `/admin/quality/article-bank` - Article bank topic list with cross-topic cost efficiency summary
+- `/admin/quality/article-bank` - Article bank topic list with cross-topic summary, prompt bank coverage grid, and method summary table
 - `/admin/quality/article-bank/[topicId]` - Topic detail with 4 tabs (Leaderboard, Cost vs Elo, Match History, Compare Text)
 - `/admin/audit` - Audit log
 - `/admin/settings` - System settings

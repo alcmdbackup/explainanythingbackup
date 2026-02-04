@@ -32,34 +32,34 @@ export async function addEntryToBank(
   supabase: SupabaseClient,
   params: BankInsertParams,
 ): Promise<BankInsertResult> {
-  // Step 1: Upsert topic (case-insensitive match on trimmed prompt)
-  let topicId: string;
+  // Step 1: Upsert topic (find-first-then-insert with retry on unique constraint race)
+  const trimmedPrompt = params.prompt.trim();
+  let topicId: string | null = null;
 
-  const { data: upserted, error: upsertError } = await supabase
-    .from('article_bank_topics')
-    .upsert(
-      { prompt: params.prompt.trim(), title: params.title ?? null },
-      { onConflict: 'idx_article_bank_topics_prompt_unique' },
-    )
-    .select('id')
-    .single();
-
-  if (upsertError || !upserted) {
-    // Fallback: find existing topic by prompt
-    const { data: existing, error: findError } = await supabase
+  for (let attempt = 0; attempt <= 2; attempt++) {
+    const { data: existing } = await supabase
       .from('article_bank_topics')
       .select('id')
-      .ilike('prompt', params.prompt.trim())
+      .ilike('prompt', trimmedPrompt)
       .is('deleted_at', null)
       .single();
 
-    if (findError || !existing) {
-      throw new Error(`Failed to upsert topic: ${upsertError?.message ?? findError?.message ?? 'not found'}`);
-    }
-    topicId = existing.id;
-  } else {
-    topicId = upserted.id;
+    if (existing) { topicId = existing.id; break; }
+
+    const { data: newTopic, error: insertError } = await supabase
+      .from('article_bank_topics')
+      .insert({ prompt: trimmedPrompt, title: params.title ?? null })
+      .select('id')
+      .single();
+
+    if (newTopic) { topicId = newTopic.id; break; }
+
+    // Unique constraint violation → concurrent insert won; retry select
+    if (insertError?.code === '23505' && attempt < 2) continue;
+    throw new Error(`Failed to upsert topic: ${insertError?.message ?? 'unknown'}`);
   }
+
+  if (!topicId) throw new Error('Topic upsert exhausted retries');
 
   // Step 2: Insert entry
   const cost = params.total_cost_usd ?? null;

@@ -62,6 +62,7 @@ interface CLIArgs {
   explanationId: number | null;
   model: string;
   bank: boolean;
+  bankCheckpoints: number[];
 }
 
 // ─── CLI Argument Parsing ────────────────────────────────────────
@@ -93,6 +94,8 @@ Options:
   --explanation-id <n>     Optional: link run to an explanation in DB
   --model <name>           LLM model (default: deepseek-chat)
   --bank                   Add winner (+ baseline) to article bank after completion
+  --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
+                             Requires --bank and --prompt. Runs to max checkpoint iteration.
   --help                   Show this help message`);
     process.exit(0);
   }
@@ -122,18 +125,33 @@ Options:
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const defaultOutput = `evolution-output-${timestamp}.json`;
 
+  const bankCheckpointsRaw = getValue('bank-checkpoints');
+  const bankCheckpoints = bankCheckpointsRaw
+    ? bankCheckpointsRaw.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => !isNaN(n)).sort((a, b) => a - b)
+    : [];
+
+  let iterations = parseInt(getValue('iterations') ?? '3', 10);
+  // If checkpoints are specified, ensure iterations covers the max checkpoint
+  if (bankCheckpoints.length > 0) {
+    const maxCheckpoint = bankCheckpoints[bankCheckpoints.length - 1];
+    if (maxCheckpoint > iterations) {
+      iterations = maxCheckpoint;
+    }
+  }
+
   return {
     file: resolvedFile,
     prompt: prompt ?? null,
     seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
     full: getFlag('full'),
-    iterations: parseInt(getValue('iterations') ?? '3', 10),
+    iterations,
     budget: parseFloat(getValue('budget') ?? '5.00'),
     output: getValue('output') ?? defaultOutput,
     explanationId: getValue('explanation-id') ? parseInt(getValue('explanation-id')!, 10) : null,
     model: getValue('model') ?? 'deepseek-chat',
     bank: getFlag('bank'),
+    bankCheckpoints,
   };
 }
 
@@ -552,6 +570,68 @@ function buildAgents(): NamedAgents {
   };
 }
 
+// ─── Bank Checkpoint Snapshot ────────────────────────────────────
+
+/** Snapshot the current best variant to the article bank at a checkpoint iteration. */
+async function snapshotCheckpointToBank(
+  args: CLIArgs,
+  ctx: ExecutionContext,
+  supabase: SupabaseClient,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const iteration = ctx.state.iteration;
+  if (!args.bankCheckpoints.includes(iteration)) return;
+  if (!args.prompt) return;
+
+  const topVariants = ctx.state.getTopByElo(1);
+  const winner = topVariants[0];
+  if (!winner) return;
+
+  // Duplicate check: query for existing checkpoint entry with same prompt + iteration
+  const { data: existing } = await supabase
+    .from('article_bank_entries')
+    .select('id, topic:article_bank_topics!inner(prompt)')
+    .eq('generation_method', 'evolution_winner')
+    .contains('metadata', { iterations: iteration })
+    .is('deleted_at', null)
+    .limit(100);
+
+  // Check if any existing entry matches this prompt (case-insensitive)
+  const normalizedPrompt = args.prompt.trim().toLowerCase();
+  // Supabase returns joined data — topic can be array or object depending on relation
+  const alreadyExists = existing?.some((e) => {
+    const topic = e.topic;
+    if (Array.isArray(topic)) {
+      return topic.some((t: { prompt?: string }) => t.prompt?.trim().toLowerCase() === normalizedPrompt);
+    }
+    return (topic as { prompt?: string })?.prompt?.trim().toLowerCase() === normalizedPrompt;
+  });
+
+  if (alreadyExists) {
+    logger.info('Checkpoint already exists, skipping', { iteration });
+    return;
+  }
+
+  const bankResult = await addEntryToBank(supabase, {
+    prompt: args.prompt,
+    content: winner.text,
+    generation_method: 'evolution_winner',
+    model: args.model,
+    total_cost_usd: ctx.costTracker.getTotalSpent(),
+    metadata: {
+      iterations: iteration,
+      seed_model: args.seedModel ?? args.model,
+      winning_strategy: winner.strategy,
+      checkpoint: true,
+    },
+  });
+  logger.info('Checkpoint snapshot saved to bank', {
+    iteration,
+    entry_id: bankResult.entry_id,
+    elo: ctx.state.eloRatings.get(winner.id) ?? 1200,
+  });
+}
+
 // ─── Pipeline Orchestrator ───────────────────────────────────────
 
 async function runAgent(
@@ -599,10 +679,19 @@ async function runMinimalPipeline(
         if (error instanceof BudgetExceededError) {
           logger.warn('Budget exceeded', { agent: agent.name });
           await updateRunStatus(supabase, ctx.runId, { status: 'paused', error_message: error.message });
+          // Snapshot checkpoint on early exit if this iteration matches
+          if (args.bank && supabase && args.bankCheckpoints.includes(ctx.state.iteration)) {
+            await snapshotCheckpointToBank(args, ctx, supabase, logger);
+          }
           return 'budget_exceeded';
         }
         throw error;
       }
+    }
+
+    // Snapshot to bank if this iteration is a checkpoint
+    if (args.bank && supabase && args.bankCheckpoints.length > 0) {
+      await snapshotCheckpointToBank(args, ctx, supabase, logger);
     }
   }
 
@@ -658,10 +747,19 @@ async function runFullPipeline(
         if (error instanceof BudgetExceededError) {
           logger.warn('Budget exceeded', { agent: step.agent.name });
           await updateRunStatus(supabase, ctx.runId, { status: 'paused', error_message: error.message });
+          // Snapshot checkpoint on early exit if this iteration matches
+          if (args.bank && supabase && args.bankCheckpoints.includes(ctx.state.iteration)) {
+            await snapshotCheckpointToBank(args, ctx, supabase, logger);
+          }
           return 'budget_exceeded';
         }
         throw error;
       }
+    }
+
+    // Snapshot to bank if this iteration is a checkpoint
+    if (args.bank && supabase && args.bankCheckpoints.length > 0) {
+      await snapshotCheckpointToBank(args, ctx, supabase, logger);
     }
 
     // Report top performers
@@ -924,39 +1022,47 @@ async function main() {
 
     // Add to bank if requested
     if (args.bank && args.prompt && supabase) {
-      const topVariants = state.getTopByElo(5);
-      const winner = topVariants[0];
-      if (winner) {
-        logger.info('Adding winner to article bank...');
-        const bankResult = await addEntryToBank(supabase, {
-          prompt: args.prompt,
-          content: winner.text,
-          generation_method: 'evolution_winner',
-          model: args.model,
-          total_cost_usd: costTracker.getTotalSpent(),
-          metadata: {
-            iterations: state.iteration,
-            duration_seconds: Math.round(durationMs / 1000),
-            stop_reason: stopReason,
-            seed_model: args.seedModel ?? args.model,
-            winning_strategy: winner.strategy,
-          },
-        });
-        logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
+      // Skip final winner insertion if it was already inserted as a checkpoint
+      const finalIterationIsCheckpoint = args.bankCheckpoints.includes(state.iteration);
 
-        // Also add baseline
-        const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
-        if (baseline && baseline.id !== winner.id) {
-          const baselineResult = await addEntryToBank(supabase, {
+      if (!finalIterationIsCheckpoint) {
+        const topVariants = state.getTopByElo(5);
+        const winner = topVariants[0];
+        if (winner) {
+          logger.info('Adding winner to article bank...');
+          const bankResult = await addEntryToBank(supabase, {
             prompt: args.prompt,
-            content: baseline.text,
-            generation_method: 'evolution_baseline',
+            content: winner.text,
+            generation_method: 'evolution_winner',
             model: args.model,
-            total_cost_usd: null,
-            metadata: { seed_model: args.seedModel ?? args.model },
+            total_cost_usd: costTracker.getTotalSpent(),
+            metadata: {
+              iterations: state.iteration,
+              duration_seconds: Math.round(durationMs / 1000),
+              stop_reason: stopReason,
+              seed_model: args.seedModel ?? args.model,
+              winning_strategy: winner.strategy,
+            },
           });
-          logger.info('Baseline added to bank', { entry_id: baselineResult.entry_id });
+          logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
         }
+      } else {
+        logger.info('Final iteration was a checkpoint — skipping duplicate winner insertion');
+      }
+
+      // Always add baseline (it's a separate generation_method so no duplicate risk)
+      const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
+      const topWinner = state.getTopByElo(1)[0];
+      if (baseline && topWinner && baseline.id !== topWinner.id) {
+        const baselineResult = await addEntryToBank(supabase, {
+          prompt: args.prompt,
+          content: baseline.text,
+          generation_method: 'evolution_baseline',
+          model: args.model,
+          total_cost_usd: null,
+          metadata: { seed_model: args.seedModel ?? args.model },
+        });
+        logger.info('Baseline added to bank', { entry_id: baselineResult.entry_id });
       }
     } else if (args.bank && !args.prompt) {
       logger.warn('--bank requires --prompt for topic grouping. Skipping bank insertion.');
