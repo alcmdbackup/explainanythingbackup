@@ -299,6 +299,7 @@ export interface PipelineAgents {
   tournament: PipelineAgent;
   evolution: PipelineAgent;
   reflection?: PipelineAgent;
+  iterativeEditing?: PipelineAgent;
   debate?: PipelineAgent;
   proximity?: PipelineAgent;
   metaReview?: PipelineAgent;
@@ -411,6 +412,15 @@ export async function executeFullPipeline(
         // === Reflection (Slice C — optional) ===
         if (config.runReflection && agents.reflection) {
           await runAgent(runId, agents.reflection, ctx, phase, logger);
+        }
+
+        // === Iterative Editing (COMPETITION only — optional) ===
+        if (config.runIterativeEditing && agents.iterativeEditing) {
+          if (options.featureFlags?.iterativeEditingEnabled === false) {
+            logger.info('Iterative editing agent disabled by feature flag', { iteration: ctx.state.iteration });
+          } else {
+            await runAgent(runId, agents.iterativeEditing, ctx, phase, logger);
+          }
         }
 
         // === Debate (COMPETITION only — optional) ===

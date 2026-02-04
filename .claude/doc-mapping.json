@@ -240,11 +240,11 @@
     },
     {
       "pattern": "src/lib/services/evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md"]
     },
     {
       "pattern": "src/lib/evolution/**",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md"]
     },
     {
       "pattern": "src/lib/services/articleBank*.ts",

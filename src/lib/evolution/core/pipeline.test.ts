@@ -1,11 +1,34 @@
-// Unit tests for pipeline helpers: insertBaselineVariant, buildRunSummary, validateRunSummary.
-// Tests the baseline variant insertion, run summary construction, and Zod validation.
+// Unit tests for pipeline helpers and iterativeEditing integration.
+// Tests baseline variant insertion, run summary, Zod validation, and agent execution order.
 
-import { insertBaselineVariant, buildRunSummary, validateRunSummary } from './pipeline';
+import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline } from './pipeline';
+import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
-import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
+import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
+
+// ─── Mocks for executeFullPipeline integration tests ────────────
+
+jest.mock('@/lib/utils/supabase/server', () => {
+  // Thenable chain mock: supports from().update().eq() and from().upsert() patterns
+  const chain: Record<string, jest.Mock> = {};
+  chain.eq = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.update = jest.fn().mockReturnValue(chain);
+  chain.upsert = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.from = jest.fn().mockReturnValue(chain);
+  return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };
+});
+
+jest.mock('../../../../instrumentation', () => ({
+  createAppSpan: jest.fn().mockReturnValue({
+    end: jest.fn(),
+    setAttributes: jest.fn(),
+    recordException: jest.fn(),
+    setStatus: jest.fn(),
+  }),
+}));
 
 function makeMockLogger(): EvolutionLogger {
   return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
@@ -252,5 +275,151 @@ describe('validateRunSummary', () => {
       'Run summary Zod validation failed — saving null',
       expect.objectContaining({ runId: 'run-invalid' }),
     );
+  });
+});
+
+// ─── IterativeEditing pipeline integration tests ──────────────────
+
+describe('executeFullPipeline — iterativeEditing integration', () => {
+  function makeSpyAgent(name: string, executionOrder: string[]): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeIntegrationCtx(
+    budgetCalls: number[],
+    configOverrides: Partial<EvolutionRunConfig> = {},
+  ): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+      ...configOverrides,
+    });
+    const state = new PipelineStateImpl('Original article text for testing.');
+    let budgetIdx = 0;
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+    };
+    return {
+      payload: {
+        originalText: state.originalText,
+        title: 'Test Article',
+        explanationId: 1,
+        runId: 'int-test-run',
+        config,
+      },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'int-test-run',
+    };
+  }
+
+  function makeAllAgents(executionOrder: string[]): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+  }
+
+  it('runs iterativeEditing after reflection and before debate in COMPETITION', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeAllAgents(executionOrder);
+    // 3 budget values: createAppSpan consumes first, shouldStop gets second (run), third (stop)
+    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, eloHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    const reflectionIdx = executionOrder.indexOf('reflection');
+    const ieIdx = executionOrder.indexOf('iterativeEditing');
+    const debateIdx = executionOrder.indexOf('debate');
+    expect(reflectionIdx).toBeGreaterThanOrEqual(0);
+    expect(ieIdx).toBeGreaterThan(reflectionIdx);
+    expect(debateIdx).toBeGreaterThan(ieIdx);
+  });
+
+  it('skips iterativeEditing when feature flag disabled', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeAllAgents(executionOrder);
+    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, eloHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, iterativeEditingEnabled: false },
+      startMs: Date.now(),
+    });
+
+    expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
+    expect(executionOrder).not.toContain('iterativeEditing');
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('debate');
+  });
+
+  it('handles missing iterativeEditing agent gracefully', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      // iterativeEditing intentionally omitted
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, eloHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    expect(executionOrder).not.toContain('iterativeEditing');
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('debate');
+  });
+
+  it('does not run iterativeEditing in EXPANSION phase', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeAllAgents(executionOrder);
+    // expansionMaxIterations=3 keeps first iteration in EXPANSION
+    const ctx = makeIntegrationCtx([2.0, 2.0, 0.005], {
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 1, threshold: 0.02 },
+    });
+
+    await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
+    expect(executionOrder).not.toContain('iterativeEditing');
+    expect(executionOrder).toContain('generation');
   });
 });

@@ -42,6 +42,10 @@ export { ReflectionAgent, CRITIQUE_DIMENSIONS, getCritiqueForVariant, getWeakest
 export type { CritiqueDimension } from './agents/reflectionAgent';
 export { MetaReviewAgent } from './agents/metaReviewAgent';
 export { DebateAgent } from './agents/debateAgent';
+export { IterativeEditingAgent, DEFAULT_ITERATIVE_EDITING_CONFIG } from './agents/iterativeEditingAgent';
+export type { IterativeEditingConfig } from './agents/iterativeEditingAgent';
+export { compareWithDiff } from './diffComparison';
+export type { DiffComparisonResult } from './diffComparison';
 export type { DebateTranscript } from './types';
 export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
 export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTracker';

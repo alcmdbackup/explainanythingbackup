@@ -13,6 +13,8 @@ export interface EvolutionFeatureFlags {
   dryRunOnly: boolean;
   /** Whether the DebateAgent runs in COMPETITION phase. */
   debateEnabled: boolean;
+  /** Whether the IterativeEditingAgent runs in COMPETITION phase. */
+  iterativeEditingEnabled: boolean;
 }
 
 /** Safe defaults: agents enabled, dry-run off. */
@@ -21,6 +23,7 @@ export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   evolvePoolEnabled: true,
   dryRunOnly: false,
   debateEnabled: true,
+  iterativeEditingEnabled: true,
 };
 
 /** Flag name → field mapping. */
@@ -29,6 +32,7 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_evolve_pool_enabled: 'evolvePoolEnabled',
   evolution_dry_run_only: 'dryRunOnly',
   evolution_debate_enabled: 'debateEnabled',
+  evolution_iterative_editing_enabled: 'iterativeEditingEnabled',
 };
 
 const FLAG_NAMES = Object.keys(FLAG_MAP);
