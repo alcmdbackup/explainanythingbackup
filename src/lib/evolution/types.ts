@@ -2,6 +2,7 @@
 // All cross-module types live here to enforce a clean import DAG and prevent circular deps.
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import type { Rating } from './core/rating';
 import { z } from 'zod';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
@@ -105,7 +106,7 @@ export interface PipelineState {
   newEntrantsThisIteration: string[];
 
   // Phase 1+2: Ranking fields
-  eloRatings: Map<string, number>;
+  ratings: Map<string, Rating>;
   matchCounts: Map<string, number>;
   matchHistory: Match[];
 
@@ -126,7 +127,7 @@ export interface PipelineState {
   // Pool management methods
   addToPool(variation: TextVariation): void;
   startNewIteration(): void;
-  getTopByElo(n: number): TextVariation[];
+  getTopByRating(n: number): TextVariation[];
   getPoolSize(): number;
 }
 
@@ -228,7 +229,9 @@ export interface SerializedPipelineState {
   originalText: string;
   pool: TextVariation[];
   newEntrantsThisIteration: string[];
-  eloRatings: Record<string, number>;
+  ratings: Record<string, { mu: number; sigma: number }>;
+  /** @deprecated Old Elo format — only present in legacy checkpoints. */
+  eloRatings?: Record<string, number>;
   matchCounts: Record<string, number>;
   matchHistory: Match[];
   dimensionScores: Record<string, Record<string, number>> | null;
@@ -248,12 +251,12 @@ export const BASELINE_STRATEGY = 'original_baseline' as const;
 // ─── Evolution run summary (persisted as JSONB) ─────────────────
 
 export interface EvolutionRunSummary {
-  version: 1;
+  version: 2;
   stopReason: string;
   finalPhase: PipelinePhase;
   totalIterations: number;
   durationSeconds: number;
-  eloHistory: number[];
+  ordinalHistory: number[];
   diversityHistory: number[];
   matchStats: {
     totalMatches: number;
@@ -263,14 +266,14 @@ export interface EvolutionRunSummary {
   topVariants: Array<{
     id: string;
     strategy: string;
-    elo: number;
+    ordinal: number;
     isBaseline: boolean;
   }>;
   baselineRank: number | null;
-  baselineElo: number | null;
+  baselineOrdinal: number | null;
   strategyEffectiveness: Record<string, {
     count: number;
-    avgElo: number;
+    avgOrdinal: number;
   }>;
   metaFeedback: {
     successfulStrategies: string[];
@@ -280,8 +283,43 @@ export interface EvolutionRunSummary {
   } | null;
 }
 
-export const EvolutionRunSummarySchema = z.object({
-  version: z.literal(1),
+/** V2 schema — the canonical shape used by current code. */
+const EvolutionRunSummaryV2Schema = z.object({
+  version: z.literal(2),
+  stopReason: z.string().max(200),
+  finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
+  totalIterations: z.number().int().min(0).max(100),
+  durationSeconds: z.number().min(0),
+  ordinalHistory: z.array(z.number()).max(100),
+  diversityHistory: z.array(z.number()).max(100),
+  matchStats: z.object({
+    totalMatches: z.number().int().min(0),
+    avgConfidence: z.number().min(0).max(1),
+    decisiveRate: z.number().min(0).max(1),
+  }),
+  topVariants: z.array(z.object({
+    id: z.string().max(200),
+    strategy: z.string().max(100),
+    ordinal: z.number(),
+    isBaseline: z.boolean(),
+  })).max(10),
+  baselineRank: z.number().int().min(1).nullable(),
+  baselineOrdinal: z.number().nullable(),
+  strategyEffectiveness: z.record(z.string(), z.object({
+    count: z.number().int().min(0),
+    avgOrdinal: z.number(),
+  })),
+  metaFeedback: z.object({
+    successfulStrategies: z.array(z.string().min(1).max(200)).max(10),
+    recurringWeaknesses: z.array(z.string().min(1).max(200)).max(10),
+    patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
+    priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
+  }).nullable(),
+}).strict();
+
+/** V1 schema — legacy format with Elo field names. Auto-transforms to V2 on parse. */
+const EvolutionRunSummaryV1Schema = z.object({
+  version: z.literal(1).optional(),
   stopReason: z.string().max(200),
   finalPhase: z.enum(['EXPANSION', 'COMPETITION']),
   totalIterations: z.number().int().min(0).max(100),
@@ -311,4 +349,28 @@ export const EvolutionRunSummarySchema = z.object({
     patternsToAvoid: z.array(z.string().min(1).max(200)).max(10),
     priorityImprovements: z.array(z.string().min(1).max(200)).max(10),
   }).nullable(),
-}).strict();
+}).transform((v1): EvolutionRunSummary => ({
+  version: 2,
+  stopReason: v1.stopReason,
+  finalPhase: v1.finalPhase,
+  totalIterations: v1.totalIterations,
+  durationSeconds: v1.durationSeconds,
+  ordinalHistory: v1.eloHistory,
+  diversityHistory: v1.diversityHistory,
+  matchStats: v1.matchStats,
+  topVariants: v1.topVariants.map((tv) => ({
+    id: tv.id, strategy: tv.strategy, ordinal: tv.elo, isBaseline: tv.isBaseline,
+  })),
+  baselineRank: v1.baselineRank,
+  baselineOrdinal: v1.baselineElo,
+  strategyEffectiveness: Object.fromEntries(
+    Object.entries(v1.strategyEffectiveness).map(([k, v]) => [k, { count: v.count, avgOrdinal: v.avgElo }]),
+  ),
+  metaFeedback: v1.metaFeedback,
+}));
+
+/** Accepts both V1 (legacy Elo) and V2 (OpenSkill ordinal) summary formats. */
+export const EvolutionRunSummarySchema = z.union([
+  EvolutionRunSummaryV2Schema,
+  EvolutionRunSummaryV1Schema,
+]);

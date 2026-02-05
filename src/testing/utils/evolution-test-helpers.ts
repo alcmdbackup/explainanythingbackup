@@ -206,7 +206,7 @@ export async function createTestCheckpoint(
       iterationBorn: iteration,
     }],
     newEntrantsThisIteration: [`v-${iteration}-1`],
-    eloRatings: { [`v-${iteration}-1`]: 1200 + iteration * 20 },
+    ratings: { [`v-${iteration}-1`]: { mu: 25 + iteration * 2, sigma: 8.333 } },
     matchCounts: { [`v-${iteration}-1`]: iteration * 2 },
     matchHistory: [],
     dimensionScores: null,

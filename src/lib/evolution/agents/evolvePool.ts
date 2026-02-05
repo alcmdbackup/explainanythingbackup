@@ -8,6 +8,7 @@ import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
+import { getOrdinal, type Rating } from '../core/rating';
 
 // ─── Evolution strategies ───────────────────────────────────────
 
@@ -106,16 +107,16 @@ export function getDominantStrategies(pool: TextVariation[]): string[] {
     .map(([strategy]) => strategy);
 }
 
-/** Check if top Elo ratings have stagnated across iterations. */
-export function isEloStagnant(
-  eloRatings: Map<string, number>,
+/** Check if top ratings have stagnated across iterations. */
+export function isRatingStagnant(
+  ratings: Map<string, Rating>,
   prevTopIds: string[],
   checkIterations: number = CREATIVE_STAGNATION_ITERATIONS,
 ): boolean {
-  if (eloRatings.size < 3 || prevTopIds.length < checkIterations * 3) return false;
+  if (ratings.size < 3 || prevTopIds.length < checkIterations * 3) return false;
 
-  const currentTop3 = [...eloRatings.entries()]
-    .sort(([, a], [, b]) => b - a)
+  const currentTop3 = [...ratings.entries()]
+    .sort(([, a], [, b]) => getOrdinal(b) - getOrdinal(a))
     .slice(0, 3)
     .map(([id]) => id)
     .sort()
@@ -292,6 +293,6 @@ export class EvolutionAgent extends AgentBase {
   }
 
   canExecute(state: PipelineState): boolean {
-    return state.pool.length >= 1 && state.eloRatings.size >= 1;
+    return state.pool.length >= 1 && state.ratings.size >= 1;
   }
 }

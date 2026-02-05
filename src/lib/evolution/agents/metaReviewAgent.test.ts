@@ -38,14 +38,14 @@ function makeVariation(overrides: Partial<TextVariation> = {}): TextVariation {
   };
 }
 
-function makeCtx(variants: TextVariation[], eloOverrides?: Record<string, number>): ExecutionContext {
+function makeCtx(variants: TextVariation[], ratingOverrides?: Record<string, { mu: number; sigma: number }>): ExecutionContext {
   const state = new PipelineStateImpl('original');
   for (const v of variants) {
     state.addToPool(v);
   }
-  if (eloOverrides) {
-    for (const [id, elo] of Object.entries(eloOverrides)) {
-      state.eloRatings.set(id, elo);
+  if (ratingOverrides) {
+    for (const [id, r] of Object.entries(ratingOverrides)) {
+      state.ratings.set(id, r);
     }
   }
   return {
@@ -78,9 +78,9 @@ describe('MetaReviewAgent', () => {
     expect(result.costUsd).toBe(0);
   });
 
-  it('returns failure when no Elo ratings', async () => {
+  it('returns failure when no ratings', async () => {
     const ctx = makeCtx([makeVariation({ id: 'v1' })]);
-    ctx.state.eloRatings.clear();
+    ctx.state.ratings.clear();
     const result = await agent.execute(ctx);
     expect(result.success).toBe(false);
   });
@@ -91,7 +91,7 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v2', strategy: 'B' }),
       makeVariation({ id: 'v3', strategy: 'C' }),
     ];
-    const ctx = makeCtx(variants, { v1: 1300, v2: 1100, v3: 1200 });
+    const ctx = makeCtx(variants, { v1: { mu: 31.25, sigma: 4 }, v2: { mu: 18.75, sigma: 4 }, v3: { mu: 25, sigma: 4 } });
     const result = await agent.execute(ctx);
 
     expect(result.success).toBe(true);
@@ -103,14 +103,14 @@ describe('MetaReviewAgent', () => {
     expect(ctx.state.metaFeedback!.priorityImprovements).toBeDefined();
   });
 
-  it('identifies successful strategies (above-average Elo)', async () => {
+  it('identifies successful strategies (above-average ordinal)', async () => {
     const variants = [
       makeVariation({ id: 'v1', strategy: 'good' }),
       makeVariation({ id: 'v2', strategy: 'good' }),
       makeVariation({ id: 'v3', strategy: 'bad' }),
       makeVariation({ id: 'v4', strategy: 'bad' }),
     ];
-    const ctx = makeCtx(variants, { v1: 1400, v2: 1350, v3: 1050, v4: 1000 });
+    const ctx = makeCtx(variants, { v1: { mu: 37.5, sigma: 4 }, v2: { mu: 34.375, sigma: 4 }, v3: { mu: 15.625, sigma: 4 }, v4: { mu: 12.5, sigma: 4 } });
     await agent.execute(ctx);
 
     expect(ctx.state.metaFeedback!.successfulStrategies).toContain('good');
@@ -121,10 +121,10 @@ describe('MetaReviewAgent', () => {
     const variants = Array.from({ length: 8 }, (_, i) =>
       makeVariation({ id: `v-${i}`, strategy: i < 2 ? 'bad_strat' : 'ok_strat' }),
     );
-    const elos: Record<string, number> = {};
+    const ratingMap: Record<string, { mu: number; sigma: number }> = {};
     // bad_strat variants are in bottom quartile
-    variants.forEach((v, i) => { elos[v.id] = i < 2 ? 900 : 1300; });
-    const ctx = makeCtx(variants, elos);
+    variants.forEach((v, i) => { ratingMap[v.id] = i < 2 ? { mu: 6.25, sigma: 4 } : { mu: 31.25, sigma: 4 }; });
+    const ctx = makeCtx(variants, ratingMap);
     await agent.execute(ctx);
 
     expect(ctx.state.metaFeedback!.recurringWeaknesses.some((w) => w.includes('bad_strat'))).toBe(true);
@@ -135,9 +135,9 @@ describe('MetaReviewAgent', () => {
     const child1 = makeVariation({ id: 'child1', parentIds: ['parent'], strategy: 'bad_evolve' });
     const child2 = makeVariation({ id: 'child2', parentIds: ['parent'], strategy: 'bad_evolve' });
     const ctx = makeCtx([parent, child1, child2], {
-      parent: 1300,
-      child1: 1100,  // delta -200
-      child2: 1150,  // delta -150
+      parent: { mu: 31.25, sigma: 4 },  // ordinal ≈ 19.25
+      child1: { mu: 18.75, sigma: 4 },  // ordinal ≈ 6.75, delta ≈ -12.5
+      child2: { mu: 21.875, sigma: 4 }, // ordinal ≈ 9.875, delta ≈ -9.375
     });
     await agent.execute(ctx);
 
@@ -150,20 +150,20 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v2', strategy: 'B' }),
       makeVariation({ id: 'v3', strategy: 'C' }),
     ];
-    const ctx = makeCtx(variants, { v1: 1200, v2: 1200, v3: 1200 });
+    const ctx = makeCtx(variants, { v1: { mu: 25, sigma: 4 }, v2: { mu: 25, sigma: 4 }, v3: { mu: 25, sigma: 4 } });
     ctx.state.diversityScore = 0.2;
     await agent.execute(ctx);
 
     expect(ctx.state.metaFeedback!.priorityImprovements).toContain('Increase diversity - pool is homogenizing');
   });
 
-  it('recommends bolder transformations for tight Elo range', async () => {
+  it('recommends bolder transformations for tight rating range', async () => {
     const variants = [
       makeVariation({ id: 'v1', strategy: 'A' }),
       makeVariation({ id: 'v2', strategy: 'B' }),
       makeVariation({ id: 'v3', strategy: 'C' }),
     ];
-    const ctx = makeCtx(variants, { v1: 1210, v2: 1200, v3: 1190 });
+    const ctx = makeCtx(variants, { v1: { mu: 25.625, sigma: 4 }, v2: { mu: 25, sigma: 4 }, v3: { mu: 24.375, sigma: 4 } });
     await agent.execute(ctx);
 
     expect(ctx.state.metaFeedback!.priorityImprovements).toContain('Variants too similar - try bolder transformations');
@@ -175,7 +175,7 @@ describe('MetaReviewAgent', () => {
       makeVariation({ id: 'v2', strategy: 'B', iterationBorn: 0 }),
       makeVariation({ id: 'v3', strategy: 'C', iterationBorn: 0 }),
     ];
-    const ctx = makeCtx(variants, { v1: 1300, v2: 1200, v3: 1100 });
+    const ctx = makeCtx(variants, { v1: { mu: 31.25, sigma: 4 }, v2: { mu: 25, sigma: 4 }, v3: { mu: 18.75, sigma: 4 } });
     ctx.state.iteration = 5; // well past iterationBorn=0
     // Manually advance state for iteration tracking
     await agent.execute(ctx);
@@ -193,7 +193,7 @@ describe('MetaReviewAgent', () => {
     })).toBe(0);
   });
 
-  it('canExecute requires pool and Elo ratings', () => {
+  it('canExecute requires pool and ratings', () => {
     const emptyState = new PipelineStateImpl('text');
     expect(agent.canExecute(emptyState)).toBe(false);
 
@@ -204,7 +204,7 @@ describe('MetaReviewAgent', () => {
 
   it('does not call LLM', async () => {
     const variants = [makeVariation({ id: 'v1' })];
-    const ctx = makeCtx(variants, { v1: 1200 });
+    const ctx = makeCtx(variants, { v1: { mu: 25, sigma: 4 } });
     await agent.execute(ctx);
     expect(ctx.llmClient.complete).not.toHaveBeenCalled();
     expect(ctx.llmClient.completeStructured).not.toHaveBeenCalled();

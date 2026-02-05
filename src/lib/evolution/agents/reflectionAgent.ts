@@ -108,7 +108,7 @@ export class ReflectionAgent extends AgentBase {
     const { state, llmClient, logger } = ctx;
     const numToCritique = 3;
 
-    const topVariants = state.getTopByElo(numToCritique);
+    const topVariants = state.getTopByRating(numToCritique);
     if (topVariants.length === 0) {
       return { agentType: 'reflection', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No variants to critique' };
     }

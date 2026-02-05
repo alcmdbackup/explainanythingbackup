@@ -90,7 +90,7 @@ function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
     });
-    state.eloRatings.set(`v-${i}`, 1200 + i * 50);
+    state.ratings.set(`v-${i}`, { mu: 25 + i * (25/400) * 50, sigma: 4 });
   }
   // Add critique for top variant (v-2 has highest Elo)
   state.allCritiques = [makeCritique('v-2')];
@@ -326,7 +326,7 @@ describe('IterativeEditingAgent', () => {
       id: 'v-0', text: VALID_ARTICLE, version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.eloRatings.set('v-0', 1200);
+    state.ratings.set('v-0', { mu: 25, sigma: 8.333 });
     expect(agent.canExecute(state)).toBe(false);
   });
 
@@ -336,14 +336,14 @@ describe('IterativeEditingAgent', () => {
     expect(agent.canExecute(state)).toBe(false);
   });
 
-  it('canExecute returns false without Elo ratings', () => {
+  it('canExecute returns false without ratings', () => {
     const state = new PipelineStateImpl('text');
     state.addToPool({
       id: 'v-0', text: VALID_ARTICLE, version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    // eloRatings not populated (size === 0) — addToPool sets a default but let's clear it
-    state.eloRatings.clear();
+    // ratings not populated (size === 0) — addToPool sets a default but let's clear it
+    state.ratings.clear();
     state.allCritiques = [makeCritique('v-0')];
     expect(agent.canExecute(state)).toBe(false);
   });
@@ -354,7 +354,7 @@ describe('IterativeEditingAgent', () => {
       id: 'v-0', text: VALID_ARTICLE, version: 1, parentIds: [],
       strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.eloRatings.set('v-0', 1200);
+    state.ratings.set('v-0', { mu: 25, sigma: 8.333 });
     state.allCritiques = [makeCritique('v-0')];
     expect(agent.canExecute(state)).toBe(true);
   });

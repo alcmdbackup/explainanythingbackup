@@ -55,7 +55,7 @@ function makeState(poolSize: number): PipelineStateImpl {
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
     });
-    state.eloRatings.set(`v-${i}`, 1200 + i * 50);
+    state.ratings.set(`v-${i}`, { mu: 25 + i * (25 / 400) * 50, sigma: 4 });
     state.matchCounts.set(`v-${i}`, 3);
   }
   return state;
@@ -160,7 +160,7 @@ describe('EvolutionAgent', () => {
     expect(agent.name).toBe('evolution');
   });
 
-  it('canExecute requires pool + Elo ratings', () => {
+  it('canExecute requires pool + ratings', () => {
     const emptyState = new PipelineStateImpl('text');
     expect(agent.canExecute(emptyState)).toBe(false);
 
@@ -274,7 +274,7 @@ describe('EvolutionAgent', () => {
 
   it('returns failure when no parents available', async () => {
     const emptyState = new PipelineStateImpl('text');
-    emptyState.eloRatings.set('phantom', 1200);
+    emptyState.ratings.set('phantom', { mu: 25, sigma: 8.333 });
     const ctx: ExecutionContext = {
       payload: {
         originalText: 'text',

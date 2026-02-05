@@ -45,20 +45,10 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
   };
 }
 
-// ─── Elo constants ───────────────────────────────────────────────
+// ─── Rating constants ────────────────────────────────────────────
 
-export const ELO_CONSTANTS = {
-  DEFAULT_K: 32,
-  INITIAL_RATING: 1200.0,
-  FLOOR: 800.0,
+export const RATING_CONSTANTS = {
+  /** Sigma threshold below which a rating is considered converged. */
+  CONVERGENCE_SIGMA_THRESHOLD: 3.0,
 } as const;
 
-/**
- * Adaptive K-factor schedule: higher K for fewer matches (rapid calibration),
- * lower K for many matches (stability).
- */
-export const K_SCHEDULE: ReadonlyArray<{ maxMatches: number; k: number }> = [
-  { maxMatches: 5, k: 48 },
-  { maxMatches: 15, k: 32 },
-  { maxMatches: Infinity, k: 16 },
-];

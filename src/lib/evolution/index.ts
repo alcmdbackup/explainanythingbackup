@@ -22,6 +22,8 @@ export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSu
 export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
+export { createRating, updateRating, updateDraw, getOrdinal, isConverged, ratingToDisplay, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
+export type { Rating } from './core/rating';
 export { createCostTracker } from './core/costTracker';
 export { ComparisonCache } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';

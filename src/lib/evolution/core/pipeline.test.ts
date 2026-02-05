@@ -8,6 +8,8 @@ import { BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
+import { getOrdinal } from './rating';
+import type { Rating } from './rating';
 
 // ─── Mocks for executeFullPipeline integration tests ────────────
 
@@ -29,6 +31,11 @@ jest.mock('../../../../instrumentation', () => ({
     setStatus: jest.fn(),
   }),
 }));
+
+/** Helper: create a rating with known ordinal (mu - 3*sigma). sigma defaults to 3. */
+function ratingWithOrdinal(ordinal: number, sigma = 3): Rating {
+  return { mu: ordinal + 3 * sigma, sigma };
+}
 
 function makeMockLogger(): EvolutionLogger {
   return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
@@ -93,11 +100,14 @@ describe('insertBaselineVariant', () => {
     expect(state.pool[0].text).toBe('My specific article content');
   });
 
-  it('initializes Elo to default (1200)', () => {
+  it('initializes rating to default', () => {
     const state = new PipelineStateImpl('text');
     insertBaselineVariant(state, 'run-3');
 
-    expect(state.eloRatings.get('baseline-run-3')).toBe(1200);
+    const r = state.ratings.get('baseline-run-3');
+    expect(r).toBeDefined();
+    expect(r!.mu).toBeGreaterThan(0);
+    expect(r!.sigma).toBeGreaterThan(0);
     expect(state.matchCounts.get('baseline-run-3')).toBe(0);
   });
 });
@@ -113,7 +123,7 @@ describe('buildRunSummary', () => {
       id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
     });
-    state.eloRatings.set('v1', 1300);
+    state.ratings.set('v1', ratingWithOrdinal(21));
     state.matchHistory.push({
       variationA: 'baseline-run-1', variationB: 'v1', winner: 'v1',
       confidence: 0.8, turns: 1, dimensionScores: {},
@@ -124,7 +134,7 @@ describe('buildRunSummary', () => {
 
     const parsed = EvolutionRunSummarySchema.safeParse(summary);
     expect(parsed.success).toBe(true);
-    expect(summary.version).toBe(1);
+    expect(summary.version).toBe(2);
     expect(summary.stopReason).toBe('completed');
     expect(summary.durationSeconds).toBe(42.5);
   });
@@ -140,7 +150,7 @@ describe('buildRunSummary', () => {
     const summary = buildRunSummary(ctx, 'completed', 10);
 
     expect(summary.baselineRank).toBeNull();
-    expect(summary.baselineElo).toBeNull();
+    expect(summary.baselineOrdinal).toBeNull();
     expect((ctx.logger.warn as jest.Mock)).toHaveBeenCalledWith(
       'Baseline variant not found in pool',
       expect.any(Object),
@@ -159,14 +169,14 @@ describe('buildRunSummary', () => {
     expect(summary.matchStats.decisiveRate).toBe(0);
   });
 
-  it('returns empty eloHistory/diversityHistory without supervisor', () => {
+  it('returns empty ordinalHistory/diversityHistory without supervisor', () => {
     const state = new PipelineStateImpl('Original');
     insertBaselineVariant(state, 'run-no-sup');
 
     const ctx = makeCtx(state, 'run-no-sup');
     const summary = buildRunSummary(ctx, 'completed', 5, undefined);
 
-    expect(summary.eloHistory).toEqual([]);
+    expect(summary.ordinalHistory).toEqual([]);
     expect(summary.diversityHistory).toEqual([]);
     expect(summary.finalPhase).toBe('EXPANSION');
   });
@@ -178,8 +188,8 @@ describe('buildRunSummary', () => {
       id: 'v1', text: 'V1', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    // Baseline at 1400, v1 at default 1200
-    state.eloRatings.set('baseline-run-top', 1400);
+    // Baseline gets high rating, v1 at default
+    state.ratings.set('baseline-run-top', ratingWithOrdinal(30));
 
     const ctx = makeCtx(state, 'run-top');
     const summary = buildRunSummary(ctx, 'completed', 10);
@@ -195,9 +205,9 @@ describe('buildRunSummary', () => {
         id: `v${i}`, text: `V${i}`, version: 1, parentIds: [],
         strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
       });
-      state.eloRatings.set(`v${i}`, 1300 + i * 50);
+      state.ratings.set(`v${i}`, ratingWithOrdinal(10 + i * 5));
     }
-    // Baseline stays at default 1200, all variants higher
+    // Baseline stays at default rating (ordinal ≈ 0), all variants higher
 
     const ctx = makeCtx(state, 'run-low');
     const summary = buildRunSummary(ctx, 'completed', 10);
@@ -216,14 +226,14 @@ describe('buildRunSummary', () => {
       id: 'v2', text: 'V2', version: 1, parentIds: [],
       strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
     });
-    state.eloRatings.set('v1', 1300);
-    state.eloRatings.set('v2', 1500);
+    state.ratings.set('v1', ratingWithOrdinal(20));
+    state.ratings.set('v2', ratingWithOrdinal(30));
 
     const ctx = makeCtx(state, 'run-strat');
     const summary = buildRunSummary(ctx, 'completed', 10);
 
     expect(summary.strategyEffectiveness['structural_transform'].count).toBe(2);
-    expect(summary.strategyEffectiveness['structural_transform'].avgElo).toBe(1400);
+    expect(summary.strategyEffectiveness['structural_transform'].avgOrdinal).toBeCloseTo(25);
     expect(summary.strategyEffectiveness[BASELINE_STRATEGY].count).toBe(1);
   });
 
@@ -261,7 +271,7 @@ describe('validateRunSummary', () => {
 
     const result = validateRunSummary(raw, logger, 'run-valid');
     expect(result).not.toBeNull();
-    expect(result?.version).toBe(1);
+    expect(result?.version).toBe(2);
   });
 
   it('returns null on invalid data and logs error', () => {
@@ -348,7 +358,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, eloHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
       featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });
@@ -367,7 +377,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, eloHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
       featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, iterativeEditingEnabled: false },
       startMs: Date.now(),
     });
@@ -394,7 +404,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     const ctx = makeIntegrationCtx([2.0, 2.0, 0.005]);
 
     await executeFullPipeline('int-test-run', agents, ctx, ctx.logger, {
-      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, eloHistory: [], diversityHistory: [] },
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
       featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     });

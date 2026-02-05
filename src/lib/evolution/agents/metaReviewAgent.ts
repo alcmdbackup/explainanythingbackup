@@ -2,6 +2,7 @@
 // Pure analysis — no LLM calls, cost is always 0.
 
 import { AgentBase } from './base';
+import { getOrdinal } from '../core/rating';
 import type {
   AgentResult,
   ExecutionContext,
@@ -17,7 +18,7 @@ export class MetaReviewAgent extends AgentBase {
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
     const { state, logger } = ctx;
 
-    if (state.pool.length === 0 || state.eloRatings.size === 0) {
+    if (state.pool.length === 0 || state.ratings.size === 0) {
       return { agentType: 'meta_review', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No pool data to analyze' };
     }
 
@@ -51,33 +52,34 @@ export class MetaReviewAgent extends AgentBase {
   }
 
   canExecute(state: PipelineState): boolean {
-    return state.pool.length >= 1 && state.eloRatings.size >= 1;
+    return state.pool.length >= 1 && state.ratings.size >= 1;
   }
 
-  /** Find strategies that produce above-average Elo variants, sorted descending. */
+  /** Find strategies that produce above-average ordinal variants, sorted descending. */
   _analyzeStrategies(state: PipelineState): string[] {
-    if (state.eloRatings.size === 0) return [];
+    if (state.ratings.size === 0) return [];
 
     const strategyScores = new Map<string, number[]>();
     for (const v of state.pool) {
-      const elo = state.eloRatings.get(v.id) ?? 1200;
+      const r = state.ratings.get(v.id);
+      const ord = r ? getOrdinal(r) : 0;
       const arr = strategyScores.get(v.strategy) ?? [];
-      arr.push(elo);
+      arr.push(ord);
       strategyScores.set(v.strategy, arr);
     }
 
     if (strategyScores.size === 0) return [];
 
-    const allElos = [...state.eloRatings.values()];
-    const avgElo = allElos.reduce((a, b) => a + b, 0) / allElos.length;
+    const allOrdinals = [...state.ratings.values()].map(getOrdinal);
+    const avgOrd = allOrdinals.reduce((a, b) => a + b, 0) / allOrdinals.length;
 
     const successful: string[] = [];
     for (const [strategy, scores] of strategyScores) {
       const stratAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
-      if (stratAvg > avgElo) successful.push(strategy);
+      if (stratAvg > avgOrd) successful.push(strategy);
     }
 
-    // Sort by average Elo descending
+    // Sort by average ordinal descending
     successful.sort((a, b) => {
       const avgA = avg(strategyScores.get(a)!);
       const avgB = avg(strategyScores.get(b)!);
@@ -90,19 +92,19 @@ export class MetaReviewAgent extends AgentBase {
   /** Find patterns in bottom-quartile variants. */
   _findWeaknesses(state: PipelineState): string[] {
     const weaknesses: string[] = [];
-    if (state.eloRatings.size === 0) return weaknesses;
+    if (state.ratings.size === 0) return weaknesses;
 
-    const sortedIds = [...state.eloRatings.entries()]
-      .sort((a, b) => a[1] - b[1])
+    const sortedIds = [...state.ratings.entries()]
+      .sort((a, b) => getOrdinal(a[1]) - getOrdinal(b[1]))
       .map(([id]) => id);
 
     const bottom25pct = Math.max(1, Math.floor(sortedIds.length / 4));
-    const lowEloIds = new Set(sortedIds.slice(0, bottom25pct));
+    const lowRatingIds = new Set(sortedIds.slice(0, bottom25pct));
 
     const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
     const lowStrategies = new Map<string, number>();
 
-    for (const vid of lowEloIds) {
+    for (const vid of lowRatingIds) {
       const v = idToVar.get(vid);
       if (v) {
         lowStrategies.set(v.strategy, (lowStrategies.get(v.strategy) ?? 0) + 1);
@@ -119,7 +121,7 @@ export class MetaReviewAgent extends AgentBase {
     // Check generated vs evolved patterns
     let generated = 0;
     let evolved = 0;
-    for (const vid of lowEloIds) {
+    for (const vid of lowRatingIds) {
       const v = idToVar.get(vid);
       if (v) {
         if (v.parentIds.length === 0) generated++;
@@ -135,10 +137,10 @@ export class MetaReviewAgent extends AgentBase {
     return weaknesses;
   }
 
-  /** Find strategies with consistently negative parent-to-child Elo delta. */
+  /** Find strategies with consistently negative parent-to-child ordinal delta. */
   _findFailures(state: PipelineState): string[] {
     const failures: string[] = [];
-    if (state.eloRatings.size === 0) return failures;
+    if (state.ratings.size === 0) return failures;
 
     const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
     const strategyDeltas = new Map<string, number[]>();
@@ -146,15 +148,19 @@ export class MetaReviewAgent extends AgentBase {
     for (const v of state.pool) {
       if (v.parentIds.length === 0) continue;
 
-      const childElo = state.eloRatings.get(v.id) ?? 1200;
-      const parentElos = v.parentIds
+      const childR = state.ratings.get(v.id);
+      const childOrd = childR ? getOrdinal(childR) : 0;
+      const parentOrdinals = v.parentIds
         .filter((pid) => idToVar.has(pid))
-        .map((pid) => state.eloRatings.get(pid) ?? 1200);
+        .map((pid) => {
+          const r = state.ratings.get(pid);
+          return r ? getOrdinal(r) : 0;
+        });
 
-      if (parentElos.length === 0) continue;
+      if (parentOrdinals.length === 0) continue;
 
-      const bestParentElo = Math.max(...parentElos);
-      const delta = childElo - bestParentElo;
+      const bestParentOrd = Math.max(...parentOrdinals);
+      const delta = childOrd - bestParentOrd;
 
       const arr = strategyDeltas.get(v.strategy) ?? [];
       arr.push(delta);
@@ -164,7 +170,7 @@ export class MetaReviewAgent extends AgentBase {
     for (const [strategy, deltas] of strategyDeltas) {
       if (deltas.length >= 2) {
         const avgDelta = deltas.reduce((a, b) => a + b, 0) / deltas.length;
-        if (avgDelta < -50) {
+        if (avgDelta < -3) {
           failures.push(`Avoid '${strategy}' - degrades quality (avg delta: ${Math.round(avgDelta)})`);
         }
       }
@@ -183,20 +189,20 @@ export class MetaReviewAgent extends AgentBase {
       priorities.push('Increase diversity - pool is homogenizing');
     }
 
-    // Check Elo distribution
-    if (state.eloRatings.size > 0) {
-      const elos = [...state.eloRatings.values()];
-      const eloRange = Math.max(...elos) - Math.min(...elos);
-      if (eloRange < 100) {
+    // Check ordinal distribution
+    if (state.ratings.size > 0) {
+      const ordinals = [...state.ratings.values()].map(getOrdinal);
+      const ordRange = Math.max(...ordinals) - Math.min(...ordinals);
+      if (ordRange < 6) {
         priorities.push('Variants too similar - try bolder transformations');
-      } else if (eloRange > 500) {
+      } else if (ordRange > 30) {
         priorities.push('High variance - refine top performers');
       }
     }
 
     // Check for stagnation
     if (state.iteration > 3) {
-      const top3 = state.getTopByElo(3);
+      const top3 = state.getTopByRating(3);
       if (top3.length > 0) {
         const maxBorn = Math.max(...top3.map((v) => v.iterationBorn));
         if (maxBorn < state.iteration - 2) {

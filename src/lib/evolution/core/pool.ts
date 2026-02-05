@@ -1,8 +1,9 @@
 // Pool management with stratified sampling for calibration matches.
-// Provides opponent selection across Elo quartiles and pool health reporting.
+// Provides opponent selection across rating quartiles and pool health reporting.
 
 import type { PipelineState, TextVariation } from '../types';
 import { BASELINE_STRATEGY } from '../types';
+import { getOrdinal, createRating } from './rating';
 
 export class PoolManager {
   constructor(private state: PipelineState) {}
@@ -41,15 +42,16 @@ export class PoolManager {
       return [...existing, ...otherNew.slice(0, n - existing.length)];
     }
 
-    // No Elo ratings yet? Return sample + new entrant
-    if (this.state.eloRatings.size === 0) {
+    // No ratings yet? Return sample + new entrant
+    if (this.state.ratings.size === 0) {
       return [...existing.slice(0, n - 1), ...otherNew.slice(0, 1)];
     }
 
-    // Stratified sampling based on Elo
+    // Stratified sampling based on rating ordinal
+    const defaultRating = createRating();
     const sortedExisting = [...existing].sort(
       (a, b) =>
-        (this.state.eloRatings.get(b) ?? 1200) - (this.state.eloRatings.get(a) ?? 1200),
+        getOrdinal(this.state.ratings.get(b) ?? defaultRating) - getOrdinal(this.state.ratings.get(a) ?? defaultRating),
     );
 
     const poolSize = sortedExisting.length;
@@ -90,30 +92,30 @@ export class PoolManager {
     return [...new Map(opponents.map((id) => [id, id])).values()].slice(0, n);
   }
 
-  /** Get top N parents by Elo for evolution, excluding baseline variant. */
+  /** Get top N parents by rating for evolution, excluding baseline variant. */
   getEvolutionParents(n: number = 2): TextVariation[] {
-    const allByElo = this.state.getTopByElo(this.state.getPoolSize());
-    const eligible = allByElo.filter((v) => v.strategy !== BASELINE_STRATEGY);
+    const allByRating = this.state.getTopByRating(this.state.getPoolSize());
+    const eligible = allByRating.filter((v) => v.strategy !== BASELINE_STRATEGY);
     return eligible.slice(0, n);
   }
 
-  /** Report pool health statistics. */
+  /** Report pool health statistics using ordinal (mu - 3*sigma) for ranking. */
   poolStatistics(): {
     size: number;
-    eloMin: number;
-    eloMax: number;
-    eloRange: number;
+    ordinalMin: number;
+    ordinalMax: number;
+    ordinalRange: number;
     strategies: Record<string, number>;
     iterationsRepresented: number;
   } {
     if (this.state.pool.length === 0) {
-      return { size: 0, eloMin: 1200, eloMax: 1200, eloRange: 0, strategies: {}, iterationsRepresented: 0 };
+      return { size: 0, ordinalMin: 0, ordinalMax: 0, ordinalRange: 0, strategies: {}, iterationsRepresented: 0 };
     }
 
-    const elos =
-      this.state.eloRatings.size > 0
-        ? [...this.state.eloRatings.values()]
-        : [1200];
+    const ordinals =
+      this.state.ratings.size > 0
+        ? [...this.state.ratings.values()].map(getOrdinal)
+        : [0];
 
     const strategies: Record<string, number> = {};
     for (const v of this.state.pool) {
@@ -122,9 +124,9 @@ export class PoolManager {
 
     return {
       size: this.state.pool.length,
-      eloMin: Math.min(...elos),
-      eloMax: Math.max(...elos),
-      eloRange: Math.max(...elos) - Math.min(...elos),
+      ordinalMin: Math.min(...ordinals),
+      ordinalMax: Math.max(...ordinals),
+      ordinalRange: Math.max(...ordinals) - Math.min(...ordinals),
       strategies,
       iterationsRepresented: new Set(this.state.pool.map((v) => v.iterationBorn)).size,
     };

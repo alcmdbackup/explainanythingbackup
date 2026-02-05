@@ -161,14 +161,14 @@ describe('Evolution Visualization Actions Integration Tests', () => {
       const runId = run.id as string;
 
       await createTestCheckpoint(supabase, runId, 1, 'generation_agent', {
-        eloRatings: { 'v1': 1200, 'v2': 1180 },
+        ratings: { 'v1': { mu: 25, sigma: 8.333 }, 'v2': { mu: 24, sigma: 8.333 } },
         pool: [
           { id: 'v1', text: 'text1', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: Date.now(), iterationBorn: 1 },
           { id: 'v2', text: 'text2', version: 1, parentIds: [], strategy: 'lexical_simplify', createdAt: Date.now(), iterationBorn: 1 },
         ],
       });
       await createTestCheckpoint(supabase, runId, 2, 'evaluation_agent', {
-        eloRatings: { 'v1': 1250, 'v2': 1150 },
+        ratings: { 'v1': { mu: 28, sigma: 5 }, 'v2': { mu: 22, sigma: 5 } },
         pool: [
           { id: 'v1', text: 'text1', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: Date.now(), iterationBorn: 1 },
           { id: 'v2', text: 'text2', version: 1, parentIds: [], strategy: 'lexical_simplify', createdAt: Date.now(), iterationBorn: 1 },
@@ -179,8 +179,11 @@ describe('Evolution Visualization Actions Integration Tests', () => {
       expect(result.success).toBe(true);
       expect(result.data!.history.length).toBe(2);
       expect(result.data!.variants.length).toBe(2);
-      expect(result.data!.history[0].ratings['v1']).toBe(1200);
-      expect(result.data!.history[1].ratings['v1']).toBe(1250);
+      // ordinalToEloScale maps ordinal (mu - 3*sigma) to 0-3000 range
+      // v1 iter1: ordinal = 25 - 3*8.333 ≈ 0.001, elo ≈ 1200
+      // v1 iter2: ordinal = 28 - 3*5 = 13, elo ≈ 1408
+      expect(result.data!.history[0].ratings['v1']).toBeGreaterThan(1100);
+      expect(result.data!.history[1].ratings['v1']).toBeGreaterThan(result.data!.history[0].ratings['v1']);
     });
   });
 
@@ -198,7 +201,7 @@ describe('Evolution Visualization Actions Integration Tests', () => {
           { id: 'parent-1', text: 'parent text', version: 1, parentIds: [], strategy: 'structural_transform', createdAt: Date.now(), iterationBorn: 1 },
           { id: 'child-1', text: 'child text', version: 2, parentIds: ['parent-1'], strategy: 'lexical_simplify', createdAt: Date.now(), iterationBorn: 2 },
         ],
-        eloRatings: { 'parent-1': 1200, 'child-1': 1300 },
+        ratings: { 'parent-1': { mu: 25, sigma: 8.333 }, 'child-1': { mu: 28, sigma: 5 } },
       });
 
       const result = await getEvolutionRunLineageAction(runId);

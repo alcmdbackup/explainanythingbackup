@@ -92,7 +92,7 @@ export class ProximityAgent extends AgentBase {
 
   /** Compute diversity as 1 - mean(top-k pairwise similarities). */
   _computePoolDiversity(state: PipelineState): number {
-    const topN = state.getTopByElo(10);
+    const topN = state.getTopByRating(10);
     if (topN.length < 2) return 1.0;
 
     const sims: number[] = [];

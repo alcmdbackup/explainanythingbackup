@@ -1,9 +1,9 @@
 // Unit tests for PipelineStateImpl.
-// Verifies pool management, Elo initialization, serialization round-trip.
+// Verifies pool management, rating initialization, serialization round-trip, and backward compat.
 
 import { PipelineStateImpl, serializeState, deserializeState } from './state';
-import type { TextVariation } from '../types';
-import { ELO_CONSTANTS } from '../config';
+import type { TextVariation, SerializedPipelineState } from '../types';
+import { getOrdinal, createRating } from './rating';
 
 function makeVariation(id: string, strategy = 'test'): TextVariation {
   return {
@@ -19,12 +19,15 @@ function makeVariation(id: string, strategy = 'test'): TextVariation {
 
 describe('PipelineStateImpl', () => {
   describe('addToPool', () => {
-    it('adds variant and initializes Elo', () => {
+    it('adds variant and initializes rating', () => {
       const state = new PipelineStateImpl('original');
       state.addToPool(makeVariation('v1'));
       expect(state.pool).toHaveLength(1);
       expect(state.poolIds.has('v1')).toBe(true);
-      expect(state.eloRatings.get('v1')).toBe(ELO_CONSTANTS.INITIAL_RATING);
+      const r = state.ratings.get('v1');
+      expect(r).toBeDefined();
+      expect(r!.mu).toBeCloseTo(25, 0);
+      expect(r!.sigma).toBeCloseTo(25 / 3, 1);
       expect(state.matchCounts.get('v1')).toBe(0);
     });
 
@@ -42,12 +45,12 @@ describe('PipelineStateImpl', () => {
       expect(state.pool).toHaveLength(1);
     });
 
-    it('does not overwrite existing Elo rating', () => {
+    it('does not overwrite existing rating', () => {
       const state = new PipelineStateImpl('original');
-      state.eloRatings.set('v1', 1500);
+      state.ratings.set('v1', { mu: 30, sigma: 3 });
       state.matchCounts.set('v1', 10);
       state.addToPool(makeVariation('v1'));
-      expect(state.eloRatings.get('v1')).toBe(1500);
+      expect(state.ratings.get('v1')!.mu).toBe(30);
       expect(state.matchCounts.get('v1')).toBe(10);
     });
   });
@@ -63,31 +66,31 @@ describe('PipelineStateImpl', () => {
     });
   });
 
-  describe('getTopByElo', () => {
-    it('returns top N by Elo descending', () => {
+  describe('getTopByRating', () => {
+    it('returns top N by ordinal descending', () => {
       const state = new PipelineStateImpl('original');
       state.addToPool(makeVariation('v1'));
       state.addToPool(makeVariation('v2'));
       state.addToPool(makeVariation('v3'));
-      state.eloRatings.set('v1', 1100);
-      state.eloRatings.set('v2', 1300);
-      state.eloRatings.set('v3', 1200);
-      const top = state.getTopByElo(2);
+      state.ratings.set('v1', { mu: 20, sigma: 3 }); // ordinal ≈ 11
+      state.ratings.set('v2', { mu: 30, sigma: 3 }); // ordinal ≈ 21
+      state.ratings.set('v3', { mu: 25, sigma: 3 }); // ordinal ≈ 16
+      const top = state.getTopByRating(2);
       expect(top.map((v) => v.id)).toEqual(['v2', 'v3']);
     });
 
-    it('returns pool slice when no Elo ratings', () => {
+    it('returns pool slice when no ratings', () => {
       const state = new PipelineStateImpl('original');
       state.pool.push(makeVariation('v1'), makeVariation('v2'));
-      state.eloRatings.clear();
-      const top = state.getTopByElo(1);
+      state.ratings.clear();
+      const top = state.getTopByRating(1);
       expect(top).toHaveLength(1);
       expect(top[0].id).toBe('v1');
     });
 
     it('handles empty pool', () => {
       const state = new PipelineStateImpl('original');
-      expect(state.getTopByElo(5)).toEqual([]);
+      expect(state.getTopByRating(5)).toEqual([]);
     });
   });
 
@@ -106,8 +109,8 @@ describe('serializeState / deserializeState', () => {
     const state = new PipelineStateImpl('hello world');
     state.addToPool(makeVariation('v1', 'structural'));
     state.addToPool(makeVariation('v2', 'lexical'));
-    state.eloRatings.set('v1', 1250);
-    state.eloRatings.set('v2', 1150);
+    state.ratings.set('v1', { mu: 28, sigma: 5 });
+    state.ratings.set('v2', { mu: 22, sigma: 6 });
     state.matchCounts.set('v1', 3);
     state.matchCounts.set('v2', 3);
     state.iteration = 2;
@@ -122,7 +125,8 @@ describe('serializeState / deserializeState', () => {
     expect(restored.iteration).toBe(2);
     expect(restored.pool).toHaveLength(2);
     expect(restored.poolIds.size).toBe(2);
-    expect(restored.eloRatings.get('v1')).toBe(1250);
+    expect(restored.ratings.get('v1')!.mu).toBe(28);
+    expect(restored.ratings.get('v1')!.sigma).toBe(5);
     expect(restored.matchCounts.get('v1')).toBe(3);
     expect(restored.matchHistory).toHaveLength(1);
     expect(restored.debateTranscripts).toEqual([]);
@@ -154,5 +158,57 @@ describe('serializeState / deserializeState', () => {
     delete legacy.debateTranscripts;
     const restored = deserializeState(legacy as never);
     expect(restored.debateTranscripts).toEqual([]);
+  });
+});
+
+describe('backward compat: eloRatings deserialization', () => {
+  it('converts old eloRatings snapshot to new ratings format', () => {
+    const snapshot: SerializedPipelineState = {
+      iteration: 5,
+      originalText: 'test',
+      pool: [makeVariation('v1'), makeVariation('v2')],
+      newEntrantsThisIteration: [],
+      ratings: {},
+      eloRatings: { v1: 1400, v2: 1000 },
+      matchCounts: { v1: 6, v2: 4 },
+      matchHistory: [],
+      dimensionScores: null,
+      allCritiques: null,
+      similarityMatrix: null,
+      diversityScore: null,
+      metaFeedback: null,
+      debateTranscripts: [],
+    };
+
+    const state = deserializeState(snapshot);
+    expect(state.ratings.has('v1')).toBe(true);
+    expect(state.ratings.has('v2')).toBe(true);
+    // Higher old Elo → higher ordinal
+    expect(getOrdinal(state.ratings.get('v1')!)).toBeGreaterThan(
+      getOrdinal(state.ratings.get('v2')!),
+    );
+  });
+
+  it('prefers new ratings format over legacy eloRatings', () => {
+    const snapshot: SerializedPipelineState = {
+      iteration: 5,
+      originalText: 'test',
+      pool: [makeVariation('v1')],
+      newEntrantsThisIteration: [],
+      ratings: { v1: { mu: 30, sigma: 4 } },
+      eloRatings: { v1: 1000 },
+      matchCounts: { v1: 5 },
+      matchHistory: [],
+      dimensionScores: null,
+      allCritiques: null,
+      similarityMatrix: null,
+      diversityScore: null,
+      metaFeedback: null,
+      debateTranscripts: [],
+    };
+
+    const state = deserializeState(snapshot);
+    // Should use new format (mu=30), not convert from eloRatings (1000)
+    expect(state.ratings.get('v1')!.mu).toBe(30);
   });
 });

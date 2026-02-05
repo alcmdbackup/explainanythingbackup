@@ -2,6 +2,7 @@
 
 import { Tournament, swissPairing, budgetPressureConfig } from './tournament';
 import { PipelineStateImpl } from '../core/state';
+import { createRating, getOrdinal, type Rating } from '../core/rating';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
@@ -71,6 +72,15 @@ function makeCtx(
   return { ctx, state };
 }
 
+/** Helper: create a Rating map from ordinal-like values. */
+function makeRatings(entries: Array<[string, number]>): Map<string, Rating> {
+  const map = new Map<string, Rating>();
+  for (const [id, muValue] of entries) {
+    map.set(id, { mu: muValue, sigma: 4 }); // fixed sigma for test predictability
+  }
+  return map;
+}
+
 // ─── budgetPressureConfig tests ──────────────────────────────────
 
 describe('budgetPressureConfig', () => {
@@ -99,14 +109,9 @@ describe('budgetPressureConfig', () => {
 describe('swissPairing', () => {
   it('pairs similar-rated variants', () => {
     const state = makeState(4);
-    const elo = new Map<string, number>();
-    elo.set('v-0', 1300);
-    elo.set('v-1', 1290);
-    elo.set('v-2', 1100);
-    elo.set('v-3', 1110);
-    const pairs = swissPairing(state.pool, elo, new Set(), 1200);
+    const ratings = makeRatings([['v-0', 30], ['v-1', 29], ['v-2', 20], ['v-3', 21]]);
+    const pairs = swissPairing(state.pool, ratings, new Set());
     expect(pairs).toHaveLength(2);
-    // v-0 (1300) should pair with v-1 (1290), v-3 (1110) with v-2 (1100)
     const pairIds = pairs.map(([a, b]) => [a.id, b.id].sort());
     expect(pairIds).toContainEqual(['v-0', 'v-1']);
     expect(pairIds).toContainEqual(['v-2', 'v-3']);
@@ -114,14 +119,9 @@ describe('swissPairing', () => {
 
   it('skips already-played pairs', () => {
     const state = makeState(3);
-    const elo = new Map<string, number>();
-    elo.set('v-0', 1300);
-    elo.set('v-1', 1200);
-    elo.set('v-2', 1100);
+    const ratings = makeRatings([['v-0', 30], ['v-1', 25], ['v-2', 20]]);
     const completed = new Set(['v-0|v-1']);
-    const pairs = swissPairing(state.pool, elo, completed, 1200);
-    // v-0 can't play v-1 (completed). Info-theoretic scoring prefers v-1 vs v-2
-    // (higher outcome uncertainty) over v-0 vs v-2 (large Elo gap = low uncertainty)
+    const pairs = swissPairing(state.pool, ratings, completed);
     expect(pairs).toHaveLength(1);
     const pairIds = [pairs[0][0].id, pairs[0][1].id].sort();
     expect(pairIds).toEqual(['v-1', 'v-2']);
@@ -130,53 +130,36 @@ describe('swissPairing', () => {
   it('returns empty when all pairs played', () => {
     const state = makeState(2);
     const completed = new Set(['v-0|v-1']);
-    const pairs = swissPairing(state.pool, new Map(), completed, 1200);
+    const pairs = swissPairing(state.pool, new Map(), completed);
     expect(pairs).toHaveLength(0);
   });
 
   it('handles odd number of variants (one sits out)', () => {
     const state = makeState(3);
-    const pairs = swissPairing(state.pool, new Map(), new Set(), 1200);
+    const pairs = swissPairing(state.pool, new Map(), new Set());
     expect(pairs).toHaveLength(1);
   });
 
-  it('prefers under-tested variants via sigma proxy', () => {
+  it('prefers high-sigma variants', () => {
     const state = makeState(4);
-    const elo = new Map<string, number>();
-    // All at same rating → equal outcome uncertainty for all pairs
-    elo.set('v-0', 1200);
-    elo.set('v-1', 1200);
-    elo.set('v-2', 1200);
-    elo.set('v-3', 1200);
-    // v-0 and v-1 have many matches (low sigma), v-2 and v-3 are new (high sigma)
-    const matchCounts = new Map<string, number>();
-    matchCounts.set('v-0', 15);
-    matchCounts.set('v-1', 15);
-    matchCounts.set('v-2', 0);
-    matchCounts.set('v-3', 0);
-    const pairs = swissPairing(state.pool, elo, new Set(), 1200, matchCounts);
+    const ratings = new Map<string, Rating>();
+    // All at same mu → equal ordinal gap for all pairs
+    ratings.set('v-0', { mu: 25, sigma: 2 }); // low sigma (well-tested)
+    ratings.set('v-1', { mu: 25, sigma: 2 }); // low sigma
+    ratings.set('v-2', { mu: 25, sigma: 8 }); // high sigma (new)
+    ratings.set('v-3', { mu: 25, sigma: 8 }); // high sigma
+    const pairs = swissPairing(state.pool, ratings, new Set());
     expect(pairs).toHaveLength(2);
     // v-2 vs v-3 (both high sigma) should be the top-scored pair
     const topPairIds = [pairs[0][0].id, pairs[0][1].id].sort();
     expect(topPairIds).toEqual(['v-2', 'v-3']);
   });
 
-  it('pairs established variants with similar Elo (high outcome uncertainty)', () => {
+  it('pairs close-rated variants (high outcome uncertainty)', () => {
     const state = makeState(4);
-    const elo = new Map<string, number>();
-    elo.set('v-0', 1400);
-    elo.set('v-1', 1395);
-    elo.set('v-2', 1000);
-    elo.set('v-3', 1005);
-    // All have equal match counts so sigma is uniform
-    const matchCounts = new Map<string, number>();
-    matchCounts.set('v-0', 5);
-    matchCounts.set('v-1', 5);
-    matchCounts.set('v-2', 5);
-    matchCounts.set('v-3', 5);
-    const pairs = swissPairing(state.pool, elo, new Set(), 1200, matchCounts);
+    const ratings = makeRatings([['v-0', 35], ['v-1', 34.5], ['v-2', 20], ['v-3', 20.5]]);
+    const pairs = swissPairing(state.pool, ratings, new Set());
     expect(pairs).toHaveLength(2);
-    // Close-rated pairs should be preferred: v-0 vs v-1, v-2 vs v-3
     const pairIds = pairs.map(([a, b]) => [a.id, b.id].sort());
     expect(pairIds).toContainEqual(['v-0', 'v-1']);
     expect(pairIds).toContainEqual(['v-2', 'v-3']);
@@ -184,53 +167,30 @@ describe('swissPairing', () => {
 
   it('applies top-K boost to top-quartile matchups', () => {
     const state = makeState(6);
-    const elo = new Map<string, number>();
-    // Top 2 are close, rest are spread out
-    elo.set('v-0', 1500);
-    elo.set('v-1', 1495);
-    elo.set('v-2', 1300);
-    elo.set('v-3', 1295);
-    elo.set('v-4', 1100);
-    elo.set('v-5', 1095);
-    const matchCounts = new Map<string, number>();
-    for (let i = 0; i < 6; i++) matchCounts.set(`v-${i}`, 5);
-    const pairs = swissPairing(state.pool, elo, new Set(), 1200, matchCounts);
-    // With 6 variants, K = floor(6/3) = 2. Top-K threshold = rating of 2nd highest = 1495
-    // v-0 vs v-1 gets 1.5x top-K boost AND highest outcome uncertainty → must be first pair
+    const ratings = makeRatings([['v-0', 35], ['v-1', 34.5], ['v-2', 28], ['v-3', 27.5], ['v-4', 20], ['v-5', 19.5]]);
+    const pairs = swissPairing(state.pool, ratings, new Set());
+    // With 6 variants, K = floor(6/3) = 2. Top-2 = v-0, v-1
+    // v-0 vs v-1 gets 1.5x boost → must be first pair
     const topPairIds = [pairs[0][0].id, pairs[0][1].id].sort();
     expect(topPairIds).toEqual(['v-0', 'v-1']);
   });
 
-  it('handles empty matchCounts (all sigma = 1.0)', () => {
+  it('handles empty ratings (all default)', () => {
     const state = makeState(4);
-    const elo = new Map<string, number>();
-    elo.set('v-0', 1250);
-    elo.set('v-1', 1240);
-    elo.set('v-2', 1100);
-    elo.set('v-3', 1110);
-    // No matchCounts → default empty map, sigma(0) = 1/sqrt(1) = 1.0 for all
-    const pairs = swissPairing(state.pool, elo, new Set(), 1200);
+    const pairs = swissPairing(state.pool, new Map(), new Set());
     expect(pairs).toHaveLength(2);
-    // Close-rated pairs preferred: v-0 vs v-1 and v-2 vs v-3
-    const pairIds = pairs.map(([a, b]) => [a.id, b.id].sort());
-    expect(pairIds).toContainEqual(['v-0', 'v-1']);
-    expect(pairIds).toContainEqual(['v-2', 'v-3']);
   });
 
   it('returns empty for single variant', () => {
     const state = makeState(1);
-    const pairs = swissPairing(state.pool, new Map(), new Set(), 1200);
+    const pairs = swissPairing(state.pool, new Map(), new Set());
     expect(pairs).toHaveLength(0);
   });
 
   it('clamps K to 1 when pool < 3', () => {
-    // With 2 variants, K = max(1, floor(2/3)) = max(1, 0) = 1
-    // Should still pair the two variants
     const state = makeState(2);
-    const elo = new Map<string, number>();
-    elo.set('v-0', 1300);
-    elo.set('v-1', 1200);
-    const pairs = swissPairing(state.pool, elo, new Set(), 1200);
+    const ratings = makeRatings([['v-0', 30], ['v-1', 25]]);
+    const pairs = swissPairing(state.pool, ratings, new Set());
     expect(pairs).toHaveLength(1);
   });
 });
@@ -251,15 +211,14 @@ describe('Tournament', () => {
     expect(tournament.canExecute(state)).toBe(true);
   });
 
-  it('execute runs matches and updates Elo', async () => {
-    // All LLM responses: "A" (both bias-mitigated calls agree on A)
+  it('execute runs matches and updates ratings', async () => {
     const { ctx, state } = makeCtx(['A', 'B'], 4);
     const result = await tournament.execute(ctx);
     expect(result.success).toBe(true);
     expect(result.matchesPlayed).toBeGreaterThan(0);
-    // Elo ratings should be set for all variants
+    // Ratings should be set for all variants
     for (const v of state.pool) {
-      expect(state.eloRatings.has(v.id)).toBe(true);
+      expect(state.ratings.has(v.id)).toBe(true);
     }
   });
 
@@ -271,21 +230,16 @@ describe('Tournament', () => {
   });
 
   it('respects maxComparisons under high budget pressure', async () => {
-    // availableBudget = 0.5 → pressure ~0.9 → maxComparisons=15
     const { ctx } = makeCtx(['A', 'B'], 6, 0.5);
     const result = await tournament.execute(ctx);
     expect(result.success).toBe(true);
-    // With 6 variants, Swiss produces ~3 pairs per round
-    // At high pressure, maxComparisons=15, capped to min(15,40)=15
     expect(result.matchesPlayed!).toBeLessThanOrEqual(15);
   });
 
   it('detects convergence and stops early', async () => {
-    // With tiny pool (2 variants), converges in ~1 round (1 comparison)
     const { ctx } = makeCtx(['A', 'B'], 2);
     const result = await tournament.execute(ctx);
     expect(result.success).toBe(true);
-    // Convergence metric should be defined
     expect(result.convergence).toBeDefined();
   });
 
@@ -327,22 +281,46 @@ describe('Tournament', () => {
     expect(cost).toBeGreaterThan(0);
   });
 
-  it('initializes Elo for unrated variants', async () => {
+  it('initializes ratings for unrated variants', async () => {
     const { ctx, state } = makeCtx(['A', 'B'], 3);
-    // Clear ratings to simulate uninitialized state
-    state.eloRatings.clear();
-    expect(state.eloRatings.size).toBe(0);
+    state.ratings.clear();
+    expect(state.ratings.size).toBe(0);
     await tournament.execute(ctx);
-    // All should have ratings now
-    expect(state.eloRatings.size).toBe(3);
+    expect(state.ratings.size).toBe(3);
   });
 
-  it('winners gain Elo, losers lose Elo', async () => {
-    // All "A" + "B" (reversed) = both say A is better → A wins consistently
+  it('winners gain ordinal, losers lose ordinal', async () => {
     const { ctx, state } = makeCtx(['A', 'B'], 2);
     await tournament.execute(ctx);
-    const ratingA = state.eloRatings.get('v-0')!;
-    const ratingB = state.eloRatings.get('v-1')!;
-    expect(ratingA).toBeGreaterThan(ratingB);
+    const ratingA = state.ratings.get('v-0')!;
+    const ratingB = state.ratings.get('v-1')!;
+    expect(getOrdinal(ratingA)).toBeGreaterThan(getOrdinal(ratingB));
+  });
+
+  it('sigma-based convergence uses fewer comparisons than max rounds', async () => {
+    // Regression test: sigma-based convergence should terminate
+    // well before maxRounds when outcomes are consistent.
+    // With 8 variants and consistent A-wins results, the tournament
+    // should converge as sigmas shrink, requiring fewer total comparisons
+    // than the theoretical maximum (maxRounds * pairsPerRound).
+    const poolSize = 8;
+    // Consistent "A wins" produces clear ranking, driving sigmas down quickly
+    const { ctx, state } = makeCtx(['A', 'A'], poolSize);
+    const result = await tournament.execute(ctx);
+
+    expect(result.success).toBe(true);
+    // With 8 variants, max pairs per round = 4, maxRounds = 50 → theoretical max = 200
+    // Sigma-based convergence should stop significantly earlier
+    const maxTheoreticalComparisons = 50 * Math.floor(poolSize / 2);
+    expect(result.matchesPlayed!).toBeLessThan(maxTheoreticalComparisons);
+    // Convergence metric should be positive, indicating some sigma reduction occurred
+    expect(result.convergence!).toBeGreaterThan(0);
+    // Verify ordinal ranking is established: top variant should have higher ordinal
+    const ordinals = [...state.ratings.entries()]
+      .map(([id, r]) => ({ id, ordinal: getOrdinal(r) }))
+      .sort((a, b) => b.ordinal - a.ordinal);
+    // The winner (v-0, always presented as A) should be in the top half
+    const topHalf = ordinals.slice(0, Math.floor(poolSize / 2)).map((o) => o.id);
+    expect(topHalf).toContain('v-0');
   });
 });

@@ -1,10 +1,10 @@
-// Swiss-style tournament ranking agent with Elo ratings.
-// Wraps PairwiseRanker for efficient ranking via Swiss pairing, budget-adaptive depth, and convergence detection.
+// Swiss-style tournament ranking agent with OpenSkill Bayesian ratings.
+// Wraps PairwiseRanker for efficient ranking via Swiss pairing, budget-adaptive depth, and sigma-based convergence.
 
 import { AgentBase } from './base';
 import { PairwiseRanker } from './pairwiseRanker';
-import { getAdaptiveK, updateEloWithConfidence } from '../core/elo';
-import { ELO_CONSTANTS } from '../config';
+import { updateRating, updateDraw, getOrdinal, isConverged, createRating, type Rating } from '../core/rating';
+import { RATING_CONSTANTS } from '../config';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation } from '../types';
 
 // ─── Budget pressure configuration ─────────────────────────────
@@ -29,19 +29,19 @@ export function budgetPressureConfig(pressure: number): BudgetPressureConfig {
 // ─── Tournament config ──────────────────────────────────────────
 
 export interface TournamentConfig {
-  initialRating: number;
   maxRounds: number;
   convergenceChecks: number;
   maxComparisons: number;
   maxStaleRounds: number;
+  convergenceSigmaThreshold: number;
 }
 
 const DEFAULT_TOURNAMENT_CONFIG: TournamentConfig = {
-  initialRating: ELO_CONSTANTS.INITIAL_RATING,
   maxRounds: 50,
   convergenceChecks: 5,
   maxComparisons: 40,
   maxStaleRounds: 3,
+  convergenceSigmaThreshold: RATING_CONSTANTS.CONVERGENCE_SIGMA_THRESHOLD,
 };
 
 // ─── Swiss pairing ──────────────────────────────────────────────
@@ -50,32 +50,22 @@ function normalizePair(idA: string, idB: string): string {
   return idA < idB ? `${idA}|${idB}` : `${idB}|${idA}`;
 }
 
-/** Uncertainty proxy: variants with fewer matches have higher sigma. */
-function sigma(matchCount: number): number {
-  return 1 / Math.sqrt(Math.min(matchCount, 20) + 1);
-}
-
-/** Elo expected score for player A against player B. */
-function expectedScore(ratingA: number, ratingB: number): number {
-  return 1 / (1 + Math.pow(10, (ratingB - ratingA) / 400));
-}
-
-/** Info-theoretic Swiss pairing: score candidate pairs by information gain potential. */
+/** Info-theoretic Swiss pairing using OpenSkill ordinal and real sigma. */
 export function swissPairing(
   variants: TextVariation[],
-  eloRatings: Map<string, number>,
+  ratings: Map<string, Rating>,
   completedPairs: Set<string>,
-  initialRating: number,
-  matchCounts: Map<string, number> = new Map(),
 ): Array<[TextVariation, TextVariation]> {
   if (variants.length < 2) return [];
 
+  const defaultRating = createRating();
+
   // Determine top-K threshold (K = max(1, floor(pool/3)))
   const k = Math.max(1, Math.floor(variants.length / 3));
-  const sortedRatings = [...variants]
-    .map((v) => eloRatings.get(v.id) ?? initialRating)
+  const sortedOrdinals = [...variants]
+    .map((v) => getOrdinal(ratings.get(v.id) ?? defaultRating))
     .sort((a, b) => b - a);
-  const topKThreshold = sortedRatings[Math.min(k, sortedRatings.length) - 1];
+  const topKThreshold = sortedOrdinals[Math.min(k, sortedOrdinals.length) - 1];
 
   // Score all candidate pairs
   const candidatePairs: Array<{ a: TextVariation; b: TextVariation; score: number }> = [];
@@ -85,21 +75,24 @@ export function swissPairing(
       const b = variants[j];
       if (completedPairs.has(normalizePair(a.id, b.id))) continue;
 
-      const rA = eloRatings.get(a.id) ?? initialRating;
-      const rB = eloRatings.get(b.id) ?? initialRating;
+      const rA = ratings.get(a.id) ?? defaultRating;
+      const rB = ratings.get(b.id) ?? defaultRating;
+      const ordA = getOrdinal(rA);
+      const ordB = getOrdinal(rB);
 
-      // Outcome uncertainty: highest when expected score ≈ 0.5
-      const expA = expectedScore(rA, rB);
-      const outcomeUncertainty = 1 - Math.abs(2 * expA - 1);
+      // Outcome uncertainty: use ordinal gap scaled to [0, 1]
+      // Smaller gap = higher uncertainty = more information from this match
+      const ordGap = Math.abs(ordA - ordB);
+      const outcomeUncertainty = 1 / (1 + ordGap / 10);
 
-      // Sigma proxy: preference for under-tested variants
-      const sigmaProxy = (sigma(matchCounts.get(a.id) ?? 0) + sigma(matchCounts.get(b.id) ?? 0)) / 2;
+      // Real sigma: preference for high-uncertainty variants
+      const sigmaWeight = (rA.sigma + rB.sigma) / 2;
 
       // Top-K boost: 1.5x if both in top K
-      const bothTopK = rA >= topKThreshold && rB >= topKThreshold;
+      const bothTopK = ordA >= topKThreshold && ordB >= topKThreshold;
       const topKBoost = bothTopK ? 1.5 : 1.0;
 
-      candidatePairs.push({ a, b, score: outcomeUncertainty * sigmaProxy * topKBoost });
+      candidatePairs.push({ a, b, score: outcomeUncertainty * sigmaWeight * topKBoost });
     }
   }
 
@@ -130,12 +123,12 @@ export class Tournament extends AgentBase {
     this.cfg = { ...DEFAULT_TOURNAMENT_CONFIG, ...config };
   }
 
-  /** Get top quartile Elo threshold. */
-  private getTopQuartileElo(eloRatings: Map<string, number>): number {
-    if (eloRatings.size < 4) {
-      return eloRatings.size > 0 ? Math.max(...eloRatings.values()) : this.cfg.initialRating;
+  /** Get top quartile ordinal threshold. */
+  private getTopQuartileOrdinal(ratings: Map<string, Rating>): number {
+    if (ratings.size < 4) {
+      return ratings.size > 0 ? Math.max(...[...ratings.values()].map(getOrdinal)) : 0;
     }
-    const sorted = [...eloRatings.values()].sort((a, b) => b - a);
+    const sorted = [...ratings.values()].map(getOrdinal).sort((a, b) => b - a);
     return sorted[Math.floor(sorted.length / 4)];
   }
 
@@ -143,19 +136,21 @@ export class Tournament extends AgentBase {
   private needsMultiTurn(
     idA: string,
     idB: string,
-    eloRatings: Map<string, number>,
+    ratings: Map<string, Rating>,
     budgetCfg: BudgetPressureConfig,
     multiTurnCount: number,
   ): boolean {
     if (multiTurnCount >= budgetCfg.maxMultiTurnDebates) return false;
 
-    const ratingA = eloRatings.get(idA) ?? this.cfg.initialRating;
-    const ratingB = eloRatings.get(idB) ?? this.cfg.initialRating;
-    const diff = Math.abs(ratingA - ratingB);
+    const defaultRating = createRating();
+    const rA = ratings.get(idA) ?? defaultRating;
+    const rB = ratings.get(idB) ?? defaultRating;
+    const muDiff = Math.abs(rA.mu - rB.mu);
 
-    const topThreshold = this.getTopQuartileElo(eloRatings);
-    const bothTopQuartile = ratingA >= topThreshold && ratingB >= topThreshold;
-    const closeMatch = diff < budgetCfg.multiTurnThreshold;
+    const topThreshold = this.getTopQuartileOrdinal(ratings);
+    const bothTopQuartile = getOrdinal(rA) >= topThreshold && getOrdinal(rB) >= topThreshold;
+    // Scale multiTurnThreshold from Elo scale to mu scale (divide by ~16)
+    const closeMatch = muDiff < budgetCfg.multiTurnThreshold / 16;
 
     return bothTopQuartile && closeMatch;
   }
@@ -187,9 +182,10 @@ export class Tournament extends AgentBase {
         return { ...match, confidence: 0.4, turns: 3, dimensionScores: mergedDims };
       }
       // TIE tiebreaker → higher-rated variant wins
-      const eloA = ctx.state.eloRatings.get(varA.id) ?? this.cfg.initialRating;
-      const eloB = ctx.state.eloRatings.get(varB.id) ?? this.cfg.initialRating;
-      const tieWinner = eloA >= eloB ? varA.id : varB.id;
+      const defaultRating = createRating();
+      const ordA = getOrdinal(ctx.state.ratings.get(varA.id) ?? defaultRating);
+      const ordB = getOrdinal(ctx.state.ratings.get(varB.id) ?? defaultRating);
+      const tieWinner = ordA >= ordB ? varA.id : varB.id;
       return { ...match, winner: tieWinner, confidence: 0.6, turns: 3, dimensionScores: mergedDims };
     }
 
@@ -210,16 +206,15 @@ export class Tournament extends AgentBase {
 
     logger.info('Tournament start', { poolSize: pool.length, budgetPressure: budgetPressure.toFixed(2), maxComparisons });
 
-    // Initialize Elo for any variants not yet rated
+    // Initialize rating for any variants not yet rated
     for (const v of pool) {
-      if (!state.eloRatings.has(v.id)) {
-        state.eloRatings.set(v.id, this.cfg.initialRating);
+      if (!state.ratings.has(v.id)) {
+        state.ratings.set(v.id, createRating());
       }
     }
 
     const completedPairs = new Set<string>();
     let multiTurnCount = 0;
-    const prevRatings = new Map(state.eloRatings);
     const matches: Match[] = [];
     let totalComparisons = 0;
     let convergenceStreak = 0;
@@ -231,7 +226,7 @@ export class Tournament extends AgentBase {
         break;
       }
 
-      const pairs = swissPairing(pool, state.eloRatings, completedPairs, this.cfg.initialRating, state.matchCounts);
+      const pairs = swissPairing(pool, state.ratings, completedPairs);
 
       if (pairs.length === 0) {
         staleRounds++;
@@ -250,7 +245,7 @@ export class Tournament extends AgentBase {
       // Pre-compute multi-turn flags before parallel execution
       const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
-          varA.id, varB.id, state.eloRatings, budgetCfg, multiTurnCount,
+          varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount,
         );
         if (useMultiTurn) multiTurnCount++;
         return { varA, varB, useMultiTurn };
@@ -263,7 +258,7 @@ export class Tournament extends AgentBase {
         ),
       );
 
-      // Apply Elo updates sequentially after all round promises resolve
+      // Apply rating updates sequentially after all round promises resolve
       for (let pi = 0; pi < roundResults.length; pi++) {
         const result = roundResults[pi];
         if (result.status !== 'fulfilled') continue;
@@ -273,32 +268,37 @@ export class Tournament extends AgentBase {
         matches.push(match);
         state.matchHistory.push(match);
 
-        const kA = getAdaptiveK(state.matchCounts.get(varA.id) ?? 0);
-        const kB = getAdaptiveK(state.matchCounts.get(varB.id) ?? 0);
-        const kFactor = (kA + kB) / 2;
-
         const winnerId = match.winner;
         const loserId = winnerId === varA.id ? varB.id : varA.id;
-        updateEloWithConfidence(state, winnerId, loserId, match.confidence, kFactor);
+        const winnerRating = state.ratings.get(winnerId) ?? createRating();
+        const loserRating = state.ratings.get(loserId) ?? createRating();
+
+        // Use draw update for low-confidence results, decisive update otherwise
+        if (match.confidence < 0.3) {
+          const [newA, newB] = updateDraw(winnerRating, loserRating);
+          state.ratings.set(winnerId, newA);
+          state.ratings.set(loserId, newB);
+        } else {
+          const [newW, newL] = updateRating(winnerRating, loserRating);
+          state.ratings.set(winnerId, newW);
+          state.ratings.set(loserId, newL);
+        }
+
+        state.matchCounts.set(winnerId, (state.matchCounts.get(winnerId) ?? 0) + 1);
+        state.matchCounts.set(loserId, (state.matchCounts.get(loserId) ?? 0) + 1);
 
         completedPairs.add(normalizePair(varA.id, varB.id));
         totalComparisons++;
       }
 
-      // Convergence detection: max Elo change < 10 for N consecutive checks
-      let maxChange = 0;
-      for (const [vid, rating] of state.eloRatings) {
-        maxChange = Math.max(maxChange, Math.abs(rating - (prevRatings.get(vid) ?? rating)));
-      }
-      prevRatings.clear();
-      for (const [vid, rating] of state.eloRatings) {
-        prevRatings.set(vid, rating);
-      }
-
-      if (maxChange < 10) {
+      // Sigma-based convergence: all ratings converged for N consecutive checks
+      const allConverged = [...state.ratings.values()].every(
+        (r) => isConverged(r, this.cfg.convergenceSigmaThreshold),
+      );
+      if (allConverged) {
         convergenceStreak++;
         if (convergenceStreak >= this.cfg.convergenceChecks) {
-          logger.info('Tournament converged', { round, comparisons: totalComparisons });
+          logger.info('Tournament converged (sigma-based)', { round, comparisons: totalComparisons });
           break;
         }
       } else {
@@ -306,14 +306,13 @@ export class Tournament extends AgentBase {
       }
     }
 
-    // Convergence metric: normalized rating spread (lower std = higher convergence)
+    // Convergence metric: average sigma normalized (lower = more converged)
     let convergenceMetric = 1.0;
-    if (state.eloRatings.size > 1) {
-      const ratings = [...state.eloRatings.values()];
-      const mean = ratings.reduce((s, r) => s + r, 0) / ratings.length;
-      const variance = ratings.reduce((s, r) => s + (r - mean) ** 2, 0) / ratings.length;
-      const stdDev = Math.sqrt(variance);
-      convergenceMetric = Math.max(0, Math.min(1, 1 - stdDev / 200));
+    if (state.ratings.size > 1) {
+      const sigmas = [...state.ratings.values()].map((r) => r.sigma);
+      const avgSigma = sigmas.reduce((s, v) => s + v, 0) / sigmas.length;
+      // Default sigma ≈ 8.333, threshold ≈ 3.0. Normalize so 0 sigma → 1.0, default → 0
+      convergenceMetric = Math.max(0, Math.min(1, 1 - avgSigma / (25 / 3)));
     }
 
     logger.info('Tournament complete', { matchesPlayed: matches.length, convergenceMetric: convergenceMetric.toFixed(3) });

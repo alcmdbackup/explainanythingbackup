@@ -28,14 +28,14 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
     }
   }
 
-  // Phase 1: Calibration complete — elo_ratings must exist
+  // Phase 1: Calibration complete — ratings must exist
   if (expectedPhase >= 1) {
-    if (state.eloRatings.size === 0) {
-      violations.push('Phase 1 complete but no eloRatings');
+    if (state.ratings.size === 0) {
+      violations.push('Phase 1 complete but no ratings');
     } else {
       for (const v of state.pool) {
-        if (!state.eloRatings.has(v.id)) {
-          violations.push(`No eloRating for pool member ${v.id}`);
+        if (!state.ratings.has(v.id)) {
+          violations.push(`No rating for pool member ${v.id}`);
         }
       }
     }
@@ -43,12 +43,12 @@ export function validateStateContracts(state: PipelineState, expectedPhase: Agen
 
   // Phase 2: Tournament — match_history must exist
   if (expectedPhase >= 2) {
-    if (state.eloRatings.size === 0) {
-      violations.push('Phase 2 complete but no eloRatings');
+    if (state.ratings.size === 0) {
+      violations.push('Phase 2 complete but no ratings');
     } else {
-      for (const id of state.eloRatings.keys()) {
+      for (const id of state.ratings.keys()) {
         if (!state.poolIds.has(id)) {
-          violations.push(`eloRating for unknown variation ${id}`);
+          violations.push(`Rating for unknown variation ${id}`);
         }
       }
     }

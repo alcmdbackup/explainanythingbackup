@@ -2,7 +2,7 @@
 
 ## Overview
 
-The evolution pipeline is an autonomous content improvement system that iteratively generates, competes, and refines text variations of existing articles using LLM-driven agents. It operates as a self-contained subsystem under `src/lib/evolution/` with its own agent framework, Elo rating system, budget enforcement, and checkpoint/resume capability.
+The evolution pipeline is an autonomous content improvement system that iteratively generates, competes, and refines text variations of existing articles using LLM-driven agents. It operates as a self-contained subsystem under `src/lib/evolution/` with its own agent framework, OpenSkill Bayesian rating system, budget enforcement, and checkpoint/resume capability.
 
 The pipeline uses an evolutionary algorithm metaphor: a pool of text variants competes via LLM-judged pairwise comparisons, top performers reproduce via mutation and crossover, and the population converges toward higher quality through iterative selection pressure.
 
@@ -21,14 +21,14 @@ Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool)
 
 ## Key Concepts
 
-### Elo Rating System
-A rating system originally from chess where competitors gain or lose points based on head-to-head outcomes. A variant that beats a higher-rated opponent gains more points than one that beats a lower-rated opponent. The system converges over many matches to reflect true relative quality. In this pipeline, every text variant starts at Elo 1200 and gains/loses points through pairwise LLM-judged comparisons.
+### OpenSkill Bayesian Rating System
+Variants are rated using an OpenSkill (Weng-Lin Bayesian) rating system (`core/rating.ts`) where each variant has a `{mu, sigma}` pair: `mu` is the estimated skill and `sigma` is the uncertainty. New variants start at `mu=25, sigma=8.333`. After each pairwise comparison, the winner's `mu` increases and the loser's decreases, while both sigmas shrink (uncertainty decreases). The **ordinal** (`mu - 3*sigma`) provides a conservative skill estimate used for ranking — it penalizes variants with few matches (high sigma). The system converges when all sigmas fall below a threshold (default: 3.0). For backward compatibility with the existing `elo_score` DB column (0-3000 range), ordinal values are mapped via `ordinalToEloScale()`.
 
 ### Swiss-Style Tournament (Info-Theoretic Pairing)
-A pairing strategy that maximizes information gain per comparison. Instead of greedy adjacent matching after Elo sort, candidate pairs are scored by three factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is (from Elo expected score), (2) **sigma proxy** — `1/√(min(matchCount,20)+1)`, giving priority to under-tested variants whose ratings are still uncertain, and (3) **top-K boost** — a 1.5x multiplier when both variants are in the top third of the pool, since accurate ranking at the top matters most. Pairs are selected greedily by descending score, skipping already-played and already-used variants. This produces ~35-45% fewer rounds to converge compared to the prior adjacent-matching approach.
+A pairing strategy that maximizes information gain per comparison. Instead of greedy adjacent matching after ordinal sort, candidate pairs are scored by three factors: (1) **outcome uncertainty** — how close to 50/50 the expected result is (from ordinal gap), (2) **sigma** — the real Bayesian uncertainty from the rating, giving priority to under-tested variants whose ratings are still uncertain, and (3) **top-K boost** — a 1.5x multiplier when both variants are in the top third of the pool, since accurate ranking at the top matters most. Pairs are selected greedily by descending score, skipping already-played and already-used variants. Convergence is sigma-based: the tournament stops when all variant sigmas fall below the convergence threshold (default: 3.0).
 
 ### Stratified Opponent Selection
-For calibrating new entrants, opponents are drawn from different Elo tiers rather than randomly. For n=5 opponents: 2 from the top quartile, 2 from the middle, and 1 from the bottom or fellow new entrants. This ensures a new variant is tested against both strong and weak competitors, producing a more accurate initial rating.
+For calibrating new entrants, opponents are drawn from different ordinal tiers rather than randomly. For n=5 opponents: 2 from the top quartile, 2 from the middle, and 1 from the bottom or fellow new entrants. This ensures a new variant is tested against both strong and weak competitors, producing a more accurate initial rating.
 
 ### Tiered Model Routing
 The pipeline routes LLM calls to different models based on task complexity. Trivial A/B comparison judgments (`judgeModel`, default: `gpt-4.1-nano`) use a model 4x cheaper than text generation (`generationModel`, default: `gpt-4.1-mini`). The underlying `llmClient.ts` default model is `deepseek-chat` — agents override this via `judgeModel`/`generationModel` config fields passed as `LLMCompletionOptions`.
@@ -67,7 +67,7 @@ await triggerEvolutionRunAction(run.id);
 
 // 3. View ranked variants
 const variants = await getEvolutionVariantsAction(run.id);
-// Returns variants sorted by Elo descending — variants[0] is the winner
+// Returns variants sorted by ordinal descending — variants[0] is the winner
 
 // 4. Apply the winning variant to the article
 await applyWinnerAction({
@@ -87,7 +87,7 @@ await rollbackEvolutionAction({ explanationId, historyId });
 The evolution admin page lives at `/admin/quality/evolution` and provides:
 - Summary cards (total runs, completion rate, total/avg cost)
 - Filterable runs table (by status and date range)
-- Variant panel showing Elo-ranked variants with text preview
+- Variant panel showing rating-ranked variants with text preview
 - Queue dialog for manually queuing runs
 - Apply Winner / Rollback buttons
 - Cost breakdown chart by agent
@@ -109,12 +109,12 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 **COMPETITION** (iterations N+1 to max): Refine the best variants
 - GenerationAgent creates 3 variants per iteration (same as EXPANSION). **Note:** The supervisor prepares a rotating single-strategy payload for COMPETITION, but the current `GenerationAgent` does not consume it — it always generates all 3 strategies. This is a known gap between the supervisor's design intent and the agent's implementation.
 - ReflectionAgent critiques top 3 variants across 5 dimensions: clarity, structure, engagement, precision, coherence. Produces per-dimension scores (1–10), examples, and notes.
-- IterativeEditingAgent takes the top variant by Elo, identifies weaknesses from ReflectionAgent critiques and open-ended review, generates surgical edits, and gates each edit via blind diff-based LLM comparison with direction-reversal bias mitigation. Only edits that pass the blind judge are added to the pool. Gated by `iterativeEditingEnabled` feature flag. See [Iterative Editing Agent](./iterative_editing_agent.md) for details.
-- DebateAgent selects the top 2 non-baseline variants by Elo and runs a structured 3-turn debate: Advocate A argues for Variant A, Advocate B rebuts and argues for Variant B, a Judge synthesizes recommendations into JSON. A fourth LLM call generates an improved variant from the judge's recommendations. Consumes ReflectionAgent critiques as optional context. Produces a `debate_synthesis` variant with both debated variants as parents. Gated by `debateEnabled` feature flag. Inspired by Google DeepMind's AI Co-Scientist (arxiv 2502.18864).
+- IterativeEditingAgent takes the top variant by ordinal, identifies weaknesses from ReflectionAgent critiques and open-ended review, generates surgical edits, and gates each edit via blind diff-based LLM comparison with direction-reversal bias mitigation. Only edits that pass the blind judge are added to the pool. Gated by `iterativeEditingEnabled` feature flag. See [Iterative Editing Agent](./iterative_editing_agent.md) for details.
+- DebateAgent selects the top 2 non-baseline variants by ordinal and runs a structured 3-turn debate: Advocate A argues for Variant A, Advocate B rebuts and argues for Variant B, a Judge synthesizes recommendations into JSON. A fourth LLM call generates an improved variant from the judge's recommendations. Consumes ReflectionAgent critiques as optional context. Produces a `debate_synthesis` variant with both debated variants as parents. Gated by `debateEnabled` feature flag. Inspired by Google DeepMind's AI Co-Scientist (arxiv 2502.18864).
 - EvolutionAgent creates children from top parents via mutation (clarity/structure), crossover (combine two parents), and creative exploration (30% random chance or when diversity < 0.5 — generates a "wild card" variant with completely different approach to prevent pool homogenization).
 - Ranking agent: **Tournament** (Swiss-style, default) or **CalibrationRanker** (if `evolution_tournament_enabled` flag is false). Uses 5 opponents per entrant in this phase.
 - ProximityAgent continues diversity monitoring.
-- MetaReviewAgent analyzes which strategies produce above-average Elo variants, identifies weaknesses in bottom-quartile performers, and flags strategies with consistently negative parent-to-child Elo deltas. This meta-feedback is consumed by GenerationAgent and EvolutionAgent in subsequent iterations to guide prompt construction. No LLM calls — pure computation.
+- MetaReviewAgent analyzes which strategies produce above-average ordinal variants, identifies weaknesses in bottom-quartile performers, and flags strategies with consistently negative parent-to-child ordinal deltas. This meta-feedback is consumed by GenerationAgent and EvolutionAgent in subsequent iterations to guide prompt construction. No LLM calls — pure computation.
 
 ### Two Pipeline Modes
 
@@ -138,7 +138,7 @@ abstract class AgentBase {
 
 Every agent receives an `ExecutionContext` containing:
 - `payload`: Original text, title, explanation ID, run config
-- `state`: Mutable `PipelineState` (pool, Elo ratings, match history, critiques, diversity)
+- `state`: Mutable `PipelineState` (pool, OpenSkill ratings, match history, critiques, diversity)
 - `llmClient`: Budget-enforced LLM client wrapping `callLLM` (`core/llmClient.ts`)
 - `logger`: Structured logger with `{subsystem: 'evolution', runId}` context (`core/logger.ts`)
 - `costTracker`: Per-agent and global budget enforcement (`core/costTracker.ts`)
@@ -153,16 +153,16 @@ All agents that make multiple independent LLM calls use `Promise.allSettled()` f
 - **CalibrationRanker**: Batched parallelism — first `minOpponents` in parallel, then remaining batch. Each comparison's forward+reverse bias rounds also run concurrently via `Promise.all`.
 - **Tournament**: All Swiss-round pairs run in parallel within each round. Each comparison's forward+reverse bias rounds also run concurrently via `Promise.all`.
 
-State mutations (pool additions, Elo updates) happen sequentially after all promises resolve. `BudgetExceededError` is explicitly re-thrown from rejected `Promise.allSettled` results to ensure proper pipeline error handling.
+State mutations (pool additions, rating updates) happen sequentially after all promises resolve. `BudgetExceededError` is explicitly re-thrown from rejected `Promise.allSettled` results to ensure proper pipeline error handling.
 
-### Elo Rating System
+### Rating Updates
 
-Variants are ranked using an Elo rating system (`core/elo.ts`) — a probabilistic rating where higher-rated variants are expected to win against lower-rated ones, and upsets cause larger rating swings:
+Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 
-- **Initial rating**: 1200
-- **Floor**: 800 (prevents negative spiral where a variant loses so many points it can never recover)
-- **Adaptive K-factor**: Controls how much ratings change per match. K=48 for <5 matches (rapid initial calibration), K=32 for 5–15 matches, K=16 for 15+ matches (stability after many games)
-- **Confidence-weighted updates**: When position-bias mitigation produces disagreement between rounds, the confidence score (0.0–1.0) blends the Elo update toward a draw. Full agreement = confidence 1.0 = decisive update. Full disagreement = confidence 0.5 = half-strength update.
+- **`updateRating(winner, loser)`**: Updates both ratings after a decisive match. Winner's mu increases, loser's decreases, both sigmas shrink.
+- **`updateDraw(a, b)`**: Updates both ratings toward each other (used for low-confidence comparisons).
+- **Confidence-weighted updates**: When position-bias mitigation produces disagreement between rounds, the confidence score determines whether `updateRating` (confidence >= 0.7) or `updateDraw` (confidence < 0.7) is applied. Full agreement = decisive update. Disagreement = draw.
+- **Sigma-based convergence**: Unlike Elo's fixed K-factor, OpenSkill automatically adjusts update magnitude via sigma decay. High-sigma (uncertain) variants see larger updates; low-sigma (well-tested) variants see smaller updates.
 
 ### Budget Enforcement
 
@@ -175,8 +175,8 @@ The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
 ### Checkpoint, Resume, and Error Recovery
 
 State is checkpointed to `evolution_checkpoints` table after every agent execution:
-- Full pipeline state serialized to JSON (pool, Elo ratings, match history, critiques, diversity, meta-feedback)
-- Supervisor resume state preserved (phase, strategy rotation index, Elo/diversity history). **Note:** `eloHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
+- Full pipeline state serialized to JSON (pool, ratings, match history, critiques, diversity, meta-feedback)
+- Supervisor resume state preserved (phase, strategy rotation index, ordinal/diversity history). **Note:** `ordinalHistory` and `diversityHistory` are cleared when EXPANSION→COMPETITION transition occurs, so these arrays only track COMPETITION phase metrics.
 - Heartbeat updates to `content_evolution_runs` after every agent step
 
 **Error recovery paths:**
@@ -194,7 +194,7 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 
 The PoolSupervisor evaluates four stopping conditions at the start of each iteration:
 
-1. **Quality plateau** (COMPETITION only): If the top variant's Elo improves by less than `threshold × 100` Elo points (default: 2 points) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
+1. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold × 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
 2. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
 3. **Max iterations**: Hard cap at `maxIterations` (default: 15).
 4. **Degenerate state**: If diversity score drops below 0.01 during a plateau check, the pool has collapsed to near-identical variants — continuing would waste budget.
@@ -249,7 +249,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)
-   ├─ Quality plateau (top Elo change < 2 points over 3 iterations)
+   ├─ Quality plateau (top ordinal change < 0.12 over 3 iterations)
    ├─ Budget exhausted (available < $0.01)
    ├─ Max iterations reached (default: 15)
    └─ Degenerate state (diversity < 0.01 during plateau)
@@ -278,20 +278,20 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | Agent | Reads | Writes |
 |-------|-------|--------|
 | GenerationAgent | `originalText`, `metaFeedback` | `pool` (new variants via `addToPool`) |
-| CalibrationRanker | `newEntrantsThisIteration`, `pool`, `config.calibration.opponents` | `eloRatings`, `matchCounts`, `matchHistory` |
-| Tournament | `pool`, `eloRatings`, `matchCounts`, `config.budgetCapUsd`, `config.calibration.opponents` | `eloRatings`, `matchCounts`, `matchHistory` |
-| EvolutionAgent | `pool` (top by Elo), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
-| ReflectionAgent | `pool` (top 3 by Elo) | `allCritiques`, `dimensionScores` |
-| IterativeEditingAgent | `pool` (top 1 by Elo), `allCritiques`, `eloRatings` | `pool` (critique_edit variants via `addToPool`) |
-| DebateAgent | `pool` (top 2 non-baseline by Elo), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
+| CalibrationRanker | `newEntrantsThisIteration`, `pool`, `config.calibration.opponents` | `ratings`, `matchCounts`, `matchHistory` |
+| Tournament | `pool`, `ratings`, `matchCounts`, `config.budgetCapUsd`, `config.calibration.opponents` | `ratings`, `matchCounts`, `matchHistory` |
+| EvolutionAgent | `pool` (top by ordinal), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
+| ReflectionAgent | `pool` (top 3 by ordinal) | `allCritiques`, `dimensionScores` |
+| IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (critique_edit variants via `addToPool`) |
+| DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
-| MetaReviewAgent | `pool`, `eloRatings`, `diversityScore` | `metaFeedback` |
+| MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
 
 **State lifecycle notes:**
 - `newEntrantsThisIteration`: Populated by `addToPool()` whenever a variant enters the pool. Cleared by `startNewIteration()` at the top of each iteration loop.
 - `metaFeedback`: Written by MetaReviewAgent at end of COMPETITION iterations. Read by GenerationAgent and EvolutionAgent in the *next* iteration to steer prompt construction.
 - `debateTranscripts`: Appended by DebateAgent after each debate (including partial transcripts on failure). Serialized to checkpoints for debugging and observability.
-- All pool mutations go through `PipelineStateImpl.addToPool()`, which enforces deduplication via `poolIds` Set and initializes Elo to 1200.
+- All pool mutations go through `PipelineStateImpl.addToPool()`, which enforces deduplication via `poolIds` Set and initializes a default OpenSkill rating (`mu=25, sigma=8.333`).
 
 ## Run Summary
 
@@ -315,8 +315,8 @@ Fields:
 ### Minimum Pool Size
 - **CalibrationRanker**: Requires `pool.length >= 2` (`canExecute` guard). Skipped on first iteration if GenerationAgent produced < 2 variants.
 - **Tournament**: Requires `pool.length >= 2`.
-- **EvolutionAgent**: Requires `pool.length >= 1` and `eloRatings.size >= 1`. Crossover requires 2 parents — falls back to mutation if only 1 parent available.
-- **DebateAgent**: Requires 2+ non-baseline variants with Elo ratings. Baselines (`original_baseline` strategy) are excluded from both `canExecute` and parent selection.
+- **EvolutionAgent**: Requires `pool.length >= 1` and `ratings.size >= 1`. Crossover requires 2 parents — falls back to mutation if only 1 parent available.
+- **DebateAgent**: Requires 2+ non-baseline variants with ratings. Baselines (`original_baseline` strategy) are excluded from both `canExecute` and parent selection.
 - **ProximityAgent**: Requires `pool.length >= 2`.
 
 ### Format Validation Failures
@@ -388,12 +388,12 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `pipeline.ts` | Pipeline orchestrator — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production) |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
-| `elo.ts` | Stateless Elo rating functions: `updateEloRatings`, `updateEloDraw`, `updateEloWithConfidence` |
+| `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
 | `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin |
 | `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
-| `pool.ts` | `PoolManager` — stratified opponent selection (Elo quartile-based) and pool health statistics |
+| `pool.ts` | `PoolManager` — stratified opponent selection (ordinal quartile-based) and pool health statistics |
 | `diversityTracker.ts` | `PoolDiversityTracker` — lineage dominance detection, strategy diversity analysis, trend computation |
-| `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (Elo populated, matches exist, etc.) |
+| `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` — factory adding `{subsystem: 'evolution', runId}` to all log entries |
 | `featureFlags.ts` | Reads `feature_flags` table for tournament/evolvePool/dryRun/debate/iterativeEditing toggles with safe defaults |
@@ -413,12 +413,12 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `generationAgent.ts` | Creates 3 variants per iteration using structural_transform, lexical_simplify, grounding_enhance strategies |
 | `calibrationRanker.ts` | Pairwise comparison for new entrants against stratified opponents with position-bias mitigation |
 | `pairwiseRanker.ts` | Full pairwise comparison with simple (A/B/TIE) and structured (5-dimension scoring) modes |
-| `tournament.ts` | Swiss-style tournament — budget-adaptive depth, multi-turn tiebreakers for top-quartile close matches, convergence detection |
+| `tournament.ts` | Swiss-style tournament — budget-adaptive depth, multi-turn tiebreakers for top-quartile close matches, sigma-based convergence detection |
 | `evolvePool.ts` | Genetic evolution — mutation (clarity/structure), crossover (two parents), creative exploration (30% wild card) |
 | `reflectionAgent.ts` | Dimensional critique of top 3 variants: per-dimension scores 1–10, good/bad examples, improvement notes |
 | `iterativeEditingAgent.ts` | Critique-driven surgical edits on top variant with blind diff-based LLM judge and direction-reversal bias mitigation. Produces `critique_edit_*` variants. Consumes ReflectionAgent critiques. COMPETITION only. |
-| `debateAgent.ts` | Structured 3-turn debate (Advocate A / Advocate B / Judge) over top 2 non-baseline variants by Elo, produces `debate_synthesis` variant. 4 sequential LLM calls. Consumes ReflectionAgent critiques. COMPETITION only. |
-| `metaReviewAgent.ts` | Analyzes strategy performance, detects weaknesses in bottom-quartile variants, recommends priority improvements (computation-only, no LLM calls) |
+| `debateAgent.ts` | Structured 3-turn debate (Advocate A / Advocate B / Judge) over top 2 non-baseline variants by ordinal, produces `debate_synthesis` variant. 4 sequential LLM calls. Consumes ReflectionAgent critiques. COMPETITION only. |
+| `metaReviewAgent.ts` | Analyzes strategy performance via ordinal analysis, detects weaknesses in bottom-quartile variants, recommends priority improvements (computation-only, no LLM calls) |
 | `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
 | `formatValidator.ts` | Validates generated text against format rules; controlled by `FORMAT_VALIDATION_MODE` env var |
@@ -452,7 +452,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | Table | Purpose |
 |-------|---------|
 | `content_evolution_runs` | Run lifecycle: status, phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`) |
-| `content_evolution_variants` | Persisted variants with Elo scores, generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
+| `content_evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
 | `feature_flags` | Four evolution flags seeded by migration `20260131000007` |
 | `article_bank_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
@@ -517,7 +517,7 @@ Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_
 
 Unit tests exist for all agents and core modules:
 - `agents/*.test.ts` — Agent execution with mock LLM clients (`createMockEvolutionLLMClient`)
-- `core/*.test.ts` — State serialization, Elo math, cost tracker, supervisor transitions, diversity tracker, feature flags
+- `core/*.test.ts` — State serialization, OpenSkill rating math, cost tracker, supervisor transitions, diversity tracker, feature flags
 - `comparison.test.ts` — Bias-mitigated comparison, cache behavior, confidence scoring
 - `scripts/run-evolution-local.test.ts` — CLI flag parsing, mock LLM mode, output format
 - `src/__tests__/integration/evolution-actions.integration.test.ts` — Server action integration with real Supabase

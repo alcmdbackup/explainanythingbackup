@@ -8,11 +8,12 @@ import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
+import { getOrdinal, createRating } from '../core/rating';
 
-/** Count non-baseline variants that have Elo ratings. */
+/** Count non-baseline variants that have ratings. */
 function countRatedNonBaseline(state: PipelineState): number {
   return state.pool.filter(
-    (v) => v.strategy !== BASELINE_STRATEGY && state.eloRatings.has(v.id),
+    (v) => v.strategy !== BASELINE_STRATEGY && state.ratings.has(v.id),
   ).length;
 }
 
@@ -191,11 +192,11 @@ export class DebateAgent extends AgentBase {
     const { state, llmClient, logger } = ctx;
 
     if (!this.canExecute(state)) {
-      return { agentType: 'debate', success: false, costUsd: 0, error: 'Need 2+ Elo-rated variants' };
+      return { agentType: 'debate', success: false, costUsd: 0, error: 'Need 2+ rated variants' };
     }
 
-    // Select top 2 non-baseline variants by Elo
-    const topVariants = state.getTopByElo(state.pool.length)
+    // Select top 2 non-baseline variants by rating
+    const topVariants = state.getTopByRating(state.pool.length)
       .filter((v) => v.strategy !== BASELINE_STRATEGY);
 
     if (topVariants.length < 2) {
@@ -208,8 +209,8 @@ export class DebateAgent extends AgentBase {
     logger.info('Debate start', {
       variantAId: variantA.id.slice(0, 8),
       variantBId: variantB.id.slice(0, 8),
-      variantAElo: state.eloRatings.get(variantA.id),
-      variantBElo: state.eloRatings.get(variantB.id),
+      variantAOrdinal: getOrdinal(state.ratings.get(variantA.id) ?? createRating()),
+      variantBOrdinal: getOrdinal(state.ratings.get(variantB.id) ?? createRating()),
     });
 
     const transcript: DebateTranscript = {

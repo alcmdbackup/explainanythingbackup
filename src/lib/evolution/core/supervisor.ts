@@ -2,6 +2,7 @@
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock and plateau detection.
 
 import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
+import { getOrdinal } from './rating';
 
 // Generation strategies used in both phases
 export const GENERATION_STRATEGIES = [
@@ -31,7 +32,7 @@ export interface PhaseConfig {
 export interface SupervisorResumeState {
   phase: PipelinePhase;
   strategyRotationIndex: number;
-  eloHistory: number[];
+  ordinalHistory: number[];
   diversityHistory: number[];
 }
 
@@ -63,7 +64,7 @@ export class PoolSupervisor {
   private _strategyRotationIndex = 0;
   private _currentIteration: number | null = null;
 
-  eloHistory: number[] = [];
+  ordinalHistory: number[] = [];
   diversityHistory: number[] = [];
 
   constructor(private readonly cfg: SupervisorConfig) {
@@ -125,7 +126,7 @@ export class PoolSupervisor {
     // Handle EXPANSION → COMPETITION transition
     if (phase === 'COMPETITION' && previousPhase === 'EXPANSION') {
       this._phaseLocked = 'COMPETITION';
-      this.eloHistory = [];
+      this.ordinalHistory = [];
       this.diversityHistory = [];
       this._strategyRotationIndex = -1;
     }
@@ -190,9 +191,9 @@ export class PoolSupervisor {
   shouldStop(state: PipelineState, availableBudget: number): [boolean, string] {
     // Track history only in COMPETITION
     if (this._currentPhase === 'COMPETITION') {
-      if (state.eloRatings.size > 0) {
-        const topElo = Math.max(...state.eloRatings.values());
-        this.eloHistory.push(topElo);
+      if (state.ratings.size > 0) {
+        const topOrdinal = Math.max(...[...state.ratings.values()].map(getOrdinal));
+        this.ordinalHistory.push(topOrdinal);
       }
       if (state.diversityScore !== null && !Number.isNaN(state.diversityScore)) {
         this.diversityHistory.push(state.diversityScore);
@@ -243,21 +244,22 @@ export class PoolSupervisor {
     return {
       phase: this._currentPhase ?? 'EXPANSION',
       strategyRotationIndex: Math.max(0, this._strategyRotationIndex),
-      eloHistory: [...this.eloHistory],
+      ordinalHistory: [...this.ordinalHistory],
       diversityHistory: [...this.diversityHistory],
     };
   }
 
   /** Reset tracking history (does NOT clear phase lock). */
   resetIterationHistory(): void {
-    this.eloHistory = [];
+    this.ordinalHistory = [];
     this.diversityHistory = [];
   }
 
   private _isPlateaued(): boolean {
-    if (this.eloHistory.length < this.cfg.plateauWindow) return false;
-    const recent = this.eloHistory.slice(-this.cfg.plateauWindow);
+    if (this.ordinalHistory.length < this.cfg.plateauWindow) return false;
+    const recent = this.ordinalHistory.slice(-this.cfg.plateauWindow);
     const improvement = recent[recent.length - 1] - recent[0];
-    return improvement < this.cfg.plateauThreshold * 100;
+    // Ordinal scale: 1 ordinal ≈ 16 Elo, so 100 Elo ≈ 6 ordinal
+    return improvement < this.cfg.plateauThreshold * 6;
   }
 }

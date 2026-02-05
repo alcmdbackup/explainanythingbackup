@@ -1,10 +1,11 @@
-// Unit tests for CalibrationRanker: model passthrough, bias mitigation, and Elo updates.
+// Unit tests for CalibrationRanker: model passthrough, bias mitigation, and rating updates.
 // Verifies judgeModel is forwarded to LLM client and calibration produces correct results.
 
 import { CalibrationRanker } from './calibrationRanker';
 import { PipelineStateImpl } from '../core/state';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
+import { createRating, type Rating } from '../core/rating';
 
 function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
   let callIndex = 0;
@@ -51,7 +52,7 @@ function makeCtx(
       createdAt: Date.now(),
       iterationBorn: 0,
     });
-    state.eloRatings.set(`existing-${i}`, 1200 + i * 50);
+    state.ratings.set(`existing-${i}`, { mu: 25 + i * (25 / 400) * 50, sigma: 4 });
     state.matchCounts.set(`existing-${i}`, 5);
   }
 
@@ -118,14 +119,14 @@ describe('CalibrationRanker', () => {
     }
   });
 
-  it('full agreement updates Elo with confidence 1.0', async () => {
+  it('full agreement updates rating with confidence 1.0', async () => {
     // A, B pattern: round1=A, round2=B(normalized→A) = agreement on A
     const ctx = makeCtx(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']);
     const result = await ranker.execute(ctx);
     expect(result.success).toBe(true);
     expect(result.matchesPlayed).toBeGreaterThan(0);
-    // New entrant should have Elo rating set
-    expect(ctx.state.eloRatings.has('new-1')).toBe(true);
+    // New entrant should have a rating set
+    expect(ctx.state.ratings.has('new-1')).toBe(true);
   });
 
   it('canExecute returns false with no new entrants', () => {

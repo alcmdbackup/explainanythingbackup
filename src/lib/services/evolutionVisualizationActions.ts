@@ -8,6 +8,7 @@ import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@/lib/evolution/core/state';
+import { getOrdinal, ordinalToEloScale, createRating } from '@/lib/evolution/core/rating';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -320,7 +321,14 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     // Build history
     const history: EloHistoryData['history'] = [];
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
-      if (snapshot.eloRatings) {
+      // Handle both new ratings format ({mu, sigma}) and legacy eloRatings (raw numbers)
+      if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
+        const converted: Record<string, number> = {};
+        for (const [id, r] of Object.entries(snapshot.ratings)) {
+          converted[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
+        }
+        history.push({ iteration, ratings: converted });
+      } else if (snapshot.eloRatings) {
         history.push({ iteration, ratings: snapshot.eloRatings });
       }
     }
@@ -382,7 +390,7 @@ const _getEvolutionRunLineageAction = withLogging(async (
       id: v.id,
       shortId: v.id.substring(0, 8),
       strategy: v.strategy,
-      elo: state.eloRatings.get(v.id) ?? 1200,
+      elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
       iterationBorn: v.iterationBorn,
       isWinner: winnerText !== null && v.text === winnerText,
     }));

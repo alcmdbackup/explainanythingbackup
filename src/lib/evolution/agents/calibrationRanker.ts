@@ -3,7 +3,7 @@
 
 import { AgentBase } from './base';
 import { PoolManager } from '../core/pool';
-import { getAdaptiveK, updateEloWithConfidence, updateEloDraw } from '../core/elo';
+import { updateRating, updateDraw, createRating } from '../core/rating';
 import { compareWithBiasMitigation as compareStandalone } from '../comparison';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
 import { BudgetExceededError } from '../types';
@@ -72,22 +72,29 @@ export class CalibrationRanker extends AgentBase {
     return match;
   }
 
-  /** Apply Elo rating update for a single match result. */
-  private applyEloUpdate(state: PipelineState, match: Match, entrantId: string): void {
+  /** Apply rating update for a single match result using OpenSkill. */
+  private applyRatingUpdate(state: PipelineState, match: Match, entrantId: string): void {
     const winnerId = match.winner;
     const loserId = winnerId === entrantId ? match.variationB : entrantId;
     const oppId = match.variationA === entrantId ? match.variationB : match.variationA;
 
+    const entrantRating = state.ratings.get(entrantId) ?? createRating();
+    const oppRating = state.ratings.get(oppId) ?? createRating();
+
     if (match.confidence === 0 || (match.winner === entrantId && winnerId === loserId)) {
-      const k = (getAdaptiveK(state.matchCounts.get(entrantId) ?? 0) +
-                 getAdaptiveK(state.matchCounts.get(oppId) ?? 0)) / 2;
-      updateEloDraw(state, entrantId, oppId, k);
+      const [newE, newO] = updateDraw(entrantRating, oppRating);
+      state.ratings.set(entrantId, newE);
+      state.ratings.set(oppId, newO);
     } else {
-      const entrantK = getAdaptiveK(state.matchCounts.get(entrantId) ?? 0);
-      const oppK = getAdaptiveK(state.matchCounts.get(oppId) ?? 0);
-      const kFactor = (entrantK + oppK) / 2;
-      updateEloWithConfidence(state, winnerId, loserId, match.confidence, kFactor);
+      const winnerRating = winnerId === entrantId ? entrantRating : oppRating;
+      const loserRating = winnerId === entrantId ? oppRating : entrantRating;
+      const [newW, newL] = updateRating(winnerRating, loserRating);
+      state.ratings.set(winnerId, newW);
+      state.ratings.set(loserId, newL);
     }
+
+    state.matchCounts.set(entrantId, (state.matchCounts.get(entrantId) ?? 0) + 1);
+    state.matchCounts.set(oppId, (state.matchCounts.get(oppId) ?? 0) + 1);
   }
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {
@@ -143,7 +150,7 @@ export class CalibrationRanker extends AgentBase {
         firstMatches.push(match);
         matches.push(match);
         state.matchHistory.push(match);
-        this.applyEloUpdate(state, match, entrantId);
+        this.applyRatingUpdate(state, match, entrantId);
       }
 
       // Check for early exit: all first-batch results decisive?
@@ -167,7 +174,7 @@ export class CalibrationRanker extends AgentBase {
           const match = r.value;
           matches.push(match);
           state.matchHistory.push(match);
-          this.applyEloUpdate(state, match, entrantId);
+          this.applyRatingUpdate(state, match, entrantId);
         }
       }
     }

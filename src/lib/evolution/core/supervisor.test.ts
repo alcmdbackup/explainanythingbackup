@@ -4,6 +4,12 @@ import { PoolSupervisor, supervisorConfigFromRunConfig, GENERATION_STRATEGIES } 
 import { PipelineStateImpl } from './state';
 import type { EvolutionRunConfig } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import type { Rating } from './rating';
+
+/** Helper: create a rating with known ordinal (mu - 3*sigma). sigma defaults to 3. */
+function ratingWithOrdinal(ordinal: number, sigma = 3): Rating {
+  return { mu: ordinal + 3 * sigma, sigma };
+}
 
 function makeConfig(overrides: Partial<ReturnType<typeof supervisorConfigFromRunConfig>> = {}) {
   const base = supervisorConfigFromRunConfig(DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig);
@@ -95,13 +101,13 @@ describe('PoolSupervisor', () => {
   it('clears history on phase transition', () => {
     const cfg = makeConfig({ expansionMaxIterations: 1 });
     const supervisor = new PoolSupervisor(cfg);
-    supervisor.eloHistory = [1200, 1250];
+    supervisor.ordinalHistory = [20, 21];
     supervisor.diversityHistory = [0.5];
 
     const state = makeState(20, 1);
     supervisor.beginIteration(state);
     expect(supervisor.currentPhase).toBe('COMPETITION');
-    expect(supervisor.eloHistory).toEqual([]);
+    expect(supervisor.ordinalHistory).toEqual([]);
     expect(supervisor.diversityHistory).toEqual([]);
   });
 
@@ -199,15 +205,15 @@ describe('PoolSupervisor', () => {
       const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(20, 1);
-      state.eloRatings.set('v-0', 1300);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
 
       supervisor.beginIteration(state);
 
-      // Simulate 3 iterations with no improvement
-      supervisor.shouldStop(state, 10); // records 1300
+      // Simulate 3 iterations with no improvement (ordinal stays at 21)
+      supervisor.shouldStop(state, 10); // records 21
       state.iteration = 2;
       supervisor.beginIteration(state);
-      supervisor.shouldStop(state, 10); // records 1300
+      supervisor.shouldStop(state, 10); // records 21
       state.iteration = 3;
       supervisor.beginIteration(state);
       const [stop, reason] = supervisor.shouldStop(state, 10); // 3rd data point
@@ -218,7 +224,7 @@ describe('PoolSupervisor', () => {
     it('does not plateau in EXPANSION', () => {
       const supervisor = new PoolSupervisor(makeConfig());
       const state = makeState(3, 0);
-      state.eloRatings.set('v-0', 1300);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
       supervisor.beginIteration(state);
       supervisor.shouldStop(state, 10);
       state.iteration = 1;
@@ -248,7 +254,7 @@ describe('PoolSupervisor', () => {
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(20, 1);
       supervisor.beginIteration(state);
-      supervisor.eloHistory = [1200, 1250, 1260];
+      supervisor.ordinalHistory = [20, 21, 21.5];
       supervisor.diversityHistory = [0.3, 0.4];
 
       const resumeState = supervisor.getResumeState();
@@ -256,11 +262,11 @@ describe('PoolSupervisor', () => {
 
       const supervisor2 = new PoolSupervisor(cfg);
       supervisor2.setPhaseFromResume(resumeState.phase, resumeState.strategyRotationIndex);
-      supervisor2.eloHistory = resumeState.eloHistory;
+      supervisor2.ordinalHistory = resumeState.ordinalHistory;
       supervisor2.diversityHistory = resumeState.diversityHistory;
 
       expect(supervisor2.currentPhase).toBe('COMPETITION');
-      expect(supervisor2.eloHistory).toEqual([1200, 1250, 1260]);
+      expect(supervisor2.ordinalHistory).toEqual([20, 21, 21.5]);
     });
 
     it('rejects invalid phase', () => {

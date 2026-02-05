@@ -32,6 +32,7 @@ import type {
 } from '../src/lib/evolution/types';
 import { BudgetExceededError, LLMRefusalError } from '../src/lib/evolution/types';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from '../src/lib/evolution/core/supervisor';
+import { getOrdinal, ordinalToEloScale, createRating } from '../src/lib/evolution/core/rating';
 import { GenerationAgent } from '../src/lib/evolution/agents/generationAgent';
 import { CalibrationRanker } from '../src/lib/evolution/agents/calibrationRanker';
 import { EvolutionAgent } from '../src/lib/evolution/agents/evolvePool';
@@ -586,7 +587,7 @@ async function snapshotCheckpointToBank(
   if (!args.bankCheckpoints.includes(iteration)) return;
   if (!args.prompt) return;
 
-  const topVariants = ctx.state.getTopByElo(1);
+  const topVariants = ctx.state.getTopByRating(1);
   const winner = topVariants[0];
   if (!winner) return;
 
@@ -631,7 +632,7 @@ async function snapshotCheckpointToBank(
   logger.info('Checkpoint snapshot saved to bank', {
     iteration,
     entry_id: bankResult.entry_id,
-    elo: ctx.state.eloRatings.get(winner.id) ?? 1200,
+    elo: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(winner.id) ?? createRating())),
   });
 }
 
@@ -767,10 +768,10 @@ async function runFullPipeline(
     }
 
     // Report top performers
-    const top = ctx.state.getTopByElo(3);
+    const top = ctx.state.getTopByRating(3);
     for (const v of top) {
-      const elo = ctx.state.eloRatings.get(v.id) ?? 1200;
-      logger.debug('Top variant', { id: v.id.slice(0, 8), elo: elo.toFixed(0), strategy: v.strategy });
+      const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
+      logger.debug('Top variant', { id: v.id.slice(0, 8), ordinal: ord.toFixed(1), strategy: v.strategy });
     }
   }
 
@@ -785,14 +786,15 @@ function buildOutput(
   durationMs: number,
   dbTracked: boolean,
 ) {
-  const rankings = [...ctx.state.eloRatings.entries()]
-    .sort(([, a], [, b]) => b - a)
-    .map(([id, elo], rank) => {
+  const rankings = [...ctx.state.ratings.entries()]
+    .map(([id, r]) => ({ id, ordinal: getOrdinal(r) }))
+    .sort((a, b) => b.ordinal - a.ordinal)
+    .map(({ id, ordinal }, rank) => {
       const variant = ctx.state.pool.find((v) => v.id === id);
       return {
         rank: rank + 1,
         id,
-        elo: Math.round(elo),
+        elo: Math.round(ordinalToEloScale(ordinal)),
         strategy: variant?.strategy ?? 'unknown',
         textPreview: variant?.text.slice(0, 120) ?? '',
       };
@@ -1000,7 +1002,7 @@ async function main() {
         run_id: runId,
         explanation_id: args.explanationId,
         variant_content: v.text,
-        elo_score: ctx.state.eloRatings.get(v.id) ?? 1200,
+        elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
         generation: v.version,
         parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
         agent_name: v.strategy,
@@ -1030,7 +1032,7 @@ async function main() {
       const finalIterationIsCheckpoint = args.bankCheckpoints.includes(state.iteration);
 
       if (!finalIterationIsCheckpoint) {
-        const topVariants = state.getTopByElo(5);
+        const topVariants = state.getTopByRating(5);
         const winner = topVariants[0];
         if (winner) {
           logger.info('Adding winner to article bank...');
@@ -1056,7 +1058,7 @@ async function main() {
 
       // Always add baseline (it's a separate generation_method so no duplicate risk)
       const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
-      const topWinner = state.getTopByElo(1)[0];
+      const topWinner = state.getTopByRating(1)[0];
       if (baseline && topWinner && baseline.id !== topWinner.id) {
         const baselineResult = await addEntryToBank(supabase, {
           prompt: args.prompt,

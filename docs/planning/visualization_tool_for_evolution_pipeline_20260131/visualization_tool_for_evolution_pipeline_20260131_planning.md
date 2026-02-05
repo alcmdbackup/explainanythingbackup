@@ -27,7 +27,7 @@ When an evolution run produces unexpected results, fails mid-execution, or consu
 1. **DB-only lineage (content_evolution_variants.parent_variant_id)** — The DB has a `parent_variant_id` FK column, but it is never populated by current code and only supports single-parent. Cannot represent crossover (2 parents).
 2. **Checkpoint-only lineage (chosen)** — Deserialize the latest checkpoint's `pool: TextVariation[]` to get `parentIds[]` arrays. This is the only source of multi-parent lineage data. All IDs in the lineage graph are in-memory IDs from `TextVariation.id`, not DB UUIDs. The lineage graph is self-contained within checkpoint data.
 
-**Key insight:** In-memory variant IDs (used in checkpoints) differ from DB-generated UUIDs (in `content_evolution_variants`). The variant insert code (`evolutionActions.ts:352-360`) does NOT persist the in-memory `TextVariation.id`. Therefore, the lineage and Elo history features must operate entirely on checkpoint data, using in-memory IDs. DB variant rows are only used for the Variants tab table (sorted by Elo) and winner detection (`is_winner` flag). The two ID spaces are never joined.
+**Key insight:** In-memory variant IDs (used in checkpoints) differ from DB-generated UUIDs (in `content_evolution_variants`). The variant insert code (`evolutionActions.ts:352-360`) does NOT persist the in-memory `TextVariation.id`. Therefore, the lineage and rating history features must operate entirely on checkpoint data, using in-memory IDs. DB variant rows are only used for the Variants tab table (sorted by ordinal/elo_score) and winner detection (`is_winner` flag). The two ID spaces are never joined.
 
 ### Text Diff Rendering Approach
 1. **Reuse markdownASTdiff CriticMarkup** — `RenderCriticMarkupFromMDAstDiff()` returns a CriticMarkup string (`{--del--}`, `{++ins++}`), designed for Lexical editor integration, not React rendering. Would require building a CriticMarkup→React parser.
@@ -90,7 +90,7 @@ When an evolution run produces unexpected results, fails mid-execution, or consu
 All actions follow the existing `withLogging` + `serverReadRequestId` pattern from `evolutionActions.ts`. **Every action must call `requireAdmin()` as its first line** (matching all 6 existing evolution actions).
 
 **Checkpoint Loading Strategy (Performance):** Actions #2 and #3 load checkpoints from `evolution_checkpoints`. A 15-iteration, 7-agent run produces ~105 checkpoints, each containing the full variant pool text (potentially 50-200KB per snapshot). To avoid O(n*m) memory pressure:
-- **Selective column loading:** For Elo history (action #3), only select `iteration, last_agent, state_snapshot->'eloRatings'` using Supabase JSONB path extraction, avoiding deserializing the entire pool text.
+- **Selective column loading:** For rating history (action #3), only select `iteration, last_agent, state_snapshot->'ratings'` (with fallback to `state_snapshot->'eloRatings'` for legacy checkpoints) using Supabase JSONB path extraction, avoiding deserializing the entire pool text.
 - **Iteration-level sampling:** For timeline (action #2), load only one checkpoint per iteration (the last agent's checkpoint), not all 7. This reduces rows from ~105 to ~15.
 - **No polling on checkpoint actions:** Timeline and Elo tabs load data once on tab switch, not on the 15s auto-poll cycle. Only the dashboard page auto-polls.
 - **Lazy tab loading:** Each tab fetches its data only when selected, not all at once on page load.
@@ -109,7 +109,7 @@ All actions follow the existing `withLogging` + `serverReadRequestId` pattern fr
 
 3. **`getEvolutionRunEloHistoryAction(runId: string)`**
    Returns: `{ variants: { id: string, shortId: string, strategy: string, iterationBorn: number }[], history: { iteration: number, ratings: Record<string, number> }[] }`
-   Implementation: Use Supabase JSONB extraction: `SELECT iteration, state_snapshot->'eloRatings' as elo_ratings FROM evolution_checkpoints WHERE run_id = $1 ORDER BY iteration`. Extract only the Elo ratings map without deserializing full snapshots. Variant metadata (strategy, iterationBorn) extracted from the latest checkpoint's full pool deserialization (single snapshot).
+   Implementation: Use Supabase JSONB extraction: `SELECT iteration, COALESCE(state_snapshot->'ratings', state_snapshot->'eloRatings') as ratings FROM evolution_checkpoints WHERE run_id = $1 ORDER BY iteration`. Extract only the ratings map without deserializing full snapshots. New checkpoints store `ratings` as `{mu, sigma}` objects; legacy checkpoints store `eloRatings` as numbers. The action handles both formats, converting to ordinal-scaled Elo for display. Variant metadata (strategy, iterationBorn) extracted from the latest checkpoint's full pool deserialization (single snapshot).
 
 4. **`getEvolutionRunLineageAction(runId: string)`**
    Returns: `{ nodes: { id: string, shortId: string, strategy: string, elo: number, iterationBorn: number, isWinner: boolean }[], edges: { source: string, target: string }[] }`
@@ -349,7 +349,7 @@ Uses `adminTest` fixture from `src/__tests__/e2e/fixtures/admin-auth.ts`. Uses i
 
 **E2E checkpoint seeding:** E2E tests cannot import TypeScript types from `src/lib/evolution/types.ts`. Checkpoint `state_snapshot` is seeded as raw JSON objects matching the `SerializedPipelineState` shape, not via typed helpers. Minimal example:
 ```json
-{ "iteration": 2, "originalText": "...", "pool": [{ "id": "v1", "text": "...", "version": 1, "parentIds": [], "strategy": "structural_transform", "createdAt": 0, "iterationBorn": 1 }], "eloRatings": { "v1": 1350 }, "matchCounts": { "v1": 5 }, "matchHistory": [], "newEntrantsThisIteration": [], "dimensionScores": null, "allCritiques": null, "similarityMatrix": null, "diversityScore": null, "metaFeedback": null }
+{ "iteration": 2, "originalText": "...", "pool": [{ "id": "v1", "text": "...", "version": 1, "parentIds": [], "strategy": "structural_transform", "createdAt": 0, "iterationBorn": 1 }], "ratings": { "v1": { "mu": 28.75, "sigma": 4.0 } }, "matchCounts": { "v1": 5 }, "matchHistory": [], "newEntrantsThisIteration": [], "dimensionScores": null, "allCritiques": null, "similarityMatrix": null, "diversityScore": null, "metaFeedback": null }
 ```
 
 **Conditionally skipped** via `adminTest.describe.skip` pattern (matching existing convention) unless evolution tables are confirmed present.

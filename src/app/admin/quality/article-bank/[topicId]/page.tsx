@@ -197,10 +197,10 @@ function EntryDetail({ entry }: { entry: BankEntry }) {
             <div>
               <span className="font-semibold text-[var(--text-secondary)]">Top Strategies</span>
               <div className="mt-1 space-y-1">
-                {(meta.strategy_effectiveness as Array<{ strategy: string; avgElo: number }>).slice(0, 3).map((s, i) => (
+                {(meta.strategy_effectiveness as Array<{ strategy: string; avgOrdinal: number }>).slice(0, 3).map((s, i) => (
                   <div key={i} className="flex gap-2">
                     <span className="font-mono text-[var(--text-secondary)]">{s.strategy}</span>
-                    <span className="text-[var(--text-muted)]">Elo {s.avgElo?.toFixed(0)}</span>
+                    <span className="text-[var(--text-muted)]">Rating {s.avgOrdinal?.toFixed(1)}</span>
                   </div>
                 ))}
               </div>
@@ -349,14 +349,14 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
         setRuns(res.data.filter((r) => r.status === 'completed'));
       }
       setLoadingRuns(false);
-    });
+    }).catch(() => setLoadingRuns(false));
   }, []);
 
   useEffect(() => {
     if (!selectedRun) { setVariants([]); return; }
     getEvolutionVariantsAction(selectedRun.id).then((res) => {
       if (res.success && res.data) setVariants(res.data);
-    });
+    }).catch(() => {});
   }, [selectedRun]);
 
   const winner = variants.find((v) => v.is_winner) ?? variants[0];
@@ -384,7 +384,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
         metadata.match_stats = s.matchStats;
         metadata.duration_seconds = s.durationSeconds;
         metadata.baseline_rank = s.baselineRank;
-        metadata.baseline_elo = s.baselineElo;
+        metadata.baseline_elo = s.baselineOrdinal;
         metadata.meta_feedback = s.metaFeedback;
       }
     } catch { /* non-fatal */ }
@@ -636,7 +636,7 @@ export default function ArticleBankTopicDetailPage() {
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
+          <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
             {topic.title || topic.prompt.slice(0, 80)}
           </h1>
           <p className="text-sm text-[var(--text-muted)] mt-1">

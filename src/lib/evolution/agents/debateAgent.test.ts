@@ -63,8 +63,8 @@ function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
     });
-    // Give them Elo ratings so getTopByElo works
-    state.eloRatings.set(`v-${i}`, 1200 + i * 50);
+    // Give them ratings so getTopByRating works
+    state.ratings.set(`v-${i}`, { mu: 25 + i * (25 / 400) * 50, sigma: 4 });
   }
   return {
     payload: {
@@ -125,7 +125,7 @@ describe('DebateAgent', () => {
       id: 'v1', text: 'text', version: 1,
       parentIds: [], strategy: 'test', createdAt: 0, iterationBorn: 0,
     });
-    emptyState.eloRatings.set('v1', 1200);
+    emptyState.ratings.set('v1', { mu: 25, sigma: 8.333 });
     expect(agent.canExecute(emptyState)).toBe(false);
 
     // 2 variants with ratings — now sufficient
@@ -133,7 +133,7 @@ describe('DebateAgent', () => {
       id: 'v2', text: 'text2', version: 1,
       parentIds: [], strategy: 'test', createdAt: 0, iterationBorn: 0,
     });
-    emptyState.eloRatings.set('v2', 1200);
+    emptyState.ratings.set('v2', { mu: 25, sigma: 8.333 });
     expect(agent.canExecute(emptyState)).toBe(true);
   });
 
@@ -147,8 +147,8 @@ describe('DebateAgent', () => {
       id: 'b2', text: 'text2', version: 0,
       parentIds: [], strategy: 'original_baseline', createdAt: 0, iterationBorn: 0,
     });
-    state.eloRatings.set('b1', 1200);
-    state.eloRatings.set('b2', 1200);
+    state.ratings.set('b1', { mu: 25, sigma: 8.333 });
+    state.ratings.set('b2', { mu: 25, sigma: 8.333 });
     expect(agent.canExecute(state)).toBe(false);
   });
 
@@ -278,7 +278,7 @@ describe('DebateAgent', () => {
 
   it('skips baseline variant', async () => {
     const ctx = makeCtx();
-    // Add a baseline with highest Elo
+    // Add a baseline with highest rating
     ctx.state.addToPool({
       id: 'baseline-test',
       text: VALID_ARTICLE,
@@ -288,7 +288,7 @@ describe('DebateAgent', () => {
       createdAt: Date.now() / 1000,
       iterationBorn: 0,
     });
-    ctx.state.eloRatings.set('baseline-test', 9999);
+    ctx.state.ratings.set('baseline-test', { mu: 99, sigma: 1 });
 
     const result = await agent.execute(ctx);
     expect(result.success).toBe(true);

@@ -1,7 +1,7 @@
 # Evolution Pipeline Visualization
 
 ## Overview
-Visual monitoring and debugging tools for the evolution pipeline. Provides an operational dashboard, per-run timeline/Elo/lineage/budget analysis, and before/after text comparison. Built with Recharts for standard charts and D3.js for the variant lineage DAG.
+Visual monitoring and debugging tools for the evolution pipeline. Provides an operational dashboard, per-run timeline/rating/lineage/budget analysis, and before/after text comparison. Built with Recharts for standard charts and D3.js for the variant lineage DAG. Rating data uses OpenSkill ordinal values (mu - 3*sigma), mapped to the legacy 0-3000 Elo scale for display via `ordinalToEloScale()`.
 
 ## Pages
 
@@ -20,11 +20,11 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 | `EvolutionStatusBadge.tsx` | Reusable status badge for all 6 run statuses |
 | `PhaseIndicator.tsx` | EXPANSION/COMPETITION phase display with iteration progress |
 | `AutoRefreshProvider.tsx` | 15s polling context with tab visibility awareness. Exports `AutoRefreshProvider`, `RefreshIndicator` component, and `useAutoRefresh()` hook. Supports AbortController for in-flight request cancellation |
-| `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant Elo trajectory |
+| `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays ordinal mapped to Elo scale) |
 | `VariantCard.tsx` | Compact variant info card + strategy color palette |
 | `LineageGraph.tsx` | D3 DAG visualization with zoom/pan and click-to-inspect |
 | `tabs/TimelineTab.tsx` | Iteration-by-iteration execution timeline |
-| `tabs/EloTab.tsx` | Elo trajectory line chart with top-N filtering |
+| `tabs/EloTab.tsx` | Rating trajectory line chart with top-N filtering (ordinal values mapped to Elo scale) |
 | `tabs/LineageTab.tsx` | Lineage DAG tab wrapper (dynamic import) |
 | `tabs/BudgetTab.tsx` | Cumulative burn curve + agent cost breakdown |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines |
@@ -33,7 +33,7 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 6 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown
-3. `getEvolutionRunEloHistoryAction` — Elo rating trajectories from checkpoints
+3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats)
 4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint
 5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown
 6. `getEvolutionRunComparisonAction` — Original vs winner text, quality scores, `generationDepth` (max variant version in pool)

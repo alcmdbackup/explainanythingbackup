@@ -6,7 +6,7 @@ import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY } from '../types';
 import type { TextVariation } from '../types';
 
-function makeVariation(id: string, strategy: string, elo?: number): TextVariation {
+function makeVariation(id: string, strategy: string): TextVariation {
   return {
     id,
     text: `content-${id}`,
@@ -34,15 +34,15 @@ function makeStateWithBaseline(): PipelineStateImpl {
 }
 
 describe('PoolManager.getEvolutionParents', () => {
-  it('excludes baseline even when baseline has highest Elo', () => {
+  it('excludes baseline even when baseline has highest rating', () => {
     const state = makeStateWithBaseline();
     state.addToPool(makeVariation('v1', 'structural_transform'));
     state.addToPool(makeVariation('v2', 'lexical_simplify'));
 
-    // Baseline has highest Elo
-    state.eloRatings.set('baseline-run-1', 1500);
-    state.eloRatings.set('v1', 1300);
-    state.eloRatings.set('v2', 1200);
+    // Baseline has highest rating
+    state.ratings.set('baseline-run-1', { mu: 43.75, sigma: 4 });
+    state.ratings.set('v1', { mu: 31.25, sigma: 4 });
+    state.ratings.set('v2', { mu: 25, sigma: 4 });
 
     const pool = new PoolManager(state);
     const parents = pool.getEvolutionParents(2);
@@ -56,8 +56,8 @@ describe('PoolManager.getEvolutionParents', () => {
     const state = makeStateWithBaseline();
     state.addToPool(makeVariation('v1', 'structural_transform'));
 
-    state.eloRatings.set('baseline-run-1', 1500);
-    state.eloRatings.set('v1', 1300);
+    state.ratings.set('baseline-run-1', { mu: 43.75, sigma: 4 });
+    state.ratings.set('v1', { mu: 31.25, sigma: 4 });
 
     const pool = new PoolManager(state);
     const parents = pool.getEvolutionParents(2);
@@ -69,7 +69,7 @@ describe('PoolManager.getEvolutionParents', () => {
 
   it('returns empty array when pool contains only baseline', () => {
     const state = makeStateWithBaseline();
-    state.eloRatings.set('baseline-run-1', 1500);
+    state.ratings.set('baseline-run-1', { mu: 43.75, sigma: 4 });
 
     const pool = new PoolManager(state);
     const parents = pool.getEvolutionParents(2);
@@ -77,21 +77,21 @@ describe('PoolManager.getEvolutionParents', () => {
     expect(parents).toHaveLength(0);
   });
 
-  it('respects Elo ordering among non-baseline variants', () => {
+  it('respects rating ordering among non-baseline variants', () => {
     const state = makeStateWithBaseline();
     state.addToPool(makeVariation('v1', 'structural_transform'));
     state.addToPool(makeVariation('v2', 'lexical_simplify'));
     state.addToPool(makeVariation('v3', 'crossover'));
 
-    state.eloRatings.set('baseline-run-1', 1400);
-    state.eloRatings.set('v1', 1100);
-    state.eloRatings.set('v2', 1350);
-    state.eloRatings.set('v3', 1250);
+    state.ratings.set('baseline-run-1', { mu: 37.5, sigma: 4 });
+    state.ratings.set('v1', { mu: 18.75, sigma: 4 });
+    state.ratings.set('v2', { mu: 34.375, sigma: 4 });
+    state.ratings.set('v3', { mu: 28.125, sigma: 4 });
 
     const pool = new PoolManager(state);
     const parents = pool.getEvolutionParents(2);
 
-    // v2 (1350) and v3 (1250) are top 2 non-baseline
+    // v2 (mu=34.375) and v3 (mu=28.125) are top 2 non-baseline
     expect(parents.map((p) => p.id)).toEqual(['v2', 'v3']);
   });
 
@@ -100,8 +100,8 @@ describe('PoolManager.getEvolutionParents', () => {
     state.addToPool(makeVariation('v1', 'structural_transform'));
     state.addToPool(makeVariation('v2', 'lexical_simplify'));
 
-    state.eloRatings.set('v1', 1300);
-    state.eloRatings.set('v2', 1200);
+    state.ratings.set('v1', { mu: 31.25, sigma: 4 });
+    state.ratings.set('v2', { mu: 25, sigma: 4 });
 
     const pool = new PoolManager(state);
     const parents = pool.getEvolutionParents(2);

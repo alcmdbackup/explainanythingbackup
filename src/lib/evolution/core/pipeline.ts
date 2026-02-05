@@ -3,6 +3,7 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState } from './state';
+import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
 import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
@@ -63,14 +64,14 @@ async function persistVariants(
   logger: EvolutionLogger,
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
-  const topVariant = ctx.state.getTopByElo(1)[0];
+  const topVariant = ctx.state.getTopByRating(1)[0];
 
   const rows = ctx.state.pool.map((v) => ({
     id: v.id,
     run_id: runId,
     explanation_id: ctx.payload.explanationId || null,
     variant_content: v.text,
-    elo_score: ctx.state.eloRatings.get(v.id) ?? 1200,
+    elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
     generation: v.version,
     parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
     agent_name: v.strategy,
@@ -109,7 +110,7 @@ async function markRunPaused(runId: string, error: BudgetExceededError): Promise
   }).eq('id', runId);
 }
 
-/** Insert the original text as a baseline variant for Elo comparison. Idempotent via poolIds guard. */
+/** Insert the original text as a baseline variant for rating comparison. Idempotent via poolIds guard. */
 export function insertBaselineVariant(state: PipelineState, runId: string): void {
   const baselineId = `baseline-${runId}`;
   if (state.poolIds.has(baselineId)) return;
@@ -132,16 +133,16 @@ export function buildRunSummary(
   supervisor?: PoolSupervisor,
 ): EvolutionRunSummary {
   const state = ctx.state;
-  const topVariants = state.getTopByElo(5).map((v) => ({
+  const topVariants = state.getTopByRating(5).map((v) => ({
     id: v.id,
     strategy: v.strategy,
-    elo: state.eloRatings.get(v.id) ?? 1200,
+    ordinal: getOrdinal(state.ratings.get(v.id) ?? createRating()),
     isBaseline: v.strategy === BASELINE_STRATEGY,
   }));
 
-  const allByElo = state.getTopByElo(state.getPoolSize());
-  const baselineIdx = allByElo.findIndex((v) => v.strategy === BASELINE_STRATEGY);
-  const baselineVariant = baselineIdx >= 0 ? allByElo[baselineIdx] : undefined;
+  const allByRating = state.getTopByRating(state.getPoolSize());
+  const baselineIdx = allByRating.findIndex((v) => v.strategy === BASELINE_STRATEGY);
+  const baselineVariant = baselineIdx >= 0 ? allByRating[baselineIdx] : undefined;
 
   if (baselineIdx < 0) {
     ctx.logger.warn('Baseline variant not found in pool', { runId: ctx.runId });
@@ -153,32 +154,32 @@ export function buildRunSummary(
   const decisiveRate = matches.length > 0
     ? matches.filter((m) => m.confidence >= 0.7).length / matches.length : 0;
 
-  const strategyEffectiveness: Record<string, { count: number; avgElo: number }> = {};
+  const strategyEffectiveness: Record<string, { count: number; avgOrdinal: number }> = {};
   for (const v of state.pool) {
-    const elo = state.eloRatings.get(v.id) ?? 1200;
+    const ord = getOrdinal(state.ratings.get(v.id) ?? createRating());
     if (!strategyEffectiveness[v.strategy]) {
-      strategyEffectiveness[v.strategy] = { count: 0, avgElo: 0 };
+      strategyEffectiveness[v.strategy] = { count: 0, avgOrdinal: 0 };
     }
     strategyEffectiveness[v.strategy].count++;
-    strategyEffectiveness[v.strategy].avgElo += elo;
+    strategyEffectiveness[v.strategy].avgOrdinal += ord;
   }
   for (const s of Object.values(strategyEffectiveness)) {
-    s.avgElo = s.avgElo / s.count;
+    s.avgOrdinal = s.avgOrdinal / s.count;
   }
 
   return {
-    version: 1,
+    version: 2,
     stopReason,
     finalPhase: supervisor?.currentPhase ?? 'EXPANSION',
     totalIterations: state.iteration,
     durationSeconds,
-    eloHistory: supervisor?.getResumeState().eloHistory ?? [],
+    ordinalHistory: supervisor?.getResumeState().ordinalHistory ?? [],
     diversityHistory: supervisor?.getResumeState().diversityHistory ?? [],
     matchStats: { totalMatches: matches.length, avgConfidence, decisiveRate },
     topVariants,
     baselineRank: baselineIdx >= 0 ? baselineIdx + 1 : null,
-    baselineElo: baselineVariant
-      ? (state.eloRatings.get(baselineVariant.id) ?? null)
+    baselineOrdinal: baselineVariant
+      ? getOrdinal(state.ratings.get(baselineVariant.id) ?? createRating())
       : null,
     strategyEffectiveness,
     metaFeedback: state.metaFeedback,
@@ -353,7 +354,7 @@ export async function executeFullPipeline(
     if (options.supervisorResume) {
       const r = options.supervisorResume;
       supervisor.setPhaseFromResume(r.phase, r.strategyRotationIndex);
-      supervisor.eloHistory = r.eloHistory ?? [];
+      supervisor.ordinalHistory = r.ordinalHistory ?? [];
       supervisor.diversityHistory = r.diversityHistory ?? [];
     }
 
@@ -459,10 +460,10 @@ export async function executeFullPipeline(
         }
 
         // Report top performers
-        const top = ctx.state.getTopByElo(3);
+        const top = ctx.state.getTopByRating(3);
         for (const v of top) {
-          const elo = ctx.state.eloRatings.get(v.id) ?? 1200;
-          logger.debug('Top variant', { id: v.id, elo: elo.toFixed(0), strategy: v.strategy });
+          const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
+          logger.debug('Top variant', { id: v.id, ordinal: ord.toFixed(1), strategy: v.strategy });
         }
 
         // Persist iteration checkpoint with supervisor state
