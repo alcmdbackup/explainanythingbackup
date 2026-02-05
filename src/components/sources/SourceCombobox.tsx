@@ -250,8 +250,8 @@ export default function SourceCombobox({
           <Popover.Content
             align="start"
             sideOffset={4}
-            onOpenAutoFocus={(e) => e.preventDefault()}
-            onCloseAutoFocus={(e) => e.preventDefault()}
+            onOpenAutoFocus={(e: Event) => e.preventDefault()}
+            onCloseAutoFocus={(e: Event) => e.preventDefault()}
             className={cn(
               'z-50 w-[var(--radix-popover-trigger-width)] max-h-64 overflow-y-auto',
               'bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book shadow-warm-lg',

@@ -49,7 +49,7 @@ The source management system extends the base "Add Sources" feature with CRUD op
 - `sourceCitationCountSchema` - Leaderboard RPC response shape
 
 ### Database Migration
-- `supabase/migrations/20260201000002_source_management.sql` - RPC functions: `get_source_citation_counts`, `get_co_cited_sources`
+- `supabase/migrations/20260201000003_source_management.sql` - RPC functions: `get_source_citation_counts`, `get_co_cited_sources`
 
 ## Implementation
 

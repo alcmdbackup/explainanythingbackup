@@ -3,7 +3,7 @@
 ## Phase 1: Database & Service Foundation
 ### Work Done
 
-**Migration** (`supabase/migrations/20260201000002_source_management.sql`):
+**Migration** (`supabase/migrations/20260201000003_source_management.sql`):
 - RLS UPDATE policy on `article_sources` for defense-in-depth
 - Performance index `idx_article_sources_source_cache` on `article_sources(source_cache_id)`
 - 5 stored procedures (all with SECURITY DEFINER, SET search_path, GRANT EXECUTE):
