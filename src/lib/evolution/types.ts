@@ -25,6 +25,8 @@ export interface TextVariation {
   strategy: string;
   createdAt: number; // unix timestamp
   iterationBorn: number;
+  /** Cost in USD to generate this variant (for per-variant attribution). */
+  costUsd?: number;
 }
 
 export interface Critique {
@@ -171,6 +173,8 @@ export interface CostTracker {
   getAgentCost(agentName: string): number;
   getTotalSpent(): number;
   getAvailableBudget(): number;
+  /** Returns all agent costs as a record for persistence/reporting. */
+  getAllAgentCosts(): Record<string, number>;
 }
 
 export class BudgetExceededError extends Error {

@@ -240,23 +240,23 @@
     },
     {
       "pattern": "src/lib/services/evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/lib/evolution/**",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/lib/services/articleBank*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "scripts/*bank*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "scripts/generate-article*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/lib/services/*recommend*.ts",
@@ -264,23 +264,23 @@
     },
     {
       "pattern": "scripts/evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "scripts/run-evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/config/promptBankConfig.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "scripts/run-prompt-bank*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/components/evolution/**",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/lib/services/source*.ts",

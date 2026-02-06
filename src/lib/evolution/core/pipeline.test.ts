@@ -49,6 +49,7 @@ function makeMockCostTracker(): CostTracker {
     getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
     getTotalSpent: jest.fn().mockReturnValue(1.5),
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
+    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
   };
 }
 
@@ -320,6 +321,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       getAgentCost: jest.fn().mockReturnValue(0),
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
     };
     return {
       payload: {

@@ -96,4 +96,24 @@ describe('CostTrackerImpl', () => {
     // Available budget should reflect actual spend, not reservation
     expect(tracker.getAvailableBudget()).toBe(0.70);
   });
+
+  it('getAllAgentCosts returns all agent spend as record', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.recordSpend('generation', 0.50);
+    tracker.recordSpend('calibration', 0.30);
+    tracker.recordSpend('generation', 0.20);
+    tracker.recordSpend('tournament', 0.10);
+
+    const allCosts = tracker.getAllAgentCosts();
+    expect(allCosts).toEqual({
+      generation: 0.70,
+      calibration: 0.30,
+      tournament: 0.10,
+    });
+  });
+
+  it('getAllAgentCosts returns empty object when no spend', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    expect(tracker.getAllAgentCosts()).toEqual({});
+  });
 });

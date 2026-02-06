@@ -35,6 +35,7 @@ function makeMockCostTracker(): CostTracker {
     getAgentCost: jest.fn(() => 0),
     getTotalSpent: jest.fn(() => 0),
     getAvailableBudget: jest.fn(() => 5),
+    getAllAgentCosts: jest.fn(() => ({})),
   };
 }
 

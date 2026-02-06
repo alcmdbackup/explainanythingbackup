@@ -1,0 +1,28 @@
+{
+  "name": "elo_optimization_example",
+  "description": "Example batch config testing model × iteration combinations",
+  "totalBudgetUsd": 10.00,
+  "safetyMargin": 0.1,
+  "defaults": {
+    "budgetCapUsd": 2.00,
+    "mode": "full"
+  },
+  "matrix": {
+    "prompts": [
+      "Explain photosynthesis in simple terms",
+      "Explain how blockchain technology works"
+    ],
+    "generationModels": ["deepseek-chat", "gpt-4.1-mini"],
+    "judgeModels": ["gpt-4.1-nano"],
+    "iterations": [5, 10]
+  },
+  "comparison": {
+    "enabled": true,
+    "judgeModel": "gpt-4.1-nano",
+    "rounds": 3
+  },
+  "optimization": {
+    "adaptiveAllocation": false,
+    "prioritySort": "cost_asc"
+  }
+}

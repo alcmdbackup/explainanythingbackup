@@ -110,6 +110,64 @@ async function markRunPaused(runId: string, error: BudgetExceededError): Promise
   }).eq('id', runId);
 }
 
+/** Strategy-to-agent mapping for cost attribution. */
+const STRATEGY_TO_AGENT: Record<string, string> = {
+  structural_transform: 'generation',
+  lexical_simplify: 'generation',
+  grounding_enhance: 'generation',
+  mutate_clarity: 'evolution',
+  mutate_structure: 'evolution',
+  crossover: 'evolution',
+  creative_exploration: 'evolution',
+  debate_synthesis: 'debate',
+  original_baseline: 'original',
+};
+
+/** Map a strategy name to its agent, handling dynamic patterns. */
+function getAgentForStrategy(strategy: string): string | null {
+  if (STRATEGY_TO_AGENT[strategy]) return STRATEGY_TO_AGENT[strategy];
+  if (strategy.startsWith('critique_edit_')) return 'iterativeEditing';
+  return null;
+}
+
+/** Persist per-agent cost metrics for Elo/dollar optimization analysis. */
+async function persistAgentMetrics(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const supabase = await createSupabaseServiceClient();
+  const agentCosts = ctx.costTracker.getAllAgentCosts();
+
+  for (const [agentName, costUsd] of Object.entries(agentCosts)) {
+    // Find variants produced by this agent
+    const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
+    // Use mu (mean) from OpenSkill rating as the Elo equivalent
+    const avgElo = variants.length > 0
+      ? variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0) / variants.length
+      : null;
+    // OpenSkill default mu is 25 (not 1200 like traditional Elo)
+    const eloGain = avgElo ? avgElo - 25 : null;
+    const eloPerDollar = eloGain && costUsd > 0 ? eloGain / costUsd : null;
+
+    const { error } = await supabase.from('evolution_run_agent_metrics').upsert({
+      run_id: runId,
+      agent_name: agentName,
+      cost_usd: costUsd,
+      variants_generated: variants.length,
+      avg_elo: avgElo,
+      elo_gain: eloGain,
+      elo_per_dollar: eloPerDollar,
+    }, { onConflict: 'run_id,agent_name' });
+
+    if (error) {
+      logger.warn(`Failed to persist agent metrics for ${agentName}`, { runId, error: error.message });
+    }
+  }
+
+  logger.info('Agent metrics persisted', { runId, agentCount: Object.keys(agentCosts).length });
+}
+
 /** Insert the original text as a baseline variant for rating comparison. Idempotent via poolIds guard. */
 export function insertBaselineVariant(state: PipelineState, runId: string): void {
   const baselineId = `baseline-${runId}`;
@@ -284,6 +342,9 @@ export async function executeMinimalPipeline(
 
   // Persist variants to content_evolution_variants for admin UI
   await persistVariants(runId, ctx, logger);
+
+  // Persist per-agent cost metrics for Elo/dollar optimization
+  await persistAgentMetrics(runId, ctx, logger);
 
   logger.info('Pipeline completed', {
     poolSize: ctx.state.getPoolSize(),
@@ -500,6 +561,9 @@ export async function executeFullPipeline(
 
     // Persist variants to content_evolution_variants for admin UI
     await persistVariants(runId, ctx, logger);
+
+    // Persist per-agent cost metrics for Elo/dollar optimization
+    await persistAgentMetrics(runId, ctx, logger);
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,

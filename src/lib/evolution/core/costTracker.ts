@@ -59,6 +59,14 @@ export class CostTrackerImpl implements CostTracker {
   getAvailableBudget(): number {
     return this.budgetCapUsd - this.totalSpent;
   }
+
+  getAllAgentCosts(): Record<string, number> {
+    const costs: Record<string, number> = {};
+    for (const [agentName, spent] of this.spentByAgent.entries()) {
+      costs[agentName] = spent;
+    }
+    return costs;
+  }
 }
 
 /** Factory: create CostTracker from run config. */
