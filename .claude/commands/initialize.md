@@ -74,6 +74,68 @@ git checkout -b "$BRANCH_NAME" origin/main
 - If branch already exists, abort with: "Error: Branch $BRANCH_NAME already exists. Choose a different project name or delete the existing branch."
 - If fetch fails, warn user but continue (they may be offline)
 
+### 2.1. Handle Pre-existing Uncommitted Files
+
+After branch creation, check for files that carried over from the previous branch:
+
+```bash
+git status --porcelain
+```
+
+If output is empty, continue silently to Step 2.5.
+
+If files exist:
+
+1. **Display warning with file list and origins:**
+   ```
+   Pre-existing uncommitted files detected:
+   ```
+
+   For each file, show status and origin explanation:
+   ```
+   ?? docs/papers/           <- Untracked directory (created on previous branch)
+    M src/lib/utils.ts      <- Modified file (changes from previous branch)
+   ```
+
+2. **For EACH file, use AskUserQuestion** (single-select, one file at a time):
+   - Question: "File `[filename]` carried over from previous branch.\n\n**Status**: [explanation]\n\nWhat should I do?"
+   - Options:
+     1. "Leave it" — keep file as-is, handle during /finalize later
+     2. "Commit it now" — stage and commit immediately
+     3. "Add to .gitignore" — gitignore and commit
+     4. "Delete it" — remove using git clean/checkout
+
+3. **Process choice** using safe git commands:
+   - For "Leave it": Continue to next file (no action)
+   - For "Commit it now":
+     ```bash
+     git add -- "$FILE"
+     git commit -m "chore: include $FILE from previous branch"
+     ```
+   - For "Add to .gitignore":
+     ```bash
+     # For directories, use proper glob pattern
+     if [[ -d "$FILE" ]]; then
+       GITIGNORE_PATTERN="${FILE%/}/"
+     else
+       GITIGNORE_PATTERN="$FILE"
+     fi
+
+     # Avoid duplicates
+     if ! grep -qxF "$GITIGNORE_PATTERN" .gitignore 2>/dev/null; then
+       echo "$GITIGNORE_PATTERN" >> .gitignore
+     fi
+
+     git add -- .gitignore
+     git commit -m "chore: gitignore $GITIGNORE_PATTERN"
+     ```
+   - For "Delete it":
+     - Untracked files: `git clean -f -- "$FILE"` (or `-fd` for directories)
+     - Modified files: `git checkout -- "$FILE"` to discard changes
+     - Staged files: `git restore --staged -- "$FILE"` then `git checkout -- "$FILE"`
+
+4. After all files processed (or user chooses "Leave it" for remaining), continue to Step 2.5.
+
 ### 2.5. Read Core Documentation
 
 Before creating project files, read these three core documents to understand the codebase context:
@@ -267,7 +329,23 @@ Set up code-to-doc mappings for any **new** documentation created by this projec
 
 Prompt: "Please provide a 3-5 sentence summary for the GitHub issue describing what this project will accomplish:"
 
-Wait for the user's response before proceeding to step 8.
+Wait for the user's response before proceeding to step 7.5.
+
+### 7.5. Offer to Commit Project Files
+
+Use **AskUserQuestion**:
+- Question: "Would you like to commit the project skeleton files now?"
+- Options:
+  1. "Yes, commit now (Recommended)" — run:
+     ```bash
+     git add -- "docs/planning/${PROJECT_NAME}"
+     # Only add doc-mapping.json if it exists and was modified
+     if [[ -f ".claude/doc-mapping.json" ]] && git diff --name-only | grep -q ".claude/doc-mapping.json"; then
+       git add -- ".claude/doc-mapping.json"
+     fi
+     git commit -m "chore: initialize ${PROJECT_NAME}"
+     ```
+  2. "No, I'll commit later" — continue without committing
 
 ### 8. Create GitHub Issue
 
@@ -298,6 +376,8 @@ Capture the issue URL from the output.
 
 ### 9. Output Summary
 
+Run `git status --short` to capture current state.
+
 Display this completion message:
 
 ```
@@ -314,6 +394,17 @@ Relevant docs discovered and read: [count]
 Documentation mappings: [list any new mappings added to .claude/doc-mapping.json]
 GitHub Issue: [issue URL]
 
+Git status:
+$(git status --short)
+```
+
+If files remain uncommitted, add:
+```
+To commit remaining files:
+  git add -A && git commit -m "chore: initialize ${PROJECT_NAME}"
+```
+
+```
 Next steps:
 1. Run /research to conduct research and populate the research doc
 2. Use /plan-review after completing the planning doc
