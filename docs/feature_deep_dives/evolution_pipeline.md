@@ -118,8 +118,8 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 ### Two Pipeline Modes
 
-- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence.
-- **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. The admin trigger (`triggerEvolutionRunAction`) uses this with only `GenerationAgent` + `CalibrationRanker`. Used for testing and simple one-shot runs.
+- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. **Used by the admin UI trigger (`triggerEvolutionRunAction`)** with all 9 agents.
+- **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) when running with specific agents.
 
 ### Agent Framework
 
@@ -436,6 +436,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available. Preserves pipeline-generated variant UUIDs and `parent_variant_id` on insert so dashboard IDs match CLI output. Writes each LLM call to `llmCallTracking` for budget tab visualization. |
+| `src/app/api/cron/evolution-runner/route.ts` | Background runner: polls for pending runs, executes full pipeline with all 9 agents, 30-second heartbeat. Requires Vercel cron config or external trigger to activate. |
 | `src/app/api/cron/evolution-watchdog/route.ts` | Marks stale runs (heartbeat > 10min) as failed — runs every 15 minutes |
 | `src/app/api/cron/content-quality-eval/route.ts` | Auto-queues articles scoring < 0.4 for evolution (max 5 per cron, budget $3.00 each) |
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |

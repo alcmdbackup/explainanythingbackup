@@ -52,7 +52,20 @@ export interface TimelineData {
       matchesPlayed: number;
       strategy?: string;
       error?: string;
+      // New fields for enhanced per-agent detail
+      newVariantIds?: string[];
+      eloChanges?: Record<string, number>; // variantId → delta
+      critiquesAdded?: number;
+      debatesAdded?: number;
+      diversityScoreAfter?: number | null;
+      metaFeedbackPopulated?: boolean;
+      skipped?: boolean;
+      executionOrder?: number; // 0-based position within iteration
     }[];
+    // New iteration-level totals
+    totalCostUsd?: number;
+    totalVariantsAdded?: number;
+    totalMatchesPlayed?: number;
   }[];
   phaseTransitions: { afterIteration: number; reason: string }[];
 }
@@ -194,6 +207,64 @@ export const getEvolutionDashboardDataAction = serverReadRequestId(_getEvolution
 
 // ─── 2. Run Timeline ────────────────────────────────────────────
 
+/** Metrics computed by diffing sequential checkpoints. */
+interface AgentDiffMetrics {
+  variantsAdded: number;
+  newVariantIds: string[];
+  matchesPlayed: number;
+  eloChanges: Record<string, number>;
+  critiquesAdded: number;
+  debatesAdded: number;
+  diversityScoreAfter: number | null;
+  metaFeedbackPopulated: boolean;
+}
+
+/** Compute Elo delta between two rating snapshots. */
+function computeEloDelta(
+  before: Record<string, number>,
+  after: Record<string, number>
+): Record<string, number> {
+  const delta: Record<string, number> = {};
+  for (const [id, newElo] of Object.entries(after)) {
+    const oldElo = before[id] ?? 1200; // new variants start at 1200
+    if (newElo !== oldElo) {
+      delta[id] = newElo - oldElo;
+    }
+  }
+  return delta;
+}
+
+/** Diff sequential checkpoints to compute per-agent metrics. */
+function diffCheckpoints(
+  before: SerializedPipelineState | null,
+  after: SerializedPipelineState
+): AgentDiffMetrics {
+  const beforePoolIds = new Set(before?.pool?.map(v => v.id) ?? []);
+  const newVariantIds = (after.pool ?? [])
+    .filter(v => !beforePoolIds.has(v.id))
+    .map(v => v.id);
+
+  return {
+    variantsAdded: newVariantIds.length,
+    newVariantIds,
+    matchesPlayed: Math.max(0, (after.matchHistory?.length ?? 0) - (before?.matchHistory?.length ?? 0)),
+    eloChanges: computeEloDelta(before?.eloRatings ?? {}, after.eloRatings ?? {}),
+    critiquesAdded: Math.max(0, (after.allCritiques?.length ?? 0) - (before?.allCritiques?.length ?? 0)),
+    debatesAdded: Math.max(0, (after.debateTranscripts?.length ?? 0) - (before?.debateTranscripts?.length ?? 0)),
+    diversityScoreAfter: after.diversityScore ?? null,
+    metaFeedbackPopulated: before?.metaFeedback === null && after.metaFeedback !== null,
+  };
+}
+
+/** Checkpoint row with timestamp for cost attribution. */
+interface CheckpointRow {
+  iteration: number;
+  phase: PipelinePhase;
+  last_agent: string;
+  state_snapshot: SerializedPipelineState;
+  created_at: string;
+}
+
 const _getEvolutionRunTimelineAction = withLogging(async (
   runId: string
 ): Promise<ActionResult<TimelineData>> => {
@@ -202,73 +273,138 @@ const _getEvolutionRunTimelineAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Load one checkpoint per iteration (the last agent's for each iteration)
+    // Load ALL checkpoints per iteration (not just the last) with timestamps
     const { data: checkpoints, error: cpError } = await supabase
       .from('evolution_checkpoints')
-      .select('iteration, last_agent, state_snapshot')
+      .select('iteration, phase, last_agent, state_snapshot, created_at')
       .eq('run_id', runId)
       .order('iteration', { ascending: true })
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: true }); // ASC for correct execution order
 
     if (cpError) throw cpError;
 
-    // De-duplicate: keep only the last checkpoint per iteration
-    const iterationMap = new Map<number, { last_agent: string; state_snapshot: SerializedPipelineState }>();
-    for (const cp of checkpoints ?? []) {
-      if (!iterationMap.has(cp.iteration)) {
-        iterationMap.set(cp.iteration, cp as { last_agent: string; state_snapshot: SerializedPipelineState });
-      }
+    // Group all checkpoints per iteration, preserving execution order
+    const iterationGroups = new Map<number, CheckpointRow[]>();
+    for (const cp of (checkpoints ?? []) as CheckpointRow[]) {
+      const group = iterationGroups.get(cp.iteration) ?? [];
+      group.push(cp);
+      iterationGroups.set(cp.iteration, group);
     }
 
-    // Load cost data for the run's time window
+    // Load run metadata for cost attribution time window
     const { data: run } = await supabase
       .from('content_evolution_runs')
-      .select('started_at, completed_at, budget_cap_usd')
+      .select('started_at, completed_at')
       .eq('id', runId)
       .single();
 
-    const costByAgent = new Map<string, number>();
+    // Build checkpoint time boundaries for cost attribution
+    type TimeBoundary = { iteration: number; agent: string; startTime: string; endTime: string };
+    const boundaries: TimeBoundary[] = [];
+    const allCheckpointsSorted = Array.from(iterationGroups.values())
+      .flat()
+      .sort((a, b) => a.created_at.localeCompare(b.created_at));
+
+    for (let i = 0; i < allCheckpointsSorted.length; i++) {
+      const cp = allCheckpointsSorted[i];
+      const nextCp = allCheckpointsSorted[i + 1];
+      boundaries.push({
+        iteration: cp.iteration,
+        agent: cp.last_agent,
+        startTime: i === 0 ? (run?.started_at ?? cp.created_at) : allCheckpointsSorted[i - 1].created_at,
+        endTime: nextCp?.created_at ?? run?.completed_at ?? cp.created_at,
+      });
+    }
+
+    // Load LLM calls for cost attribution
+    const costMap = new Map<string, number>(); // "iteration-agent" → cost
     if (run?.started_at) {
       let costQuery = supabase
         .from('llmCallTracking')
-        .select('call_source, estimated_cost_usd')
-        .like('call_source', 'evolution_%');
-      if (run.started_at) costQuery = costQuery.gte('created_at', run.started_at);
-      if (run.completed_at) costQuery = costQuery.lte('created_at', run.completed_at);
+        .select('call_source, estimated_cost_usd, created_at')
+        .like('call_source', 'evolution_%')
+        .gte('created_at', run.started_at);
+      if (run.completed_at) {
+        costQuery = costQuery.lte('created_at', run.completed_at);
+      }
       const { data: costData } = await costQuery;
-      for (const c of costData ?? []) {
-        const agent = (c.call_source as string).replace(/^evolution_/, '');
-        costByAgent.set(agent, (costByAgent.get(agent) ?? 0) + ((c.estimated_cost_usd as number) ?? 0));
+
+      for (const call of costData ?? []) {
+        const callTime = call.created_at as string;
+        const callAgent = (call.call_source as string).replace(/^evolution_/, '');
+        const callCost = (call.estimated_cost_usd as number) ?? 0;
+
+        // Find boundary by time and agent name match
+        const boundary = boundaries.find(b =>
+          callTime >= b.startTime &&
+          callTime <= b.endTime &&
+          callAgent.toLowerCase().includes(b.agent.toLowerCase().replace(/_/g, ''))
+        );
+        if (boundary) {
+          const key = `${boundary.iteration}-${boundary.agent}`;
+          costMap.set(key, (costMap.get(key) ?? 0) + callCost);
+        } else {
+          // Fallback: attribute to first boundary where agent name matches
+          const fallback = boundaries.find(b =>
+            callAgent.toLowerCase().includes(b.agent.toLowerCase().replace(/_/g, ''))
+          );
+          if (fallback) {
+            const key = `${fallback.iteration}-${fallback.agent}`;
+            costMap.set(key, (costMap.get(key) ?? 0) + callCost);
+          }
+        }
       }
     }
 
-    // Build timeline by diffing sequential iterations
-    const sortedIterations = Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0]);
+    // Build timeline with per-agent metrics via checkpoint diffing
+    const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
     const iterations: TimelineData['iterations'] = [];
-    let prevPoolSize = 0;
-    let prevMatchCount = 0;
+    let prevIterationFinalSnapshot: SerializedPipelineState | null = null;
 
-    for (const [iteration, cp] of sortedIterations) {
-      const snapshot = cp.state_snapshot;
-      const poolSize = snapshot.pool?.length ?? 0;
-      const matchCount = snapshot.matchHistory?.length ?? 0;
+    for (const [iteration, checkpointGroup] of sortedIterations) {
+      // Use the phase from checkpoint (more reliable than pool size heuristic)
+      const phase = checkpointGroup[0]?.phase ?? 'EXPANSION';
+      const agents: TimelineData['iterations'][number]['agents'] = [];
+      let prevSnapshotInIteration: SerializedPipelineState | null = prevIterationFinalSnapshot;
 
-      // Determine phase from pool characteristics
-      const phase: PipelinePhase = poolSize > 10 ? 'COMPETITION' : 'EXPANSION';
+      for (let i = 0; i < checkpointGroup.length; i++) {
+        const cp = checkpointGroup[i];
+        const diff = diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
+        const costKey = `${iteration}-${cp.last_agent}`;
+
+        agents.push({
+          name: cp.last_agent,
+          costUsd: costMap.get(costKey) ?? 0,
+          variantsAdded: diff.variantsAdded,
+          matchesPlayed: diff.matchesPlayed,
+          newVariantIds: diff.newVariantIds,
+          eloChanges: Object.keys(diff.eloChanges).length > 0 ? diff.eloChanges : undefined,
+          critiquesAdded: diff.critiquesAdded > 0 ? diff.critiquesAdded : undefined,
+          debatesAdded: diff.debatesAdded > 0 ? diff.debatesAdded : undefined,
+          diversityScoreAfter: diff.diversityScoreAfter,
+          metaFeedbackPopulated: diff.metaFeedbackPopulated || undefined,
+          executionOrder: i,
+        });
+
+        prevSnapshotInIteration = cp.state_snapshot;
+      }
+
+      // Compute iteration totals
+      const totalCostUsd = agents.reduce((sum, a) => sum + a.costUsd, 0);
+      const totalVariantsAdded = agents.reduce((sum, a) => sum + a.variantsAdded, 0);
+      const totalMatchesPlayed = agents.reduce((sum, a) => sum + a.matchesPlayed, 0);
 
       iterations.push({
         iteration,
         phase,
-        agents: [{
-          name: cp.last_agent,
-          costUsd: costByAgent.get(cp.last_agent) ?? 0,
-          variantsAdded: Math.max(0, poolSize - prevPoolSize),
-          matchesPlayed: Math.max(0, matchCount - prevMatchCount),
-        }],
+        agents,
+        totalCostUsd,
+        totalVariantsAdded,
+        totalMatchesPlayed,
       });
 
-      prevPoolSize = poolSize;
-      prevMatchCount = matchCount;
+      // Track final snapshot of this iteration for next iteration's first diff
+      prevIterationFinalSnapshot = checkpointGroup[checkpointGroup.length - 1]?.state_snapshot ?? null;
     }
 
     // Detect phase transitions

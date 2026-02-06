@@ -552,6 +552,7 @@ export default function EvolutionAdminPage() {
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-elevated)]">
             <tr>
+              <th className="p-3 text-left">Run ID</th>
               <th className="p-3 text-left">Explanation</th>
               <th className="p-3 text-left">Status</th>
               <th className="p-3 text-left">Phase</th>
@@ -565,11 +566,11 @@ export default function EvolutionAdminPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
+                <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
               </tr>
             ) : runs.length === 0 ? (
               <tr>
-                <td colSpan={8} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">
                   No evolution runs found
                 </td>
               </tr>
@@ -585,9 +586,19 @@ export default function EvolutionAdminPage() {
                     <Link
                       href={`/admin/quality/evolution/run/${run.id}`}
                       className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+                      title={run.id}
                     >
-                      #{run.explanation_id}
+                      {run.id.substring(0, 8)}
                     </Link>
+                  </td>
+                  <td className="p-3">
+                    {run.explanation_id ? (
+                      <span className="font-mono text-xs text-[var(--text-secondary)]">
+                        #{run.explanation_id}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--text-muted)]">—</span>
+                    )}
                   </td>
                   <td className="p-3">
                     <EvolutionStatusBadge status={run.status} />
@@ -597,7 +608,10 @@ export default function EvolutionAdminPage() {
                   <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
                   <td className="p-3 text-right text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</td>
                   <td className="p-3 text-[var(--text-muted)] text-xs">
-                    {new Date(run.created_at).toLocaleDateString()}
+                    {new Date(run.created_at).toLocaleDateString()}{' '}
+                    <span className="text-[var(--text-muted)]/70">
+                      {new Date(run.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </span>
                   </td>
                   <td className="p-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-2">

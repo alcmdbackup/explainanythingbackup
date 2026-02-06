@@ -202,15 +202,24 @@ export default function EvolutionRunDetailPage() {
       <div className="text-xs text-[var(--text-muted)]">
         <Link href="/admin/quality/evolution" className="hover:text-[var(--accent-gold)]">Evolution</Link>
         <span className="mx-1">/</span>
-        <span>Run #{run.explanation_id}</span>
+        <span>Run {runId.substring(0, 8)}</span>
       </div>
 
       {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
-            Run #{run.explanation_id}
+            {run.explanation_id ? `Explanation #${run.explanation_id}` : 'Evolution Run'}
           </h1>
+          <div className="flex items-center gap-2 mt-1 text-xs text-[var(--text-muted)] font-mono">
+            <span title={runId}>Run ID: {runId.substring(0, 8)}...</span>
+            <button
+              onClick={() => { navigator.clipboard.writeText(runId); toast.success('Run ID copied'); }}
+              className="text-[var(--accent-gold)] hover:underline"
+            >
+              Copy
+            </button>
+          </div>
           <div className="flex items-center gap-3 mt-2">
             <EvolutionStatusBadge status={run.status} />
             <PhaseIndicator

@@ -4,7 +4,31 @@
 The evolution pipeline documentation (`evolution_pipeline.md` and `evolution_pipeline_visualization.md`) may have drifted from the current codebase state after multiple feature branches. This research audits the codebase against both docs to identify discrepancies.
 
 ## High Level Summary
-The two documentation files are **largely accurate** — the core architecture, agent descriptions, config values, and data flow match the codebase. However, there are several areas where the docs are incomplete or slightly outdated:
+The two documentation files are **largely accurate** — the core architecture, agent descriptions, config values, and data flow match the codebase. However, there are several areas where the docs are incomplete or slightly outdated.
+
+---
+
+## CRITICAL FINDING: Only 2 Agents Execute in Production
+
+**Root cause discovered 2026-02-05**: The admin UI trigger (`_triggerEvolutionRunAction`) uses `executeMinimalPipeline` with only 2 agents (GenerationAgent + CalibrationRanker), NOT `executeFullPipeline` with all 9 agents.
+
+```typescript
+// evolutionActions.ts line 347 (BEFORE fix)
+const agents = [new GenerationAgent(), new CalibrationRanker()];
+await executeMinimalPipeline(runId, agents, ctx, evolutionLogger, { startMs });
+```
+
+**Implications**:
+- Timeline UI shows only "generation" and "calibration" because those are the only agents that run
+- 7 agents (Reflection, IterativeEditing, Debate, Evolution, Tournament, Proximity, MetaReview) are fully implemented but never execute
+- Supervisor phase configs (EXPANSION vs COMPETITION) are unused
+- The full pipeline infrastructure exists and is tested but not wired up to production
+
+**Resolution**: Implementation plan in `understand_pipeline_agent_executioN-20260204/` directory. Both options implemented:
+- Option A: Upgraded admin trigger to use `executeFullPipeline` with all 9 agents
+- Option B: Created cron endpoint `/api/cron/evolution-runner` for background processing
+
+---
 
 ### Discrepancies Found in `evolution_pipeline.md`
 

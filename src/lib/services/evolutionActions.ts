@@ -313,11 +313,19 @@ const _triggerEvolutionRunAction = withLogging(async (
       createCostTracker,
       createEvolutionLogger,
       createEvolutionLLMClient,
-      executeMinimalPipeline,
+      executeFullPipeline,
       resolveConfig,
       GenerationAgent,
       CalibrationRanker,
+      Tournament,
+      EvolutionAgent,
+      ReflectionAgent,
+      IterativeEditingAgent,
+      DebateAgent,
+      ProximityAgent,
+      MetaReviewAgent,
     } = await import('@/lib/evolution');
+    type PipelineAgents = import('@/lib/evolution').PipelineAgents;
 
     const config = resolveConfig(run.config ?? {});
     const state = new PipelineStateImpl(explanation.content);
@@ -344,13 +352,26 @@ const _triggerEvolutionRunAction = withLogging(async (
       runId,
     };
 
-    const agents = [new GenerationAgent(), new CalibrationRanker()];
+    // Full pipeline with all agents (phase-appropriate agents selected by supervisor)
+    const agents: PipelineAgents = {
+      generation: new GenerationAgent(),
+      calibration: new CalibrationRanker(),
+      tournament: new Tournament(),
+      evolution: new EvolutionAgent(),
+      reflection: new ReflectionAgent(),
+      iterativeEditing: new IterativeEditingAgent(),
+      debate: new DebateAgent(),
+      proximity: new ProximityAgent(),
+      metaReview: new MetaReviewAgent(),
+    };
     const startMs = Date.now();
-    state.startNewIteration();
 
-    await executeMinimalPipeline(runId, agents, ctx, evolutionLogger, { startMs });
+    await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
+      startMs,
+      featureFlags,
+    });
 
-    // Variants are persisted inside executeMinimalPipeline via persistVariants() (upsert).
+    // Variants are persisted inside executeFullPipeline via persistVariants() (upsert).
 
     return { success: true, error: null };
   } catch (error) {

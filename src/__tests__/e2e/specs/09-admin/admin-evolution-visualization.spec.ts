@@ -216,4 +216,37 @@ adminTest.describe.skip('Admin Evolution Visualization', () => {
       await expect(nodes.first()).toBeVisible({ timeout: 10000 });
     },
   );
+
+  adminTest(
+    'timeline tab displays agents per iteration',
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.waitForLoadState('networkidle');
+
+      // Timeline tab is default, verify agent rows are visible
+      const iteration = adminPage.locator('[data-testid^="iteration-"]').first();
+      await expect(iteration).toBeVisible();
+
+      // Should show agent rows within iteration
+      const agentRows = adminPage.locator('[data-testid^="agent-row-"]');
+      await expect(agentRows.first()).toBeVisible();
+    },
+  );
+
+  adminTest(
+    'timeline tab expands agent detail panel on click',
+    async ({ adminPage }) => {
+      await adminPage.goto(`/admin/quality/evolution/run/${seededData.runId}`);
+      await adminPage.waitForLoadState('networkidle');
+
+      // Click first agent row
+      const agentRow = adminPage.locator('[data-testid^="agent-row-"]').first();
+      await agentRow.click();
+
+      // Verify detail panel expands with metrics
+      await expect(adminPage.locator('text=Variants Added')).toBeVisible();
+      await expect(adminPage.locator('text=Matches Played')).toBeVisible();
+      await expect(adminPage.locator('text=Cost')).toBeVisible();
+    },
+  );
 });
