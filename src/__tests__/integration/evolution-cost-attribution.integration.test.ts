@@ -274,4 +274,252 @@ describe('Evolution Cost Attribution Integration Tests', () => {
         .eq('id', inserted.id);
     });
   });
+
+  describe('UUID format validation', () => {
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+    it('rejects non-UUID run_id format', async () => {
+      if (!tablesReady) return;
+
+      // Attempt to insert with invalid UUID prefix (the bug we fixed)
+      // This test doesn't need a valid explanation_id since it should fail on UUID validation first
+      const { error } = await supabase
+        .from('content_evolution_runs')
+        .insert({
+          id: 'batch-12345678-1234-1234-1234-123456789abc', // Invalid: has batch- prefix
+          explanation_id: 1,
+          status: 'pending',
+          budget_cap_usd: 1.0,
+        });
+
+      // Should fail with UUID format error
+      expect(error).not.toBeNull();
+      expect(error?.message).toMatch(/invalid input syntax for type uuid/i);
+    });
+
+    it('accepts valid UUID run_id format', async () => {
+      if (!tablesReady) return;
+
+      // First create a topic and explanation (required FK)
+      const { data: topic } = await supabase
+        .from('topics')
+        .insert({ topic_title: `${TEST_PREFIX}uuid_test_topic`, topic_description: 'Test' })
+        .select('id')
+        .single();
+
+      if (!topic) {
+        console.warn('Could not create test topic');
+        return;
+      }
+
+      const { data: explanation } = await supabase
+        .from('explanations')
+        .insert({
+          explanation_title: `${TEST_PREFIX}uuid_test_explanation`,
+          content: 'Test',
+          status: 'draft',
+          primary_topic_id: topic.id,
+        })
+        .select('id')
+        .single();
+
+      if (!explanation) {
+        await supabase.from('topics').delete().eq('id', topic.id);
+        console.warn('Could not create test explanation');
+        return;
+      }
+
+      const validUUID = '12345678-1234-4234-8234-123456789abc';
+
+      const { data, error } = await supabase
+        .from('content_evolution_runs')
+        .insert({
+          id: validUUID,
+          explanation_id: explanation.id,
+          status: 'pending',
+          budget_cap_usd: 1.0,
+        })
+        .select('id')
+        .single();
+
+      // Should succeed
+      expect(error).toBeNull();
+      expect(data?.id).toBe(validUUID);
+      expect(UUID_REGEX.test(data?.id)).toBe(true);
+
+      // Cleanup
+      await supabase.from('content_evolution_runs').delete().eq('id', validUUID);
+      await supabase.from('explanations').delete().eq('id', explanation.id);
+      await supabase.from('topics').delete().eq('id', topic.id);
+    });
+
+    it('validates variant id is valid UUID', async () => {
+      if (!tablesReady) return;
+
+      // First create a topic and explanation (required FK)
+      const { data: topic } = await supabase
+        .from('topics')
+        .insert({ topic_title: `${TEST_PREFIX}variant_uuid_test_topic`, topic_description: 'Test' })
+        .select('id')
+        .single();
+
+      if (!topic) {
+        console.warn('Could not create test topic');
+        return;
+      }
+
+      const { data: explanation } = await supabase
+        .from('explanations')
+        .insert({
+          explanation_title: `${TEST_PREFIX}variant_uuid_test_explanation`,
+          content: 'Test',
+          status: 'draft',
+          primary_topic_id: topic.id,
+        })
+        .select('id')
+        .single();
+
+      if (!explanation) {
+        await supabase.from('topics').delete().eq('id', topic.id);
+        console.warn('Could not create test explanation');
+        return;
+      }
+
+      // Create a valid run first
+      const runId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+      const { error: runError } = await supabase
+        .from('content_evolution_runs')
+        .insert({
+          id: runId,
+          explanation_id: explanation.id,
+          status: 'pending',
+          budget_cap_usd: 1.0,
+        });
+
+      if (runError) {
+        await supabase.from('explanations').delete().eq('id', explanation.id);
+        await supabase.from('topics').delete().eq('id', topic.id);
+        console.warn('Could not create test run:', runError.message);
+        return;
+      }
+
+      trackedRunIds.push(runId);
+
+      // Attempt to insert variant with invalid baseline-prefixed ID (the bug we fixed)
+      // Uses actual schema columns from content_evolution_variants table
+      const { error: variantError } = await supabase
+        .from('content_evolution_variants')
+        .insert({
+          id: `baseline-${runId}`, // Invalid: has baseline- prefix
+          run_id: runId,
+          explanation_id: explanation.id,
+          variant_content: 'test baseline content',
+          agent_name: 'baseline',
+        });
+
+      // Should fail with UUID format error
+      expect(variantError).not.toBeNull();
+      expect(variantError?.message).toMatch(/invalid input syntax for type uuid/i);
+
+      // Cleanup
+      await supabase.from('content_evolution_runs').delete().eq('id', runId);
+      await supabase.from('explanations').delete().eq('id', explanation.id);
+      await supabase.from('topics').delete().eq('id', topic.id);
+    });
+  });
+
+  describe('Strategy config linking', () => {
+    it('links run to strategy config via strategy_config_id', async () => {
+      if (!tablesReady) return;
+
+      // First create a topic and explanation (required FK)
+      const { data: topic } = await supabase
+        .from('topics')
+        .insert({ topic_title: `${TEST_PREFIX}strategy_link_test_topic`, topic_description: 'Test' })
+        .select('id')
+        .single();
+
+      if (!topic) {
+        console.warn('Could not create test topic');
+        return;
+      }
+
+      const { data: explanation } = await supabase
+        .from('explanations')
+        .insert({
+          explanation_title: `${TEST_PREFIX}strategy_link_test_explanation`,
+          content: 'Test',
+          status: 'draft',
+          primary_topic_id: topic.id,
+        })
+        .select('id')
+        .single();
+
+      if (!explanation) {
+        await supabase.from('topics').delete().eq('id', topic.id);
+        console.warn('Could not create test explanation');
+        return;
+      }
+
+      // Create a strategy config
+      const testConfig: StrategyConfig = {
+        generationModel: 'test-model',
+        judgeModel: 'test-judge',
+        iterations: 10,
+        budgetCaps: {},
+      };
+
+      const hash = hashStrategyConfig(testConfig);
+      const testName = `${TEST_PREFIX}link_test_${Date.now()}`;
+
+      const { data: strategy, error: stratError } = await supabase
+        .from('strategy_configs')
+        .insert({
+          config_hash: hash,
+          name: testName,
+          label: 'Test strategy for linking',
+          config: testConfig,
+        })
+        .select('id')
+        .single();
+
+      if (stratError) {
+        await supabase.from('explanations').delete().eq('id', explanation.id);
+        await supabase.from('topics').delete().eq('id', topic.id);
+        console.warn('Could not create strategy config:', stratError.message);
+        return;
+      }
+
+      // Create a run linked to the strategy
+      const runId = 'cccccccc-dddd-4eee-8fff-111111111111';
+      const { error: runError } = await supabase
+        .from('content_evolution_runs')
+        .insert({
+          id: runId,
+          explanation_id: explanation.id,
+          status: 'completed',
+          budget_cap_usd: 1.0,
+          strategy_config_id: strategy.id,
+        });
+
+      expect(runError).toBeNull();
+      trackedRunIds.push(runId);
+
+      // Query run and verify strategy link
+      const { data: run, error: queryError } = await supabase
+        .from('content_evolution_runs')
+        .select('id, strategy_config_id')
+        .eq('id', runId)
+        .single();
+
+      expect(queryError).toBeNull();
+      expect(run?.strategy_config_id).toBe(strategy.id);
+
+      // Cleanup
+      await supabase.from('content_evolution_runs').delete().eq('id', runId);
+      await supabase.from('strategy_configs').delete().eq('id', strategy.id);
+      await supabase.from('explanations').delete().eq('id', explanation.id);
+      await supabase.from('topics').delete().eq('id', topic.id);
+    });
+  });
 });

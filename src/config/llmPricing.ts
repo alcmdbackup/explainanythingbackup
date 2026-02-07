@@ -18,6 +18,8 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   'gpt-4.1-nano': { inputPer1M: 0.10, outputPer1M: 0.40 },
 
   // OpenAI GPT-5 (latest)
+  'gpt-5.2': { inputPer1M: 1.75, outputPer1M: 14.00 },
+  'gpt-5.2-pro': { inputPer1M: 3.50, outputPer1M: 28.00 },
   'gpt-5-mini': { inputPer1M: 0.25, outputPer1M: 2.00 },
   'gpt-5-nano': { inputPer1M: 0.05, outputPer1M: 0.40 },
 

@@ -55,7 +55,8 @@ export async function getAgentROILeaderboardAction(
   try {
     const supabase = await createSupabaseServiceClient();
     const lookbackDays = filters?.lookbackDays ?? 30;
-    const minSampleSize = filters?.minSampleSize ?? 5;
+    // Default to 1 sample to show all data; callers can raise for statistical significance
+    const minSampleSize = filters?.minSampleSize ?? 1;
     const cutoff = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
 
     const { data, error } = await supabase

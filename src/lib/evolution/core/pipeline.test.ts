@@ -14,12 +14,16 @@ import type { Rating } from './rating';
 // ─── Mocks for executeFullPipeline integration tests ────────────
 
 jest.mock('@/lib/utils/supabase/server', () => {
-  // Thenable chain mock: supports from().update().eq() and from().upsert() patterns
+  // Thenable chain mock: supports from().update().eq(), from().upsert(), from().select().eq().single(), from().insert().select().single(), rpc()
   const chain: Record<string, jest.Mock> = {};
-  chain.eq = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.eq = jest.fn().mockReturnValue(chain);
+  chain.single = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.update = jest.fn().mockReturnValue(chain);
   chain.upsert = jest.fn().mockResolvedValue({ data: null, error: null });
+  chain.select = jest.fn().mockReturnValue(chain);
+  chain.insert = jest.fn().mockReturnValue(chain);
   chain.from = jest.fn().mockReturnValue(chain);
+  chain.rpc = jest.fn().mockResolvedValue({ data: null, error: null });
   return { createSupabaseServiceClient: jest.fn().mockResolvedValue(chain) };
 });
 
@@ -79,7 +83,8 @@ describe('insertBaselineVariant', () => {
 
     expect(state.pool).toHaveLength(1);
     expect(state.pool[0].strategy).toBe(BASELINE_STRATEGY);
-    expect(state.pool[0].id).toBe('baseline-run-1');
+    // ID is now a UUID, not a prefixed string
+    expect(state.pool[0].id).toMatch(/^[0-9a-f-]{36}$/);
     expect(state.pool[0].text).toBe('Original article text');
     expect(state.pool[0].version).toBe(0);
     expect(state.pool[0].parentIds).toEqual([]);
@@ -105,11 +110,14 @@ describe('insertBaselineVariant', () => {
     const state = new PipelineStateImpl('text');
     insertBaselineVariant(state, 'run-3');
 
-    const r = state.ratings.get('baseline-run-3');
+    // Find baseline variant by strategy, not by ID
+    const baselineVariant = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
+    expect(baselineVariant).toBeDefined();
+    const r = state.ratings.get(baselineVariant!.id);
     expect(r).toBeDefined();
     expect(r!.mu).toBeGreaterThan(0);
     expect(r!.sigma).toBeGreaterThan(0);
-    expect(state.matchCounts.get('baseline-run-3')).toBe(0);
+    expect(state.matchCounts.get(baselineVariant!.id)).toBe(0);
   });
 });
 

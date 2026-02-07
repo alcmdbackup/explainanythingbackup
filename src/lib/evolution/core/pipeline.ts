@@ -11,6 +11,8 @@ import { BudgetExceededError, BASELINE_STRATEGY, EvolutionRunSummarySchema } fro
 import { ComparisonCache } from './comparisonCache';
 import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
+import { v4 as uuidv4 } from 'uuid';
+import { extractStrategyConfig, hashStrategyConfig, labelStrategyConfig } from './strategyConfig';
 
 /** Agent interface for pipeline execution. */
 export interface PipelineAgent {
@@ -110,6 +112,84 @@ async function markRunPaused(runId: string, error: BudgetExceededError): Promise
   }).eq('id', runId);
 }
 
+/** Link run to strategy config and update aggregates for Elo optimization dashboard. */
+async function linkStrategyConfig(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const supabase = await createSupabaseServiceClient();
+
+  // Extract strategy config from run config
+  const defaultBudgetCaps = ctx.payload.config.budgetCaps ?? {};
+  const stratConfig = extractStrategyConfig(ctx.payload.config, defaultBudgetCaps);
+  const configHash = hashStrategyConfig(stratConfig);
+  const label = labelStrategyConfig(stratConfig);
+
+  // Get or create strategy_configs entry
+  const { data: existing } = await supabase
+    .from('strategy_configs')
+    .select('id')
+    .eq('config_hash', configHash)
+    .single();
+
+  let strategyId: string;
+  if (existing) {
+    strategyId = existing.id;
+  } else {
+    // Create new strategy entry
+    const { data: created, error: createErr } = await supabase
+      .from('strategy_configs')
+      .insert({
+        config_hash: configHash,
+        name: `Strategy ${configHash.slice(0, 6)}`,
+        label,
+        config: stratConfig,
+      })
+      .select('id')
+      .single();
+
+    if (createErr || !created) {
+      logger.warn('Failed to create strategy config', { runId, error: createErr?.message });
+      return;
+    }
+    strategyId = created.id;
+  }
+
+  // Link run to strategy
+  const { error: linkErr } = await supabase
+    .from('content_evolution_runs')
+    .update({ strategy_config_id: strategyId })
+    .eq('id', runId);
+
+  if (linkErr) {
+    logger.warn('Failed to link run to strategy config', { runId, strategyId, error: linkErr.message });
+    return;
+  }
+
+  // Get final Elo from top variant
+  const topVariant = ctx.state.getTopByRating(1)[0];
+  const finalElo = topVariant
+    ? ordinalToEloScale(getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating()))
+    : null;
+  const totalCost = ctx.costTracker.getTotalSpent();
+
+  // Update strategy aggregates via RPC
+  if (finalElo !== null) {
+    const { error: aggErr } = await supabase.rpc('update_strategy_aggregates', {
+      p_strategy_id: strategyId,
+      p_cost_usd: totalCost,
+      p_final_elo: finalElo,
+    });
+
+    if (aggErr) {
+      logger.warn('Failed to update strategy aggregates', { runId, strategyId, error: aggErr.message });
+    } else {
+      logger.info('Strategy config linked and aggregates updated', { runId, strategyId, finalElo });
+    }
+  }
+}
+
 /** Strategy-to-agent mapping for cost attribution. */
 const STRATEGY_TO_AGENT: Record<string, string> = {
   structural_transform: 'generation',
@@ -168,10 +248,15 @@ async function persistAgentMetrics(
   logger.info('Agent metrics persisted', { runId, agentCount: Object.keys(agentCosts).length });
 }
 
-/** Insert the original text as a baseline variant for rating comparison. Idempotent via poolIds guard. */
+/** Insert the original text as a baseline variant for rating comparison. Idempotent via BASELINE_STRATEGY check. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function insertBaselineVariant(state: PipelineState, runId: string): void {
-  const baselineId = `baseline-${runId}`;
-  if (state.poolIds.has(baselineId)) return;
+  // Check if baseline already exists by strategy (not by ID prefix)
+  const existingBaseline = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
+  if (existingBaseline) return;
+
+  // Use proper UUID for database compatibility
+  const baselineId = uuidv4();
   state.addToPool({
     id: baselineId,
     text: state.originalText,
@@ -345,6 +430,9 @@ export async function executeMinimalPipeline(
 
   // Persist per-agent cost metrics for Elo/dollar optimization
   await persistAgentMetrics(runId, ctx, logger);
+
+  // Link run to strategy config for Elo optimization dashboard
+  await linkStrategyConfig(runId, ctx, logger);
 
   logger.info('Pipeline completed', {
     poolSize: ctx.state.getPoolSize(),
@@ -574,6 +662,9 @@ export async function executeFullPipeline(
 
     // Persist per-agent cost metrics for Elo/dollar optimization
     await persistAgentMetrics(runId, ctx, logger);
+
+    // Link run to strategy config for Elo optimization dashboard
+    await linkStrategyConfig(runId, ctx, logger);
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,

@@ -118,7 +118,7 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
  */
 export const allowedLLMModelSchema = z.enum([
   "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
-  "gpt-5-mini", "gpt-5-nano",
+  "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano",
   "o3-mini",
   "deepseek-chat",
   "claude-sonnet-4-20250514",

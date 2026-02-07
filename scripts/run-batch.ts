@@ -71,14 +71,35 @@ async function executeEvolutionRun(
   const supabase = getSupabaseClient();
 
   // 1. Create temporary explanation for this prompt
+  // First, get or create a "Batch Experiments" topic
+  const { data: existingTopic } = await supabase
+    .from('topics')
+    .select('id')
+    .eq('topic_title', 'Batch Experiments')
+    .single();
+
+  let topicId: number;
+  if (existingTopic) {
+    topicId = existingTopic.id;
+  } else {
+    const { data: newTopic, error: topicError } = await supabase
+      .from('topics')
+      .insert({ topic_title: 'Batch Experiments', topic_description: 'Auto-generated topic for batch evolution experiments' })
+      .select('id')
+      .single();
+    if (topicError || !newTopic) {
+      throw new Error(`Failed to create topic: ${topicError?.message ?? 'unknown'}`);
+    }
+    topicId = newTopic.id;
+  }
+
   const promptTitle = `[Batch: ${batchName}] ${run.prompt.slice(0, 50)}...`;
   const { data: explanation, error: expError } = await supabase
     .from('explanations')
     .insert({
-      title: promptTitle,
+      explanation_title: promptTitle,
       content: run.prompt,
-      topic_id: null,
-      user_id: null,
+      primary_topic_id: topicId,
       status: 'draft',
     })
     .select('id')
@@ -152,7 +173,7 @@ async function executeEvolutionRun(
 
   const logger = createEvolutionLogger(runId);
   const costTracker = createCostTracker(config);
-  const llmClient = createEvolutionLLMClient(`batch-${batchId}`, costTracker, logger);
+  const llmClient = createEvolutionLLMClient(batchId, costTracker, logger);
 
   const ctx = {
     payload: {
