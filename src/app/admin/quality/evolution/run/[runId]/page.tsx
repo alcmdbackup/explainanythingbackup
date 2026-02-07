@@ -14,13 +14,15 @@ import { BudgetTab } from '@/components/evolution/tabs/BudgetTab';
 import { EloTab } from '@/components/evolution/tabs/EloTab';
 import { LineageTab } from '@/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@/components/evolution/tabs/VariantsTab';
+import { TreeTab } from '@/components/evolution/tabs/TreeTab';
 
-type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants';
+type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants' | 'tree';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
+  { id: 'tree', label: 'Tree' },
   { id: 'budget', label: 'Budget' },
   { id: 'variants', label: 'Variants' },
 ];
@@ -280,6 +282,7 @@ export default function EvolutionRunDetailPage() {
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'budget' && <BudgetTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
+        {activeTab === 'tree' && <TreeTab runId={runId} />}
       </div>
 
       {/* Add to Bank dialog */}

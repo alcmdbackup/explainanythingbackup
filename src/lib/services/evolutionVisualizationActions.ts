@@ -88,8 +88,14 @@ export interface LineageData {
     elo: number;
     iterationBorn: number;
     isWinner: boolean;
+    /** Tree depth if this variant was produced by tree search (null otherwise). */
+    treeDepth?: number | null;
+    /** Revision action label if this variant was produced by tree search. */
+    revisionAction?: string | null;
   }[];
   edges: { source: string; target: string }[];
+  /** Winning revision path node IDs from tree search (for path highlighting). */
+  treeSearchPath?: string[];
 }
 
 export interface BudgetData {
@@ -99,6 +105,28 @@ export interface BudgetData {
     agent: string;
     cumulativeCost: number;
     budgetCap: number;
+  }[];
+}
+
+export interface TreeSearchData {
+  trees: {
+    rootNodeId: string;
+    nodes: {
+      id: string;
+      variantId: string;
+      parentNodeId: string | null;
+      depth: number;
+      revisionAction: { type: string; dimension?: string; description: string };
+      value: number;
+      pruned: boolean;
+    }[];
+    result: {
+      bestLeafNodeId: string;
+      treeSize: number;
+      maxDepth: number;
+      prunedBranches: number;
+      revisionPath: { type: string; dimension?: string; description: string }[];
+    };
   }[];
 }
 
@@ -521,15 +549,54 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     const winnerText = dbWinner?.variant_content ?? null;
 
+    // Extract tree search metadata for path highlighting
+    const treeStates = state.treeSearchStates ?? [];
+    const treeResults = state.treeSearchResults ?? [];
+
+    // Map variantId → tree node info for augmenting lineage nodes
+    const treeNodeByVariant = new Map<string, { depth: number; action: string }>();
+    for (const ts of treeStates) {
+      for (const node of Object.values(ts.nodes)) {
+        treeNodeByVariant.set(node.variantId, {
+          depth: node.depth,
+          action: node.revisionAction.description,
+        });
+      }
+    }
+
+    // Collect winning path variant IDs from tree search results
+    const treeSearchPath: string[] = [];
+    for (let i = 0; i < treeResults.length; i++) {
+      const result = treeResults[i];
+      const ts = treeStates[i];
+      if (!result || !ts) continue;
+      // Walk from best leaf back to root
+      let nodeId: string | null = result.bestLeafNodeId;
+      while (nodeId) {
+        const treeNode: { variantId: string; parentNodeId: string | null } | undefined = ts.nodes[nodeId];
+        if (treeNode) {
+          treeSearchPath.push(treeNode.variantId);
+          nodeId = treeNode.parentNodeId;
+        } else {
+          break;
+        }
+      }
+    }
+
     // Build nodes and edges from in-memory pool
-    const nodes: LineageData['nodes'] = state.pool.map(v => ({
-      id: v.id,
-      shortId: v.id.substring(0, 8),
-      strategy: v.strategy,
-      elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
-      iterationBorn: v.iterationBorn,
-      isWinner: winnerText !== null && v.text === winnerText,
-    }));
+    const nodes: LineageData['nodes'] = state.pool.map(v => {
+      const treeInfo = treeNodeByVariant.get(v.id);
+      return {
+        id: v.id,
+        shortId: v.id.substring(0, 8),
+        strategy: v.strategy,
+        elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
+        iterationBorn: v.iterationBorn,
+        isWinner: winnerText !== null && v.text === winnerText,
+        treeDepth: treeInfo?.depth ?? null,
+        revisionAction: treeInfo?.action ?? null,
+      };
+    });
 
     const edges: LineageData['edges'] = [];
     for (const v of state.pool) {
@@ -538,7 +605,11 @@ const _getEvolutionRunLineageAction = withLogging(async (
       }
     }
 
-    return { success: true, data: { nodes, edges }, error: null };
+    return {
+      success: true,
+      data: { nodes, edges, treeSearchPath: treeSearchPath.length > 0 ? treeSearchPath : undefined },
+      error: null,
+    };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunLineageAction', { runId }) };
   }
@@ -707,3 +778,69 @@ const _getEvolutionRunComparisonAction = withLogging(async (
 }, 'getEvolutionRunComparisonAction');
 
 export const getEvolutionRunComparisonAction = serverReadRequestId(_getEvolutionRunComparisonAction);
+
+// ─── 7. Tree Search ─────────────────────────────────────────────
+
+const _getEvolutionRunTreeSearchAction = withLogging(async (
+  runId: string
+): Promise<ActionResult<TreeSearchData>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    // Load latest checkpoint for tree search state
+    const { data: latestCp, error: cpError } = await supabase
+      .from('evolution_checkpoints')
+      .select('state_snapshot')
+      .eq('run_id', runId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (cpError) throw cpError;
+
+    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    const treeStates = snapshot.treeSearchStates ?? [];
+    const treeResults = snapshot.treeSearchResults ?? [];
+
+    if (treeStates.length === 0) {
+      return { success: true, data: { trees: [] }, error: null };
+    }
+
+    const trees: TreeSearchData['trees'] = [];
+    for (let i = 0; i < treeStates.length; i++) {
+      const ts = treeStates[i];
+      const result = treeResults[i];
+      if (!ts || !result) continue;
+
+      const nodesList = Object.values(ts.nodes).map((n) => ({
+        id: n.id,
+        variantId: n.variantId,
+        parentNodeId: n.parentNodeId,
+        depth: n.depth,
+        revisionAction: { type: n.revisionAction.type, dimension: n.revisionAction.dimension, description: n.revisionAction.description },
+        value: n.value,
+        pruned: n.pruned,
+      }));
+
+      trees.push({
+        rootNodeId: ts.rootNodeId,
+        nodes: nodesList,
+        result: {
+          bestLeafNodeId: result.bestLeafNodeId,
+          treeSize: result.treeSize,
+          maxDepth: result.maxDepth,
+          prunedBranches: result.prunedBranches,
+          revisionPath: result.revisionPath,
+        },
+      });
+    }
+
+    return { success: true, data: { trees }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunTreeSearchAction', { runId }) };
+  }
+}, 'getEvolutionRunTreeSearchAction');
+
+export const getEvolutionRunTreeSearchAction = serverReadRequestId(_getEvolutionRunTreeSearchAction);

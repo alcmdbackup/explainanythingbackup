@@ -362,6 +362,7 @@ export interface PipelineAgents {
   evolution: PipelineAgent;
   reflection?: PipelineAgent;
   iterativeEditing?: PipelineAgent;
+  treeSearch?: PipelineAgent;
   debate?: PipelineAgent;
   proximity?: PipelineAgent;
   metaReview?: PipelineAgent;
@@ -482,6 +483,15 @@ export async function executeFullPipeline(
             logger.info('Iterative editing agent disabled by feature flag', { iteration: ctx.state.iteration });
           } else {
             await runAgent(runId, agents.iterativeEditing, ctx, phase, logger);
+          }
+        }
+
+        // === Tree Search (COMPETITION only — optional) ===
+        if (config.runTreeSearch && agents.treeSearch) {
+          if (options.featureFlags?.treeSearchEnabled === false) {
+            logger.info('Tree search agent disabled by feature flag', { iteration: ctx.state.iteration });
+          } else {
+            await runAgent(runId, agents.treeSearch, ctx, phase, logger);
           }
         }
 

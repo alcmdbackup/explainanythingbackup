@@ -42,6 +42,7 @@ import { ProximityAgent } from '../src/lib/evolution/agents/proximityAgent';
 import { MetaReviewAgent } from '../src/lib/evolution/agents/metaReviewAgent';
 import { DebateAgent } from '../src/lib/evolution/agents/debateAgent';
 import { IterativeEditingAgent } from '../src/lib/evolution/agents/iterativeEditingAgent';
+import { TreeSearchAgent } from '../src/lib/evolution/agents/treeSearchAgent';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -555,6 +556,7 @@ interface NamedAgents {
   evolution: PipelineAgent;
   reflection: PipelineAgent;
   iterativeEditing: PipelineAgent;
+  treeSearch: PipelineAgent;
   debate: PipelineAgent;
   proximity: PipelineAgent;
   metaReview: PipelineAgent;
@@ -568,6 +570,7 @@ function buildAgents(): NamedAgents {
     evolution: new EvolutionAgent(),
     reflection: new ReflectionAgent(),
     iterativeEditing: new IterativeEditingAgent(),
+    treeSearch: new TreeSearchAgent(),
     debate: new DebateAgent(),
     proximity: new ProximityAgent({ testMode: true }),
     metaReview: new MetaReviewAgent(),
@@ -737,6 +740,7 @@ async function runFullPipeline(
       { run: phaseConfig.runGeneration, agent: agents.generation },
       { run: phaseConfig.runReflection, agent: agents.reflection },
       { run: phaseConfig.runIterativeEditing, agent: agents.iterativeEditing },
+      { run: phaseConfig.runTreeSearch, agent: agents.treeSearch },
       { run: phaseConfig.runDebate, agent: agents.debate },
       { run: phaseConfig.runEvolution, agent: agents.evolution },
       { run: phaseConfig.runCalibration, agent: phase === 'COMPETITION' ? agents.tournament : agents.calibration },

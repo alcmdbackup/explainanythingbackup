@@ -46,6 +46,7 @@ export { MetaReviewAgent } from './agents/metaReviewAgent';
 export { DebateAgent } from './agents/debateAgent';
 export { IterativeEditingAgent, DEFAULT_ITERATIVE_EDITING_CONFIG } from './agents/iterativeEditingAgent';
 export type { IterativeEditingConfig } from './agents/iterativeEditingAgent';
+export { TreeSearchAgent } from './agents/treeSearchAgent';
 export { compareWithDiff } from './diffComparison';
 export type { DiffComparisonResult } from './diffComparison';
 export type { DebateTranscript } from './types';

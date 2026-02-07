@@ -10,6 +10,7 @@ import type {
   DebateTranscript,
   SerializedPipelineState,
 } from '../types';
+import type { TreeSearchResult, TreeState } from '../treeOfThought/types';
 import { createRating, getOrdinal, eloToRating, type Rating } from './rating';
 
 export class PipelineStateImpl implements PipelineState {
@@ -32,6 +33,9 @@ export class PipelineStateImpl implements PipelineState {
   metaFeedback: MetaFeedback | null = null;
 
   debateTranscripts: DebateTranscript[] = [];
+
+  treeSearchResults: TreeSearchResult[] | null = null;
+  treeSearchStates: TreeState[] | null = null;
 
   constructor(originalText: string = '') {
     this.originalText = originalText;
@@ -90,6 +94,8 @@ export function serializeState(state: PipelineState): SerializedPipelineState {
     diversityScore: state.diversityScore,
     metaFeedback: state.metaFeedback,
     debateTranscripts: state.debateTranscripts,
+    treeSearchResults: state.treeSearchResults ?? null,
+    treeSearchStates: state.treeSearchStates ?? null,
   };
 }
 
@@ -123,5 +129,7 @@ export function deserializeState(snapshot: SerializedPipelineState): PipelineSta
   state.diversityScore = snapshot.diversityScore;
   state.metaFeedback = snapshot.metaFeedback;
   state.debateTranscripts = snapshot.debateTranscripts ?? [];
+  state.treeSearchResults = snapshot.treeSearchResults ?? null;
+  state.treeSearchStates = snapshot.treeSearchStates ?? null;
   return state;
 }

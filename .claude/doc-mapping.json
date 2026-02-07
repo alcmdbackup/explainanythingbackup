@@ -301,6 +301,10 @@
     {
       "pattern": "src/hooks/useSourceSubmit.ts",
       "docs": ["docs/feature_deep_dives/manage_sources.md", "docs/feature_deep_dives/add_sources_citations.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/treeOfThought*.ts",
+      "docs": ["docs/feature_deep_dives/tree_of_thought_revisions.md"]
     }
   ],
   "alwaysConsider": [

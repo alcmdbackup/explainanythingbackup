@@ -205,9 +205,9 @@ The **Prompt Bank** extends the article bank with a curated set of prompts and g
 
 ### Config (`src/config/promptBankConfig.ts`)
 - 5 prompts across difficulty tiers (easy/medium/hard) and domains (science, technology, history, philosophy, economics)
-- 4 methods: 3 oneshot (gpt-4.1-mini, gpt-4.1, deepseek-chat) + 1 evolution (deepseek-chat with checkpoints at 3, 5, 10 iterations)
+- 5 methods: 3 oneshot (gpt-4.1-mini, gpt-4.1, deepseek-chat) + 1 minimal evolution (deepseek-chat) + 1 full evolution with tree search (deepseek-chat), both with checkpoints at 3, 5, 10 iterations
 - Evolution checkpoints expand to 3 columns in the coverage grid (e.g., `evolution_deepseek_3iter`, `_5iter`, `_10iter`)
-- Total coverage matrix: 5 prompts × 6 method slots = 30 cells
+- Total coverage matrix: 5 prompts × 9 method slots = 45 cells
 
 ### Generation Pipeline
 ```

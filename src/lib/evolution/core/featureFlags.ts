@@ -15,6 +15,8 @@ export interface EvolutionFeatureFlags {
   debateEnabled: boolean;
   /** Whether the IterativeEditingAgent runs in COMPETITION phase. */
   iterativeEditingEnabled: boolean;
+  /** Whether the TreeSearchAgent runs in COMPETITION phase (mutually exclusive with iterativeEditing). */
+  treeSearchEnabled: boolean;
 }
 
 /** Safe defaults: agents enabled, dry-run off. */
@@ -24,6 +26,7 @@ export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   dryRunOnly: false,
   debateEnabled: true,
   iterativeEditingEnabled: true,
+  treeSearchEnabled: false,
 };
 
 /** Flag name → field mapping. */
@@ -33,6 +36,7 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_dry_run_only: 'dryRunOnly',
   evolution_debate_enabled: 'debateEnabled',
   evolution_iterative_editing_enabled: 'iterativeEditingEnabled',
+  evolution_tree_search_enabled: 'treeSearchEnabled',
 };
 
 const FLAG_NAMES = Object.keys(FLAG_MAP);
@@ -61,6 +65,11 @@ export async function fetchEvolutionFeatureFlags(
     if (field) {
       flags[field] = row.enabled as boolean;
     }
+  }
+
+  // Mutual exclusivity: treeSearch enabled → iterativeEditing forced off
+  if (flags.treeSearchEnabled) {
+    flags.iterativeEditingEnabled = false;
   }
 
   return flags;

@@ -9,7 +9,7 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 |-------|---------|
 | `/admin/quality/evolution` | Run management: queue new runs, filter by status/date, variant panel, apply winner, rollback, cost/quality charts |
 | `/admin/quality/evolution/dashboard` | Ops dashboard: stat cards, runs/spend trends, recent runs |
-| `/admin/quality/evolution/run/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Budget, Variants) + Add to Bank dialog |
+| `/admin/quality/evolution/run/[runId]` | Run detail: 6-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants) + Add to Bank dialog |
 | `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, quality radar, stats summary (includes generationDepth) |
 
 ## Key Files
@@ -28,15 +28,17 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 | `tabs/LineageTab.tsx` | Lineage DAG tab wrapper (dynamic import) |
 | `tabs/BudgetTab.tsx` | Cumulative burn curve + agent cost breakdown |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines |
+| `tabs/TreeTab.tsx` | Tree search visualization: depth-layered beam search tree with winning path highlighting, pruned branch dimming, and node detail panel |
 
 ### Server Actions (`src/lib/services/evolutionVisualizationActions.ts`)
-6 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
+7 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown with checkpoint diffing for accurate per-agent metrics (variants added, matches played, rating changes) and timestamp-based cost attribution
 3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `ordinalToEloScale`)
-4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint
+4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint (augmented with `treeSearchPath` for path highlighting and per-node `treeDepth`/`revisionAction`)
 5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown
 6. `getEvolutionRunComparisonAction` — Original vs winner text, quality scores, `generationDepth` (max variant version in pool)
+7. `getEvolutionRunTreeSearchAction` — Tree search state: full tree nodes with depth/pruning/actions for the Tree tab
 
 Additionally, the run detail page uses `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank).
 

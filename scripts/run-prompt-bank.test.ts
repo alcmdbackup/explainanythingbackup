@@ -116,9 +116,9 @@ describe('run-prompt-bank', () => {
       ]);
     });
 
-    it('should produce 6 labels from default config', () => {
-      // 3 oneshot + 3 evolution checkpoints = 6
-      expect(expandMethodLabels(PROMPT_BANK.methods)).toHaveLength(6);
+    it('should produce 9 labels from default config', () => {
+      // 3 oneshot + 3 minimal evolution checkpoints + 3 tree-search evolution checkpoints = 9
+      expect(expandMethodLabels(PROMPT_BANK.methods)).toHaveLength(9);
     });
   });
 
@@ -148,7 +148,7 @@ describe('run-prompt-bank', () => {
 
   describe('filterMethods', () => {
     it('should return all methods when no filter', () => {
-      expect(filterMethods([], false)).toHaveLength(4);
+      expect(filterMethods([], false)).toHaveLength(5);
     });
 
     it('should skip evolution when flag set', () => {

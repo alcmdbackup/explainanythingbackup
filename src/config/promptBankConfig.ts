@@ -10,7 +10,7 @@ export interface PromptBankEntry {
   domain: Domain;
 }
 
-export type GenerationMethodType = 'oneshot' | 'evolution';
+export type GenerationMethodType = 'oneshot' | 'evolution' | 'tree_search';
 
 export interface OneshotMethod {
   type: 'oneshot';
@@ -57,6 +57,7 @@ export const PROMPT_BANK: PromptBankConfig = {
     { type: 'oneshot', model: 'gpt-4.1', label: 'oneshot_gpt-4.1' },
     { type: 'oneshot', model: 'deepseek-chat', label: 'oneshot_deepseek-chat' },
     { type: 'evolution', seedModel: 'deepseek-chat', evolutionModel: 'deepseek-chat', checkpoints: [3, 5, 10], mode: 'minimal', label: 'evolution_deepseek' },
+    { type: 'evolution', seedModel: 'deepseek-chat', evolutionModel: 'deepseek-chat', checkpoints: [3, 5, 10], mode: 'full', label: 'evolution_tree_search' },
   ],
 
   comparison: {

@@ -10,9 +10,11 @@ import type { LineageData } from '@/lib/services/evolutionVisualizationActions';
 interface LineageGraphProps {
   nodes: LineageData['nodes'];
   edges: LineageData['edges'];
+  /** Variant IDs along the winning tree search path (for gold highlighting). */
+  treeSearchPath?: string[];
 }
 
-export function LineageGraph({ nodes, edges }: LineageGraphProps) {
+export function LineageGraph({ nodes, edges, treeSearchPath }: LineageGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [selectedNode, setSelectedNode] = useState<LineageData['nodes'][0] | null>(null);
 
@@ -59,7 +61,12 @@ export function LineageGraph({ nodes, edges }: LineageGraphProps) {
 
     svg.call(zoom);
 
-    // Draw edges
+    // Build set of winning path IDs for edge highlighting
+    const pathSet = new Set(treeSearchPath ?? []);
+    const isTreeEdge = (source: string, target: string) =>
+      pathSet.has(source) && pathSet.has(target);
+
+    // Draw edges — winning tree path gets gold + thicker, tree-search non-path gets dashed/dimmed
     g.selectAll('line.edge')
       .data(edges)
       .enter()
@@ -69,9 +76,23 @@ export function LineageGraph({ nodes, edges }: LineageGraphProps) {
       .attr('y1', d => nodePositions.get(d.source)?.y ?? 0)
       .attr('x2', d => nodePositions.get(d.target)?.x ?? 0)
       .attr('y2', d => nodePositions.get(d.target)?.y ?? 0)
-      .attr('stroke', 'var(--border-default)')
-      .attr('stroke-width', 1.5)
-      .attr('stroke-opacity', 0.5);
+      .attr('stroke', d =>
+        isTreeEdge(d.source, d.target) ? 'var(--accent-gold)' : 'var(--border-default)',
+      )
+      .attr('stroke-width', d => isTreeEdge(d.source, d.target) ? 3 : 1.5)
+      .attr('stroke-opacity', d => {
+        if (isTreeEdge(d.source, d.target)) return 0.9;
+        // Dim edges to pruned tree nodes
+        const targetNode = nodes.find(n => n.id === d.target);
+        if (targetNode?.strategy?.startsWith('tree_search_') && !pathSet.has(d.target)) return 0.25;
+        return 0.5;
+      })
+      .attr('stroke-dasharray', d => {
+        // Dashed edges for pruned tree branches
+        const targetNode = nodes.find(n => n.id === d.target);
+        if (targetNode?.strategy?.startsWith('tree_search_') && !pathSet.has(d.target)) return '4,3';
+        return 'none';
+      });
 
     // Draw nodes
     const eloValues = nodes.map(n => n.elo);
@@ -118,7 +139,7 @@ export function LineageGraph({ nodes, edges }: LineageGraphProps) {
       .attr('font-family', 'monospace')
       .text(d => d.shortId);
 
-  }, [nodes, edges]);
+  }, [nodes, edges, treeSearchPath]);
 
   useEffect(() => {
     renderGraph();
@@ -143,6 +164,8 @@ export function LineageGraph({ nodes, edges }: LineageGraphProps) {
             strategy={selectedNode.strategy}
             iterationBorn={selectedNode.iterationBorn}
             isWinner={selectedNode.isWinner}
+            treeDepth={selectedNode.treeDepth}
+            revisionAction={selectedNode.revisionAction}
           />
           <button
             onClick={() => setSelectedNode(null)}

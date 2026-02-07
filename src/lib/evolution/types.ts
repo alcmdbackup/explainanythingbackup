@@ -3,6 +3,7 @@
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { Rating } from './core/rating';
+import type { TreeSearchResult, TreeState } from './treeOfThought/types';
 import { z } from 'zod';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
@@ -126,6 +127,10 @@ export interface PipelineState {
   // Phase 6: Debate fields
   debateTranscripts: DebateTranscript[];
 
+  // Tree search fields (optional — populated when TreeSearchAgent runs)
+  treeSearchResults: TreeSearchResult[] | null;
+  treeSearchStates: TreeState[] | null;
+
   // Pool management methods
   addToPool(variation: TextVariation): void;
   startNewIteration(): void;
@@ -244,6 +249,8 @@ export interface SerializedPipelineState {
   diversityScore: number | null;
   metaFeedback: MetaFeedback | null;
   debateTranscripts: DebateTranscript[];
+  treeSearchResults?: TreeSearchResult[] | null;
+  treeSearchStates?: TreeState[] | null;
 }
 
 // ─── Evolution run status ────────────────────────────────────────

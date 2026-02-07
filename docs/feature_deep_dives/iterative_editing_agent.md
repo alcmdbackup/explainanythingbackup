@@ -107,3 +107,4 @@ The IterativeEditingAgent depends on ReflectionAgent output:
 
 - [Evolution Pipeline](./evolution_pipeline.md) — Full pipeline architecture and agent interactions
 - [Comparison Infrastructure](./comparison_infrastructure.md) — Pairwise comparison and bias mitigation patterns
+- [Tree of Thought Revisions](./tree_of_thought_revisions.md) — Beam search evolution of the linear editing approach (mutually exclusive via feature flag)

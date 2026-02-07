@@ -166,6 +166,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     ReflectionAgent,
     DebateAgent,
     IterativeEditingAgent,
+    TreeSearchAgent,
     ProximityAgent,
     MetaReviewAgent,
   } = await import('../src/lib/evolution/index');
@@ -199,6 +200,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     evolution: new EvolutionAgent(),
     reflection: new ReflectionAgent(),
     iterativeEditing: new IterativeEditingAgent(),
+    treeSearch: new TreeSearchAgent(),
     debate: new DebateAgent(),
     proximity: new ProximityAgent(),
     metaReview: new MetaReviewAgent(),

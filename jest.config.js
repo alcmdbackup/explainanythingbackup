@@ -18,6 +18,7 @@ const config = {
     '^langchain/text_splitter$': '<rootDir>/src/testing/mocks/langchain-text-splitter.ts',
     '^d3$': '<rootDir>/src/testing/mocks/d3.ts',
     '^d3-dag$': '<rootDir>/src/testing/mocks/d3-dag.ts',
+    '^openskill$': '<rootDir>/src/testing/mocks/openskill.ts',
   },
 
   // Setup files - runs BEFORE module imports (for shims and polyfills)

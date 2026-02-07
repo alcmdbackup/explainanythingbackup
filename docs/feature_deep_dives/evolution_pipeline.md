@@ -284,6 +284,7 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | ReflectionAgent | `pool` (top 3 by ordinal) | `allCritiques`, `dimensionScores` |
 | IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (critique_edit variants via `addToPool`) |
 | DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
+| TreeSearchAgent | `pool` (top by μ), `allCritiques`, `ratings` | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
 | MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
 
@@ -377,6 +378,7 @@ Five flags are managed by the evolution feature flag system (`core/featureFlags.
 | `evolution_dry_run_only` | `false` | When `true`, pipeline logs only — no LLM calls |
 | `evolution_debate_enabled` | `true` | When `false`, DebateAgent skipped in COMPETITION phase |
 | `evolution_iterative_editing_enabled` | `true` | When `false`, IterativeEditingAgent skipped in COMPETITION phase |
+| `evolution_tree_search_enabled` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
 
@@ -417,6 +419,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `evolvePool.ts` | Genetic evolution — mutation (clarity/structure), crossover (two parents), creative exploration (30% wild card) |
 | `reflectionAgent.ts` | Dimensional critique of top 3 variants: per-dimension scores 1–10, good/bad examples, improvement notes |
 | `iterativeEditingAgent.ts` | Critique-driven surgical edits on top variant with blind diff-based LLM judge and direction-reversal bias mitigation. Produces `critique_edit_*` variants. Consumes ReflectionAgent critiques. COMPETITION only. |
+| `treeSearchAgent.ts` | Beam search tree-of-thought revisions. Explores K×B×D revision candidates across multiple dimensions, hybrid two-stage evaluation (parent-relative diff filter + sibling mini-tournament). Produces `tree_search_*` variants. Mutually exclusive with IterativeEditingAgent. COMPETITION only. See [tree_of_thought_revisions.md](./tree_of_thought_revisions.md). |
 | `debateAgent.ts` | Structured 3-turn debate (Advocate A / Advocate B / Judge) over top 2 non-baseline variants by ordinal, produces `debate_synthesis` variant. 4 sequential LLM calls. Consumes ReflectionAgent critiques. COMPETITION only. |
 | `metaReviewAgent.ts` | Analyzes strategy performance via ordinal analysis, detects weaknesses in bottom-quartile variants, recommends priority improvements (computation-only, no LLM calls) |
 | `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
@@ -428,6 +431,16 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 |------|---------|
 | `comparison.ts` | Pairwise text comparison with position-bias mitigation (forward+reverse) |
 | `diffComparison.ts` | CriticMarkup diff-based comparison with direction-reversal bias mitigation (used by IterativeEditingAgent) |
+
+### Tree of Thought (`src/lib/evolution/treeOfThought/`)
+| File | Purpose |
+|------|---------|
+| `types.ts` | TreeNode, RevisionAction, TreeSearchResult, TreeState, BeamSearchConfig types |
+| `treeNode.ts` | Tree construction/traversal: createRootNode, createChildNode, getAncestors, getPath, getBestLeaf, pruneSubtree |
+| `beamSearch.ts` | Core beam search algorithm with hybrid two-stage evaluation |
+| `revisionActions.ts` | Action selection from critiques (forced action-type diversity), per-action-type prompt construction |
+| `evaluator.ts` | Stage 1 parent-relative filter + Stage 2 sibling mini-tournament with local OpenSkill ratings |
+| `index.ts` | Barrel exports |
 
 ### Integration Points (outside `src/lib/evolution/`)
 | File | Purpose |
@@ -446,7 +459,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `scripts/add-to-bank.ts` | Adds evolution run winner (and optionally baseline) to article bank |
 | `scripts/lib/bankUtils.ts` | Shared article bank insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
-| `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 4 generation methods (3 oneshot + 1 evolution), comparison settings |
+| `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 5 generation methods (3 oneshot + 1 minimal evolution + 1 full/tree-search evolution), comparison settings |
 | `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--max-runs` and `--dry-run` inputs |
 
 ### Database Tables
