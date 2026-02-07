@@ -8,6 +8,7 @@ import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
+import { extractJSON } from '../core/jsonParser';
 import { getOrdinal, createRating } from '../core/rating';
 
 /** Count non-baseline variants that have ratings. */
@@ -105,12 +106,10 @@ interface JudgeVerdict {
 
 function parseJudgeResponse(response: string): JudgeVerdict | null {
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    const data = JSON.parse(jsonMatch[0]);
-    if (!data.winner || !Array.isArray(data.strengths_from_a) || !Array.isArray(data.strengths_from_b)) return null;
+    const data = extractJSON<{ winner?: string; reasoning?: string; strengths_from_a?: string[]; strengths_from_b?: string[]; improvements?: string[] }>(response);
+    if (!data || !data.winner || !Array.isArray(data.strengths_from_a) || !Array.isArray(data.strengths_from_b)) return null;
     return {
-      winner: data.winner,
+      winner: data.winner as 'A' | 'B' | 'tie',
       reasoning: data.reasoning ?? '',
       strengths_from_a: data.strengths_from_a,
       strengths_from_b: data.strengths_from_b,
@@ -192,7 +191,7 @@ export class DebateAgent extends AgentBase {
     const { state, llmClient, logger } = ctx;
 
     if (!this.canExecute(state)) {
-      return { agentType: 'debate', success: false, costUsd: 0, error: 'Need 2+ rated variants' };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ rated variants' };
     }
 
     // Select top 2 non-baseline variants by rating
@@ -200,7 +199,7 @@ export class DebateAgent extends AgentBase {
       .filter((v) => v.strategy !== BASELINE_STRATEGY);
 
     if (topVariants.length < 2) {
-      return { agentType: 'debate', success: false, costUsd: 0, error: 'Need 2+ non-baseline variants' };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Need 2+ non-baseline variants' };
     }
 
     const variantA = topVariants[0];
@@ -230,10 +229,10 @@ export class DebateAgent extends AgentBase {
       advocateAResponse = await llmClient.complete(promptA, this.name);
       transcript.turns.push({ role: 'advocate_a', content: advocateAResponse });
     } catch (error) {
-      state.debateTranscripts.push(transcript);
       if (error instanceof BudgetExceededError) throw error;
+      state.debateTranscripts.push(transcript);
       logger.error('Advocate A failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: 0, error: `Advocate A failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate A failed: ${error}` };
     }
 
     // Turn 2: Advocate B
@@ -243,10 +242,10 @@ export class DebateAgent extends AgentBase {
       advocateBResponse = await llmClient.complete(promptB, this.name);
       transcript.turns.push({ role: 'advocate_b', content: advocateBResponse });
     } catch (error) {
-      state.debateTranscripts.push(transcript);
       if (error instanceof BudgetExceededError) throw error;
+      state.debateTranscripts.push(transcript);
       logger.error('Advocate B failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: 0, error: `Advocate B failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate B failed: ${error}` };
     }
 
     // Turn 3: Judge
@@ -257,16 +256,16 @@ export class DebateAgent extends AgentBase {
       transcript.turns.push({ role: 'judge', content: judgeResponse });
       verdict = parseJudgeResponse(judgeResponse);
     } catch (error) {
-      state.debateTranscripts.push(transcript);
       if (error instanceof BudgetExceededError) throw error;
+      state.debateTranscripts.push(transcript);
       logger.error('Judge failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: 0, error: `Judge failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Judge failed: ${error}` };
     }
 
     if (!verdict) {
       state.debateTranscripts.push(transcript);
       logger.warn('Judge response parse failed');
-      return { agentType: 'debate', success: false, costUsd: 0, error: 'Judge response parse failed' };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Judge response parse failed' };
     }
 
     logger.info('Judge verdict', { winner: verdict.winner, reasoning: verdict.reasoning });
@@ -280,10 +279,10 @@ export class DebateAgent extends AgentBase {
       const synthesisPrompt = buildSynthesisPrompt(variantA, variantB, verdict, metaFeedback);
       synthesisText = await llmClient.complete(synthesisPrompt, this.name);
     } catch (error) {
-      state.debateTranscripts.push(transcript);
       if (error instanceof BudgetExceededError) throw error;
+      state.debateTranscripts.push(transcript);
       logger.error('Synthesis failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: 0, error: `Synthesis failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Synthesis failed: ${error}` };
     }
 
     // Validate format
@@ -291,7 +290,7 @@ export class DebateAgent extends AgentBase {
     if (!fmtResult.valid) {
       state.debateTranscripts.push(transcript);
       logger.warn('Synthesis format rejected', { issues: fmtResult.issues });
-      return { agentType: 'debate', success: false, costUsd: 0, error: `Format invalid: ${fmtResult.issues.join(', ')}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Format invalid: ${fmtResult.issues.join(', ')}` };
     }
 
     // Add synthesized variant to pool
@@ -316,7 +315,7 @@ export class DebateAgent extends AgentBase {
       winner: verdict.winner,
     });
 
-    return { agentType: 'debate', success: true, costUsd: 0, variantsAdded: 1 };
+    return { agentType: 'debate', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: 1 };
   }
 
   estimateCost(payload: AgentPayload): number {

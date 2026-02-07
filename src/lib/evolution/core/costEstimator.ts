@@ -269,7 +269,7 @@ export async function refreshAgentCostBaselines(
   }>();
 
   for (const row of data) {
-    const agentName = row.call_source?.replace('evolution_', '') ?? 'unknown';
+    const agentName = row.call_source?.replace(/^evolution_/, '') ?? 'unknown';
     const key = `${agentName}:${row.model}`;
     const existing = aggregates.get(key) ?? { promptTokens: [], completionTokens: [], costs: [] };
     if (row.prompt_tokens) existing.promptTokens.push(row.prompt_tokens);

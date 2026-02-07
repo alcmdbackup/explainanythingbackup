@@ -6,6 +6,7 @@ import { PairwiseRanker } from './pairwiseRanker';
 import { updateRating, updateDraw, getOrdinal, isConverged, createRating, type Rating } from '../core/rating';
 import { RATING_CONSTANTS } from '../config';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation } from '../types';
+import { BudgetExceededError } from '../types';
 
 // ─── Budget pressure configuration ─────────────────────────────
 
@@ -289,6 +290,13 @@ export class Tournament extends AgentBase {
 
         completedPairs.add(normalizePair(varA.id, varB.id));
         totalComparisons++;
+      }
+
+      // Re-throw BudgetExceededError from rejected promises (after processing fulfilled results)
+      for (const r of roundResults) {
+        if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
+          throw r.reason;
+        }
       }
 
       // Sigma-based convergence: all ratings converged for N consecutive checks

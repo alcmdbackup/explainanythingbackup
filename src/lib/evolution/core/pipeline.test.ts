@@ -1,8 +1,9 @@
 // Unit tests for pipeline helpers and iterativeEditing integration.
 // Tests baseline variant insertion, run summary, Zod validation, and agent execution order.
 
-import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline } from './pipeline';
+import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun } from './pipeline';
 import type { PipelineAgent, PipelineAgents } from './pipeline';
+import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
@@ -441,5 +442,135 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
     expect(executionOrder).not.toContain('iterativeEditing');
     expect(executionOrder).toContain('generation');
+  });
+});
+
+// ─── finalizePipelineRun tests ───────────────────────────────────
+
+describe('finalizePipelineRun', () => {
+  it('calls summary persist, persistVariants, persistAgentMetrics, and linkStrategyConfig', async () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state, 'run-fin');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(20));
+
+    const ctx = makeCtx(state, 'run-fin');
+    const logger = makeMockLogger();
+
+    await finalizePipelineRun('run-fin', ctx, logger, 'completed', 30.0, undefined);
+
+    // Verify Supabase was called — the mock returns chain objects
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // from() should have been called for: run_summary update, variants upsert, agent_metrics upsert, strategy_configs
+    expect(supabase.from).toHaveBeenCalled();
+    const fromCalls = (supabase.from as jest.Mock).mock.calls.map((c: string[]) => c[0]);
+    expect(fromCalls).toContain('content_evolution_runs'); // summary update
+    expect(fromCalls).toContain('content_evolution_variants'); // persistVariants
+  });
+
+  it('handles summary validation failure gracefully', async () => {
+    const state = new PipelineStateImpl('Original');
+    const ctx = makeCtx(state, 'run-fin-fail');
+    const logger = makeMockLogger();
+
+    // Even with an empty pool (no baseline), it should not throw
+    await expect(
+      finalizePipelineRun('run-fin-fail', ctx, logger, 'completed', 10.0, undefined),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// ─── createDefaultAgents factory tests ───────────────────────────
+
+describe('createDefaultAgents', () => {
+  const EXPECTED_AGENT_KEYS: (keyof PipelineAgents)[] = [
+    'generation', 'calibration', 'tournament', 'evolution',
+    'reflection', 'iterativeEditing', 'treeSearch', 'sectionDecomposition',
+    'debate', 'proximity', 'metaReview', 'outlineGeneration',
+  ];
+
+  it('returns all 12 pipeline agents', () => {
+    const agents = createDefaultAgents();
+
+    for (const key of EXPECTED_AGENT_KEYS) {
+      expect(agents[key]).toBeDefined();
+      expect(agents[key]!.name).toBeTruthy();
+      expect(typeof agents[key]!.execute).toBe('function');
+      expect(typeof agents[key]!.canExecute).toBe('function');
+    }
+  });
+
+  it('returns no undefined optional agents', () => {
+    const agents = createDefaultAgents();
+    const keys = Object.keys(agents) as (keyof PipelineAgents)[];
+
+    for (const key of keys) {
+      expect(agents[key]).not.toBeUndefined();
+    }
+
+    expect(keys.length).toBe(12);
+  });
+});
+
+// ─── preparePipelineRun tests ────────────────────────────────────
+
+describe('preparePipelineRun', () => {
+  const mockLlmClient: EvolutionLLMClient = {
+    complete: jest.fn(),
+    completeStructured: jest.fn(),
+  };
+
+  it('returns ctx with all required fields and 12 agents', () => {
+    const { ctx, agents, config, costTracker, logger } = preparePipelineRun({
+      runId: 'prep-test-run',
+      originalText: 'Test article content',
+      title: 'Test Title',
+      explanationId: 42,
+      llmClient: mockLlmClient,
+    });
+
+    expect(ctx.runId).toBe('prep-test-run');
+    expect(ctx.payload.originalText).toBe('Test article content');
+    expect(ctx.payload.title).toBe('Test Title');
+    expect(ctx.payload.explanationId).toBe(42);
+    expect(ctx.payload.config).toBeDefined();
+    expect(ctx.state).toBeDefined();
+    expect(ctx.llmClient).toBe(mockLlmClient);
+    expect(ctx.logger).toBeDefined();
+    expect(ctx.costTracker).toBeDefined();
+
+    // All 12 agents present
+    expect(Object.keys(agents).length).toBe(12);
+    expect(config.maxIterations).toBeDefined();
+    expect(costTracker).toBeDefined();
+    expect(logger).toBeDefined();
+  });
+
+  it('applies config overrides', () => {
+    const { config } = preparePipelineRun({
+      runId: 'prep-override',
+      originalText: 'text',
+      title: 'T',
+      explanationId: 1,
+      configOverrides: { maxIterations: 3 },
+      llmClient: mockLlmClient,
+    });
+
+    expect(config.maxIterations).toBe(3);
+  });
+
+  it('throws when neither llmClient nor llmClientId provided', () => {
+    expect(() => preparePipelineRun({
+      runId: 'bad',
+      originalText: 'text',
+      title: 'T',
+      explanationId: 1,
+    })).toThrow('either llmClient or llmClientId must be provided');
   });
 });

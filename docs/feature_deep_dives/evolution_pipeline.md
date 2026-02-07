@@ -121,8 +121,8 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 ### Two Pipeline Modes
 
-- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. **Used by the admin UI trigger (`triggerEvolutionRunAction`)** with all 10 agents (9 core + optional OutlineGenerationAgent).
-- **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) when running with specific agents.
+- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, cron runner, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
+- **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) default mode (generation + calibration only).
 
 ### Agent Framework
 
@@ -170,9 +170,9 @@ Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 ### Budget Enforcement
 
 The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
-- **Per-agent caps**: Configurable percentage of total budget (default: generation 20%, calibration 15%, tournament 25%, evolution 10%, reflection 5%, debate 5%, iterativeEditing 10%, outlineGeneration 10%). See Configuration for values. **Note:** DebateAgent currently hardcodes `costUsd: 0` in its return value, so its 4 LLM calls are charged to the global budget via CostTracker reservations but the agent-level cost attribution will show zero.
+- **Per-agent caps**: Configurable percentage of total budget (default: generation 20%, calibration 15%, tournament 20%, evolution 10%, reflection 5%, debate 5%, iterativeEditing 5%, treeSearch 10%, outlineGeneration 10%, sectionDecomposition 10%). Per-agent caps intentionally sum to >1.0 (1.10) because not all agents run every iteration. See Configuration for values.
 - **Global cap**: Default $5.00 per run
-- **Pre-call reservation with optimistic locking**: Budget is checked *before* every LLM call with a 30% safety margin. Reserved amounts are tracked separately from actual spend (`reservedByAgent` + `totalReserved`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the reservation is released and replaced with actual spend.
+- **Pre-call reservation with FIFO queue**: Budget is checked *before* every LLM call with a 30% safety margin. Reservations are tracked in a FIFO queue (`reservationQueue`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the oldest reservation is dequeued and replaced with actual spend. `getAvailableBudget()` subtracts both spent and reserved amounts.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
 
 ### Checkpoint, Resume, and Error Recovery
@@ -357,14 +357,15 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     opponents: 5,        // Used in COMPETITION; EXPANSION overrides to 3
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
   },
-  budgetCaps: {          // Per-agent % of budgetCapUsd — see Budget Enforcement
+  budgetCaps: {          // Per-agent % of budgetCapUsd — intentionally sums to >1.0
     generation: 0.20,
     calibration: 0.15,
-    tournament: 0.25,
+    tournament: 0.20,
     evolution: 0.10,
     reflection: 0.05,
     debate: 0.05,
-    iterativeEditing: 0.10,
+    iterativeEditing: 0.05,
+    treeSearch: 0.10,
     outlineGeneration: 0.10,
     sectionDecomposition: 0.10,
   },
@@ -402,6 +403,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
+| `jsonParser.ts` | Shared `extractJSON<T>()` utility for parsing JSON from LLM responses (used by reflectionAgent, debateAgent, iterativeEditingAgent, beamSearch) |
 | `costTracker.ts` | `CostTrackerImpl` — per-agent budget attribution, pre-call reservation with optimistic locking and 30% margin |
 | `comparisonCache.ts` | `ComparisonCache` — order-invariant SHA-256 cache for bias-mitigated comparison results |
 | `pool.ts` | `PoolManager` — stratified opponent selection (ordinal quartile-based) and pool health statistics |
@@ -417,7 +419,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `comparison.ts` | Standalone `compareWithBiasMitigation()` — 2-pass A/B reversal with order-invariant SHA-256 caching, `buildComparisonPrompt()`, `parseWinner()` |
 | `config.ts` | `DEFAULT_EVOLUTION_CONFIG`, `ELO_CONSTANTS`, `K_SCHEDULE`, `resolveConfig()` for deep-merging per-run overrides |
 | `types.ts` | All shared TypeScript types/interfaces (`TextVariation`, `PipelineState`, `ExecutionContext`, `EvolutionRunSummary`, etc.) |
-| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules |
+| `index.ts` | Barrel export — public API re-exporting core, agents, and shared modules. Includes `createDefaultAgents()` (single source of truth for 12-agent construction), `preparePipelineRun()` (context factory consolidating config/state/logger/llmClient/agents), and `finalizePipelineRun()` (shared post-completion persistence: summary, variants, agent metrics, strategy config) |
 
 ### Agents (`src/lib/evolution/agents/`)
 | File | Purpose |

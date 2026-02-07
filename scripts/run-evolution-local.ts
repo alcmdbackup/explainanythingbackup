@@ -27,34 +27,16 @@ import { PipelineStateImpl, serializeState } from '../src/lib/evolution/core/sta
 import { createCostTracker } from '../src/lib/evolution/core/costTracker';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../src/lib/evolution/config';
 import type {
-  EvolutionLLMClient, EvolutionLogger, ExecutionContext, AgentResult,
-  PipelinePhase, PipelineState,
+  EvolutionLLMClient, EvolutionLogger, ExecutionContext,
 } from '../src/lib/evolution/types';
-import { BudgetExceededError, LLMRefusalError } from '../src/lib/evolution/types';
-import { PoolSupervisor, supervisorConfigFromRunConfig } from '../src/lib/evolution/core/supervisor';
-import { getOrdinal, ordinalToEloScale, createRating } from '../src/lib/evolution/core/rating';
-import { GenerationAgent } from '../src/lib/evolution/agents/generationAgent';
-import { CalibrationRanker } from '../src/lib/evolution/agents/calibrationRanker';
-import { EvolutionAgent } from '../src/lib/evolution/agents/evolvePool';
-import { Tournament } from '../src/lib/evolution/agents/tournament';
-import { ReflectionAgent } from '../src/lib/evolution/agents/reflectionAgent';
-import { ProximityAgent } from '../src/lib/evolution/agents/proximityAgent';
-import { MetaReviewAgent } from '../src/lib/evolution/agents/metaReviewAgent';
-import { DebateAgent } from '../src/lib/evolution/agents/debateAgent';
-import { IterativeEditingAgent } from '../src/lib/evolution/agents/iterativeEditingAgent';
-import { OutlineGenerationAgent } from '../src/lib/evolution/agents/outlineGenerationAgent';
+import { LLMRefusalError } from '../src/lib/evolution/types';
+import { getOrdinal, ordinalToEloScale } from '../src/lib/evolution/core/rating';
 import { isOutlineVariant } from '../src/lib/evolution/types';
-import { TreeSearchAgent } from '../src/lib/evolution/agents/treeSearchAgent';
-import { SectionDecompositionAgent } from '../src/lib/evolution/agents/sectionDecompositionAgent';
+import { createDefaultAgents } from '../src/lib/evolution/index';
+import { executeFullPipeline, executeMinimalPipeline } from '../src/lib/evolution/core/pipeline';
+import { ProximityAgent } from '../src/lib/evolution/agents/proximityAgent';
 
 // ─── Types ────────────────────────────────────────────────────────
-
-/** Agent interface matching pipeline.ts PipelineAgent (defined inline to avoid importing pipeline.ts). */
-interface PipelineAgent {
-  readonly name: string;
-  execute(ctx: ExecutionContext): Promise<AgentResult>;
-  canExecute(state: PipelineState): boolean;
-}
 
 interface CLIArgs {
   file: string | null;
@@ -506,299 +488,19 @@ async function createRunRecord(
   }
 }
 
-async function updateRunStatus(
-  supabase: SupabaseClient | null,
-  runId: string,
-  updates: Record<string, unknown>,
-): Promise<void> {
-  if (!supabase) return;
-  try {
-    await supabase.from('content_evolution_runs').update(updates).eq('id', runId);
-  } catch {
-    // Best effort — don't crash the pipeline for DB write failures
-  }
-}
-
-async function persistCheckpoint(
-  supabase: SupabaseClient | null,
-  runId: string,
-  state: PipelineState,
-  agentName: string,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-): Promise<void> {
-  if (!supabase) return;
-  try {
-    await supabase.from('evolution_checkpoints').upsert(
-      {
-        run_id: runId,
-        iteration: state.iteration,
-        phase,
-        last_agent: agentName,
-        state_snapshot: serializeState(state),
-      },
-      { onConflict: 'run_id,iteration,last_agent' },
-    );
-    await supabase
-      .from('content_evolution_runs')
-      .update({
-        current_iteration: state.iteration,
-        phase,
-        last_heartbeat: new Date().toISOString(),
-        runner_agents_completed: state.pool.length,
-      })
-      .eq('id', runId);
-  } catch (e) {
-    logger.warn('Checkpoint write failed', { error: String(e) });
-  }
-}
-
 // ─── Agent Construction ──────────────────────────────────────────
 
-interface NamedAgents {
-  generation: PipelineAgent;
-  calibration: PipelineAgent;
-  tournament: PipelineAgent;
-  evolution: PipelineAgent;
-  reflection: PipelineAgent;
-  iterativeEditing: PipelineAgent;
-  treeSearch: PipelineAgent;
-  sectionDecomposition: PipelineAgent;
-  debate: PipelineAgent;
-  proximity: PipelineAgent;
-  metaReview: PipelineAgent;
-  outlineGeneration?: PipelineAgent;
-}
+type NamedAgents = ReturnType<typeof createDefaultAgents>;
 
 function buildAgents(outline: boolean): NamedAgents {
-  return {
-    generation: new GenerationAgent(),
-    calibration: new CalibrationRanker(),
-    tournament: new Tournament(),
-    evolution: new EvolutionAgent(),
-    reflection: new ReflectionAgent(),
-    iterativeEditing: new IterativeEditingAgent(),
-    treeSearch: new TreeSearchAgent(),
-    sectionDecomposition: new SectionDecompositionAgent(),
-    debate: new DebateAgent(),
-    proximity: new ProximityAgent({ testMode: true }),
-    metaReview: new MetaReviewAgent(),
-    ...(outline ? { outlineGeneration: new OutlineGenerationAgent() } : {}),
-  };
-}
-
-// ─── Bank Checkpoint Snapshot ────────────────────────────────────
-
-/** Snapshot the current best variant to the article bank at a checkpoint iteration. */
-async function snapshotCheckpointToBank(
-  args: CLIArgs,
-  ctx: ExecutionContext,
-  supabase: SupabaseClient,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const iteration = ctx.state.iteration;
-  if (!args.bankCheckpoints.includes(iteration)) return;
-  if (!args.prompt) return;
-
-  const topVariants = ctx.state.getTopByRating(1);
-  const winner = topVariants[0];
-  if (!winner) return;
-
-  // Duplicate check: query for existing checkpoint entry with same prompt + iteration
-  const { data: existing } = await supabase
-    .from('article_bank_entries')
-    .select('id, topic:article_bank_topics!inner(prompt)')
-    .eq('generation_method', 'evolution_winner')
-    .contains('metadata', { iterations: iteration })
-    .is('deleted_at', null)
-    .limit(100);
-
-  // Check if any existing entry matches this prompt (case-insensitive)
-  const normalizedPrompt = args.prompt.trim().toLowerCase();
-  // Supabase returns joined data — topic can be array or object depending on relation
-  const alreadyExists = existing?.some((e) => {
-    const topic = e.topic;
-    if (Array.isArray(topic)) {
-      return topic.some((t: { prompt?: string }) => t.prompt?.trim().toLowerCase() === normalizedPrompt);
-    }
-    return (topic as { prompt?: string })?.prompt?.trim().toLowerCase() === normalizedPrompt;
-  });
-
-  if (alreadyExists) {
-    logger.info('Checkpoint already exists, skipping', { iteration });
-    return;
+  const agents = createDefaultAgents();
+  // Override proximity with testMode for local CLI (skips embedding API calls)
+  agents.proximity = new ProximityAgent({ testMode: true });
+  // Remove outlineGeneration if not requested
+  if (!outline) {
+    delete agents.outlineGeneration;
   }
-
-  const checkpointMeta: Record<string, unknown> = {
-    iterations: iteration,
-    seed_model: args.seedModel ?? args.model,
-    winning_strategy: winner.strategy,
-    checkpoint: true,
-  };
-  if (isOutlineVariant(winner)) {
-    checkpointMeta.outline_mode = true;
-    checkpointMeta.outline = winner.outline;
-    checkpointMeta.weakest_step = winner.weakestStep;
-    checkpointMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
-  }
-  const bankResult = await addEntryToBank(supabase, {
-    prompt: args.prompt,
-    content: winner.text,
-    generation_method: 'evolution_winner',
-    model: args.model,
-    total_cost_usd: ctx.costTracker.getTotalSpent(),
-    metadata: checkpointMeta,
-  });
-  logger.info('Checkpoint snapshot saved to bank', {
-    iteration,
-    entry_id: bankResult.entry_id,
-    elo: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(winner.id) ?? createRating())),
-  });
-}
-
-// ─── Pipeline Orchestrator ───────────────────────────────────────
-
-async function runAgent(
-  agent: PipelineAgent,
-  ctx: ExecutionContext,
-  supabase: SupabaseClient | null,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-): Promise<AgentResult | null> {
-  if (!agent.canExecute(ctx.state)) {
-    logger.debug('Skipping agent (preconditions not met)', { agent: agent.name });
-    return null;
-  }
-
-  logger.info('Executing agent', { agent: agent.name, iteration: ctx.state.iteration });
-  const result = await agent.execute(ctx);
-  logger.info('Agent completed', {
-    agent: agent.name,
-    success: result.success,
-    costUsd: result.costUsd,
-    variantsAdded: result.variantsAdded,
-    matchesPlayed: result.matchesPlayed,
-  });
-  await persistCheckpoint(supabase, ctx.runId, ctx.state, agent.name, phase, logger);
-  return result;
-}
-
-async function runMinimalPipeline(
-  args: CLIArgs,
-  ctx: ExecutionContext,
-  agents: NamedAgents,
-  supabase: SupabaseClient | null,
-  logger: EvolutionLogger,
-): Promise<string> {
-  const sequence: PipelineAgent[] = [agents.generation, agents.calibration];
-
-  for (let i = 0; i < args.iterations; i++) {
-    ctx.state.startNewIteration();
-    logger.info('Iteration start', { iteration: ctx.state.iteration, poolSize: ctx.state.getPoolSize() });
-
-    for (const agent of sequence) {
-      try {
-        await runAgent(agent, ctx, supabase, 'EXPANSION', logger);
-      } catch (error) {
-        if (error instanceof BudgetExceededError) {
-          logger.warn('Budget exceeded', { agent: agent.name });
-          await updateRunStatus(supabase, ctx.runId, { status: 'paused', error_message: error.message });
-          // Snapshot checkpoint on early exit if this iteration matches
-          if (args.bank && supabase && args.bankCheckpoints.includes(ctx.state.iteration)) {
-            await snapshotCheckpointToBank(args, ctx, supabase, logger);
-          }
-          return 'budget_exceeded';
-        }
-        throw error;
-      }
-    }
-
-    // Snapshot to bank if this iteration is a checkpoint
-    if (args.bank && supabase && args.bankCheckpoints.length > 0) {
-      await snapshotCheckpointToBank(args, ctx, supabase, logger);
-    }
-  }
-
-  return 'completed';
-}
-
-async function runFullPipeline(
-  args: CLIArgs,
-  ctx: ExecutionContext,
-  agents: NamedAgents,
-  supabase: SupabaseClient | null,
-  logger: EvolutionLogger,
-): Promise<string> {
-  const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
-  const supervisor = new PoolSupervisor(supervisorCfg);
-  let previousPhase: PipelinePhase = 'EXPANSION';
-
-  for (let i = 0; i < args.iterations; i++) {
-    ctx.state.startNewIteration();
-    supervisor.beginIteration(ctx.state);
-    const phaseConfig = supervisor.getPhaseConfig(ctx.state);
-    const phase = phaseConfig.phase;
-
-    if (phase !== previousPhase) {
-      logger.info('Phase transition', { from: previousPhase, to: phase, poolSize: ctx.state.getPoolSize() });
-      previousPhase = phase;
-    }
-
-    logger.info('Iteration start', { iteration: ctx.state.iteration, phase, poolSize: ctx.state.getPoolSize() });
-
-    const [shouldStop, reason] = supervisor.shouldStop(ctx.state, ctx.costTracker.getAvailableBudget());
-    if (shouldStop) {
-      logger.info('Stopping pipeline', { reason });
-      return reason;
-    }
-
-    // Run agents in phase-defined order
-    const steps: Array<{ run: boolean; agent: PipelineAgent }> = [
-      { run: phaseConfig.runGeneration, agent: agents.generation },
-      ...(agents.outlineGeneration ? [{ run: phaseConfig.runOutlineGeneration, agent: agents.outlineGeneration }] : []),
-      { run: phaseConfig.runReflection, agent: agents.reflection },
-      { run: phaseConfig.runIterativeEditing, agent: agents.iterativeEditing },
-      { run: phaseConfig.runTreeSearch, agent: agents.treeSearch },
-      { run: phaseConfig.runSectionDecomposition, agent: agents.sectionDecomposition },
-      { run: phaseConfig.runDebate, agent: agents.debate },
-      { run: phaseConfig.runEvolution, agent: agents.evolution },
-      { run: phaseConfig.runCalibration, agent: phase === 'COMPETITION' ? agents.tournament : agents.calibration },
-      { run: phaseConfig.runProximity, agent: agents.proximity },
-      { run: phaseConfig.runMetaReview, agent: agents.metaReview },
-    ];
-
-    for (const step of steps) {
-      if (!step.run) continue;
-      try {
-        await runAgent(step.agent, ctx, supabase, phase, logger);
-      } catch (error) {
-        if (error instanceof BudgetExceededError) {
-          logger.warn('Budget exceeded', { agent: step.agent.name });
-          await updateRunStatus(supabase, ctx.runId, { status: 'paused', error_message: error.message });
-          // Snapshot checkpoint on early exit if this iteration matches
-          if (args.bank && supabase && args.bankCheckpoints.includes(ctx.state.iteration)) {
-            await snapshotCheckpointToBank(args, ctx, supabase, logger);
-          }
-          return 'budget_exceeded';
-        }
-        throw error;
-      }
-    }
-
-    // Snapshot to bank if this iteration is a checkpoint
-    if (args.bank && supabase && args.bankCheckpoints.length > 0) {
-      await snapshotCheckpointToBank(args, ctx, supabase, logger);
-    }
-
-    // Report top performers
-    const top = ctx.state.getTopByRating(3);
-    for (const v of top) {
-      const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
-      logger.debug('Top variant', { id: v.id.slice(0, 8), ordinal: ord.toFixed(1), strategy: v.strategy });
-    }
-  }
-
-  return 'completed';
+  return agents;
 }
 
 // ─── Output Builder ──────────────────────────────────────────────
@@ -995,53 +697,19 @@ async function main() {
     : ['generation', 'calibration'];
   logger.info('Agent suite', { agents: agentNames, mode: args.full ? 'full' : 'minimal', outline: args.outline });
 
-  // Run pipeline
-  await updateRunStatus(dbTracking ? supabase : null, runId, {
-    status: 'running',
-    started_at: new Date().toISOString(),
-  });
-
+  // Run pipeline — canonical functions handle status updates, checkpoints, and variant persistence
   const startMs = Date.now();
   try {
-    const stopReason = args.full
-      ? await runFullPipeline(args, ctx, agents, dbTracking ? supabase : null, logger)
-      : await runMinimalPipeline(args, ctx, agents, dbTracking ? supabase : null, logger);
+    let stopReason: string;
+    if (args.full) {
+      const result = await executeFullPipeline(runId, agents, ctx, logger, { startMs });
+      stopReason = result.stopReason;
+    } else {
+      await executeMinimalPipeline(runId, [agents.generation, agents.calibration], ctx, logger, { startMs });
+      stopReason = 'completed';
+    }
 
     const durationMs = Date.now() - startMs;
-
-    // Mark completed
-    await updateRunStatus(dbTracking ? supabase : null, runId, {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      total_variants: ctx.state.getPoolSize(),
-      variants_generated: ctx.state.getPoolSize(),
-      total_cost_usd: ctx.costTracker.getTotalSpent(),
-    });
-
-    // Persist variants to content_evolution_variants so the admin UI can display them
-    if (dbTracking && supabase) {
-      const variantInserts = ctx.state.pool.map((v) => ({
-        id: v.id,
-        run_id: runId,
-        explanation_id: args.explanationId,
-        variant_content: v.text,
-        elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
-        generation: v.version,
-        parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
-        agent_name: v.strategy,
-        match_count: ctx.state.matchCounts.get(v.id) ?? 0,
-      }));
-      if (variantInserts.length > 0) {
-        const { error: insertError } = await supabase
-          .from('content_evolution_variants')
-          .insert(variantInserts);
-        if (insertError) {
-          logger.warn('Failed to persist variants', { error: insertError.message });
-        } else {
-          logger.info('Variants persisted to DB', { count: variantInserts.length });
-        }
-      }
-    }
 
     // Build and write output
     const output = buildOutput(ctx, stopReason, durationMs, dbTracking);
@@ -1128,10 +796,14 @@ async function main() {
   } catch (error) {
     const durationMs = Date.now() - startMs;
     logger.error('Pipeline failed', { error: String(error), durationMs });
-    await updateRunStatus(dbTracking ? supabase : null, runId, {
-      status: 'failed',
-      error_message: String(error),
-    });
+    if (dbTracking && supabase) {
+      try {
+        await supabase.from('content_evolution_runs').update({
+          status: 'failed',
+          error_message: String(error),
+        }).eq('id', runId);
+      } catch { /* best-effort status update */ }
+    }
     process.exit(1);
   }
 }

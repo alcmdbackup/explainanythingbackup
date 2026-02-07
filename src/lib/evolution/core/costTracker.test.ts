@@ -116,4 +116,61 @@ describe('CostTrackerImpl', () => {
     const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
     expect(tracker.getAllAgentCosts()).toEqual({});
   });
+
+  // ─── FIFO reservation queue tests ───────────────────────────────
+
+  it('FIFO: totalReserved reaches 0 after all recordSpend calls', async () => {
+    const tracker = new CostTrackerImpl(5.0, { test: 1.0 });
+    // Make 3 reservations, then record 3 spends
+    await tracker.reserveBudget('test', 0.10); // reserves 0.13
+    await tracker.reserveBudget('test', 0.20); // reserves 0.26
+    await tracker.reserveBudget('test', 0.05); // reserves 0.065
+    // totalReserved = 0.455
+
+    tracker.recordSpend('test', 0.08); // releases 0.13 (FIFO)
+    tracker.recordSpend('test', 0.15); // releases 0.26 (FIFO)
+    tracker.recordSpend('test', 0.03); // releases 0.065 (FIFO)
+    // totalReserved should be 0
+
+    // getAvailableBudget = 5.0 - 0.26 - 0 = 4.74
+    expect(tracker.getAvailableBudget()).toBeCloseTo(5.0 - 0.26, 10);
+    expect(tracker.getTotalSpent()).toBeCloseTo(0.26, 10);
+  });
+
+  it('FIFO: no phantom reservation leak when actualCost < estimatedCost', async () => {
+    const tracker = new CostTrackerImpl(5.0, { test: 1.0 });
+    // Example from plan: estimate $0.10 → reserve $0.13 → actual $0.05
+    await tracker.reserveBudget('test', 0.10); // reserves 0.13
+
+    tracker.recordSpend('test', 0.05); // should release full 0.13
+
+    // Available should be budget - spent (no reservation left)
+    expect(tracker.getAvailableBudget()).toBeCloseTo(5.0 - 0.05, 10);
+  });
+
+  it('getAvailableBudget subtracts in-flight reservations', async () => {
+    const tracker = new CostTrackerImpl(5.0, { test: 1.0 });
+    await tracker.reserveBudget('test', 0.50); // reserves 0.65
+    // Before recordSpend, available should subtract reservation
+    expect(tracker.getAvailableBudget()).toBeCloseTo(5.0 - 0.65, 10);
+  });
+
+  it('recordSpend without prior reservation does not crash', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    // No reservation — recordSpend should still work (queue empty)
+    tracker.recordSpend('generation', 0.50);
+    expect(tracker.getTotalSpent()).toBe(0.50);
+    expect(tracker.getAvailableBudget()).toBe(4.50);
+  });
+
+  it('multiple reserve+recordSpend cycles accumulate no phantom reservations', async () => {
+    const tracker = new CostTrackerImpl(5.0, { test: 1.0 });
+    for (let i = 0; i < 10; i++) {
+      await tracker.reserveBudget('test', 0.10);
+      tracker.recordSpend('test', 0.05);
+    }
+    // Total spent = 10 × 0.05 = 0.50, no reservations in flight
+    expect(tracker.getTotalSpent()).toBeCloseTo(0.50, 10);
+    expect(tracker.getAvailableBudget()).toBeCloseTo(4.50, 10);
+  });
 });

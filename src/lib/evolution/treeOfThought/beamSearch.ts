@@ -13,6 +13,7 @@ import type { EvalCandidate } from './evaluator';
 import { validateFormat } from '../agents/formatValidator';
 import { compareWithDiff } from '../diffComparison';
 import { compareWithBiasMitigation } from '../comparison';
+import { extractJSON } from '../core/jsonParser';
 
 /**
  * Run beam search starting from a root variant with its critique.
@@ -102,11 +103,11 @@ export async function beamSearch(
     } catch (err) {
       if (err instanceof BudgetExceededError) {
         logger.warn('Budget exhausted during mini-tournament at depth', { depth });
-        // Use survivors as-is without ranking
+        // Save partial survivors before propagating
         rankedSurvivors = filterResult.survivors.slice(0, beamWidth);
-      } else {
-        throw err;
+        throw err; // Let TreeSearchAgent handle graceful degradation
       }
+      throw err;
     }
 
     // Mark non-selected survivors as pruned
@@ -341,21 +342,13 @@ For each dimension, provide:
 Output ONLY valid JSON, no other text.`;
 
   const response = await llmClient.complete(prompt, agentName);
-  const jsonMatch = response.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
-
-  let data: {
+  const data = extractJSON<{
     scores?: Record<string, number>;
     good_examples?: Record<string, string | string[]>;
     bad_examples?: Record<string, string | string[]>;
     notes?: Record<string, string>;
-  };
-  try {
-    data = JSON.parse(jsonMatch[0]);
-  } catch {
-    return null; // Malformed JSON from LLM — graceful fallback
-  }
-  if (!data.scores || typeof data.scores !== 'object') return null;
+  }>(response);
+  if (!data || !data.scores || typeof data.scores !== 'object') return null;
 
   const toArrayRecord = (
     obj: Record<string, string | string[]> | undefined,

@@ -148,67 +148,28 @@ async function executeEvolutionRun(
 
   // 4. Execute pipeline inline (similar to evolution-runner.ts)
   const {
-    PipelineStateImpl,
     executeFullPipeline,
-    resolveConfig,
-    createCostTracker,
-    createEvolutionLogger,
-    createEvolutionLLMClient,
-    GenerationAgent,
-    CalibrationRanker,
-    Tournament,
-    EvolutionAgent,
-    ReflectionAgent,
-    DebateAgent,
-    IterativeEditingAgent,
-    ProximityAgent,
-    MetaReviewAgent,
-    OutlineGenerationAgent,
+    preparePipelineRun,
   } = await import('../src/lib/evolution/index');
 
   const { fetchEvolutionFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
   const featureFlags = await fetchEvolutionFeatureFlags(supabase);
 
-  const config = resolveConfig(runConfig);
-  const state = new PipelineStateImpl(run.prompt); // Use prompt as original text
-
-  const logger = createEvolutionLogger(runId);
-  const costTracker = createCostTracker(config);
-  const llmClient = createEvolutionLLMClient(batchId, costTracker, logger);
-
-  const ctx = {
-    payload: {
-      originalText: run.prompt,
-      title: promptTitle,
-      explanationId: explanation.id,
-      runId,
-      config,
-    },
-    state,
-    llmClient,
-    logger,
-    costTracker,
+  const { ctx, agents, costTracker } = preparePipelineRun({
     runId,
-  };
-
-  const agents = {
-    generation: new GenerationAgent(),
-    calibration: new CalibrationRanker(),
-    tournament: new Tournament(),
-    evolution: new EvolutionAgent(),
-    reflection: new ReflectionAgent(),
-    iterativeEditing: new IterativeEditingAgent(),
-    debate: new DebateAgent(),
-    proximity: new ProximityAgent(),
-    metaReview: new MetaReviewAgent(),
-    outlineGeneration: new OutlineGenerationAgent(),
-  };
+    originalText: run.prompt,
+    title: promptTitle,
+    explanationId: explanation.id,
+    configOverrides: runConfig,
+    llmClientId: batchId,
+  });
 
   const startMs = Date.now();
-  const result = await executeFullPipeline(runId, agents, ctx, logger, { featureFlags, startMs });
+  const result = await executeFullPipeline(runId, agents, ctx, ctx.logger, { featureFlags, startMs });
 
   // 5. Get final stats
   const actualCost = costTracker.getTotalSpent();
+  const { state } = ctx;
 
   // Get top Elo from pool (ratings are OpenSkill format, convert to Elo scale)
   const topVariant = [...state.pool].sort((a, b) => {

@@ -9,6 +9,7 @@ import { compareWithDiff } from '../diffComparison';
 import { getCritiqueForVariant, CRITIQUE_DIMENSIONS } from './reflectionAgent';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
+import { extractJSON } from '../core/jsonParser';
 
 /** Config for the iterative editing agent. */
 export interface IterativeEditingConfig {
@@ -150,12 +151,13 @@ export class IterativeEditingAgent extends AgentBase {
     try {
       const prompt = buildOpenReviewPrompt(text);
       const response = await llmClient.complete(prompt, this.name);
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-      const data = JSON.parse(jsonMatch[0]) as { suggestions?: string[] };
+      const data = extractJSON<{ suggestions?: string[] }>(response);
+      if (!data) return null;
       return data.suggestions && data.suggestions.length > 0 ? data.suggestions : null;
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
+      // Log non-budget errors for debugging (previously swallowed silently)
+      console.warn('[iterativeEditing] runOpenReview error:', String(err));
       return null;
     }
   }
@@ -208,16 +210,13 @@ For each dimension, provide:
 Output ONLY valid JSON, no other text.`;
 
       const response = await llmClient.complete(prompt, this.name);
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return null;
-
-      const data = JSON.parse(jsonMatch[0]) as {
+      const data = extractJSON<{
         scores?: Record<string, number>;
         good_examples?: Record<string, string | string[]>;
         bad_examples?: Record<string, string | string[]>;
         notes?: Record<string, string>;
-      };
-      if (!data.scores || typeof data.scores !== 'object') return null;
+      }>(response);
+      if (!data || !data.scores || typeof data.scores !== 'object') return null;
 
       const toArrayRecord = (
         obj: Record<string, string | string[]> | undefined,
@@ -240,6 +239,7 @@ Output ONLY valid JSON, no other text.`;
       };
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
+      console.warn('[iterativeEditing] runInlineCritique error:', String(err));
       return null;
     }
   }

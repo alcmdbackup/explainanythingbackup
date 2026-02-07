@@ -16,6 +16,8 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   },
   generation: { strategies: 3 },
   calibration: { opponents: 5, minOpponents: 2 },
+  // Budget caps sum to >1.0 intentionally: not all agents run every iteration.
+  // Per-agent caps are checked individually by costTracker.reserveBudget().
   budgetCaps: {
     generation: 0.20,
     calibration: 0.15,

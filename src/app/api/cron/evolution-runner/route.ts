@@ -108,62 +108,19 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     // 5. Setup pipeline context
     const {
-      PipelineStateImpl,
-      createCostTracker,
-      createEvolutionLogger,
-      createEvolutionLLMClient,
       executeFullPipeline,
-      resolveConfig,
-      GenerationAgent,
-      CalibrationRanker,
-      Tournament,
-      EvolutionAgent,
-      ReflectionAgent,
-      IterativeEditingAgent,
-      DebateAgent,
-      ProximityAgent,
-      MetaReviewAgent,
-      OutlineGenerationAgent,
+      preparePipelineRun,
     } = await import('@/lib/evolution');
-    type PipelineAgents = import('@/lib/evolution').PipelineAgents;
 
-    const config = resolveConfig(pendingRun.config ?? {});
-    const state = new PipelineStateImpl(explanation.content);
-    const costTracker = createCostTracker(config);
-    const evolutionLogger = createEvolutionLogger(runId);
-    const llmClient = createEvolutionLLMClient(
-      'evolution-cron',
-      costTracker,
-      evolutionLogger,
-    );
-
-    const ctx = {
-      payload: {
-        originalText: explanation.content,
-        title: explanation.explanation_title,
-        explanationId: explanation.id,
-        runId,
-        config,
-      },
-      state,
-      llmClient,
-      logger: evolutionLogger,
-      costTracker,
+    const { ctx, agents } = preparePipelineRun({
       runId,
-    };
-
-    const agents: PipelineAgents = {
-      generation: new GenerationAgent(),
-      calibration: new CalibrationRanker(),
-      tournament: new Tournament(),
-      evolution: new EvolutionAgent(),
-      reflection: new ReflectionAgent(),
-      iterativeEditing: new IterativeEditingAgent(),
-      debate: new DebateAgent(),
-      proximity: new ProximityAgent(),
-      metaReview: new MetaReviewAgent(),
-      outlineGeneration: new OutlineGenerationAgent(),
-    };
+      originalText: explanation.content,
+      title: explanation.explanation_title,
+      explanationId: explanation.id,
+      configOverrides: pendingRun.config ?? {},
+      llmClientId: 'evolution-cron',
+    });
+    const evolutionLogger = ctx.logger;
 
     // 6. Start heartbeat interval (keeps watchdog happy)
     let heartbeatInterval: NodeJS.Timeout | null = null;

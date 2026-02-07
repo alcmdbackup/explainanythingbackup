@@ -7,7 +7,6 @@ import {
   updateDraw,
   getOrdinal,
   isConverged,
-  ratingToDisplay,
   eloToRating,
   ordinalToEloScale,
   DEFAULT_CONVERGENCE_SIGMA,
@@ -119,16 +118,6 @@ describe('isConverged', () => {
 
   it('DEFAULT_CONVERGENCE_SIGMA is 3.0', () => {
     expect(DEFAULT_CONVERGENCE_SIGMA).toBe(3.0);
-  });
-});
-
-describe('ratingToDisplay', () => {
-  it('formats as "mu +/- sigma"', () => {
-    expect(ratingToDisplay({ mu: 25.3, sigma: 4.1 })).toBe('25.3 +/- 4.1');
-  });
-
-  it('rounds to one decimal', () => {
-    expect(ratingToDisplay({ mu: 25.347, sigma: 4.156 })).toBe('25.3 +/- 4.2');
   });
 });
 

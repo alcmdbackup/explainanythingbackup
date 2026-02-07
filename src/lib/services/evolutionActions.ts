@@ -309,65 +309,19 @@ const _triggerEvolutionRunAction = withLogging(async (
 
     // Dynamic import to avoid loading heavy evolution code at module level
     const {
-      PipelineStateImpl,
-      createCostTracker,
-      createEvolutionLogger,
-      createEvolutionLLMClient,
       executeFullPipeline,
-      resolveConfig,
-      GenerationAgent,
-      CalibrationRanker,
-      Tournament,
-      EvolutionAgent,
-      ReflectionAgent,
-      IterativeEditingAgent,
-      SectionDecompositionAgent,
-      DebateAgent,
-      ProximityAgent,
-      MetaReviewAgent,
-      OutlineGenerationAgent,
+      preparePipelineRun,
     } = await import('@/lib/evolution');
-    type PipelineAgents = import('@/lib/evolution').PipelineAgents;
 
-    const config = resolveConfig(run.config ?? {});
-    const state = new PipelineStateImpl(explanation.content);
-    const costTracker = createCostTracker(config);
-    const evolutionLogger = createEvolutionLogger(runId);
-    const llmClient = createEvolutionLLMClient(
-      'evolution-admin',
-      costTracker,
-      evolutionLogger,
-    );
-
-    const ctx = {
-      payload: {
-        originalText: explanation.content,
-        title: explanation.explanation_title,
-        explanationId: explanation.id,
-        runId,
-        config,
-      },
-      state,
-      llmClient,
-      logger: evolutionLogger,
-      costTracker,
+    const { ctx, agents } = preparePipelineRun({
       runId,
-    };
-
-    // Full pipeline with all agents (phase-appropriate agents selected by supervisor)
-    const agents: PipelineAgents = {
-      generation: new GenerationAgent(),
-      calibration: new CalibrationRanker(),
-      tournament: new Tournament(),
-      evolution: new EvolutionAgent(),
-      reflection: new ReflectionAgent(),
-      iterativeEditing: new IterativeEditingAgent(),
-      sectionDecomposition: new SectionDecompositionAgent(),
-      debate: new DebateAgent(),
-      proximity: new ProximityAgent(),
-      metaReview: new MetaReviewAgent(),
-      outlineGeneration: new OutlineGenerationAgent(),
-    };
+      originalText: explanation.content,
+      title: explanation.explanation_title,
+      explanationId: explanation.id,
+      configOverrides: run.config ?? {},
+      llmClientId: 'evolution-admin',
+    });
+    const evolutionLogger = ctx.logger;
     const startMs = Date.now();
 
     await executeFullPipeline(runId, agents, ctx, evolutionLogger, {

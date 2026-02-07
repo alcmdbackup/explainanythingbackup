@@ -177,6 +177,9 @@ export class PoolSupervisor {
     }
 
     // COMPETITION
+    // TODO: generationPayload.strategies is currently ignored by GenerationAgent,
+    // which always uses all 3 strategies. Wire this into GenerationAgent or remove
+    // the rotation logic to avoid dead code path.
     const currentStrategy = GENERATION_STRATEGIES[this._strategyRotationIndex];
     return {
       phase: 'COMPETITION',

@@ -153,60 +153,20 @@ async function executeRun(run: ClaimedRun): Promise<void> {
 
   // Dynamic import to avoid loading heavy deps during dry-run
   const {
-    PipelineStateImpl,
     executeFullPipeline,
-    resolveConfig,
-    createCostTracker,
-    createEvolutionLogger,
-    createEvolutionLLMClient,
-    GenerationAgent,
-    CalibrationRanker,
-    Tournament,
-    EvolutionAgent,
-    ReflectionAgent,
-    DebateAgent,
-    IterativeEditingAgent,
-    TreeSearchAgent,
-    ProximityAgent,
-    MetaReviewAgent,
-    OutlineGenerationAgent,
+    preparePipelineRun,
   } = await import('../src/lib/evolution/index');
 
-  const config = resolveConfig(run.config as Record<string, unknown>);
-  const state = new PipelineStateImpl(await fetchOriginalText(run.explanation_id));
-
-  const logger = createEvolutionLogger(run.id);
-  const costTracker = createCostTracker(config);
-  const llmClient = createEvolutionLLMClient(RUNNER_ID, costTracker, logger);
-
-  const ctx = {
-    payload: {
-      originalText: state.originalText,
-      title: `Explanation #${run.explanation_id}`,
-      explanationId: run.explanation_id,
-      runId: run.id,
-      config,
-    },
-    state,
-    llmClient,
-    logger,
-    costTracker,
+  const originalText = await fetchOriginalText(run.explanation_id);
+  const { ctx, agents, costTracker } = preparePipelineRun({
     runId: run.id,
-  };
-
-  const agents = {
-    generation: new GenerationAgent(),
-    calibration: new CalibrationRanker(),
-    tournament: new Tournament(),
-    evolution: new EvolutionAgent(),
-    reflection: new ReflectionAgent(),
-    iterativeEditing: new IterativeEditingAgent(),
-    treeSearch: new TreeSearchAgent(),
-    debate: new DebateAgent(),
-    proximity: new ProximityAgent(),
-    metaReview: new MetaReviewAgent(),
-    outlineGeneration: new OutlineGenerationAgent(),
-  };
+    originalText,
+    title: `Explanation #${run.explanation_id}`,
+    explanationId: run.explanation_id,
+    configOverrides: run.config as Record<string, unknown>,
+    llmClientId: RUNNER_ID,
+  });
+  const logger = ctx.logger;
 
   const heartbeat = startHeartbeat(run.id);
 
@@ -217,7 +177,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     log('info', 'Run completed', {
       runId: run.id,
       stopReason: result.stopReason,
-      poolSize: state.getPoolSize(),
+      poolSize: ctx.state.getPoolSize(),
       totalCost: costTracker.getTotalSpent(),
       duration_seconds: durationSeconds,
       cost_usd: costTracker.getTotalSpent(),

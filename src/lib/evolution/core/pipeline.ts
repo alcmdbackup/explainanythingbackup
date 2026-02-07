@@ -349,6 +349,40 @@ export function validateRunSummary(
   return result.data;
 }
 
+/** Shared post-completion: persist run summary, variants, agent metrics, and strategy config. */
+export async function finalizePipelineRun(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+  stopReason: string,
+  durationSeconds: number,
+  supervisor?: PoolSupervisor,
+): Promise<void> {
+  const supabase = await createSupabaseServiceClient();
+
+  // Persist run summary (column may not exist if migration is pending)
+  const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
+  const summary = validateRunSummary(rawSummary, logger, runId);
+  if (summary) {
+    const { error: summaryErr } = await supabase.from('content_evolution_runs')
+      .update({ run_summary: summary }).eq('id', runId);
+    if (summaryErr) {
+      logger.warn('Failed to persist run_summary (column may not exist yet)', {
+        runId, error: summaryErr.message,
+      });
+    }
+  }
+
+  // Persist variants to content_evolution_variants for admin UI
+  await persistVariants(runId, ctx, logger);
+
+  // Persist per-agent cost metrics for Elo/dollar optimization
+  await persistAgentMetrics(runId, ctx, logger);
+
+  // Link run to strategy config for Elo optimization dashboard
+  await linkStrategyConfig(runId, ctx, logger);
+}
+
 /**
  * Execute a minimal pipeline: run agents sequentially, checkpoint after each.
  * This is Slice A's simplified version — no phase transitions, single iteration.
@@ -414,28 +448,9 @@ export async function executeMinimalPipeline(
     total_cost_usd: ctx.costTracker.getTotalSpent(),
   }).eq('id', runId);
 
-  // Persist run summary separately — column may not exist if migration is pending
+  // Persist summary, variants, agent metrics, and strategy config
   const durationSeconds = (Date.now() - (options?.startMs ?? Date.now())) / 1000;
-  const rawSummary = buildRunSummary(ctx, 'completed', durationSeconds, undefined);
-  const summary = validateRunSummary(rawSummary, logger, runId);
-  if (summary) {
-    const { error: summaryErr } = await supabase.from('content_evolution_runs')
-      .update({ run_summary: summary }).eq('id', runId);
-    if (summaryErr) {
-      logger.warn('Failed to persist run_summary (column may not exist yet)', {
-        runId, error: summaryErr.message,
-      });
-    }
-  }
-
-  // Persist variants to content_evolution_variants for admin UI
-  await persistVariants(runId, ctx, logger);
-
-  // Persist per-agent cost metrics for Elo/dollar optimization
-  await persistAgentMetrics(runId, ctx, logger);
-
-  // Link run to strategy config for Elo optimization dashboard
-  await linkStrategyConfig(runId, ctx, logger);
+  await finalizePipelineRun(runId, ctx, logger, 'completed', durationSeconds, undefined);
 
   logger.info('Pipeline completed', {
     poolSize: ctx.state.getPoolSize(),
@@ -666,28 +681,9 @@ export async function executeFullPipeline(
       error_message: stopReason === 'completed' ? null : stopReason,
     }).eq('id', runId);
 
-    // Persist run summary separately — column may not exist if migration is pending
+    // Persist summary, variants, agent metrics, and strategy config
     const durationSeconds = (Date.now() - (options.startMs ?? Date.now())) / 1000;
-    const rawSummary = buildRunSummary(ctx, stopReason, durationSeconds, supervisor);
-    const summary = validateRunSummary(rawSummary, logger, runId);
-    if (summary) {
-      const { error: summaryErr } = await supabase.from('content_evolution_runs')
-        .update({ run_summary: summary }).eq('id', runId);
-      if (summaryErr) {
-        logger.warn('Failed to persist run_summary (column may not exist yet)', {
-          runId, error: summaryErr.message,
-        });
-      }
-    }
-
-    // Persist variants to content_evolution_variants for admin UI
-    await persistVariants(runId, ctx, logger);
-
-    // Persist per-agent cost metrics for Elo/dollar optimization
-    await persistAgentMetrics(runId, ctx, logger);
-
-    // Link run to strategy config for Elo optimization dashboard
-    await linkStrategyConfig(runId, ctx, logger);
+    await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor);
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,

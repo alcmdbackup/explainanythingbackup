@@ -20,35 +20,47 @@ jest.mock('@/lib/evolution/core/featureFlags', () => ({
   fetchEvolutionFeatureFlags: jest.fn(),
 }));
 
+const mockEvolutionLogger = {
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  debug: jest.fn(),
+};
+
+const mockAgents = {
+  generation: {},
+  calibration: {},
+  tournament: {},
+  evolution: {},
+  reflection: {},
+  iterativeEditing: {},
+  debate: {},
+  proximity: {},
+  metaReview: {},
+  outlineGeneration: {},
+  treeSearch: {},
+  sectionDecomposition: {},
+};
+
 jest.mock('@/lib/evolution', () => ({
-  PipelineStateImpl: jest.fn().mockImplementation(() => ({
-    pool: [],
-    iteration: 0,
-    originalText: 'test',
-  })),
-  createCostTracker: jest.fn().mockReturnValue({
-    getTotalSpent: jest.fn().mockReturnValue(0),
-    getAvailableBudget: jest.fn().mockReturnValue(5),
-  }),
-  createEvolutionLogger: jest.fn().mockReturnValue({
-    info: jest.fn(),
-    warn: jest.fn(),
-    error: jest.fn(),
-    debug: jest.fn(),
-  }),
-  createEvolutionLLMClient: jest.fn(),
   executeFullPipeline: jest.fn(),
-  resolveConfig: jest.fn().mockReturnValue({}),
-  GenerationAgent: jest.fn(),
-  CalibrationRanker: jest.fn(),
-  Tournament: jest.fn(),
-  EvolutionAgent: jest.fn(),
-  ReflectionAgent: jest.fn(),
-  IterativeEditingAgent: jest.fn(),
-  DebateAgent: jest.fn(),
-  ProximityAgent: jest.fn(),
-  MetaReviewAgent: jest.fn(),
-  OutlineGenerationAgent: jest.fn(),
+  preparePipelineRun: jest.fn().mockReturnValue({
+    ctx: {
+      logger: mockEvolutionLogger,
+      state: { pool: [], iteration: 0, originalText: 'test' },
+      costTracker: {
+        getTotalSpent: jest.fn().mockReturnValue(0),
+        getAvailableBudget: jest.fn().mockReturnValue(5),
+      },
+    },
+    agents: mockAgents,
+    config: {},
+    costTracker: {
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn().mockReturnValue(5),
+    },
+    logger: mockEvolutionLogger,
+  }),
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';

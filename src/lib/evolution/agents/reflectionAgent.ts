@@ -4,6 +4,7 @@
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique } from '../types';
 import { BudgetExceededError } from '../types';
+import { extractJSON } from '../core/jsonParser';
 
 export const CRITIQUE_DIMENSIONS = [
   'clarity',
@@ -64,11 +65,8 @@ interface CritiqueResponse {
 /** Parse LLM response into Critique. Handles JSON wrapped in markdown fences. */
 function parseCritiqueResponse(response: string, variationId: string): Critique | null {
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    const data: CritiqueResponse = JSON.parse(jsonMatch[0]);
-    if (!data.scores || typeof data.scores !== 'object') return null;
+    const data = extractJSON<CritiqueResponse>(response);
+    if (!data || !data.scores || typeof data.scores !== 'object') return null;
 
     // Normalize examples to arrays
     const toArrayRecord = (

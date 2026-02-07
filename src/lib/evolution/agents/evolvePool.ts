@@ -298,6 +298,7 @@ export class EvolutionAgent extends AgentBase {
           });
         }
       } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
         logger.error('Creative exploration error', { error: String(error) });
       }
     }

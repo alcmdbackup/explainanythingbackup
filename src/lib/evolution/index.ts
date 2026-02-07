@@ -1,6 +1,29 @@
 // Public API for the evolution pipeline subsystem.
 // Re-exports the types, config, and key classes needed by server actions and admin UI.
 
+// Local imports for factories (re-exports below don't create local bindings)
+import { PipelineStateImpl as _PipelineStateImpl } from './core/state';
+import { createCostTracker as _createCostTracker } from './core/costTracker';
+import { createEvolutionLogger as _createEvolutionLogger } from './core/logger';
+import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
+import { resolveConfig as _resolveConfig } from './config';
+import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext } from './types';
+import type { PipelineAgents } from './core/pipeline';
+import type { CostTrackerImpl } from './core/costTracker';
+
+import { GenerationAgent as _GenerationAgent } from './agents/generationAgent';
+import { CalibrationRanker as _CalibrationRanker } from './agents/calibrationRanker';
+import { Tournament as _Tournament } from './agents/tournament';
+import { EvolutionAgent as _EvolutionAgent } from './agents/evolvePool';
+import { ReflectionAgent as _ReflectionAgent } from './agents/reflectionAgent';
+import { IterativeEditingAgent as _IterativeEditingAgent } from './agents/iterativeEditingAgent';
+import { TreeSearchAgent as _TreeSearchAgent } from './agents/treeSearchAgent';
+import { SectionDecompositionAgent as _SectionDecompositionAgent } from './agents/sectionDecompositionAgent';
+import { DebateAgent as _DebateAgent } from './agents/debateAgent';
+import { ProximityAgent as _ProximityAgent } from './agents/proximityAgent';
+import { MetaReviewAgent as _MetaReviewAgent } from './agents/metaReviewAgent';
+import { OutlineGenerationAgent as _OutlineGenerationAgent } from './agents/outlineGenerationAgent';
+
 export type {
   TextVariation,
   AgentResult,
@@ -25,7 +48,7 @@ export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSu
 export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
-export { createRating, updateRating, updateDraw, getOrdinal, isConverged, ratingToDisplay, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
+export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
 export { createCostTracker } from './core/costTracker';
 export { ComparisonCache } from './core/comparisonCache';
@@ -63,3 +86,85 @@ export type { EvolutionFeatureFlags } from './core/featureFlags';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
 export { parseArticleIntoSections } from './section/sectionParser';
 export { stitchSections, stitchWithReplacements } from './section/sectionStitcher';
+
+// ─── Agent Factory ───────────────────────────────────────────────
+
+/**
+ * Create the default set of all 12 pipeline agents.
+ * Single source of truth for agent construction — all callsites should use this
+ * instead of manually constructing agents to prevent agent-gap divergence.
+ */
+export function createDefaultAgents(): PipelineAgents {
+  return {
+    generation: new _GenerationAgent(),
+    calibration: new _CalibrationRanker(),
+    tournament: new _Tournament(),
+    evolution: new _EvolutionAgent(),
+    reflection: new _ReflectionAgent(),
+    iterativeEditing: new _IterativeEditingAgent(),
+    treeSearch: new _TreeSearchAgent(),
+    sectionDecomposition: new _SectionDecompositionAgent(),
+    debate: new _DebateAgent(),
+    proximity: new _ProximityAgent(),
+    metaReview: new _MetaReviewAgent(),
+    outlineGeneration: new _OutlineGenerationAgent(),
+  };
+}
+
+// ─── Pipeline Run Factory ───────────────────────────────────────
+
+/** Inputs for preparePipelineRun(). llmClient OR llmClientId must be provided. */
+export interface PipelineRunInputs {
+  runId: string;
+  originalText: string;
+  title: string;
+  explanationId: number;
+  configOverrides?: Partial<EvolutionRunConfig>;
+  /** Identifier for the LLM client (e.g. 'evolution-cron'). Ignored when llmClient is set. */
+  llmClientId?: string;
+  /** Pre-built LLM client. If omitted, creates standard client using llmClientId. */
+  llmClient?: EvolutionLLMClient;
+}
+
+/** Output of preparePipelineRun() — everything needed to call executeFullPipeline. */
+export interface PreparedPipelineRun {
+  ctx: ExecutionContext;
+  agents: PipelineAgents;
+  config: EvolutionRunConfig;
+  costTracker: CostTrackerImpl;
+  logger: import('./types').EvolutionLogger;
+}
+
+/**
+ * Create a fully-configured pipeline context and agents from minimal inputs.
+ * Consolidates the ~15 lines of boilerplate repeated in every callsite.
+ */
+export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
+  const config = _resolveConfig(inputs.configOverrides ?? {});
+  const state = new _PipelineStateImpl(inputs.originalText);
+  const costTracker = _createCostTracker(config);
+  const logger = _createEvolutionLogger(inputs.runId);
+
+  if (!inputs.llmClient && !inputs.llmClientId) {
+    throw new Error('preparePipelineRun: either llmClient or llmClientId must be provided');
+  }
+  const llmClient = inputs.llmClient
+    ?? _createEvolutionLLMClient(inputs.llmClientId!, costTracker, logger);
+
+  const ctx: ExecutionContext = {
+    payload: {
+      originalText: inputs.originalText,
+      title: inputs.title,
+      explanationId: inputs.explanationId,
+      runId: inputs.runId,
+      config,
+    },
+    state,
+    llmClient,
+    logger,
+    costTracker,
+    runId: inputs.runId,
+  };
+
+  return { ctx, agents: createDefaultAgents(), config, costTracker, logger };
+}
