@@ -233,4 +233,5 @@ The topic list page includes a `PromptBankCoverage` component:
 ## Related Documentation
 
 - [Evolution Pipeline](./evolution_pipeline.md) — The upstream evolution system whose winners feed into the article bank
+- [Hierarchical Decomposition Agent](./hierarchical_decomposition_agent.md) — Uses `compareWithDiff()` for section-level edit judging
 - [Testing Setup](./testing_setup.md) — Mock patterns for Supabase, LLM clients, and Jest configuration

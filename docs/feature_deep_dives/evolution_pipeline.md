@@ -13,6 +13,7 @@ Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool)
                  ├─ CalibrationRanker            ├─ OutlineGenerationAgent* (outline→expand→polish)
                  ├─ ProximityAgent               ├─ ReflectionAgent (critique top 3)
                  │                              ├─ IterativeEditingAgent (critique→edit→judge)
+                 │                              ├─ SectionDecompositionAgent (H2 section-level edits)
                  │                              ├─ DebateAgent (structured 3-turn debate)
                  │                              ├─ EvolutionAgent (mutate/crossover)
                  │                              ├─ CalibrationRanker or Tournament
@@ -244,6 +245,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
    │   ├─ OutlineGenerationAgent* → 1 outline variant (6-call pipeline, step scores)
    │   ├─ ReflectionAgent → critique top 3 variants (5 dimensions)
    │   ├─ IterativeEditingAgent → critique→edit→judge on top variant → accepted edits
+   │   ├─ SectionDecompositionAgent → parse H2 sections, parallel edit, stitch → stitched variant
    │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
    │   ├─ EvolutionAgent → mutate_clarity, mutate_structure, crossover, creative_exploration
    │   ├─ Tournament or CalibrationRanker → ranking with 5 opponents per entrant
@@ -287,6 +289,7 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | EvolutionAgent | `pool` (top by ordinal), `metaFeedback`, `diversityScore` | `pool` (child variants via `addToPool`) |
 | ReflectionAgent | `pool` (top 3 by ordinal) | `allCritiques`, `dimensionScores` |
 | IterativeEditingAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (critique_edit variants via `addToPool`) |
+| SectionDecompositionAgent | `pool` (top 1 by ordinal), `allCritiques`, `ratings` | `pool` (section_edited variants via `addToPool`), `sectionState` |
 | DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
 | TreeSearchAgent | `pool` (top by μ), `allCritiques`, `ratings` | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
@@ -364,6 +367,7 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     debate: 0.05,
     iterativeEditing: 0.10,
     outlineGeneration: 0.10,
+    sectionDecomposition: 0.10,
   },
   useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
@@ -375,7 +379,7 @@ Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via 
 
 ## Feature Flags
 
-Five flags are managed by the evolution feature flag system (`core/featureFlags.ts`) and stored in the `feature_flags` table:
+Six flags are managed by the evolution feature flag system (`core/featureFlags.ts`) and stored in the `feature_flags` table:
 
 | Flag | Default | Effect |
 |------|---------|--------|
@@ -386,6 +390,7 @@ Five flags are managed by the evolution feature flag system (`core/featureFlags.
 | `evolution_iterative_editing_enabled` | `true` | When `false`, IterativeEditingAgent skipped in COMPETITION phase |
 | `evolution_outline_generation_enabled` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Outline-Based Generation](./outline_based_generation_editing.md) |
 | `evolution_tree_search_enabled` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
+| `evolution_section_decomposition_enabled` | `true` | When `false`, SectionDecompositionAgent skipped in COMPETITION phase |
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
 
@@ -427,6 +432,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `reflectionAgent.ts` | Dimensional critique of top 3 variants: per-dimension scores 1–10, good/bad examples, improvement notes |
 | `iterativeEditingAgent.ts` | Critique-driven surgical edits on top variant with blind diff-based LLM judge and direction-reversal bias mitigation. Produces `critique_edit_*` variants. Consumes ReflectionAgent critiques. COMPETITION only. |
 | `treeSearchAgent.ts` | Beam search tree-of-thought revisions. Explores K×B×D revision candidates across multiple dimensions, hybrid two-stage evaluation (parent-relative diff filter + sibling mini-tournament). Produces `tree_search_*` variants. Mutually exclusive with IterativeEditingAgent. COMPETITION only. See [tree_of_thought_revisions.md](./tree_of_thought_revisions.md). |
+| `sectionDecompositionAgent.ts` | Decomposes top variant into H2 sections, applies parallel critique→edit→judge loops per section, stitches results. Produces `section_edited_*` variants. Consumes ReflectionAgent critiques. COMPETITION only. See also `section/*.ts` utilities. |
 | `debateAgent.ts` | Structured 3-turn debate (Advocate A / Advocate B / Judge) over top 2 non-baseline variants by ordinal, produces `debate_synthesis` variant. 4 sequential LLM calls. Consumes ReflectionAgent critiques. COMPETITION only. |
 | `outlineGenerationAgent.ts` | Outline-based generation: 6-call pipeline (outline → score → expand → score → polish → score) with per-step scoring. Produces `OutlineVariant` with step metadata. See [Outline-Based Generation](./outline_based_generation_editing.md) |
 | `metaReviewAgent.ts` | Analyzes strategy performance via ordinal analysis, detects weaknesses in bottom-quartile variants, recommends priority improvements (computation-only, no LLM calls) |

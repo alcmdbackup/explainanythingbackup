@@ -150,6 +150,8 @@ describe('PoolSupervisor', () => {
       expect(config.runEvolution).toBe(false);
       expect(config.runReflection).toBe(false);
       expect(config.runIterativeEditing).toBe(false);
+      expect(config.runTreeSearch).toBe(false);
+      expect(config.runSectionDecomposition).toBe(false);
       expect(config.runDebate).toBe(false);
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(3);
     });
@@ -175,6 +177,8 @@ describe('PoolSupervisor', () => {
       expect(config.runEvolution).toBe(true);
       expect(config.runReflection).toBe(true);
       expect(config.runIterativeEditing).toBe(true);
+      expect(config.runTreeSearch).toBe(true);
+      expect(config.runSectionDecomposition).toBe(true);
       expect(config.runDebate).toBe(true);
       expect(config.runMetaReview).toBe(true);
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(5);

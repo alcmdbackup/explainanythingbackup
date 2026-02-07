@@ -57,7 +57,7 @@ The Timeline tab shows all agents that executed in each iteration. The admin UI 
 | Phase | Agent Count | Agents |
 |-------|-------------|--------|
 | EXPANSION | 3 | Generation, Calibration, Proximity |
-| COMPETITION | 9 | Generation, OutlineGeneration*, Reflection, IterativeEditing*, Debate*, Evolution*, Tournament/Calibration, Proximity, MetaReview |
+| COMPETITION | 11 | Generation, OutlineGeneration*, Reflection, IterativeEditing*, TreeSearch*, SectionDecomposition*, Debate*, Evolution*, Tournament/Calibration, Proximity, MetaReview |
 
 \* Agents marked with asterisk can be disabled via feature flags.
 

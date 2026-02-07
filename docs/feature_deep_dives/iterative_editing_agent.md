@@ -135,6 +135,7 @@ Note: Step-targeted edits currently produce plain `TextVariation` results (not `
 ## Related Documentation
 
 - [Evolution Pipeline](./evolution_pipeline.md) — Full pipeline architecture and agent interactions
+- [Hierarchical Decomposition Agent](./hierarchical_decomposition_agent.md) — Section-level parallel editing (complementary approach using the same diff-based judging)
 - [Comparison Infrastructure](./comparison_infrastructure.md) — Pairwise comparison and bias mitigation patterns
 - [Outline-Based Generation](./outline_based_generation_editing.md) — OutlineGenerationAgent and step scoring
 - [Tree of Thought Revisions](./tree_of_thought_revisions.md) — Beam search evolution of the linear editing approach (mutually exclusive via feature flag)

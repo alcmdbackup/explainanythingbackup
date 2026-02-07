@@ -289,5 +289,6 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 ## Related Documentation
 
 - [Evolution Pipeline](./evolution_pipeline.md) - Core evolution system
+- [Hierarchical Decomposition Agent](./hierarchical_decomposition_agent.md) - Section-level editing agent with 10% budget cap (`budgetCaps.sectionDecomposition`)
 - [Comparison Infrastructure](./comparison_infrastructure.md) - Elo ranking system
 - [Project Workflow](../docs_overall/project_workflow.md) - Development process

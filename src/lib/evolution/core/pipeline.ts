@@ -209,6 +209,7 @@ const STRATEGY_TO_AGENT: Record<string, string> = {
 function getAgentForStrategy(strategy: string): string | null {
   if (STRATEGY_TO_AGENT[strategy]) return STRATEGY_TO_AGENT[strategy];
   if (strategy.startsWith('critique_edit_')) return 'iterativeEditing';
+  if (strategy.startsWith('section_decomposition_')) return 'sectionDecomposition';
   return null;
 }
 
@@ -453,6 +454,7 @@ export interface PipelineAgents {
   reflection?: PipelineAgent;
   iterativeEditing?: PipelineAgent;
   treeSearch?: PipelineAgent;
+  sectionDecomposition?: PipelineAgent;
   debate?: PipelineAgent;
   proximity?: PipelineAgent;
   metaReview?: PipelineAgent;
@@ -592,6 +594,15 @@ export async function executeFullPipeline(
             logger.info('Tree search agent disabled by feature flag', { iteration: ctx.state.iteration });
           } else {
             await runAgent(runId, agents.treeSearch, ctx, phase, logger);
+          }
+        }
+
+        // === Section Decomposition (COMPETITION only — optional) ===
+        if (config.runSectionDecomposition && agents.sectionDecomposition) {
+          if (options.featureFlags?.sectionDecompositionEnabled === false) {
+            logger.info('Section decomposition agent disabled by feature flag', { iteration: ctx.state.iteration });
+          } else {
+            await runAgent(runId, agents.sectionDecomposition, ctx, phase, logger);
           }
         }
 

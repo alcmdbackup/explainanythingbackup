@@ -309,6 +309,18 @@
     {
       "pattern": "src/lib/evolution/treeOfThought*.ts",
       "docs": ["docs/feature_deep_dives/tree_of_thought_revisions.md"]
+    },
+    {
+      "pattern": "src/lib/services/decomposition*.ts",
+      "docs": ["docs/feature_deep_dives/hierarchical_decomposition_agent.md"]
+    },
+    {
+      "pattern": "src/lib/decomposition/**",
+      "docs": ["docs/feature_deep_dives/hierarchical_decomposition_agent.md"]
+    },
+    {
+      "pattern": "scripts/*decomposition*.ts",
+      "docs": ["docs/feature_deep_dives/hierarchical_decomposition_agent.md"]
     }
   ],
   "alwaysConsider": [

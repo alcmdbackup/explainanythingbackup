@@ -19,6 +19,8 @@ export interface EvolutionFeatureFlags {
   outlineGenerationEnabled: boolean;
   /** Whether the TreeSearchAgent runs in COMPETITION phase (mutually exclusive with iterativeEditing). */
   treeSearchEnabled: boolean;
+  /** Whether the SectionDecompositionAgent runs in COMPETITION phase. */
+  sectionDecompositionEnabled: boolean;
 }
 
 /** Safe defaults: agents enabled, dry-run off. Outline generation defaults to off (opt-in). */
@@ -30,6 +32,7 @@ export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   iterativeEditingEnabled: true,
   outlineGenerationEnabled: false,
   treeSearchEnabled: false,
+  sectionDecompositionEnabled: true,
 };
 
 /** Flag name → field mapping. */
@@ -41,6 +44,7 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_iterative_editing_enabled: 'iterativeEditingEnabled',
   evolution_outline_generation_enabled: 'outlineGenerationEnabled',
   evolution_tree_search_enabled: 'treeSearchEnabled',
+  evolution_section_decomposition_enabled: 'sectionDecompositionEnabled',
 };
 
 const FLAG_NAMES = Object.keys(FLAG_MAP);

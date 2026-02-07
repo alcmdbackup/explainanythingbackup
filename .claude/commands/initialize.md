@@ -202,6 +202,17 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
 - Never include paths under `docs/planning/`
 - Populate from the user-confirmed list in step 2.7
 
+### 3.8. Ask for GitHub Issue Summary (used in docs + issue)
+
+**YOU MUST use AskUserQuestion** to get the issue summary **before** creating project documents:
+
+Prompt: "Please provide a 3-5 sentence summary for the GitHub issue describing what this project will accomplish:"
+
+Wait for the user's response. Store this as `ISSUE_SUMMARY` — it will be:
+1. Inserted as the Problem Statement in the research doc (step 4)
+2. Inserted as the Background in the planning doc (step 5)
+3. Used as the body of the GitHub issue (step 8)
+
 ### 4. Create Research Document
 
 Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with this template:
@@ -210,7 +221,7 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with
 # [Project Name] Research
 
 ## Problem Statement
-[Description of the problem]
+[Insert ISSUE_SUMMARY from step 3.8 here — the user's 3-5 sentence project description]
 
 ## High Level Summary
 [Summary of findings]
@@ -240,10 +251,10 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with
 # [Project Name] Plan
 
 ## Background
-[3-5 sentences of context]
+[Insert ISSUE_SUMMARY from step 3.8 here — the user's 3-5 sentence project description]
 
 ## Problem
-[3-5 sentences describing the problem]
+[3-5 sentences describing the problem — refine after /research]
 
 ## Options Considered
 [Concise but thorough list of options]
@@ -323,15 +334,9 @@ Set up code-to-doc mappings for any **new** documentation created by this projec
 
 **Note:** Existing docs to update were already identified in step 2.7 and stored in `_status.json`. This step only handles new documentation and its code pattern mappings.
 
-### 7. Ask for GitHub Issue Summary
+### 7. Offer to Commit Project Files
 
-**YOU MUST use AskUserQuestion** to get the issue summary:
-
-Prompt: "Please provide a 3-5 sentence summary for the GitHub issue describing what this project will accomplish:"
-
-Wait for the user's response before proceeding to step 7.5.
-
-### 7.5. Offer to Commit Project Files
+(GitHub issue summary was already collected in step 3.8.)
 
 Use **AskUserQuestion**:
 - Question: "Would you like to commit the project skeleton files now?"
@@ -349,14 +354,14 @@ Use **AskUserQuestion**:
 
 ### 8. Create GitHub Issue
 
-Using the summary from step 7, create a GitHub issue:
+Using the `ISSUE_SUMMARY` from step 3.8, create a GitHub issue:
 
 ```bash
 gh issue create \
   --title "[Project] ${PROJECT_NAME}" \
   --body "$(cat <<EOF
 ## Summary
-[Insert user's provided summary here]
+[Insert ISSUE_SUMMARY here]
 
 ## Project Folder
 \`${PROJECT_PATH}/\`

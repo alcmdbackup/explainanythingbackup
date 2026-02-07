@@ -29,6 +29,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       iterativeEditingEnabled: true,
       outlineGenerationEnabled: false,
       treeSearchEnabled: false,
+      sectionDecompositionEnabled: true,
     });
   });
 
@@ -48,6 +49,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       iterativeEditingEnabled: true,
       outlineGenerationEnabled: false,
       treeSearchEnabled: false,
+      sectionDecompositionEnabled: true,
     });
   });
 

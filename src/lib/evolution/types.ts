@@ -4,6 +4,7 @@
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { Rating } from './core/rating';
 import type { TreeSearchResult, TreeState } from './treeOfThought/types';
+import type { SectionEvolutionState } from './section/types';
 import { z } from 'zod';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
@@ -167,6 +168,9 @@ export interface PipelineState {
   treeSearchResults: TreeSearchResult[] | null;
   treeSearchStates: TreeState[] | null;
 
+  // Section decomposition state (null when not used)
+  sectionState: SectionEvolutionState | null;
+
   // Pool management methods
   addToPool(variation: TextVariation): void;
   startNewIteration(): void;
@@ -287,6 +291,7 @@ export interface SerializedPipelineState {
   debateTranscripts: DebateTranscript[];
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
+  sectionState?: SectionEvolutionState | null;
 }
 
 // ─── Evolution run status ────────────────────────────────────────

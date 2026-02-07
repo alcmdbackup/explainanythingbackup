@@ -51,6 +51,7 @@ export { DebateAgent } from './agents/debateAgent';
 export { IterativeEditingAgent, DEFAULT_ITERATIVE_EDITING_CONFIG } from './agents/iterativeEditingAgent';
 export type { IterativeEditingConfig } from './agents/iterativeEditingAgent';
 export { TreeSearchAgent } from './agents/treeSearchAgent';
+export { SectionDecompositionAgent } from './agents/sectionDecompositionAgent';
 export { compareWithDiff } from './diffComparison';
 export type { DiffComparisonResult } from './diffComparison';
 export type { DebateTranscript } from './types';
@@ -59,3 +60,6 @@ export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTrac
 export type { DiversityStatus } from './core/diversityTracker';
 export { fetchEvolutionFeatureFlags, DEFAULT_EVOLUTION_FLAGS } from './core/featureFlags';
 export type { EvolutionFeatureFlags } from './core/featureFlags';
+export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
+export { parseArticleIntoSections } from './section/sectionParser';
+export { stitchSections, stitchWithReplacements } from './section/sectionStitcher';

@@ -21,6 +21,7 @@ export interface PhaseConfig {
   runReflection: boolean;
   runIterativeEditing: boolean;
   runTreeSearch: boolean;
+  runSectionDecomposition: boolean;
   runDebate: boolean;
   runEvolution: boolean;
   runCalibration: boolean;
@@ -164,6 +165,7 @@ export class PoolSupervisor {
         runReflection: false,
         runIterativeEditing: false,
         runTreeSearch: false,
+        runSectionDecomposition: false,
         runDebate: false,
         runEvolution: false,
         runCalibration: true,
@@ -183,6 +185,7 @@ export class PoolSupervisor {
       runReflection: true,
       runIterativeEditing: true,
       runTreeSearch: true,
+      runSectionDecomposition: true,
       runDebate: true,
       runEvolution: true,
       runCalibration: true,
