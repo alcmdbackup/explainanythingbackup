@@ -2,7 +2,7 @@
 
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callOpenAIModel, default_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL } from '@/lib/services/llms';
 import { createStandaloneTitlePrompt } from '@/lib/prompts';
 import { assertUserId } from '@/lib/utils/validation';
 import {
@@ -512,11 +512,11 @@ async function generateHeadingStandaloneTitlesImpl(
 
     const prompt = createStandaloneTitlePrompt(articleTitle, headingTexts);
 
-    const aiResponse = await callOpenAIModel(
+    const aiResponse = await callLLM(
       prompt,
       'generateHeadingStandaloneTitles',
       userid,
-      default_model,
+      DEFAULT_MODEL,
       false,
       null,
       multipleStandaloneTitlesSchema,

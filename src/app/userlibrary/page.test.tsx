@@ -1,9 +1,13 @@
+/**
+ * Unit tests for UserLibraryPage component.
+ * Tests FeedCard-based layout, authentication, and data fetching.
+ */
 import { render, screen, waitFor } from '@testing-library/react';
 import UserLibraryPage from './page';
 import { getUserLibraryExplanationsAction } from '@/actions/actions';
 import { supabase_browser } from '@/lib/supabase';
 import { logger } from '@/lib/client_utilities';
-import { ExplanationStatus, type UserSavedExplanationType } from '@/lib/schemas/schemas';
+import { ExplanationStatus, type UserSavedExplanationWithMetrics } from '@/lib/schemas/schemas';
 
 // Mock the dependencies
 jest.mock('@/actions/actions', () => ({
@@ -24,48 +28,52 @@ jest.mock('@/lib/client_utilities', () => ({
   },
 }));
 
-// Mock the component
-jest.mock('@/components/ExplanationsTablePage', () => {
-  return function MockExplanationsTablePage({
-    explanations,
-    error,
-  }: {
-    explanations: any[];
-    error: string | null;
-  }) {
-    return (
-      <div data-testid="explanations-table">
-        <div data-testid="explanations-count">{explanations.length}</div>
-        {error && <div data-testid="error-message">{error}</div>}
-        {explanations.map((exp, i) => (
-          <div key={i} data-testid={`explanation-${i}`}>
-            {exp.dateSaved && <span data-testid={`date-saved-${i}`}>{exp.dateSaved}</span>}
-          </div>
-        ))}
-      </div>
-    );
+// Mock Next.js Link component
+jest.mock('next/link', () => {
+  return function MockLink({ children, href, ...props }: { children: React.ReactNode; href: string }) {
+    return <a href={href} {...props}>{children}</a>;
+  };
+});
+
+// Mock Navigation component
+jest.mock('@/components/Navigation', () => {
+  return function MockNavigation() {
+    return <nav data-testid="navigation">Navigation</nav>;
+  };
+});
+
+// Mock ShareButton
+jest.mock('@/components/ShareButton', () => {
+  return function MockShareButton() {
+    return <button data-testid="share-button">Share</button>;
   };
 });
 
 describe('UserLibraryPage', () => {
-  const mockUserSavedExplanations: UserSavedExplanationType[] = [
+  const mockExplanations: UserSavedExplanationWithMetrics[] = [
     {
       id: 1,
       explanation_title: 'First Saved Explanation',
       content: '# First\n\nContent',
+      summary_teaser: 'First teaser',
       primary_topic_id: 1,
       status: ExplanationStatus.Published,
       timestamp: '2025-01-01T00:00:00Z',
       saved_timestamp: '2025-01-02T00:00:00Z',
+      total_views: 100,
+      total_saves: 10,
     },
     {
       id: 2,
       explanation_title: 'Second Saved Explanation',
       content: '# Second\n\nMore content',
+      summary_teaser: 'Second teaser',
       primary_topic_id: 2,
       status: ExplanationStatus.Published,
       timestamp: '2025-01-03T00:00:00Z',
       saved_timestamp: '2025-01-04T00:00:00Z',
+      total_views: 200,
+      total_saves: 20,
     },
   ];
 
@@ -97,7 +105,7 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorMessage = screen.getByTestId('error-message');
+        const errorMessage = screen.getByTestId('library-error');
         expect(errorMessage).toHaveTextContent('Could not get user information. Please log in.');
       });
     });
@@ -111,7 +119,7 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorMessage = screen.getByTestId('error-message');
+        const errorMessage = screen.getByTestId('library-error');
         expect(errorMessage).toHaveTextContent('Could not get user information. Please log in.');
       });
     });
@@ -125,7 +133,7 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorMessage = screen.getByTestId('error-message');
+        const errorMessage = screen.getByTestId('library-error');
         expect(errorMessage).toHaveTextContent('Could not get user information. Please log in.');
       });
     });
@@ -154,7 +162,7 @@ describe('UserLibraryPage', () => {
         data: { user: { id: userId } },
         error: null,
       });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockUserSavedExplanations);
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockExplanations);
 
       render(<UserLibraryPage />);
 
@@ -189,7 +197,7 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorMessage = screen.getByTestId('error-message');
+        const errorMessage = screen.getByTestId('library-error');
         expect(errorMessage).toHaveTextContent('Database error');
       });
     });
@@ -204,8 +212,8 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorMessage = screen.getByTestId('error-message');
-        expect(errorMessage).toHaveTextContent('Failed to load user library explanations');
+        const errorMessage = screen.getByTestId('library-error');
+        expect(errorMessage).toHaveTextContent('Failed to load library');
       });
     });
 
@@ -228,41 +236,55 @@ describe('UserLibraryPage', () => {
     });
   });
 
-  describe('Data Transformation', () => {
-    it('should map saved_timestamp to dateSaved', async () => {
+  describe('FeedCard Rendering', () => {
+    it('should render FeedCard components for saved explanations', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
       });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockUserSavedExplanations);
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockExplanations);
 
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const dateSaved0 = screen.getByTestId('date-saved-0');
-        expect(dateSaved0).toHaveTextContent('2025-01-02T00:00:00Z');
-
-        const dateSaved1 = screen.getByTestId('date-saved-1');
-        expect(dateSaved1).toHaveTextContent('2025-01-04T00:00:00Z');
+        const cards = screen.getAllByTestId('feed-card');
+        expect(cards).toHaveLength(mockExplanations.length);
       });
     });
 
-    it('should preserve all explanation fields', async () => {
+    it('should pass savedDate prop to FeedCard', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
       });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockUserSavedExplanations);
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockExplanations);
 
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const count = screen.getByTestId('explanations-count');
-        expect(count).toHaveTextContent('2');
+        const savedDates = screen.getAllByTestId('saved-date');
+        expect(savedDates).toHaveLength(mockExplanations.length);
       });
     });
 
-    it('should handle empty results', async () => {
+    it('should display explanation titles', async () => {
+      (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
+        data: { user: { id: 'user-123' } },
+        error: null,
+      });
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockExplanations);
+
+      render(<UserLibraryPage />);
+
+      await waitFor(() => {
+        expect(screen.getByText('First Saved Explanation')).toBeInTheDocument();
+        expect(screen.getByText('Second Saved Explanation')).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe('Empty State', () => {
+    it('should show empty state when no saved explanations', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
@@ -272,67 +294,70 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const count = screen.getByTestId('explanations-count');
-        expect(count).toHaveTextContent('0');
+        expect(screen.getByTestId('library-empty-state')).toBeInTheDocument();
       });
     });
 
-    it('should handle large number of explanations', async () => {
-      const manyExplanations = Array.from({ length: 50 }, (_, i) => ({
-        id: i + 1,
-        explanation_title: `Explanation ${i + 1}`,
-        content: `Content ${i + 1}`,
-        primary_topic_id: 1,
-        status: ExplanationStatus.Published,
-        timestamp: '2025-01-01T00:00:00Z',
-        saved_timestamp: `2025-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`,
-      }));
-
+    it('should display empty state message', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
       });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(manyExplanations);
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue([]);
 
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const count = screen.getByTestId('explanations-count');
-        expect(count).toHaveTextContent('50');
+        expect(screen.getByText('Nothing saved yet')).toBeInTheDocument();
+        expect(screen.getByText('Save explanations you want to revisit.')).toBeInTheDocument();
       });
     });
   });
 
-  describe('Component Rendering', () => {
-    it('should render ExplanationsTablePage after loading', async () => {
+  describe('Error State', () => {
+    it('should show error message when fetch fails', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
         data: { user: { id: 'user-123' } },
         error: null,
       });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockUserSavedExplanations);
+      (getUserLibraryExplanationsAction as jest.Mock).mockRejectedValue(new Error('Network error'));
 
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const table = screen.getByTestId('explanations-table');
-        expect(table).toBeInTheDocument();
+        expect(screen.getByTestId('library-error')).toBeInTheDocument();
       });
     });
+  });
 
-    it('should pass error prop to ExplanationsTablePage', async () => {
+  describe('Page Layout', () => {
+    it('should render page title', async () => {
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
-        data: null,
-        error: { message: 'Auth error' },
+        data: { user: { id: 'user-123' } },
+        error: null,
       });
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue([]);
 
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorMessage = screen.getByTestId('error-message');
-        expect(errorMessage).toBeInTheDocument();
+        expect(screen.getByText('My Library')).toBeInTheDocument();
       });
     });
 
+    it('should render navigation', async () => {
+      (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
+        data: { user: { id: 'user-123' } },
+        error: null,
+      });
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue([]);
+
+      render(<UserLibraryPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('navigation')).toBeInTheDocument();
+      });
+    });
   });
 
   describe('Edge Cases', () => {
@@ -341,12 +366,12 @@ describe('UserLibraryPage', () => {
         data: { user: { id: 'user-123' } },
         error: null,
       });
-      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockUserSavedExplanations);
+      (getUserLibraryExplanationsAction as jest.Mock).mockResolvedValue(mockExplanations);
 
       const { rerender } = render(<UserLibraryPage />);
 
       await waitFor(() => {
-        expect(screen.getByTestId('explanations-table')).toBeInTheDocument();
+        expect(screen.getAllByTestId('feed-card')).toHaveLength(2);
       });
 
       // Should not refetch on rerender (useEffect with empty deps)
@@ -359,7 +384,7 @@ describe('UserLibraryPage', () => {
     });
 
     it('should handle explanations with optional fields', async () => {
-      const explanationWithOptionals: UserSavedExplanationType = {
+      const explanationWithOptionals: UserSavedExplanationWithMetrics = {
         id: 10,
         explanation_title: 'Optional Fields',
         content: 'Content',
@@ -368,6 +393,8 @@ describe('UserLibraryPage', () => {
         status: ExplanationStatus.Draft,
         timestamp: '2025-01-01T00:00:00Z',
         saved_timestamp: '2025-01-02T00:00:00Z',
+        total_views: 50,
+        total_saves: 5,
       };
 
       (supabase_browser.auth.getUser as jest.Mock).mockResolvedValue({
@@ -379,8 +406,8 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const count = screen.getByTestId('explanations-count');
-        expect(count).toHaveTextContent('1');
+        const cards = screen.getAllByTestId('feed-card');
+        expect(cards).toHaveLength(1);
       });
     });
 
@@ -394,7 +421,7 @@ describe('UserLibraryPage', () => {
       render(<UserLibraryPage />);
 
       await waitFor(() => {
-        const errorElement = screen.queryByTestId('error-message');
+        const errorElement = screen.queryByTestId('library-error');
         expect(errorElement).not.toBeInTheDocument();
       });
     });

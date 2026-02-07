@@ -617,6 +617,7 @@ export default function AIEditorPanel({
                 }}
                 maxSources={5}
                 disabled={isStreaming || isLoading}
+                explanationId={sessionData?.explanation_id}
               />
             </div>
           )}

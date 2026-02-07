@@ -74,6 +74,68 @@ git checkout -b "$BRANCH_NAME" origin/main
 - If branch already exists, abort with: "Error: Branch $BRANCH_NAME already exists. Choose a different project name or delete the existing branch."
 - If fetch fails, warn user but continue (they may be offline)
 
+### 2.1. Handle Pre-existing Uncommitted Files
+
+After branch creation, check for files that carried over from the previous branch:
+
+```bash
+git status --porcelain
+```
+
+If output is empty, continue silently to Step 2.5.
+
+If files exist:
+
+1. **Display warning with file list and origins:**
+   ```
+   Pre-existing uncommitted files detected:
+   ```
+
+   For each file, show status and origin explanation:
+   ```
+   ?? docs/papers/           <- Untracked directory (created on previous branch)
+    M src/lib/utils.ts      <- Modified file (changes from previous branch)
+   ```
+
+2. **For EACH file, use AskUserQuestion** (single-select, one file at a time):
+   - Question: "File `[filename]` carried over from previous branch.\n\n**Status**: [explanation]\n\nWhat should I do?"
+   - Options:
+     1. "Leave it" — keep file as-is, handle during /finalize later
+     2. "Commit it now" — stage and commit immediately
+     3. "Add to .gitignore" — gitignore and commit
+     4. "Delete it" — remove using git clean/checkout
+
+3. **Process choice** using safe git commands:
+   - For "Leave it": Continue to next file (no action)
+   - For "Commit it now":
+     ```bash
+     git add -- "$FILE"
+     git commit -m "chore: include $FILE from previous branch"
+     ```
+   - For "Add to .gitignore":
+     ```bash
+     # For directories, use proper glob pattern
+     if [[ -d "$FILE" ]]; then
+       GITIGNORE_PATTERN="${FILE%/}/"
+     else
+       GITIGNORE_PATTERN="$FILE"
+     fi
+
+     # Avoid duplicates
+     if ! grep -qxF "$GITIGNORE_PATTERN" .gitignore 2>/dev/null; then
+       echo "$GITIGNORE_PATTERN" >> .gitignore
+     fi
+
+     git add -- .gitignore
+     git commit -m "chore: gitignore $GITIGNORE_PATTERN"
+     ```
+   - For "Delete it":
+     - Untracked files: `git clean -f -- "$FILE"` (or `-fd` for directories)
+     - Modified files: `git checkout -- "$FILE"` to discard changes
+     - Staged files: `git restore --staged -- "$FILE"` then `git checkout -- "$FILE"`
+
+4. After all files processed (or user chooses "Leave it" for remaining), continue to Step 2.5.
+
 ### 2.5. Read Core Documentation
 
 Before creating project files, read these three core documents to understand the codebase context:
@@ -84,12 +146,61 @@ Before creating project files, read these three core documents to understand the
 
 These provide essential context for the project initialization.
 
+### 2.7. Discover Relevant Project Documentation
+
+After reading core docs, discover which additional docs in `docs/docs_overall/` and `docs/feature_deep_dives/` are relevant to this project. Do NOT include any files from `docs/planning/`.
+
+1. **Spawn an Explore agent** using the Task tool with `subagent_type=Explore`:
+
+   Prompt:
+   ```
+   Search through all markdown files in docs/docs_overall/ and docs/feature_deep_dives/
+   to find documentation relevant to the project "[PROJECT_NAME]" (branch type: [BRANCH_TYPE]).
+
+   For each file, read the first 30 lines to understand what it covers.
+   Return a ranked list of the most relevant files (up to 10) with a one-line reason for each.
+
+   Rules:
+   - Only include files from docs/docs_overall/ and docs/feature_deep_dives/
+   - Do NOT include any files from docs/planning/
+   - Exclude the 3 core docs already read: getting_started.md, architecture.md, project_workflow.md
+   ```
+
+2. **Present results to user** via AskUserQuestion (multiSelect):
+
+   "These docs appear relevant to your project. Select which to read now and track for updates during /finalize:"
+   - [List each doc from Explore agent results with its one-line reason as the description]
+
+3. **Read all confirmed docs** using the Read tool.
+
+4. **Store the confirmed list** as `RELEVANT_DOCS` for use in later steps (written to `_status.json` in step 3.5, and used to pre-populate templates in steps 4 and 5).
+
 ### 3. Create Folder Structure
 
 Use this exact command format:
 ```bash
 mkdir -p docs/planning/PROJECT_NAME_DATE
 ```
+
+### 3.5. Write Status File with Relevant Docs
+
+Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relevantDocs` array so `/finalize` and other skills can identify which docs to update:
+
+```json
+{
+  "branch": "${BRANCH_NAME}",
+  "created_at": "[ISO timestamp]",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/tag_system.md",
+    "docs/docs_overall/architecture.md"
+  ]
+}
+```
+
+- `relevantDocs` must only contain paths under `docs/docs_overall/` or `docs/feature_deep_dives/`
+- Never include paths under `docs/planning/`
+- Populate from the user-confirmed list in step 2.7
 
 ### 4. Create Research Document
 
@@ -105,13 +216,21 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with
 [Summary of findings]
 
 ## Documents Read
-- [list of docs reviewed]
+
+### Core Docs
+- docs/docs_overall/getting_started.md
+- docs/docs_overall/architecture.md
+- docs/docs_overall/project_workflow.md
+
+### Relevant Docs (discovered in step 2.7)
+- [list each confirmed doc from step 2.7, e.g. docs/feature_deep_dives/tag_system.md]
 
 ## Code Files Read
 - [list of code files reviewed]
 ```
 
 Replace `[Project Name]` with the actual project name in title case.
+Pre-populate the "Relevant Docs" section with the actual paths from `RELEVANT_DOCS`.
 
 ### 5. Create Planning Document
 
@@ -136,8 +255,11 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with
 [Tests to write or modify, plus manual verification on stage]
 
 ## Documentation Updates
-[Files in docs/docs_overall and docs/feature_deep_dives to update]
+The following docs were identified as relevant and may need updates:
+- [list each path from RELEVANT_DOCS, e.g. `docs/feature_deep_dives/tag_system.md` - brief note on what may change]
 ```
+
+Pre-populate the "Documentation Updates" section with the actual paths from `RELEVANT_DOCS`.
 
 ### 6. Create Progress Document
 
@@ -162,7 +284,7 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_progress.md` using the **Write tool** with
 
 ### 6.5. Documentation Mapping
 
-Set up documentation mappings for the project:
+Set up code-to-doc mappings for any **new** documentation created by this project:
 
 1. **Ask if new feature deep dive needed:**
 
@@ -182,33 +304,24 @@ Set up documentation mappings for the project:
        ## Implementation
        [To be filled during implementation]
        ```
+     - Add the new doc to `relevantDocs` in `_status.json`
      - Add mapping entry to `.claude/doc-mapping.json`
    - If **No** → continue
 
-2. **Ask which existing docs will be affected:**
+2. **For any new deep dive doc, ask for code patterns:**
 
-   "Which existing documentation files will this project likely affect?"
-
-   Present options:
-   - architecture.md (system design changes)
-   - An existing feature_deep_dive (specify which)
-   - testing_overview.md (test infrastructure)
-   - environments.md (CI/CD, env vars)
-   - Other (specify)
-   - None
-
-3. **For new or selected docs, ask for code patterns:**
-
-   "What code patterns will map to [doc]?"
+   "What code patterns will map to [new doc]?"
 
    Suggest based on project name, e.g.:
    - Project "add_user_preferences" → suggest `src/lib/services/preferences*.ts`
 
-4. **Update `.claude/doc-mapping.json`:**
+3. **Update `.claude/doc-mapping.json`:**
    - Read current mappings
-   - Add new mapping entries for specified patterns
+   - Add new mapping entries for the new doc's patterns only
    - Validate patterns are valid globs
    - Write updated config
+
+**Note:** Existing docs to update were already identified in step 2.7 and stored in `_status.json`. This step only handles new documentation and its code pattern mappings.
 
 ### 7. Ask for GitHub Issue Summary
 
@@ -216,7 +329,23 @@ Set up documentation mappings for the project:
 
 Prompt: "Please provide a 3-5 sentence summary for the GitHub issue describing what this project will accomplish:"
 
-Wait for the user's response before proceeding to step 8.
+Wait for the user's response before proceeding to step 7.5.
+
+### 7.5. Offer to Commit Project Files
+
+Use **AskUserQuestion**:
+- Question: "Would you like to commit the project skeleton files now?"
+- Options:
+  1. "Yes, commit now (Recommended)" — run:
+     ```bash
+     git add -- "docs/planning/${PROJECT_NAME}"
+     # Only add doc-mapping.json if it exists and was modified
+     if [[ -f ".claude/doc-mapping.json" ]] && git diff --name-only | grep -q ".claude/doc-mapping.json"; then
+       git add -- ".claude/doc-mapping.json"
+     fi
+     git commit -m "chore: initialize ${PROJECT_NAME}"
+     ```
+  2. "No, I'll commit later" — continue without committing
 
 ### 8. Create GitHub Issue
 
@@ -247,6 +376,8 @@ Capture the issue URL from the output.
 
 ### 9. Output Summary
 
+Run `git status --short` to capture current state.
+
 Display this completion message:
 
 ```
@@ -258,12 +389,26 @@ Documents created:
    - ${PROJECT_NAME}_research.md
    - ${PROJECT_NAME}_planning.md
    - ${PROJECT_NAME}_progress.md
+Relevant docs discovered and read: [count]
+   - [list each path from RELEVANT_DOCS]
 Documentation mappings: [list any new mappings added to .claude/doc-mapping.json]
 GitHub Issue: [issue URL]
 
+Git status:
+$(git status --short)
+```
+
+If files remain uncommitted, add:
+```
+To commit remaining files:
+  git add -A && git commit -m "chore: initialize ${PROJECT_NAME}"
+```
+
+```
 Next steps:
 1. Run /research to conduct research and populate the research doc
 2. Use /plan-review after completing the planning doc
+3. During /finalize, docs in relevantDocs (stored in _status.json) will be checked for needed updates
 ```
 
 ## Error Handling

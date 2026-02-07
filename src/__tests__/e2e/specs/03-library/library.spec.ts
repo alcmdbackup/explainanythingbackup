@@ -1,7 +1,7 @@
 /**
  * E2E Tests for User Library Management
  *
- * Tests library page functionality including navigation, sorting, and search.
+ * Tests library page functionality using FeedCard-based layout.
  * Uses test-data-factory to ensure test data exists (no conditional skips).
  */
 import { test, expect } from '../../fixtures/auth';
@@ -41,29 +41,13 @@ test.describe('User Library Management', () => {
     await page.waitForContentOrError(timeout);
   }
 
-  test('should show loading state when navigating to library', async ({ authenticatedPage }) => {
-    // Navigate without waiting
-    await authenticatedPage.goto('/userlibrary');
-
-    // Should show loading indicator (it's OK if loading is too fast to catch)
-    await safeIsVisible(
-      authenticatedPage.locator('[data-testid="library-loading"]'),
-      'library.spec (loading indicator)'
-    );
-
-    // This test passes if we reach here - loading may be too fast to catch
-    expect(true).toBe(true);
-  });
-
   test('should display user library page after authentication', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
     await waitForPageReady(libraryPage);
 
-    // Should show either content table, empty state, OR error message
-    const hasTable = await safeIsVisible(
-      authenticatedPage.locator('table'),
-      'library.spec (table)'
-    );
+    // Should show either content cards, empty state, OR error message
+    // Use .count() for feed-card to avoid strict mode violation (multiple elements)
+    const hasCards = await authenticatedPage.locator('[data-testid="feed-card"]').count() > 0;
     const hasEmptyState = await safeIsVisible(
       authenticatedPage.locator('[data-testid="library-empty-state"]'),
       'library.spec (empty state)'
@@ -74,7 +58,7 @@ test.describe('User Library Management', () => {
     );
 
     // Page should render something after loading
-    expect(hasTable || hasEmptyState || hasError).toBe(true);
+    expect(hasCards || hasEmptyState || hasError).toBe(true);
   });
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -87,75 +71,28 @@ test.describe('User Library Management', () => {
     expect(pageTitle).toContain('My Library');
   });
 
-  test('should have sortable table headers when content loads', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  test('should display FeedCard components for saved explanations', async ({ authenticatedPage: _page }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
+    // Wait specifically for feed cards (not generic waitForPageReady which resolves
+    // on the initial empty state before the API call completes)
+    await libraryPage.waitForCards(30000);
 
-    // With test data created in beforeAll, table should always be visible
-    const hasTable = await safeIsVisible(
-      authenticatedPage.locator('table'),
-      'library.spec (sortable headers check)'
-    );
-    expect(hasTable).toBe(true);
-
-    // Check for sortable headers
-    const titleHeader = authenticatedPage.locator('th:has-text("Title")');
-    const dateHeader = authenticatedPage.locator('th:has-text("Created")');
-
-    expect(await titleHeader.isVisible()).toBe(true);
-    expect(await dateHeader.isVisible()).toBe(true);
+    // Verify at least one card is present (use count to avoid strict mode violation
+    // since multiple feed-card elements exist)
+    const cardCount = await libraryPage.getCardCount();
+    expect(cardCount).toBeGreaterThan(0);
   });
 
-  test('should allow sorting by title', async ({ authenticatedPage }) => {
+  test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
+    await libraryPage.waitForCards(30000);
 
-    // With test data created in beforeAll, table should always be visible
-    const hasTable = await safeIsVisible(
-      authenticatedPage.locator('table'),
-      'library.spec (sort by title check)'
-    );
-    expect(hasTable).toBe(true);
+    const cardCount = await libraryPage.getCardCount();
+    expect(cardCount).toBeGreaterThan(0);
 
-    // Click title header to sort
-    await libraryPage.clickSortByTitle();
-
-    // Check that sort indicator appears (arrow icon)
-    const titleHeader = authenticatedPage.locator('th:has-text("Title")');
-    const hasSortIndicator = await titleHeader.locator('svg').isVisible();
-    expect(hasSortIndicator).toBe(true);
-  });
-
-  test('should allow sorting by date', async ({ authenticatedPage }) => {
-    await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, table should always be visible
-    const hasTable = await safeIsVisible(
-      authenticatedPage.locator('table'),
-      'library.spec (sort by date check)'
-    );
-    expect(hasTable).toBe(true);
-
-    // Toggle sort order (default is date desc)
-    await libraryPage.clickSortByDate();
-
-    // Check that sort indicator appears
-    const dateHeader = authenticatedPage.locator('th:has-text("Created")');
-    const hasSortIndicator = await dateHeader.locator('svg').isVisible();
-    expect(hasSortIndicator).toBe(true);
-  });
-
-  test('should navigate to results page when clicking View link', async ({ authenticatedPage }) => {
-    await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, explanation count should be > 0
-    const explanationCount = await libraryPage.getExplanationCount();
-    expect(explanationCount).toBeGreaterThan(0);
-
-    // Click the View link for the first explanation
-    await libraryPage.clickViewByIndex(0);
+    // Click the first card
+    await libraryPage.clickCardByIndex(0);
 
     // Should navigate to results page with explanation_id
     await authenticatedPage.waitForURL(/\/results\?explanation_id=/, { timeout: 10000 });
@@ -163,29 +100,23 @@ test.describe('User Library Management', () => {
     expect(url).toContain('/results?explanation_id=');
   });
 
-  test('should show Date Saved column for user library', async ({ authenticatedPage }) => {
+  test('should show saved date on cards', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
+    await libraryPage.waitForCards(30000);
 
-    // With test data created in beforeAll, explanation count should be > 0
-    const explanationCount = await libraryPage.getExplanationCount();
-    expect(explanationCount).toBeGreaterThan(0);
+    const cardCount = await libraryPage.getCardCount();
+    expect(cardCount).toBeGreaterThan(0);
 
-    // Saved column should be visible in user library
-    const hasDateSavedHeader = await authenticatedPage.locator('th:has-text("Saved")').isVisible();
-    expect(hasDateSavedHeader).toBe(true);
+    // Cards should have saved-date element
+    const savedDates = authenticatedPage.locator('[data-testid="saved-date"]');
+    const savedDateCount = await savedDates.count();
+    expect(savedDateCount).toBeGreaterThan(0);
   });
 
-  test('should have search bar in navigation', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  test('should have search bar in navigation', async ({ authenticatedPage: _page }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, table should always be visible
-    const hasTable = await safeIsVisible(
-      authenticatedPage.locator('table'),
-      'library.spec (search bar check)'
-    );
-    expect(hasTable).toBe(true);
+    await libraryPage.waitForCards(30000);
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);

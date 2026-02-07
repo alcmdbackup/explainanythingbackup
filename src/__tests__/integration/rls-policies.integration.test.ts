@@ -144,24 +144,6 @@ describe('RLS Policies', () => {
     let testExplanationId: number | null = null;
 
     beforeAll(async () => {
-      // First, get or create a test topic (required for explanations)
-      const { data: topic, error: topicError } = await serviceClient
-        .from('topics')
-        .upsert(
-          {
-            topic_title: 'test-e2e-rls-hidden-topic',
-            topic_description: 'Topic for RLS hidden content tests',
-          },
-          { onConflict: 'topic_title' }
-        )
-        .select('id')
-        .single();
-
-      if (topicError || !topic?.id) {
-        console.error('Failed to get or create test topic:', topicError);
-        return;
-      }
-
       // Create a hidden test explanation using service client (bypasses RLS)
       const { data, error } = await serviceClient
         .from('explanations')
@@ -169,8 +151,7 @@ describe('RLS Policies', () => {
           explanation_title: 'RLS Test Hidden Explanation - Do Not Display',
           content: 'This content should not be visible to anonymous users',
           status: 'published',
-          delete_status: 'hidden',
-          primary_topic_id: topic.id,
+          delete_status: 'hidden'
         })
         .select('id')
         .single();

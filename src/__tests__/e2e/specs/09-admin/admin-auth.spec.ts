@@ -36,26 +36,18 @@ adminTest.describe('Admin Authentication', () => {
   );
 });
 
-test.describe('Admin Access Control', { tag: '@skip-prod' }, () => {
+test.describe('Admin Access Control', () => {
   /**
    * Verifies non-admin users are redirected away from admin panel.
    * Uses regular TEST_USER (not admin) to verify access control.
-   *
-   * SKIPPED: Infrastructure limitation - the test user (abecha@gmail.com) is an
-   * admin on staging, so the redirect doesn't happen. This test requires a
-   * dedicated non-admin test user which doesn't exist yet.
    */
-  // eslint-disable-next-line flakiness/no-test-skip -- Infrastructure limitation: no non-admin test user
-  test.skip('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
-
+  // FIXME: TEST_USER has admin role in staging DB, so redirect doesn't trigger.
+  // Re-enable once a dedicated non-admin test user exists.
+  test.fixme('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
     // Try to access admin panel as non-admin user
-    await authenticatedPage.goto(`${baseUrl}/admin`);
+    await authenticatedPage.goto('/admin');
 
-    // Should be redirected to home page
-    await authenticatedPage.waitForURL(`${baseUrl}/`);
-
-    // Verify we're on the home page, not admin
-    await expect(authenticatedPage).not.toHaveURL(/\/admin/);
+    // Should be redirected away from admin (server-side redirect in admin layout)
+    await expect(authenticatedPage).not.toHaveURL(/\/admin/, { timeout: 30000 });
   });
 });

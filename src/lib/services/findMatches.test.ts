@@ -6,7 +6,7 @@ import {
   findBestMatchFromList,
   enhanceMatchesWithCurrentContentAndDiversity
 } from './findMatches';
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import { getExplanationById } from '@/lib/services/explanations';
 import { logger } from '@/lib/server_utilities';
 import { MatchMode, type VectorSearchResult } from '@/lib/schemas/schemas';
@@ -43,7 +43,7 @@ jest.mock('@/lib/prompts', () => ({
 }));
 
 describe('findMatches Service', () => {
-  const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+  const mockCallOpenAIModel = callLLM as jest.MockedFunction<typeof callLLM>;
   const mockGetExplanationById = getExplanationById as jest.MockedFunction<typeof getExplanationById>;
 
   beforeEach(() => {

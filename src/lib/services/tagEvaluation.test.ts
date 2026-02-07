@@ -3,7 +3,7 @@
  */
 
 import { evaluateTags } from './tagEvaluation';
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 
 // Mock dependencies
@@ -23,7 +23,7 @@ jest.mock('@/lib/prompts', () => ({
 }));
 
 describe('Tag Evaluation Service', () => {
-  const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+  const mockCallOpenAIModel = callLLM as jest.MockedFunction<typeof callLLM>;
 
   beforeEach(() => {
     jest.clearAllMocks();

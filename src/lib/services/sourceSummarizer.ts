@@ -1,4 +1,4 @@
-import { callOpenAIModel, lighter_model } from '@/lib/services/llms';
+import { callLLM, LIGHTER_MODEL } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { countWords } from './sourceFetcher';
 
@@ -65,11 +65,11 @@ export async function summarizeSourceContent(
   try {
     const prompt = createSummarizationPrompt(content, maxWords);
 
-    const result = await callOpenAIModel(
+    const result = await callLLM(
       prompt,
       'source_summarization',
       userid,
-      lighter_model, // gpt-4.1-nano for cost efficiency
+      LIGHTER_MODEL, // gpt-4.1-nano for cost efficiency
       false, // not streaming
       null, // no setText callback
       null, // no response schema

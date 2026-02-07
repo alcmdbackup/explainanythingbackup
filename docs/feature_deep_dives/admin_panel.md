@@ -12,7 +12,7 @@ The admin panel provides content moderation capabilities including user manageme
 | `src/app/admin/content/page.tsx` | Main content page, manages modal state |
 | `src/components/admin/ExplanationTable.tsx` | Table with filtering, sorting, pagination, bulk actions |
 | `src/components/admin/ExplanationDetailModal.tsx` | Modal for viewing/managing single explanation |
-| `src/components/admin/AdminSidebar.tsx` | Navigation sidebar with links to all admin sections |
+| `src/components/admin/AdminSidebar.tsx` | Navigation sidebar with smart active state handling |
 | `src/components/admin/AdminLayoutClient.tsx` | Client wrapper that provides Toaster component |
 | `src/components/admin/ReportsTable.tsx` | User reports management table |
 | `src/components/admin/UserDetailModal.tsx` | Modal for user details, notes, and account actions |
@@ -22,6 +22,8 @@ The admin panel provides content moderation capabilities including user manageme
 | `src/lib/services/adminAuth.ts` | Admin authentication and authorization |
 | `src/lib/services/contentReports.ts` | User-submitted content reports |
 | `src/lib/services/auditLog.ts` | Admin action audit logging |
+| `src/lib/services/costAnalytics.ts` | LLM cost analytics and backfill |
+| `src/config/llmPricing.ts` | Model pricing configuration |
 
 ## Two-Stage Soft Delete System
 
@@ -103,9 +105,25 @@ The `ExplanationDetailModal` uses a light theme (white background) for readabili
 
 ### Status Badges
 
-High-contrast badges for readability:
-- Published: `bg-green-800 text-green-100`
-- Draft: `bg-orange-800 text-orange-100`
+High-contrast badges using design system variables for accessibility:
+
+**Content Status:**
+- Published: `bg-[var(--status-success)] text-white`
+- Draft: `bg-[var(--status-warning)] text-[var(--text-primary)]`
+
+**User Status:**
+- Active: `bg-[var(--status-success)] text-white`
+- Disabled: `bg-[var(--status-error)] text-white`
+
+**Report Status:**
+- Pending: `bg-[var(--status-warning)] text-[var(--text-primary)]`
+- Reviewed: `bg-blue-600 text-white`
+- Dismissed: `bg-[var(--surface-elevated)] text-[var(--text-secondary)]`
+- Actioned: `bg-[var(--status-error)] text-white`
+
+**Whitelist/Candidate Status:**
+- Active/Approved: `bg-[var(--status-success)] text-white`
+- Inactive/Rejected: `bg-[var(--surface-elevated)] text-[var(--text-secondary)]` or `bg-[var(--status-error)] text-white`
 
 ## Admin Actions
 
@@ -130,12 +148,83 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 
 ## Routes
 
-- `/admin` - Dashboard (redirects to content)
+- `/admin` - Dashboard with stats and quick links
 - `/admin/content` - Content management table
+- `/admin/content/reports` - Content reports management queue
 - `/admin/users` - User management
-- `/admin/reports` - Content reports management
 - `/admin/whitelist` - Whitelist and candidates tabs
+- `/admin/costs` - LLM cost analytics (see Cost Analytics section below)
+- `/admin/quality` - Content quality dashboard
+- `/admin/quality/evolution` - Evolution pipeline management (queue runs, apply winners, rollback)
+- `/admin/quality/evolution/dashboard` - Evolution ops dashboard (stats, trends, auto-polling)
+- `/admin/quality/evolution/run/[runId]` - Run detail with 5 tabs (Timeline, Elo, Lineage, Budget, Variants)
+- `/admin/quality/evolution/run/[runId]/compare` - Before/after text diff and quality comparison
+- `/admin/quality/article-bank` - Article bank topic list with cross-topic summary, prompt bank coverage grid, and method summary table
+- `/admin/quality/article-bank/[topicId]` - Topic detail with 4 tabs (Leaderboard, Cost vs Elo, Match History, Compare Text)
+- `/admin/audit` - Audit log
 - `/admin/settings` - System settings
+- `/admin/dev-tools` - Development utilities
+
+## Cost Analytics
+
+The `/admin/costs` page provides LLM usage and spending analytics.
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/app/admin/costs/page.tsx` | Cost analytics UI with charts and tables |
+| `src/lib/services/costAnalytics.ts` | Server actions for cost data aggregation |
+| `src/config/llmPricing.ts` | Model pricing configuration |
+
+### Features
+
+**Date Range Selector:**
+- Last minute, hour, day (precise ISO timestamp filtering)
+- Last 7, 30, 90 days (standard ranges)
+
+**Summary Cards:**
+- Total Cost, Total Calls, Total Tokens, Avg Cost/Call
+
+**Daily Cost Chart:**
+- CSS bar chart showing cost trends over time
+
+**Cost by Model:**
+- Breakdown of costs per LLM model with progress bars
+- Model Details table with System Pricing column (input/output rates per 1M tokens)
+
+**Missing Cost Warning:**
+- Displays count of records with null `estimated_cost_usd`
+- Prompts admin to run backfill
+
+### Backfill Costs
+
+The "Backfill Costs" button calculates and populates `estimated_cost_usd` for records that don't have it (e.g., data from before cost tracking was added):
+
+```typescript
+// Processes ALL records with null costs in batches
+const _backfillCostsAction = async (options) => {
+  while (hasMore) {
+    // Fetch batch of records where estimated_cost_usd IS NULL
+    // Calculate cost using calculateLLMCost(model, promptTokens, completionTokens, reasoningTokens)
+    // Update each record
+  }
+};
+```
+
+### Cost Calculation
+
+Costs are calculated per model using pricing from `llmPricing.ts`:
+
+```typescript
+const inputCost = (promptTokens / 1_000_000) * pricing.inputPer1M;
+const outputCost = (completionTokens / 1_000_000) * pricing.outputPer1M;
+const reasoningCost = pricing.reasoningPer1M
+  ? (reasoningTokens / 1_000_000) * pricing.reasoningPer1M
+  : 0;
+```
+
+Output tokens typically cost 3-5x more than input tokens.
 
 ## Implementation Notes
 

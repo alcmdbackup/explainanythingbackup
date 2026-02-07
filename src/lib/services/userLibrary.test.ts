@@ -238,7 +238,7 @@ describe('UserLibrary Service', () => {
   });
 
   describe('getUserLibraryExplanations', () => {
-    it('should return explanations with saved timestamps using PostgREST JOIN', async () => {
+    it('should return explanations with saved timestamps and metrics using PostgREST JOIN', async () => {
       // Arrange
       const userId = 'user-123';
       // Mock PostgREST JOIN response - explanations are nested under 'explanations' key
@@ -250,6 +250,7 @@ describe('UserLibrary Service', () => {
             id: 1,
             explanation_title: 'Title 1',
             content: 'Content 1',
+            summary_teaser: 'Teaser 1',
             primary_topic_id: 1,
             secondary_topic_id: null,
             timestamp: '2024-01-01T00:00:00Z',
@@ -263,6 +264,7 @@ describe('UserLibrary Service', () => {
             id: 2,
             explanation_title: 'Title 2',
             content: 'Content 2',
+            summary_teaser: null,
             primary_topic_id: 2,
             secondary_topic_id: 3,
             timestamp: '2024-01-02T00:00:00Z',
@@ -271,8 +273,20 @@ describe('UserLibrary Service', () => {
         }
       ];
 
-      mockSupabase.eq.mockResolvedValue({
+      const mockMetricsData = [
+        { explanationid: 1, total_views: 100, total_saves: 10 },
+        { explanationid: 2, total_views: 200, total_saves: 20 }
+      ];
+
+      // Mock first query (userLibrary with explanations JOIN)
+      mockSupabase.eq.mockResolvedValueOnce({
         data: mockJoinedData,
+        error: null
+      });
+
+      // Mock second query (metrics)
+      mockSupabase.in = jest.fn().mockResolvedValueOnce({
+        data: mockMetricsData,
         error: null
       });
 
@@ -285,21 +299,27 @@ describe('UserLibrary Service', () => {
           id: 1,
           explanation_title: 'Title 1',
           content: 'Content 1',
+          summary_teaser: 'Teaser 1',
           primary_topic_id: 1,
           secondary_topic_id: null,
           timestamp: '2024-01-01T00:00:00Z',
           saved_timestamp: '2024-01-01T00:00:00Z',
-          status: 'active'
+          status: 'active',
+          total_views: 100,
+          total_saves: 10
         },
         {
           id: 2,
           explanation_title: 'Title 2',
           content: 'Content 2',
+          summary_teaser: null,
           primary_topic_id: 2,
           secondary_topic_id: 3,
           timestamp: '2024-01-02T00:00:00Z',
           saved_timestamp: '2024-01-02T00:00:00Z',
-          status: 'active'
+          status: 'active',
+          total_views: 200,
+          total_saves: 20
         }
       ]);
 
@@ -334,6 +354,7 @@ describe('UserLibrary Service', () => {
             id: 1,
             explanation_title: 'Title 1',
             content: 'Content 1',
+            summary_teaser: 'Teaser',
             primary_topic_id: 1,
             timestamp: '2024-01-01T00:00:00Z',
             status: 'active'
@@ -346,8 +367,13 @@ describe('UserLibrary Service', () => {
         }
       ];
 
-      mockSupabase.eq.mockResolvedValue({
+      mockSupabase.eq.mockResolvedValueOnce({
         data: mockJoinedData,
+        error: null
+      });
+
+      mockSupabase.in = jest.fn().mockResolvedValueOnce({
+        data: [{ explanationid: 1, total_views: 50, total_saves: 5 }],
         error: null
       });
 
@@ -357,8 +383,10 @@ describe('UserLibrary Service', () => {
       // Assert
       expect(result).toHaveLength(2);
       expect(result[0].id).toBe(1);
+      expect(result[0].total_views).toBe(50);
       expect(result[1].id).toBeUndefined(); // Missing explanation should have undefined properties
       expect(result[1].saved_timestamp).toBe('2024-01-02T00:00:00Z');
+      expect(result[1].total_views).toBe(0); // Missing metrics should default to 0
     });
 
     it('should propagate errors from Supabase query', async () => {
@@ -371,6 +399,121 @@ describe('UserLibrary Service', () => {
 
       // Act & Assert
       await expect(getUserLibraryExplanations('user-123')).rejects.toEqual(mockError);
+    });
+
+    it('should return zero metrics when explanationMetrics query fails', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const mockJoinedData = [
+        {
+          explanationid: 1,
+          created: '2024-01-01T00:00:00Z',
+          explanations: {
+            id: 1,
+            explanation_title: 'Title 1',
+            content: 'Content 1',
+            summary_teaser: 'Teaser',
+            primary_topic_id: 1,
+            secondary_topic_id: null,
+            timestamp: '2024-01-01T00:00:00Z',
+            status: 'active'
+          }
+        }
+      ];
+
+      mockSupabase.eq.mockResolvedValueOnce({
+        data: mockJoinedData,
+        error: null
+      });
+
+      // Mock metrics query failure
+      mockSupabase.in = jest.fn().mockResolvedValueOnce({
+        data: null,
+        error: { message: 'Query failed' }
+      });
+
+      // Act
+      const result = await getUserLibraryExplanations(userId);
+
+      // Assert - should still return data with zero metrics
+      expect(result[0].total_views).toBe(0);
+      expect(result[0].total_saves).toBe(0);
+    });
+
+    it('should include summary_teaser in returned data', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const mockJoinedData = [
+        {
+          explanationid: 1,
+          created: '2024-01-01T00:00:00Z',
+          explanations: {
+            id: 1,
+            explanation_title: 'Title',
+            content: 'Content',
+            summary_teaser: 'This is a test teaser',
+            primary_topic_id: 1,
+            secondary_topic_id: null,
+            timestamp: '2024-01-01T00:00:00Z',
+            status: 'active'
+          }
+        }
+      ];
+
+      mockSupabase.eq.mockResolvedValueOnce({
+        data: mockJoinedData,
+        error: null
+      });
+
+      mockSupabase.in = jest.fn().mockResolvedValueOnce({
+        data: [],
+        error: null
+      });
+
+      // Act
+      const result = await getUserLibraryExplanations(userId);
+
+      // Assert
+      expect(result[0].summary_teaser).toBe('This is a test teaser');
+    });
+
+    it('should handle null metricsData gracefully', async () => {
+      // Arrange
+      const userId = 'user-123';
+      const mockJoinedData = [
+        {
+          explanationid: 1,
+          created: '2024-01-01T00:00:00Z',
+          explanations: {
+            id: 1,
+            explanation_title: 'Title',
+            content: 'Content',
+            summary_teaser: null,
+            primary_topic_id: 1,
+            secondary_topic_id: null,
+            timestamp: '2024-01-01T00:00:00Z',
+            status: 'active'
+          }
+        }
+      ];
+
+      mockSupabase.eq.mockResolvedValueOnce({
+        data: mockJoinedData,
+        error: null
+      });
+
+      // Mock metrics query returning null data (not an error, just no data)
+      mockSupabase.in = jest.fn().mockResolvedValueOnce({
+        data: null,
+        error: null
+      });
+
+      // Act
+      const result = await getUserLibraryExplanations(userId);
+
+      // Assert - should still return data with zero metrics
+      expect(result[0].total_views).toBe(0);
+      expect(result[0].total_saves).toBe(0);
     });
   });
 

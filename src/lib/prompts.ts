@@ -82,7 +82,7 @@ export function createTitlePrompt(userInput: string): string {
  * • Generates structured instructions for creating Wikipedia-style standalone titles
  * • Specifies output format as JSON array for structured response processing
  * • Instructs AI to create concise, descriptive titles that make sense without context
- * • Used with callOpenAIModel to batch process multiple headings efficiently
+ * • Used with callLLM to batch process multiple headings efficiently
  * 
  * Used by: enhanceContentWithHeadingLinks for batch processing multiple headings
  * Calls: none (returns prompt string for LLM processing)

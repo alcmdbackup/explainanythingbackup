@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React from 'react';
 import { z } from 'zod';
-import { default_model, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
+import { DEFAULT_MODEL, ANONYMOUS_USER_UUID } from '@/lib/services/llms';
 import type { LexicalEditorRef } from '@/editorFiles/lexicalEditor/LexicalEditor';
 import { validateStep2Output, validateCriticMarkup, PipelineValidationResults, VALIDATION_DESCRIPTIONS } from './validation/pipelineValidation';
 import type { SourceForPromptType, SourceChipType } from '@/lib/schemas/schemas';
@@ -674,7 +674,7 @@ export async function getAndApplyAISuggestions(
  * Handles getting AI suggestions for text improvement
  * @param currentText - The current text content
  * @param userPrompt - The user's edit instruction
- * @param callOpenAIModel - Function to call the OpenAI model
+ * @param callLLM - Function to call the OpenAI model
  * @param logger - Logger utility for debugging
  * @param userId - User ID for LLM tracking (optional, defaults to nil UUID)
  * @returns Promise that resolves to the AI suggestion response
@@ -682,7 +682,7 @@ export async function getAndApplyAISuggestions(
 export async function getAISuggestions(
     currentText: string,
     userPrompt: string,
-    callOpenAIModel: (prompt: string, call_source: string, userid: string, model: string, streaming: boolean, setText: ((text: string) => void) | null) => Promise<string>,
+    callLLM: (prompt: string, call_source: string, userid: string, model: string, streaming: boolean, setText: ((text: string) => void) | null) => Promise<string>,
     logger: any,
     userId: string = ANONYMOUS_USER_UUID
 ): Promise<string> {
@@ -694,11 +694,11 @@ export async function getAISuggestions(
             promptLength: prompt.length
         });
 
-        const response = await callOpenAIModel(
+        const response = await callLLM(
             prompt,
             'editor_ai_suggestions',
             userId,
-            default_model,
+            DEFAULT_MODEL,
             false,
             null
         );

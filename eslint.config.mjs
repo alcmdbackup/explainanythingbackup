@@ -88,6 +88,13 @@ const eslintConfig = [
       "design-system/no-arbitrary-text-sizes": "error",
       "design-system/prefer-design-system-fonts": "error",
       "design-system/prefer-warm-shadows": "error",
+      // New rules for colors and radius
+      "design-system/no-tailwind-color-classes": "warn",
+      "design-system/prefer-design-radius": "warn",
+      // New rules for typography consistency
+      "design-system/enforce-heading-typography": "warn",
+      "design-system/enforce-prose-font": "warn",
+      "design-system/no-inline-typography": "error",
     },
   },
   // Exceptions for files with intentional hardcoding
@@ -105,6 +112,11 @@ const eslintConfig = [
       "design-system/no-hardcoded-colors": "off",
       "design-system/no-arbitrary-text-sizes": "off",
       "design-system/prefer-warm-shadows": "off",
+      "design-system/no-tailwind-color-classes": "off",
+      "design-system/prefer-design-radius": "off",
+      "design-system/enforce-heading-typography": "off",
+      "design-system/enforce-prose-font": "off",
+      "design-system/no-inline-typography": "off",
     },
   },
 ];

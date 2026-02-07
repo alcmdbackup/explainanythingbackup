@@ -23,6 +23,10 @@ Sentry.init({
   enableLogs: true,
   beforeSendLog: createBeforeSendLog(),
 
+  // Skip OpenTelemetry setup in edge runtime to avoid duplicate registration errors
+  // The server config handles OpenTelemetry initialization for Node.js runtime
+  skipOpenTelemetrySetup: true,
+
   // Adjust this value in production, or use tracesSampler for greater control
   tracesSampleRate: parseFloat(
     process.env.SENTRY_TRACES_SAMPLE_RATE ||

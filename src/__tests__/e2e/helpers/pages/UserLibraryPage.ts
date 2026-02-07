@@ -1,6 +1,10 @@
+/**
+ * E2E Page helper for the User Library page.
+ * Updated to use FeedCard-based layout instead of table.
+ */
 import { Page } from '@playwright/test';
 import { BasePage } from './BasePage';
-import { safeWaitFor, safeTextContent, safeIsVisible } from '../error-utils';
+import { safeTextContent, safeIsVisible } from '../error-utils';
 
 export class UserLibraryPage extends BasePage {
   constructor(page: Page) {
@@ -11,82 +15,87 @@ export class UserLibraryPage extends BasePage {
     await this.page.goto('/userlibrary');
   }
 
-  async waitForLoading() {
-    await safeWaitFor(
-      this.page.locator('[data-testid="library-loading"]'),
-      'visible',
-      'UserLibraryPage.waitForLoading',
-      5000
-    );
+  /** Wait for FeedCard components to appear */
+  async waitForCards(timeout = 30000): Promise<void> {
+    await this.page.waitForSelector('[data-testid="feed-card"]', {
+      state: 'attached',
+      timeout,
+    });
   }
 
-  async waitForLoadingToFinish() {
-    await safeWaitFor(
-      this.page.locator('[data-testid="library-loading"]'),
-      'detached',
-      'UserLibraryPage.waitForLoadingToFinish',
-      30000
-    );
+  /** Get count of displayed cards */
+  async getCardCount(): Promise<number> {
+    return this.page.locator('[data-testid="feed-card"]').count();
   }
 
-  async waitForContentOrError(timeout: number = 30000): Promise<'table' | 'error' | 'empty' | 'title' | 'timeout'> {
-    // First, wait for loading to finish if it's showing
-    await this.waitForLoadingToFinish();
+  /** Wait for library page to be ready (cards, empty, or error) */
+  async waitForLibraryReady(timeout = 30000): Promise<'cards' | 'empty' | 'error'> {
+    const result = await Promise.race([
+      this.page.waitForSelector('[data-testid="feed-card"]', { timeout })
+        .then(() => 'cards' as const),
+      this.page.waitForSelector('[data-testid="library-empty-state"]', { timeout })
+        .then(() => 'empty' as const),
+      this.page.waitForSelector('[data-testid="library-error"]', { timeout })
+        .then(() => 'error' as const),
+    ]);
+    return result;
+  }
 
-    // Wait for either the table, error, or empty state to appear
-    // Return which state won to allow proper handling
+  /** Click on a card by index to navigate to results */
+  async clickCardByIndex(index: number): Promise<void> {
+    const cards = this.page.locator('[data-testid="feed-card"]');
+    await cards.nth(index).click();
+  }
+
+  /** Wait for content or error state - legacy compatibility wrapper */
+  async waitForContentOrError(timeout: number = 30000): Promise<'cards' | 'error' | 'empty' | 'title' | 'timeout'> {
     try {
       const result = await Promise.race([
-        this.page.locator('table').waitFor({ state: 'visible', timeout }).then(() => 'table' as const),
+        this.page.locator('[data-testid="feed-card"]').waitFor({ state: 'visible', timeout }).then(() => 'cards' as const),
         this.page.locator('[data-testid="library-error"]').waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
         this.page.locator('[data-testid="library-empty-state"]').waitFor({ state: 'visible', timeout }).then(() => 'empty' as const),
         this.page.locator('main h1').waitFor({ state: 'visible', timeout }).then(() => 'title' as const),
       ]);
       return result;
     } catch {
-      // Timeout - page might still be loading
       return 'timeout';
     }
   }
 
-  async isLoading() {
-    return await this.page.locator('[data-testid="library-loading"]').isVisible();
-  }
-
   async getExplanationCount() {
-    return await this.page.locator('[data-testid="explanation-row"]').count();
+    return await this.getCardCount();
   }
 
   async getExplanationTitles() {
-    const titles = await this.page.locator('[data-testid="explanation-title"]').allTextContents();
-    return titles;
+    const cards = this.page.locator('[data-testid="feed-card"] h2');
+    return await cards.allTextContents();
   }
 
   async getExplanationByIndex(index: number) {
-    const rows = this.page.locator('[data-testid="explanation-row"]');
-    const row = rows.nth(index);
-    const title = await row.locator('[data-testid="explanation-title"]').textContent();
+    const cards = this.page.locator('[data-testid="feed-card"]');
+    const card = cards.nth(index);
+    const title = await card.locator('h2').textContent();
     const saveDate = await safeTextContent(
-      row.locator('[data-testid="save-date"]'),
+      card.locator('[data-testid="saved-date"]'),
       'UserLibraryPage.getExplanationByIndex (saveDate)'
     );
     return { title, saveDate };
   }
 
   async clickViewByIndex(index: number) {
-    const rows = this.page.locator('[data-testid="explanation-row"]');
-    const row = rows.nth(index);
-    await row.locator('a:has-text("View")').click();
+    await this.clickCardByIndex(index);
   }
 
   async clickViewByTitle(title: string) {
-    const row = this.page.locator('[data-testid="explanation-row"]').filter({ hasText: title });
-    await row.locator('a:has-text("View")').click();
+    const card = this.page.locator('[data-testid="feed-card"]').filter({ hasText: title });
+    await card.click();
   }
 
   async isEmptyState() {
-    const count = await this.getExplanationCount();
-    return count === 0;
+    return await safeIsVisible(
+      this.page.locator('[data-testid="library-empty-state"]'),
+      'UserLibraryPage.isEmptyState'
+    );
   }
 
   async hasError() {
@@ -97,39 +106,8 @@ export class UserLibraryPage extends BasePage {
     return await this.page.locator('[data-testid="library-error"]').textContent();
   }
 
-  async clickSortByTitle() {
-    await this.page.locator('th:has-text("Title")').click();
-  }
-
-  async clickSortByDate() {
-    await this.page.locator('th:has-text("Created")').click();
-  }
-
-  async getSortIndicator() {
-    const titleHeader = this.page.locator('th:has-text("Title")');
-    const dateHeader = this.page.locator('th:has-text("Created")');
-
-    const titleHasAscending = await safeIsVisible(
-      titleHeader.locator('svg.w-4.h-4'),
-      'UserLibraryPage.getSortIndicator title'
-    );
-    const dateHasAscending = await safeIsVisible(
-      dateHeader.locator('svg.w-4.h-4'),
-      'UserLibraryPage.getSortIndicator date'
-    );
-
-    if (titleHasAscending) {
-      return { column: 'title', ascending: await titleHeader.locator('svg').evaluate(el => el.classList.contains('inline')) };
-    }
-    if (dateHasAscending) {
-      return { column: 'date', ascending: await dateHeader.locator('svg').evaluate(el => el.classList.contains('inline')) };
-    }
-    return null;
-  }
-
   async getPageTitle() {
-    // Get the main content h1, not the navigation h1
-    return await this.page.locator('main h1').textContent();
+    return await this.page.locator('main header h1').textContent();
   }
 
   async hasSearchBar() {
@@ -146,29 +124,11 @@ export class UserLibraryPage extends BasePage {
 
   async waitForTableToLoad(timeout: number = 30000): Promise<boolean> {
     await this.waitForContentOrError(timeout);
-    const count = await this.getExplanationCount();
+    const count = await this.getCardCount();
     return count > 0;
   }
 
   async clickViewOnRow(index: number) {
-    await this.clickViewByIndex(index);
-  }
-
-  /**
-   * Wait for library page to be in a stable state.
-   * Returns the state type so callers can handle appropriately.
-   */
-  async waitForLibraryReady(timeout = 30000): Promise<'loaded' | 'empty' | 'error'> {
-    const table = this.page.locator('table');
-    const emptyState = this.page.locator('[data-testid="library-empty-state"]');
-    const error = this.page.locator('[data-testid="library-error"]');
-
-    const result = await Promise.race([
-      table.waitFor({ state: 'visible', timeout }).then(() => 'loaded' as const),
-      emptyState.waitFor({ state: 'visible', timeout }).then(() => 'empty' as const),
-      error.waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
-    ]);
-
-    return result;
+    await this.clickCardByIndex(index);
   }
 }

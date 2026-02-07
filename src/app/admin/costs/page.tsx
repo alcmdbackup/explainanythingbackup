@@ -16,7 +16,7 @@ import {
   type ModelCost,
   type UserCost
 } from '@/lib/services/costAnalytics';
-import { formatCost } from '@/config/llmPricing';
+import { formatCost, getModelPricing } from '@/config/llmPricing';
 
 export default function AdminCostsPage() {
   const [loading, setLoading] = useState(true);
@@ -27,14 +27,24 @@ export default function AdminCostsPage() {
   const [modelCosts, setModelCosts] = useState<ModelCost[]>([]);
   const [userCosts, setUserCosts] = useState<UserCost[]>([]);
 
-  const [dateRange, setDateRange] = useState<'7d' | '30d' | '90d'>('30d');
+  const [dateRange, setDateRange] = useState<'1m' | '1h' | '1d' | '7d' | '30d' | '90d'>('30d');
   const [backfillStatus, setBackfillStatus] = useState<string | null>(null);
 
   const getDateRange = useCallback(() => {
-    const end = new Date().toISOString().split('T')[0];
-    const days = dateRange === '7d' ? 7 : dateRange === '30d' ? 30 : 90;
-    const start = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    return { startDate: start, endDate: end };
+    const now = new Date();
+    const end = now.toISOString();
+    let start: Date;
+
+    switch (dateRange) {
+      case '1m': start = new Date(now.getTime() - 60 * 1000); break;
+      case '1h': start = new Date(now.getTime() - 60 * 60 * 1000); break;
+      case '1d': start = new Date(now.getTime() - 24 * 60 * 60 * 1000); break;
+      case '7d': start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000); break;
+      case '30d': start = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000); break;
+      case '90d': start = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); break;
+    }
+
+    return { startDate: start.toISOString(), endDate: end };
   }, [dateRange]);
 
   const loadData = useCallback(async () => {
@@ -112,9 +122,12 @@ export default function AdminCostsPage() {
         <div className="flex gap-2">
           <select
             value={dateRange}
-            onChange={(e) => setDateRange(e.target.value as '7d' | '30d' | '90d')}
+            onChange={(e) => setDateRange(e.target.value as '1m' | '1h' | '1d' | '7d' | '30d' | '90d')}
             className="px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)]"
           >
+            <option value="1m">Last minute</option>
+            <option value="1h">Last hour</option>
+            <option value="1d">Last day</option>
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
             <option value="90d">Last 90 days</option>
@@ -132,6 +145,15 @@ export default function AdminCostsPage() {
       {backfillStatus && (
         <div className="p-3 bg-blue-900/20 border border-blue-600 rounded-md text-blue-400 text-sm">
           {backfillStatus}
+        </div>
+      )}
+
+      {(summary?.nullCostCount ?? 0) > 0 && (
+        <div className="p-3 bg-amber-500/10 border border-amber-500/50 rounded-md text-sm flex items-center gap-2">
+          <span className="text-amber-500 font-medium">{summary?.nullCostCount.toLocaleString()}</span>
+          <span className="text-[var(--text-secondary)]">records missing cost data</span>
+          <span className="text-[var(--text-muted)]">-</span>
+          <span className="text-[var(--text-muted)]">Click Backfill Costs to fix</span>
         </div>
       )}
 
@@ -282,27 +304,34 @@ export default function AdminCostsPage() {
                     <th className="p-3 text-right">Prompt Tokens</th>
                     <th className="p-3 text-right">Completion Tokens</th>
                     <th className="p-3 text-right">Reasoning Tokens</th>
+                    <th className="p-3 text-right">System Pricing</th>
                     <th className="p-3 text-right">Total Cost</th>
                   </tr>
                 </thead>
                 <tbody>
                   {modelCosts.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="p-4 text-center text-[var(--text-muted)]">
+                      <td colSpan={7} className="p-4 text-center text-[var(--text-muted)]">
                         No data for this period
                       </td>
                     </tr>
                   ) : (
-                    modelCosts.map((model) => (
-                      <tr key={model.model} className="border-t border-[var(--border-color)]">
-                        <td className="p-3 font-mono text-xs">{model.model || 'unknown'}</td>
-                        <td className="p-3 text-right">{formatNumber(model.callCount)}</td>
-                        <td className="p-3 text-right">{formatNumber(model.promptTokens)}</td>
-                        <td className="p-3 text-right">{formatNumber(model.completionTokens)}</td>
-                        <td className="p-3 text-right">{formatNumber(model.reasoningTokens)}</td>
-                        <td className="p-3 text-right font-semibold">{formatCost(model.totalCost)}</td>
-                      </tr>
-                    ))
+                    modelCosts.map((model) => {
+                      const pricing = getModelPricing(model.model);
+                      return (
+                        <tr key={model.model} className="border-t border-[var(--border-color)]">
+                          <td className="p-3 font-mono text-xs">{model.model || 'unknown'}</td>
+                          <td className="p-3 text-right">{formatNumber(model.callCount)}</td>
+                          <td className="p-3 text-right">{formatNumber(model.promptTokens)}</td>
+                          <td className="p-3 text-right">{formatNumber(model.completionTokens)}</td>
+                          <td className="p-3 text-right">{formatNumber(model.reasoningTokens)}</td>
+                          <td className="p-3 text-right text-[var(--text-muted)] text-xs">
+                            ${pricing.inputPer1M}/${pricing.outputPer1M} per 1M
+                          </td>
+                          <td className="p-3 text-right font-semibold">{formatCost(model.totalCost)}</td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>

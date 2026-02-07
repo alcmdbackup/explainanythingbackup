@@ -13,7 +13,7 @@ Welcome to ExplainAnything documentation. Start here to navigate the codebase.
 ### Implementation Guides
 | Document | Purpose |
 |----------|---------|
-| [Feature Deep Dives](../feature_deep_dives/) | 17 detailed feature implementation docs |
+| [Feature Deep Dives](../feature_deep_dives/) | 24 detailed feature implementation docs |
 | [design_style_guide.md](design_style_guide.md) | Visual design system (Midnight Scholar theme) |
 | [environments.md](environments.md) | Environment configuration, CI/CD, secrets |
 | [testing_overview.md](testing_overview.md) | Testing rules and four-tier strategy |

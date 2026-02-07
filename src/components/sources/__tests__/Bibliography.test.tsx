@@ -110,4 +110,62 @@ describe('Bibliography', () => {
     expect(firstEntry).toBeInTheDocument();
     expect(secondEntry).toBeInTheDocument();
   });
+
+  // ============================================================================
+  // Citation count badges
+  // ============================================================================
+  describe('citation count badges', () => {
+    const sourcesWithIds = [
+      { index: 1, title: 'Source A', domain: 'a.com', url: 'https://a.com', source_cache_id: 10, favicon_url: null },
+      { index: 2, title: 'Source B', domain: 'b.com', url: 'https://b.com', source_cache_id: 20, favicon_url: null },
+    ];
+
+    it('renders citation badge when citationCounts are provided', () => {
+      const counts = [
+        { source_cache_id: 10, total_citations: 5 },
+        { source_cache_id: 20, total_citations: 3 },
+      ];
+
+      render(<Bibliography sources={sourcesWithIds} citationCounts={counts} />);
+
+      expect(screen.getByTestId('citation-badge-10')).toBeInTheDocument();
+      expect(screen.getByText('Cited in 5 articles')).toBeInTheDocument();
+      expect(screen.getByText('Cited in 3 articles')).toBeInTheDocument();
+    });
+
+    it('does not render badge when citation count is 1', () => {
+      const counts = [{ source_cache_id: 10, total_citations: 1 }];
+
+      render(<Bibliography sources={sourcesWithIds} citationCounts={counts} />);
+
+      expect(screen.queryByTestId('citation-badge-10')).not.toBeInTheDocument();
+    });
+
+    it('does not render badges when citationCounts is not provided', () => {
+      render(<Bibliography sources={sourcesWithIds} />);
+
+      expect(screen.queryByTestId('citation-badge-10')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('citation-badge-20')).not.toBeInTheDocument();
+    });
+
+    it('badge links to source profile page', () => {
+      const counts = [{ source_cache_id: 10, total_citations: 5 }];
+
+      render(<Bibliography sources={sourcesWithIds} citationCounts={counts} />);
+
+      const badge = screen.getByTestId('citation-badge-10');
+      expect(badge).toHaveAttribute('href', '/sources/10');
+    });
+
+    it('handles sources without source_cache_id gracefully', () => {
+      const sourcesNoId = [
+        { index: 1, title: 'No ID', domain: 'noid.com', url: 'https://noid.com', favicon_url: null },
+      ];
+      const counts = [{ source_cache_id: 99, total_citations: 5 }];
+
+      render(<Bibliography sources={sourcesNoId} citationCounts={counts} />);
+
+      expect(screen.queryByText(/Cited in/)).not.toBeInTheDocument();
+    });
+  });
 });

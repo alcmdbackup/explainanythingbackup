@@ -34,7 +34,7 @@ jest.mock('../../editorFiles/aiSuggestion', () => ({
 }));
 
 // Import mocked modules
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import { handleError } from '@/lib/errorHandling';
 import { logger } from '@/lib/client_utilities';
 import {
@@ -69,16 +69,16 @@ describe('generateAISuggestionsAction', () => {
     const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue(mockPrompt);
-    (callOpenAIModel as jest.Mock).mockResolvedValue(mockResponse);
+    (callLLM as jest.Mock).mockResolvedValue(mockResponse);
 
     const result = await generateAISuggestionsAction('Original text', 'user-123', userPrompt);
 
     expect(createAISuggestionPrompt).toHaveBeenCalledWith('Original text', userPrompt, undefined);
-    expect(callOpenAIModel).toHaveBeenCalledWith(
+    expect(callLLM).toHaveBeenCalledWith(
       mockPrompt,
       'editor_ai_suggestions',
       'user-123',
-      expect.anything(), // default_model
+      expect.anything(), // DEFAULT_MODEL
       false,
       null,
       aiSuggestionSchema,
@@ -97,7 +97,7 @@ describe('generateAISuggestionsAction', () => {
     const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue('Test prompt');
-    (callOpenAIModel as jest.Mock).mockRejectedValue(mockError);
+    (callLLM as jest.Mock).mockRejectedValue(mockError);
     (handleError as jest.Mock).mockReturnValue(mockErrorResponse);
 
     const result = await generateAISuggestionsAction('Test text', 'user-123', userPrompt);
@@ -120,7 +120,7 @@ describe('generateAISuggestionsAction', () => {
     const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue('Test prompt');
-    (callOpenAIModel as jest.Mock).mockRejectedValue(mockError);
+    (callLLM as jest.Mock).mockRejectedValue(mockError);
     (handleError as jest.Mock).mockReturnValue(mockErrorResponse);
 
     const result = await generateAISuggestionsAction('Test', 'user-123', userPrompt);
@@ -136,7 +136,7 @@ describe('generateAISuggestionsAction', () => {
     const userPrompt = 'Improve the content';
 
     (createAISuggestionPrompt as jest.Mock).mockReturnValue(mockPrompt);
-    (callOpenAIModel as jest.Mock).mockResolvedValue(mockResponse);
+    (callLLM as jest.Mock).mockResolvedValue(mockResponse);
 
     await generateAISuggestionsAction('Test text', 'user-123', userPrompt);
 
@@ -172,7 +172,7 @@ describe('applyAISuggestionsAction', () => {
     const mockResponse = 'Final edited text with all changes applied';
 
     (createApplyEditsPrompt as jest.Mock).mockReturnValue(mockPrompt);
-    (callOpenAIModel as jest.Mock).mockResolvedValue(mockResponse);
+    (callLLM as jest.Mock).mockResolvedValue(mockResponse);
 
     const result = await applyAISuggestionsAction(
       '{"edits": ["Edit 1"]}',
@@ -184,11 +184,11 @@ describe('applyAISuggestionsAction', () => {
       '{"edits": ["Edit 1"]}',
       'Original content'
     );
-    expect(callOpenAIModel).toHaveBeenCalledWith(
+    expect(callLLM).toHaveBeenCalledWith(
       mockPrompt,
       'editor_apply_suggestions',
       'user-123',
-      expect.anything(), // lighter_model
+      expect.anything(), // LIGHTER_MODEL
       false,
       null
     );
@@ -204,7 +204,7 @@ describe('applyAISuggestionsAction', () => {
     const mockResponse = 'Original content unchanged';
 
     (createApplyEditsPrompt as jest.Mock).mockReturnValue(mockPrompt);
-    (callOpenAIModel as jest.Mock).mockResolvedValue(mockResponse);
+    (callLLM as jest.Mock).mockResolvedValue(mockResponse);
 
     const result = await applyAISuggestionsAction('{}', 'Original content', 'user-123');
 
@@ -217,7 +217,7 @@ describe('applyAISuggestionsAction', () => {
     const mockErrorResponse = { message: 'Timeout error', code: 'TIMEOUT' };
 
     (createApplyEditsPrompt as jest.Mock).mockReturnValue('Test prompt');
-    (callOpenAIModel as jest.Mock).mockRejectedValue(mockError);
+    (callLLM as jest.Mock).mockRejectedValue(mockError);
     (handleError as jest.Mock).mockReturnValue(mockErrorResponse);
 
     const result = await applyAISuggestionsAction('suggestions', 'content', 'user-123');
@@ -241,7 +241,7 @@ describe('applyAISuggestionsAction', () => {
     const mockError = new Error('Test error');
 
     (createApplyEditsPrompt as jest.Mock).mockReturnValue('Test prompt');
-    (callOpenAIModel as jest.Mock).mockRejectedValue(mockError);
+    (callLLM as jest.Mock).mockRejectedValue(mockError);
     (handleError as jest.Mock).mockReturnValue({});
 
     await applyAISuggestionsAction('suggestions', 'content', 'user-123');

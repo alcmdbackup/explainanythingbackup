@@ -100,9 +100,9 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
         aria-labelledby={titleId}
         data-testid="admin-user-detail-modal"
       >
-        <div className="bg-[var(--bg-primary)] rounded-lg shadow-warm-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="bg-[var(--surface-secondary)] rounded-lg shadow-warm-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
           {/* Header */}
-          <div className="flex justify-between items-center p-4 border-b border-[var(--border-color)]">
+          <div className="flex justify-between items-center p-4 border-b border-[var(--border-default)]">
             <div>
               <h3 id={titleId} className="font-semibold text-[var(--text-primary)]">User Details</h3>
               <p className="text-sm text-[var(--text-muted)]">{user.email}</p>
@@ -165,20 +165,20 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
           <div>
             <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Usage Statistics</h4>
             <div className="grid grid-cols-3 gap-4">
-              <div className="p-3 bg-[var(--bg-secondary)] rounded-lg">
+              <div className="p-3 bg-[var(--surface-elevated)] rounded-lg">
                 <div className="text-2xl font-bold text-[var(--text-primary)]">
                   {user.stats.explanationCount}
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">Explanations</div>
               </div>
-              <div className="p-3 bg-[var(--bg-secondary)] rounded-lg">
+              <div className="p-3 bg-[var(--surface-elevated)] rounded-lg">
                 <div className="text-2xl font-bold text-[var(--text-primary)]">
                   {user.stats.llmCallCount}
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">LLM Calls</div>
               </div>
-              <div className="p-3 bg-[var(--bg-secondary)] rounded-lg">
-                <div className="text-2xl font-bold text-[var(--accent-primary)]">
+              <div className="p-3 bg-[var(--surface-elevated)] rounded-lg">
+                <div className="text-2xl font-bold text-[var(--accent-gold)]">
                   {formatCost(user.stats.totalCost)}
                 </div>
                 <div className="text-xs text-[var(--text-muted)]">Total Cost</div>
@@ -196,7 +196,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Internal notes about this user..."
               data-testid="admin-user-detail-notes"
-              className="w-full px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] text-sm resize-none"
+              className="w-full px-3 py-2 border border-[var(--border-default)] rounded-md bg-[var(--surface-elevated)] text-[var(--text-primary)] text-sm resize-none"
               rows={3}
             />
             {notes !== (user.profile?.admin_notes || '') && (
@@ -204,7 +204,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                 onClick={handleSaveNotes}
                 disabled={loading}
                 data-testid="admin-user-detail-save-notes"
-                className="mt-2 px-3 py-1 bg-[var(--accent-primary)] text-white rounded text-sm disabled:opacity-50"
+                className="mt-2 px-3 py-1 bg-[var(--accent-gold)] text-white rounded text-sm disabled:opacity-50"
               >
                 {loading ? 'Saving...' : 'Save Notes'}
               </button>
@@ -212,7 +212,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
           </div>
 
           {/* Disable/Enable Section */}
-          <div className="border-t border-[var(--border-color)] pt-4">
+          <div className="border-t border-[var(--border-default)] pt-4">
             <h4 className="text-sm font-medium text-[var(--text-secondary)] mb-3">Account Actions</h4>
 
             {!showDisableConfirm ? (
@@ -251,7 +251,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                     onChange={(e) => setDisableReason(e.target.value)}
                     placeholder="e.g., Terms of service violation"
                     data-testid="admin-user-detail-disable-reason"
-                    className="w-full px-3 py-2 border border-[var(--border-color)] rounded-md bg-[var(--bg-secondary)] text-[var(--text-primary)] text-sm"
+                    className="w-full px-3 py-2 border border-[var(--border-default)] rounded-md bg-[var(--surface-elevated)] text-[var(--text-primary)] text-sm"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -267,7 +267,7 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
                     onClick={() => setShowDisableConfirm(false)}
                     disabled={loading}
                     data-testid="admin-user-detail-cancel-disable"
-                    className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)] text-sm"
+                    className="px-4 py-2 border border-[var(--border-default)] rounded-md hover:bg-[var(--surface-elevated)] text-sm"
                   >
                     Cancel
                   </button>
@@ -278,11 +278,11 @@ export function UserDetailModal({ user, onClose, onUpdate }: UserDetailModalProp
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end p-4 border-t border-[var(--border-color)]">
+        <div className="flex justify-end p-4 border-t border-[var(--border-default)]">
           <button
             onClick={onClose}
             data-testid="admin-user-detail-close-footer"
-            className="px-4 py-2 border border-[var(--border-color)] rounded-md hover:bg-[var(--bg-secondary)]"
+            className="px-4 py-2 border border-[var(--border-default)] rounded-md hover:bg-[var(--surface-elevated)]"
           >
             Close
           </button>

@@ -3,8 +3,12 @@ import { BasePage } from './BasePage';
 import { safeIsVisible } from '../error-utils';
 
 export class SearchPage extends BasePage {
-  private searchInput = '[data-testid="search-input"]';
-  private searchButton = '[data-testid="search-submit"]';
+  // Home page now uses HomeSearchPanel with different test IDs
+  private searchInput = '[data-testid="home-search-input"]';
+  private searchButton = '[data-testid="home-search-submit"]';
+  // Nav variant still uses original test IDs
+  private navSearchInput = '[data-testid="search-input"]';
+  private navSearchButton = '[data-testid="search-submit"]';
 
   constructor(page: Page) {
     super(page);
@@ -54,9 +58,21 @@ export class SearchPage extends BasePage {
     await button.click();
   }
 
+  /** Resolve the visible search input (home or nav variant) */
+  private async resolveSearchInput() {
+    const homeInput = this.page.locator(this.searchInput);
+    const navInput = this.page.locator(this.navSearchInput);
+    if (await safeIsVisible(homeInput, 'SearchPage.resolveSearchInput (home)')) return homeInput;
+    if (await safeIsVisible(navInput, 'SearchPage.resolveSearchInput (nav)')) return navInput;
+    // Fall back to waiting for either to appear
+    await this.page.locator(`${this.searchInput}, ${this.navSearchInput}`).first().waitFor({ state: 'visible' });
+    if (await safeIsVisible(homeInput, 'SearchPage.resolveSearchInput (home fallback)')) return homeInput;
+    return navInput;
+  }
+
   async fillQuery(query: string) {
     // Wait for React hydration before interacting
-    const input = this.page.locator(this.searchInput);
+    const input = await this.resolveSearchInput();
     await input.waitFor({ state: 'visible' });
 
     // Clear and fill with verification to handle React controlled input race conditions
@@ -81,7 +97,8 @@ export class SearchPage extends BasePage {
       await button.click();
     } else {
       // Nav variant uses Enter key to submit
-      await this.page.locator(this.searchInput).press('Enter');
+      const input = await this.resolveSearchInput();
+      await input.press('Enter');
     }
   }
 

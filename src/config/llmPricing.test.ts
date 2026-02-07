@@ -80,6 +80,27 @@ describe('LLM Pricing', () => {
       // Very small number, should have at most 6 decimal places
       expect(cost.toString().split('.')[1]?.length || 0).toBeLessThanOrEqual(6);
     });
+
+    it('should calculate cost correctly for gpt-4.1-mini (default model)', () => {
+      // 10000 input + 5000 output
+      // (10000/1M * 0.40) + (5000/1M * 1.60) = 0.004 + 0.008 = 0.012
+      const cost = calculateLLMCost('gpt-4.1-mini', 10000, 5000);
+      expect(cost).toBeCloseTo(0.012, 6);
+    });
+
+    it('should calculate cost correctly for gpt-4.1-nano (lighter model)', () => {
+      // 10000 input + 5000 output
+      // (10000/1M * 0.10) + (5000/1M * 0.40) = 0.001 + 0.002 = 0.003
+      const cost = calculateLLMCost('gpt-4.1-nano', 10000, 5000);
+      expect(cost).toBeCloseTo(0.003, 6);
+    });
+
+    it('should calculate cost correctly for gpt-5-mini', () => {
+      // 10000 input + 5000 output
+      // (10000/1M * 0.25) + (5000/1M * 2.00) = 0.0025 + 0.01 = 0.0125
+      const cost = calculateLLMCost('gpt-5-mini', 10000, 5000);
+      expect(cost).toBeCloseTo(0.0125, 6);
+    });
   });
 
   describe('formatCost', () => {
@@ -101,6 +122,25 @@ describe('LLM Pricing', () => {
       expect(LLM_PRICING['gpt-4o-mini']).toBeDefined();
       expect(LLM_PRICING['gpt-4-turbo']).toBeDefined();
       expect(LLM_PRICING['gpt-3.5-turbo']).toBeDefined();
+    });
+
+    it('should have pricing for GPT-4.1 models (default models)', () => {
+      expect(LLM_PRICING['gpt-4.1']).toBeDefined();
+      expect(LLM_PRICING['gpt-4.1-mini']).toBeDefined();
+      expect(LLM_PRICING['gpt-4.1-nano']).toBeDefined();
+      // Verify actual pricing
+      expect(LLM_PRICING['gpt-4.1-mini'].inputPer1M).toBe(0.40);
+      expect(LLM_PRICING['gpt-4.1-mini'].outputPer1M).toBe(1.60);
+      expect(LLM_PRICING['gpt-4.1-nano'].inputPer1M).toBe(0.10);
+      expect(LLM_PRICING['gpt-4.1-nano'].outputPer1M).toBe(0.40);
+    });
+
+    it('should have pricing for GPT-5 models', () => {
+      expect(LLM_PRICING['gpt-5-mini']).toBeDefined();
+      expect(LLM_PRICING['gpt-5-nano']).toBeDefined();
+      // Verify actual pricing
+      expect(LLM_PRICING['gpt-5-mini'].inputPer1M).toBe(0.25);
+      expect(LLM_PRICING['gpt-5-mini'].outputPer1M).toBe(2.00);
     });
 
     it('should have pricing for o1 models with reasoning', () => {

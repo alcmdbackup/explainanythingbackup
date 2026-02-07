@@ -233,8 +233,8 @@ export default function WhitelistContent() {
                     <span
                       className={`px-2 py-1 text-xs rounded ${
                         term.is_active
-                          ? 'bg-green-500/20 text-green-400'
-                          : 'bg-gray-500/20 text-gray-400'
+                          ? 'bg-[var(--status-success)] text-white'
+                          : 'bg-[var(--surface-elevated)] text-[var(--text-secondary)]'
                       }`}
                     >
                       {term.is_active ? 'Active' : 'Inactive'}

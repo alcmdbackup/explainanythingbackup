@@ -210,7 +210,7 @@ jobs:
     if: github.base_ref == 'production'
     environment: staging
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         shard: [1, 2, 3, 4]
     env:
@@ -258,7 +258,7 @@ jobs:
         run: npx playwright install-deps chromium
 
       - name: Run Full E2E Tests
-        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4 --max-failures=1
+        run: npm run test:e2e -- --shard=${{ matrix.shard }}/4 --grep-invert "@skip-prod"
 
       - uses: actions/upload-artifact@v4
         if: always()

@@ -1,0 +1,9 @@
+{
+  "branch": "feat/use_explore_agents_in_finalize_20260202",
+  "created_at": "2026-02-02T00:00:00Z",
+  "prerequisites": {
+    "getting_started_read": "2026-02-02T00:00:00Z",
+    "project_workflow_read": "2026-02-02T00:00:00Z",
+    "todos_created": "2026-02-02T00:00:00Z"
+  }
+}

@@ -17,12 +17,16 @@ The "Add Sources" feature allows users to provide URLs that ground AI-generated 
 - `src/app/api/fetchSourceMetadata/route.ts` - Client-facing endpoint for source preview
 
 ### UI Components
-- `src/components/sources/SourceInput.tsx` - URL input with validation
+- `src/components/sources/SourceCombobox.tsx` - Unified search + paste input with discovery dropdown (Radix Popover)
+- `src/components/sources/SourceInput.tsx` - URL-only input (fallback when no explanationId)
 - `src/components/sources/SourceChip.tsx` - Removable chip showing source metadata
-- `src/components/sources/SourceList.tsx` - Container for source chips (max 5)
+- `src/components/sources/SourceList.tsx` - Container for source chips (max 5), conditionally renders SourceCombobox or SourceInput
 - `src/components/sources/Bibliography.tsx` - Footer references section
 - `src/components/sources/CitationTooltip.tsx` - Hover preview for inline citations
 - `src/components/sources/FailedSourcesModal.tsx` - Warning when sources fail to load
+
+### Hooks
+- `src/hooks/useSourceSubmit.ts` - Shared URL submission logic (validation, loading chip, metadata fetch via `/api/fetchSourceMetadata`)
 
 ### Editor Integration
 - `src/editorFiles/lexicalEditor/CitationPlugin.tsx` - Detects `[n]` patterns, makes interactive

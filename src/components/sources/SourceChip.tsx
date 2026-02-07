@@ -27,7 +27,7 @@ export default function SourceChip({
 
   return (
     <div
-      data-testid={`source-chip-${source.status}`}
+      data-testid={`source-chip-${source.source_cache_id ?? source.status}`}
       className={cn(
         'inline-flex items-center gap-2 px-3 py-1.5 rounded-page',
         'bg-[var(--surface-elevated)] border border-[var(--border-default)]',
@@ -88,6 +88,7 @@ export default function SourceChip({
             e.stopPropagation();
             onRemove();
           }}
+          data-testid={`source-remove-btn-${source.source_cache_id ?? 'unknown'}`}
           className={cn(
             'p-0.5 rounded-full transition-colors',
             'text-[var(--text-muted)] hover:text-[var(--text-primary)]',

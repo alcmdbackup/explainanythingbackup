@@ -110,13 +110,19 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
 
 /**
  * Schema for validating allowed LLM models
- * • Restricts model parameter to approved OpenAI models only
+ * • Restricts model parameter to approved models (OpenAI, DeepSeek, Anthropic)
  * • Ensures consistent model usage across the application
  * • Provides type safety for LLM API calls
- * Used by: callOpenAIModel function for parameter validation
+ * Used by: callLLM function for parameter validation
  * Calls: N/A (validation schema)
  */
-export const allowedLLMModelSchema = z.enum(["gpt-4o-mini", "gpt-4.1-nano", "gpt-5-mini", "gpt-5-nano", "gpt-4.1-mini", "gpt-4.1-nano"]);
+export const allowedLLMModelSchema = z.enum([
+  "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
+  "gpt-5-mini", "gpt-5-nano",
+  "o3-mini",
+  "deepseek-chat",
+  "claude-sonnet-4-20250514",
+]);
 
 export type AllowedLLMModelType = z.infer<typeof allowedLLMModelSchema>;
 
@@ -524,6 +530,14 @@ export const userSavedExplanationSchema = ExplanationFullDbSchema.extend({
 });
 export type UserSavedExplanationType = z.infer<typeof userSavedExplanationSchema>;
 
+// Extends UserSavedExplanationType with metrics for library display (FeedCard integration)
+export const userSavedExplanationWithMetricsSchema = userSavedExplanationSchema.extend({
+  summary_teaser: z.string().nullable().optional(),
+  total_views: z.number().int().min(0).default(0),
+  total_saves: z.number().int().min(0).default(0),
+});
+export type UserSavedExplanationWithMetrics = z.infer<typeof userSavedExplanationWithMetricsSchema>;
+
 /**
  * Schema for tracking OpenAI API call metrics and details
  * @example
@@ -552,6 +566,7 @@ export const llmCallTrackingSchema = z.object({
     total_tokens: z.number().int().nonnegative(),
     reasoning_tokens: z.number().int().nonnegative().optional(),
     finish_reason: z.string(),
+    estimated_cost_usd: z.number().nonnegative().optional(),
 });
 
 export type LlmCallTrackingType = z.infer<typeof llmCallTrackingSchema>;
@@ -1047,6 +1062,8 @@ export const sourceChipSchema = z.object({
   domain: z.string(),
   status: z.enum(['loading', 'success', 'failed']),
   error_message: z.string().nullable(),
+  /** Database ID from source_cache table; present when loaded from DB, absent for newly-added URLs */
+  source_cache_id: z.number().int().positive().optional(),
 });
 
 export type SourceChipType = z.infer<typeof sourceChipSchema>;
@@ -1085,3 +1102,169 @@ export const aiSuggestionSessionDataSchema = z.object({
 });
 
 export type AISuggestionSessionDataType = z.infer<typeof aiSuggestionSessionDataSchema>;
+
+// =============================================================================
+// CONTENT QUALITY EVALUATION SCHEMAS (Phase D)
+// =============================================================================
+
+/**
+ * Dimensions for content quality evaluation.
+ * Reduced set based on Python criteria.py — correlated dimensions merged.
+ */
+export const contentQualityDimensions = z.enum([
+  'clarity',
+  'structure',
+  'engagement',
+  'conciseness',
+  'coherence',
+  'specificity',
+  'point_of_view',
+  'overall',
+]);
+export type ContentQualityDimension = z.infer<typeof contentQualityDimensions>;
+
+/**
+ * Schema for a single dimension score from LLM evaluation.
+ * Score is 0-1 (normalized from the 1-10 scale in prompts).
+ */
+export const contentQualityScoreSchema = z.object({
+  dimension: contentQualityDimensions,
+  score: z.number().min(0).max(1),
+  rationale: z.string().min(10).max(800),
+});
+export type ContentQualityScore = z.infer<typeof contentQualityScoreSchema>;
+
+/**
+ * Schema for LLM structured output: multi-dimension eval response.
+ * Used with callLLM + zodResponseFormat.
+ */
+export const contentQualityEvalResponseSchema = z.object({
+  scores: z.array(contentQualityScoreSchema).min(1).max(8),
+});
+export type ContentQualityEvalResponse = z.infer<typeof contentQualityEvalResponseSchema>;
+
+/**
+ * Schema for independent article scoring (used in comparison service).
+ * Scores on 1-10 scale for head-to-head comparison margin calculation.
+ */
+export const articleScoreSchema = z.object({
+  clarity: z.number().int().min(1).max(10),
+  structure: z.number().int().min(1).max(10),
+  conciseness: z.number().int().min(1).max(10),
+  engagement: z.number().int().min(1).max(10),
+  overall: z.number().int().min(1).max(10),
+  reasoning: z.string().min(10).max(500),
+});
+export type ArticleScore = z.infer<typeof articleScoreSchema>;
+
+/**
+ * Schema for pairwise comparison result (single ordering).
+ */
+export const comparisonResultSchema = z.object({
+  winner: z.enum(['first', 'second', 'tie']),
+  reasoning: z.string().min(10).max(800),
+  first_strengths: z.array(z.string()).min(1).max(3),
+  second_strengths: z.array(z.string()).min(1).max(3),
+});
+export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
+
+// =============================================================================
+// ARTICLE BANK INPUT SCHEMAS
+// =============================================================================
+
+/**
+ * Generation method enum for article bank entries.
+ * Tracks how an entry was produced: direct oneshot, evolution winner, or evolution baseline.
+ */
+export const bankGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline']);
+export type BankGenerationMethod = z.infer<typeof bankGenerationMethodSchema>;
+
+/**
+ * Schema for adding an article entry to the bank.
+ * Validates server action input at the trust boundary.
+ */
+export const addToBankInputSchema = z.object({
+  prompt: z.string().min(1),
+  title: z.string().optional(),
+  content: z.string().min(1),
+  generation_method: bankGenerationMethodSchema,
+  model: z.string().min(1),
+  total_cost_usd: z.number().nonnegative().nullable().optional(),
+  evolution_run_id: z.string().uuid().nullable().optional(),
+  evolution_variant_id: z.string().uuid().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+export type AddToBankInputType = z.infer<typeof addToBankInputSchema>;
+
+/**
+ * Schema for generating an article via LLM and adding it to the bank.
+ */
+export const generateAndAddInputSchema = z.object({
+  prompt: z.string().min(1),
+  model: allowedLLMModelSchema,
+});
+export type GenerateAndAddInputType = z.infer<typeof generateAndAddInputSchema>;
+
+/**
+ * Schema for run bank comparison action parameters.
+ */
+export const runBankComparisonInputSchema = z.object({
+  topicId: z.string().uuid(),
+  judgeModel: allowedLLMModelSchema.default('gpt-4.1-nano'),
+  rounds: z.number().int().min(1).max(10).default(1),
+});
+export type RunBankComparisonInputType = z.infer<typeof runBankComparisonInputSchema>;
+
+// =============================================================================
+// SOURCE MANAGEMENT SCHEMAS
+// =============================================================================
+
+/**
+ * Input schema for replacing all sources on an explanation atomically.
+ */
+export const updateSourcesInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceIds: z.array(z.number().int().positive()).max(5),
+});
+
+/**
+ * Input schema for adding a new source to an explanation by URL.
+ * Only HTTP/HTTPS URLs are allowed (rejects ftp:, data:, javascript:).
+ */
+export const addSourceInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceUrl: z.string().url().refine(
+    url => url.startsWith('http://') || url.startsWith('https://'),
+    'Only HTTP/HTTPS URLs are allowed'
+  ),
+});
+
+/**
+ * Input schema for removing a single source from an explanation.
+ */
+export const removeSourceInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceCacheId: z.number().int().positive(),
+});
+
+/**
+ * Input schema for reordering sources on an explanation.
+ * sourceIds must contain the same IDs currently linked, in the desired order.
+ */
+export const reorderSourcesInputSchema = z.object({
+  explanationId: z.number().int().positive(),
+  sourceIds: z.array(z.number().int().positive()).min(1).max(5),
+});
+
+/**
+ * Schema for source citation count results from get_source_citation_counts RPC.
+ */
+export const sourceCitationCountSchema = z.object({
+  source_cache_id: z.number().int(),
+  total_citations: z.number().int(),
+  unique_explanations: z.number().int(),
+  domain: z.string(),
+  title: z.string().nullable(),
+  favicon_url: z.string().nullable(),
+});
+export type SourceCitationCountType = z.infer<typeof sourceCitationCountSchema>;

@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-unused-vars */
 /**
- * LLM service for making OpenAI API calls with structured output support.
- * Provides call tracking, tracing, and automatic logging.
+ * LLM service for making API calls to OpenAI, DeepSeek, and Anthropic with structured output support.
+ * Provides call tracking, tracing, and automatic logging. Routes to the correct provider based on model prefix.
  */
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { logger } from '@/lib/server_utilities';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
@@ -13,14 +14,25 @@ import { createLLMSpan } from '../../../instrumentation';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
+import { calculateLLMCost } from '@/config/llmPricing';
+
+/** Metadata about token usage and cost from an LLM call, passed to onUsage callbacks. */
+export interface LLMUsageMetadata {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  reasoningTokens: number;
+  estimatedCostUsd: number;
+  model: string;
+}
 
 // Define types
 type ResponseObject = z.ZodObject<any> | null;
 const FILE_DEBUG = false;
 
 // Default model configuration
-export const default_model: AllowedLLMModelType = 'gpt-4.1-mini';
-export const lighter_model: AllowedLLMModelType = 'gpt-4.1-nano';
+export const DEFAULT_MODEL: AllowedLLMModelType = 'gpt-4.1-mini';
+export const LIGHTER_MODEL: AllowedLLMModelType = 'gpt-4.1-nano';
 
 // Nil UUID for anonymous/unauthenticated users (RFC 4122 standard)
 export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
@@ -30,7 +42,7 @@ export const ANONYMOUS_USER_UUID = '00000000-0000-0000-0000-000000000000';
  * • Validates input data against llmCallTrackingSchema before saving
  * • Inserts call metrics and details into llmCallTracking table
  * • Handles validation and database errors gracefully with logging
- * • Used by callOpenAIModel to persist API call information
+ * • Used by callLLM to persist API call information
  * • Called after successful API completion to track usage
  */
 async function saveLlmCallTracking(trackingData: LlmCallTrackingType): Promise<void> {
@@ -88,11 +100,11 @@ function getOpenAIClient(): OpenAI {
     if (typeof window !== 'undefined') {
         throw new Error('OpenAI client cannot be used on the client side');
     }
-    
+
     if (!process.env.OPENAI_API_KEY) {
         throw new Error('OPENAI_API_KEY not found in environment variables. Please check your .env file exists and contains a valid API key.');
     }
-    
+
     if (!openai) {
         openai = new OpenAI({
             apiKey: process.env.OPENAI_API_KEY,
@@ -100,14 +112,72 @@ function getOpenAIClient(): OpenAI {
             timeout: 60000  // Increased to 60 seconds for GPT-5 models
         });
     }
-    
+
     return openai;
+}
+
+// DeepSeek client — uses OpenAI-compatible API at a different base URL
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com';
+let deepseekClient: OpenAI | null = null;
+
+function getDeepSeekClient(): OpenAI {
+    if (typeof window !== 'undefined') {
+        throw new Error('DeepSeek client cannot be used on the client side');
+    }
+
+    if (!process.env.DEEPSEEK_API_KEY) {
+        throw new Error('DEEPSEEK_API_KEY not found in environment variables. Please check your .env file.');
+    }
+
+    if (!deepseekClient) {
+        deepseekClient = new OpenAI({
+            apiKey: process.env.DEEPSEEK_API_KEY,
+            baseURL: DEEPSEEK_BASE_URL,
+            maxRetries: 3,
+            timeout: 60000,
+        });
+    }
+
+    return deepseekClient;
+}
+
+/** Check if a model should be routed to DeepSeek. */
+function isDeepSeekModel(model: string): boolean {
+    return model.startsWith('deepseek-');
+}
+
+// Anthropic client — uses Anthropic Messages API
+let anthropicClient: Anthropic | null = null;
+
+function getAnthropicClient(): Anthropic {
+    if (typeof window !== 'undefined') {
+        throw new Error('Anthropic client cannot be used on the client side');
+    }
+
+    if (!process.env.ANTHROPIC_API_KEY) {
+        throw new Error('ANTHROPIC_API_KEY required for Claude models. Please check your .env file.');
+    }
+
+    if (!anthropicClient) {
+        anthropicClient = new Anthropic({
+            apiKey: process.env.ANTHROPIC_API_KEY,
+            maxRetries: 3,
+            timeout: 60000,
+        });
+    }
+
+    return anthropicClient;
+}
+
+/** Check if a model should be routed to Anthropic. */
+export function isAnthropicModel(model: string): boolean {
+    return model.startsWith('claude-');
 }
 
 
 
 /**
- * Makes a call to Openai model with structured output support
+ * Makes a call to an LLM with structured output support
  * @param prompt - The input prompt to send to the model
  * @param call_source - Identifier for the source/context making this call
  * @param userid - User identifier for tracking purposes
@@ -117,6 +187,7 @@ function getOpenAIClient(): OpenAI {
  * @param response_obj - Optional Zod schema for structured output
  * @param response_obj_name - Optional name for the response schema
  * @param debug - Enable debug logging
+ * @param onUsage - Optional callback invoked with token/cost metadata after a successful call
  * @returns Promise<string> - The model's response
  */
 async function callOpenAIModel(
@@ -128,7 +199,8 @@ async function callOpenAIModel(
     setText: ((text: string) => void) | null,
     response_obj: ResponseObject = null,
     response_obj_name: string | null = null,
-    debug: boolean = true
+    debug: boolean = true,
+    onUsage?: (usage: LLMUsageMetadata) => void,
 ): Promise<string> {
     try {
         // Validate model parameter
@@ -160,7 +232,12 @@ async function callOpenAIModel(
             stream: streaming
         };
         if (response_obj && response_obj_name) {
-            requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
+            // DeepSeek doesn't support json_schema; fall back to json_object
+            if (isDeepSeekModel(validatedModel)) {
+                requestOptions.response_format = { type: 'json_object' };
+            } else {
+                requestOptions.response_format = zodResponseFormat(response_obj, response_obj_name);
+            }
         }
 
         const span = createLLMSpan('openai.chat.completions.create', {
@@ -171,6 +248,9 @@ async function callOpenAIModel(
             'llm.streaming': streaming ? 'true' : 'false'
         });
         
+        // Route to the correct client based on model provider
+        const client = isDeepSeekModel(validatedModel) ? getDeepSeekClient() : getOpenAIClient();
+
         let response: string;
         let usage: any = {};
         let finishReason = 'unknown';
@@ -180,7 +260,7 @@ async function callOpenAIModel(
         try {
             if (streaming) {
                 // Handle streaming response
-                const stream = await getOpenAIClient().chat.completions.create(requestOptions) as any;
+                const stream = await client.chat.completions.create(requestOptions) as any;
                 let accumulatedContent = '';
                 let lastChunk: any = null;
                 
@@ -214,7 +294,7 @@ async function callOpenAIModel(
                 });
             } else {
                 // Handle non-streaming response
-                const completion = await getOpenAIClient().chat.completions.create(requestOptions) as any;
+                const completion = await client.chat.completions.create(requestOptions) as any;
                 
                 usage = completion.usage || {};
                 finishReason = completion.choices[0]?.finish_reason || 'unknown';
@@ -238,21 +318,45 @@ async function callOpenAIModel(
         }
         
         // Save LLM call tracking data to database
+        const promptTokens = usage.prompt_tokens ?? 0;
+        const completionTokens = usage.completion_tokens ?? 0;
+        const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens ?? 0;
+
         const trackingData: LlmCallTrackingType = {
-            userid, 
+            userid,
             prompt,
             content: response,
             call_source,
             raw_api_response: rawApiResponse,
             model: modelUsed,
-            prompt_tokens: usage.prompt_tokens ?? 0,
-            completion_tokens: usage.completion_tokens ?? 0,
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
             total_tokens: usage.total_tokens ?? 0,
-            reasoning_tokens: usage.completion_tokens_details?.reasoning_tokens,
+            reasoning_tokens: reasoningTokens || undefined,
             finish_reason: finishReason,
+            estimated_cost_usd: calculateLLMCost(modelUsed, promptTokens, completionTokens, reasoningTokens),
         };
         
         await saveLlmCallTracking(trackingData);
+
+        if (onUsage) {
+            try {
+                onUsage({
+                    promptTokens,
+                    completionTokens,
+                    totalTokens: usage.total_tokens ?? 0,
+                    reasoningTokens,
+                    estimatedCostUsd: trackingData.estimated_cost_usd ?? 0,
+                    model: modelUsed,
+                });
+            } catch (callbackError) {
+                logger.error('onUsage callback failed', {
+                    error: callbackError instanceof Error ? callbackError.message : String(callbackError),
+                    call_source,
+                });
+            }
+        }
+
         if (debug) {
             logger.debug("API call successful", {}, FILE_DEBUG);
             logger.debug("GPT4omini Response", {
@@ -277,11 +381,188 @@ async function callOpenAIModel(
     }
 }
 
+/**
+ * Makes a call to Anthropic Claude model with streaming support.
+ * Mirrors the callOpenAIModel signature for seamless provider routing.
+ * Structured output: uses plain text + JSON instruction (no zodResponseFormat equivalent).
+ */
+async function callAnthropicModel(
+    prompt: string,
+    call_source: string,
+    userid: string,
+    model: AllowedLLMModelType,
+    streaming: boolean,
+    setText: ((text: string) => void) | null,
+    response_obj: ResponseObject = null,
+    _response_obj_name: string | null = null,
+    debug: boolean = true,
+    onUsage?: (usage: LLMUsageMetadata) => void,
+): Promise<string> {
+    try {
+        const validatedModel = allowedLLMModelSchema.parse(model);
+
+        if (streaming && (setText === null || typeof setText !== 'function')) {
+            throw new Error('setText must be a function when streaming is true');
+        }
+        if (!streaming && setText !== null) {
+            throw new Error('setText must be null when streaming is false');
+        }
+
+        const client = getAnthropicClient();
+
+        // For structured output, prepend JSON instruction to system message
+        const systemMessage = response_obj
+            ? 'You are a helpful assistant. Please provide your response in JSON format.'
+            : 'You are a helpful assistant.';
+
+        if (debug) logger.debug("Making Anthropic API call", { model: validatedModel });
+
+        const span = createLLMSpan('anthropic.messages.create', {
+            'llm.model': validatedModel,
+            'llm.prompt.length': prompt.length,
+            'llm.call_source': call_source,
+            'llm.structured_output': response_obj ? 'true' : 'false',
+            'llm.streaming': streaming ? 'true' : 'false'
+        });
+
+        let response: string;
+        let usage: { input_tokens: number; output_tokens: number };
+
+        try {
+            if (streaming && setText) {
+                let accumulated = '';
+                const stream = client.messages.stream({
+                    model: validatedModel,
+                    max_tokens: 8192,
+                    system: systemMessage,
+                    messages: [{ role: 'user', content: prompt }],
+                });
+                for await (const event of stream) {
+                    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+                        accumulated += event.delta.text;
+                        setText(accumulated);
+                    }
+                }
+                const finalMessage = await stream.finalMessage();
+                response = accumulated;
+                usage = finalMessage.usage;
+            } else {
+                const message = await client.messages.create({
+                    model: validatedModel,
+                    max_tokens: 8192,
+                    system: systemMessage,
+                    messages: [{ role: 'user', content: prompt }],
+                });
+                response = message.content[0].type === 'text' ? message.content[0].text : '';
+                usage = message.usage;
+            }
+
+            span.setAttributes({
+                'llm.response.tokens.completion': usage.output_tokens,
+                'llm.response.tokens.prompt': usage.input_tokens,
+                'llm.response.tokens.total': usage.input_tokens + usage.output_tokens,
+                'llm.response.finish_reason': 'end_turn'
+            });
+        } catch (error) {
+            span.recordException(error as Error);
+            span.setStatus({ code: 2, message: (error as Error).message });
+            throw error;
+        } finally {
+            span.end();
+        }
+
+        // Map Anthropic usage to common tracking format
+        const promptTokens = usage.input_tokens;
+        const completionTokens = usage.output_tokens;
+        const cost = calculateLLMCost(validatedModel, promptTokens, completionTokens, 0);
+
+        if (onUsage) {
+            onUsage({
+                promptTokens,
+                completionTokens,
+                totalTokens: promptTokens + completionTokens,
+                reasoningTokens: 0,
+                estimatedCostUsd: cost,
+                model: validatedModel,
+            });
+        }
+
+        const trackingData: LlmCallTrackingType = {
+            userid,
+            prompt,
+            content: response,
+            call_source,
+            raw_api_response: JSON.stringify({ provider: 'anthropic', model: validatedModel, usage }),
+            model: validatedModel,
+            prompt_tokens: promptTokens,
+            completion_tokens: completionTokens,
+            total_tokens: promptTokens + completionTokens,
+            reasoning_tokens: undefined,
+            finish_reason: 'end_turn',
+            estimated_cost_usd: cost,
+        };
+
+        try {
+            await saveLlmCallTracking(trackingData);
+        } catch (trackingError) {
+            logger.error('LLM call tracking save failed (non-fatal)', {
+                error: trackingError instanceof Error ? trackingError.message : String(trackingError),
+                call_source,
+                model: validatedModel,
+            });
+        }
+
+        if (debug) {
+            logger.debug("Anthropic API call successful", {}, FILE_DEBUG);
+        }
+
+        if (!response) {
+            throw new Error('No response received from Anthropic');
+        }
+
+        return response;
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            logger.error(`Invalid model parameter: ${model}. Allowed models: ${allowedLLMModelSchema.options.join(', ')}`);
+            throw new Error(`Invalid model: ${model}. Must be one of: ${allowedLLMModelSchema.options.join(', ')}`);
+        }
+        if (debug) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            logger.error(`Error in Anthropic call: ${errorMessage}`);
+        }
+        throw error;
+    }
+}
+
+/**
+ * Router that dispatches LLM calls to the correct provider based on model prefix.
+ * Anthropic (claude-*) → callAnthropicModel, everything else → callOpenAIModel (handles OpenAI + DeepSeek).
+ */
+async function callLLMModelRaw(
+    prompt: string,
+    call_source: string,
+    userid: string,
+    model: AllowedLLMModelType,
+    streaming: boolean,
+    setText: ((text: string) => void) | null,
+    response_obj: ResponseObject = null,
+    response_obj_name: string | null = null,
+    debug: boolean = true,
+    onUsage?: (usage: LLMUsageMetadata) => void,
+): Promise<string> {
+    if (isAnthropicModel(model)) {
+        return callAnthropicModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+    }
+    return callOpenAIModel(prompt, call_source, userid, model, streaming, setText, response_obj, response_obj_name, debug, onUsage);
+}
+
 // Wrap with automatic logging for entry/exit/timing
-const callOpenAIModelWithLogging = withLogging(callOpenAIModel, 'callOpenAIModel', {
+const callLLMWithLogging = withLogging(callLLMModelRaw, 'callLLM', {
     logInputs: false, // Prompts can be large, avoid logging full input
     logOutputs: false, // Responses can be large, avoid logging full output
     logErrors: true
 });
 
-export { callOpenAIModelWithLogging as callOpenAIModel };
+export { callLLMWithLogging as callLLM };
+export { callLLMWithLogging as callLLMModel }; // backward compat alias
+export { callLLMWithLogging as callOpenAIModel }; // backward compat alias

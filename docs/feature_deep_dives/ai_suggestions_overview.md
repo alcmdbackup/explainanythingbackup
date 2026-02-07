@@ -68,7 +68,7 @@ Implemented in `runAISuggestionsPipeline()` at `src/editorFiles/aiSuggestion.ts:
 - **Output**: Structured JSON array with edit segments and `"... existing text ..."` markers
 - **Prompt**: `createAISuggestionPrompt()` enforces alternating content/marker pattern
 - **Validation**: `aiSuggestionSchema` ensures proper structure
-- **Model**: Uses `default_model` with structured output validation
+- **Model**: Uses `DEFAULT_MODEL` with structured output validation
 
 Example output:
 ```json
@@ -88,7 +88,7 @@ Example output:
 - **Input**: AI suggestions (Step 1 output) + original content
 - **Output**: Complete edited document as markdown
 - **Prompt**: `createApplyEditsPrompt()` instructs LLM to merge edits with original
-- **Model**: Uses `lighter_model` (faster, no schema validation needed)
+- **Model**: Uses `LIGHTER_MODEL` (faster, no schema validation needed)
 
 ### Step 3: Generate AST Diff (75% progress)
 
@@ -114,8 +114,8 @@ The pipeline uses different models for cost/performance optimization:
 
 | Step | Model | Schema Validation | Rationale |
 |------|-------|-------------------|-----------|
-| Step 1 | `default_model` | Yes (`aiSuggestionSchema`) | Needs structured output for reliable parsing |
-| Step 2 | `lighter_model` | No | Simple text merge, faster/cheaper |
+| Step 1 | `DEFAULT_MODEL` | Yes (`aiSuggestionSchema`) | Needs structured output for reliable parsing |
+| Step 2 | `LIGHTER_MODEL` | No | Simple text merge, faster/cheaper |
 | Step 3-4 | N/A | N/A | Local AST processing, no LLM |
 
 ---
@@ -134,7 +134,7 @@ export const generateAISuggestionsAction = withLogging(
   async function(...) {
     try {
       logger.debug('AI Suggestion Request', { textLength, promptLength }, FILE_DEBUG);
-      const response = await callOpenAIModel(...);
+      const response = await callLLM(...);
       logger.debug('AI Suggestion Response', { responseLength }, FILE_DEBUG);
       return { success: true, data: response, error: null };
     } catch (error) {

@@ -19,7 +19,7 @@ import {
   getWhitelistTermById
 } from './linkWhitelist';
 import { createSupabaseServerClient } from '@/lib/utils/supabase/server';
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import type { LinkWhitelistFullType, LinkAliasFullType } from '@/lib/schemas/schemas';
 
 // Mock dependencies
@@ -45,7 +45,7 @@ jest.mock('@/lib/prompts', () => ({
 }));
 
 describe('LinkWhitelist Service', () => {
-  const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+  const mockCallOpenAIModel = callLLM as jest.MockedFunction<typeof callLLM>;
 
   // Helper to create a fresh chainable mock that handles all method combinations
   function createMockSupabase() {

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 'use server';
 
-import { callOpenAIModel, default_model, lighter_model } from '@/lib/services/llms';
+import { callLLM, DEFAULT_MODEL, LIGHTER_MODEL } from '@/lib/services/llms';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { withLogging } from '@/lib/logging/server/automaticServerLoggingBase';
 import { logger } from '@/lib/client_utilities';
@@ -19,7 +19,7 @@ const FILE_DEBUG = true;
  * • Optionally includes source content for informed editing
  * • Calls OpenAI model to generate editing suggestions
  * • Returns the AI response for text improvement
- * • Calls: createAISuggestionPrompt, callOpenAIModel
+ * • Calls: createAISuggestionPrompt, callLLM
  * • Used by: Editor test pages for AI-powered text suggestions
  */
 export const generateAISuggestionsAction = withLogging(
@@ -44,11 +44,11 @@ export const generateAISuggestionsAction = withLogging(
             }, FILE_DEBUG);
 
             // Call OpenAI with structured output validation using the schema
-            const response = await callOpenAIModel(
+            const response = await callLLM(
                 prompt,
                 'editor_ai_suggestions',
                 userid,
-                default_model,
+                DEFAULT_MODEL,
                 false,
                 null,
                 aiSuggestionSchema,
@@ -89,7 +89,7 @@ export const generateAISuggestionsAction = withLogging(
  * • Creates a prompt using createApplyEditsPrompt to apply AI suggestions
  * • Calls OpenAI model to generate the final edited text
  * • Returns the complete text with all edits applied
- * • Calls: createApplyEditsPrompt, callOpenAIModel
+ * • Calls: createApplyEditsPrompt, callLLM
  * • Used by: Editor test pages to apply AI suggestions to content
  */
 export const applyAISuggestionsAction = withLogging(
@@ -112,11 +112,11 @@ export const applyAISuggestionsAction = withLogging(
                 userid
             }, FILE_DEBUG);
 
-            const response = await callOpenAIModel(
+            const response = await callLLM(
                 prompt,
                 'editor_apply_suggestions',
                 userid,
-                lighter_model,
+                LIGHTER_MODEL,
                 false,
                 null
             );

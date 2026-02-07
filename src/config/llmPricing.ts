@@ -12,6 +12,15 @@ export interface ModelPricing {
 
 // Pricing as of January 2025 - update as needed
 export const LLM_PRICING: Record<string, ModelPricing> = {
+  // OpenAI GPT-4.1 (latest)
+  'gpt-4.1': { inputPer1M: 2.00, outputPer1M: 8.00 },
+  'gpt-4.1-mini': { inputPer1M: 0.40, outputPer1M: 1.60 },
+  'gpt-4.1-nano': { inputPer1M: 0.10, outputPer1M: 0.40 },
+
+  // OpenAI GPT-5 (latest)
+  'gpt-5-mini': { inputPer1M: 0.25, outputPer1M: 2.00 },
+  'gpt-5-nano': { inputPer1M: 0.05, outputPer1M: 0.40 },
+
   // OpenAI GPT-4o
   'gpt-4o': { inputPer1M: 2.50, outputPer1M: 10.00 },
   'gpt-4o-2024-11-20': { inputPer1M: 2.50, outputPer1M: 10.00 },
@@ -42,6 +51,15 @@ export const LLM_PRICING: Record<string, ModelPricing> = {
   // OpenAI GPT-3.5 Turbo
   'gpt-3.5-turbo': { inputPer1M: 0.50, outputPer1M: 1.50 },
   'gpt-3.5-turbo-0125': { inputPer1M: 0.50, outputPer1M: 1.50 },
+
+  // OpenAI o3 reasoning models
+  'o3-mini': { inputPer1M: 1.10, outputPer1M: 4.40 },
+
+  // DeepSeek
+  'deepseek-chat': { inputPer1M: 0.14, outputPer1M: 0.28 },
+
+  // Anthropic Claude 4
+  'claude-sonnet-4-20250514': { inputPer1M: 3.00, outputPer1M: 15.00 },
 
   // Anthropic Claude 3.5
   'claude-3-5-sonnet-20241022': { inputPer1M: 3.00, outputPer1M: 15.00 },

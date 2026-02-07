@@ -1,25 +1,21 @@
 /**
  * Integration Test: Content Report Submission
  *
- * Tests content reporting with real database operations
+ * Tests content reporting with real database operations.
  * This validates:
  * - Creating content reports in the database
  * - Report retrieval for admin review
- * - Error handling for invalid inputs
+ * - Database constraints (foreign keys, required fields)
  *
- * NOTE: These tests are SKIPPED in CI because createContentReportAction
- * requires user authentication via cookies, which isn't available in
- * integration test context. Use E2E tests for full content report testing.
+ * Note: These tests use direct database inserts via service client
+ * because createContentReportAction requires authentication context
+ * that isn't available in Jest integration tests.
  */
 
 import { setupTestDatabase, teardownTestDatabase, createTestContext } from '@/testing/utils/integration-helpers';
 import { SupabaseClient } from '@supabase/supabase-js';
-import { createContentReportAction } from '@/lib/services/contentReports';
 
-// Skip in CI - these tests require user authentication that only works in browser context
-const describeOrSkip = process.env.CI ? describe.skip : describe;
-
-describeOrSkip('Content Report Integration Tests', () => {
+describe('Content Report Integration Tests', () => {
   let supabase: SupabaseClient;
   let testId: string;
   let cleanup: () => Promise<void>;
@@ -41,6 +37,14 @@ describeOrSkip('Content Report Integration Tests', () => {
   });
 
   afterEach(async () => {
+    // Clean up test reports using test reporter IDs
+    await supabase
+      .from('content_reports')
+      .delete()
+      .in('reporter_id', [
+        '00000000-0000-0000-0000-000000000001',
+        '00000000-0000-0000-0000-000000000002',
+      ]);
     await cleanup();
   });
 
@@ -66,37 +70,56 @@ describeOrSkip('Content Report Integration Tests', () => {
     return data;
   };
 
+  // Helper to create reports directly in DB (bypasses auth requirement)
+  const createReportInDb = async (
+    explanationId: number,
+    reason: string,
+    details?: string | null
+  ) => {
+    // Use a test UUID for reporter_id
+    const reporterUuid = '00000000-0000-0000-0000-000000000001';
+    const { data, error } = await supabase
+      .from('content_reports')
+      .insert({
+        explanation_id: explanationId,
+        reporter_id: reporterUuid,
+        reason,
+        details: details || null,
+        status: 'pending',
+      })
+      .select()
+      .single();
+    return { data, error };
+  };
+
   describe('Creating Content Reports', () => {
     it('should create a report with valid data', async () => {
       const topic = await createTopicInDb();
       const explanation = await createExplanationInDb(topic.id);
 
-      const result = await createContentReportAction({
-        explanation_id: explanation.id,
-        reason: 'misinformation',
-        details: 'This content contains false claims',
-      });
+      const { data, error } = await createReportInDb(
+        explanation.id,
+        'misinformation',
+        'This content contains false claims'
+      );
 
-      expect(result.success).toBe(true);
-      expect(result.data).toBeDefined();
-      expect(result.data?.explanation_id).toBe(explanation.id);
-      expect(result.data?.reason).toBe('misinformation');
-      expect(result.data?.details).toBe('This content contains false claims');
-      expect(result.data?.status).toBe('pending');
+      expect(error).toBeNull();
+      expect(data).toBeDefined();
+      expect(data?.explanation_id).toBe(explanation.id);
+      expect(data?.reason).toBe('misinformation');
+      expect(data?.details).toBe('This content contains false claims');
+      expect(data?.status).toBe('pending');
     });
 
     it('should create a report without optional details', async () => {
       const topic = await createTopicInDb();
       const explanation = await createExplanationInDb(topic.id);
 
-      const result = await createContentReportAction({
-        explanation_id: explanation.id,
-        reason: 'spam',
-      });
+      const { data, error } = await createReportInDb(explanation.id, 'spam');
 
-      expect(result.success).toBe(true);
-      expect(result.data?.reason).toBe('spam');
-      expect(result.data?.details).toBeNull();
+      expect(error).toBeNull();
+      expect(data?.reason).toBe('spam');
+      expect(data?.details).toBeNull();
     });
 
     it('should handle different report reasons', async () => {
@@ -106,25 +129,19 @@ describeOrSkip('Content Report Integration Tests', () => {
       const reasons = ['inappropriate', 'misinformation', 'spam', 'copyright', 'other'] as const;
 
       for (const reason of reasons) {
-        const result = await createContentReportAction({
-          explanation_id: explanation.id,
-          reason,
-        });
+        const { data, error } = await createReportInDb(explanation.id, reason);
 
-        expect(result.success).toBe(true);
-        expect(result.data?.reason).toBe(reason);
+        expect(error).toBeNull();
+        expect(data?.reason).toBe(reason);
       }
     });
 
     it('should fail for non-existent explanation', async () => {
-      const result = await createContentReportAction({
-        explanation_id: 999999999,
-        reason: 'spam',
-      });
+      const { data, error } = await createReportInDb(999999999, 'spam');
 
-      // Note: The actual behavior depends on database constraints
-      // This test documents expected behavior
-      expect(result.success).toBe(false);
+      // Database foreign key constraint should reject this
+      expect(error).not.toBeNull();
+      expect(data).toBeNull();
     });
   });
 
@@ -133,11 +150,11 @@ describeOrSkip('Content Report Integration Tests', () => {
       const topic = await createTopicInDb();
       const explanation = await createExplanationInDb(topic.id);
 
-      await createContentReportAction({
-        explanation_id: explanation.id,
-        reason: 'inappropriate',
-        details: 'Test report for retrieval',
-      });
+      await createReportInDb(
+        explanation.id,
+        'inappropriate',
+        'Test report for retrieval'
+      );
 
       // Query the reports directly
       const { data: reports, error } = await supabase
@@ -154,15 +171,27 @@ describeOrSkip('Content Report Integration Tests', () => {
       const topic = await createTopicInDb();
       const explanation = await createExplanationInDb(topic.id);
 
-      await createContentReportAction({
-        explanation_id: explanation.id,
-        reason: 'misinformation',
-      });
+      // Use different reporter IDs to allow multiple reports
+      const { error: err1 } = await supabase
+        .from('content_reports')
+        .insert({
+          explanation_id: explanation.id,
+          reporter_id: '00000000-0000-0000-0000-000000000001',
+          reason: 'misinformation',
+          status: 'pending',
+        });
 
-      await createContentReportAction({
-        explanation_id: explanation.id,
-        reason: 'spam',
-      });
+      const { error: err2 } = await supabase
+        .from('content_reports')
+        .insert({
+          explanation_id: explanation.id,
+          reporter_id: '00000000-0000-0000-0000-000000000002',
+          reason: 'spam',
+          status: 'pending',
+        });
+
+      expect(err1).toBeNull();
+      expect(err2).toBeNull();
 
       const { data: reports } = await supabase
         .from('content_reports')

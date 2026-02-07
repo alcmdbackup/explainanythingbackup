@@ -1,0 +1,9 @@
+{
+  "phase": "execute",
+  "prerequisites": {
+    "getting_started_read": true,
+    "project_workflow_read": true,
+    "todos_created": true,
+    "design_style_guide_read": true
+  }
+}

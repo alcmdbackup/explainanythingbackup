@@ -3,11 +3,13 @@
  */
 
 import OpenAI from 'openai';
+import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { zodResponseFormat } from "openai/helpers/zod";
 
 // Mock dependencies
 jest.mock('openai');
+jest.mock('@anthropic-ai/sdk');
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn()
 }));
@@ -31,7 +33,7 @@ jest.mock('openai/helpers/zod');
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
-import { callOpenAIModel, default_model, lighter_model } from './llms';
+import { callLLM, callLLMModel, callOpenAIModel, isAnthropicModel, DEFAULT_MODEL, LIGHTER_MODEL, type LLMUsageMetadata } from './llms';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
 
@@ -84,7 +86,7 @@ describe('llms', () => {
     process.env = originalEnv;
   });
 
-  describe('callOpenAIModel', () => {
+  describe('callLLM', () => {
     it('should make a successful non-streaming API call', async () => {
       const mockResponse = {
         choices: [{
@@ -101,7 +103,7 @@ describe('llms', () => {
 
       mockCreateSpy.mockResolvedValueOnce(mockResponse);
 
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -151,7 +153,7 @@ describe('llms', () => {
       mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
 
       const setText = jest.fn();
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -193,7 +195,7 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       });
 
-      const result = await callOpenAIModel(
+      const result = await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -216,7 +218,7 @@ describe('llms', () => {
 
     it('should validate model parameter', async () => {
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -232,7 +234,7 @@ describe('llms', () => {
 
     it('should validate setText for streaming mode', async () => {
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -248,7 +250,7 @@ describe('llms', () => {
 
     it('should validate setText for non-streaming mode', async () => {
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -268,7 +270,7 @@ describe('llms', () => {
       mockCreateSpy.mockRejectedValueOnce(apiError);
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -296,7 +298,7 @@ describe('llms', () => {
       });
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -314,7 +316,7 @@ describe('llms', () => {
       delete process.env.OPENAI_API_KEY;
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -333,7 +335,7 @@ describe('llms', () => {
       (global as any).window = {};
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -372,7 +374,7 @@ describe('llms', () => {
       });
 
       try {
-        await callOpenAIModel(
+        await callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -418,7 +420,7 @@ describe('llms', () => {
       mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
 
       const setText = jest.fn();
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -456,7 +458,7 @@ describe('llms', () => {
         model: 'gpt-4.1-mini'
       });
 
-      await callOpenAIModel(
+      await callLLM(
         'Test prompt',
         'test_source',
         'user123',
@@ -479,15 +481,200 @@ describe('llms', () => {
         })
       );
     });
+
+    it('invokes onUsage callback with correct token metadata after non-streaming call', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, total_tokens: 150, completion_tokens_details: { reasoning_tokens: 5 } },
+        model: 'gpt-4.1-mini'
+      });
+
+      const onUsage = jest.fn();
+      await callLLM('Test prompt', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+
+      expect(onUsage).toHaveBeenCalledTimes(1);
+      const usage: LLMUsageMetadata = onUsage.mock.calls[0][0];
+      expect(usage.promptTokens).toBe(100);
+      expect(usage.completionTokens).toBe(50);
+      expect(usage.totalTokens).toBe(150);
+      expect(usage.reasoningTokens).toBe(5);
+      expect(usage.model).toBe('gpt-4.1-mini');
+      expect(usage.estimatedCostUsd).toBeGreaterThan(0);
+    });
+
+    it('invokes onUsage callback after streaming call', async () => {
+      async function* streamGenerator() {
+        yield { choices: [{ delta: { content: 'Hello' } }] };
+        yield {
+          choices: [{ delta: {}, finish_reason: 'stop' }],
+          usage: { prompt_tokens: 20, completion_tokens: 10, total_tokens: 30 },
+          model: 'gpt-4.1-mini'
+        };
+      }
+      mockCreateSpy.mockImplementationOnce(() => Promise.resolve(streamGenerator()));
+
+      const onUsage = jest.fn();
+      const setText = jest.fn();
+      await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', true, setText, null, null, false, onUsage);
+
+      expect(onUsage).toHaveBeenCalledTimes(1);
+      expect(onUsage.mock.calls[0][0].promptTokens).toBe(20);
+      expect(onUsage.mock.calls[0][0].completionTokens).toBe(10);
+    });
+
+    it('does not invoke onUsage callback when API call throws', async () => {
+      mockCreateSpy.mockRejectedValueOnce(new Error('API failure'));
+
+      const onUsage = jest.fn();
+      await expect(
+        callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage)
+      ).rejects.toThrow('API failure');
+
+      expect(onUsage).not.toHaveBeenCalled();
+    });
+
+    it('does not throw when onUsage callback is omitted (backward compat)', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Test response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini'
+      });
+
+      // No onUsage argument — backward compatible
+      const result = await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false);
+      expect(result).toBe('Test response');
+    });
+
+    it('swallows onUsage callback errors without breaking the response', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Good response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini'
+      });
+
+      const onUsage = jest.fn(() => { throw new Error('callback boom'); });
+      const result = await callLLM('Test', 'test_source', 'user123', 'gpt-4.1-mini', false, null, null, null, false, onUsage);
+
+      expect(result).toBe('Good response');
+      expect(onUsage).toHaveBeenCalledTimes(1);
+      expect(logger.error).toHaveBeenCalledWith('onUsage callback failed', expect.objectContaining({ error: 'callback boom' }));
+    });
   });
 
   describe('model constants', () => {
     it('should export correct default model', () => {
-      expect(default_model).toBe('gpt-4.1-mini');
+      expect(DEFAULT_MODEL).toBe('gpt-4.1-mini');
     });
 
     it('should export correct lighter model', () => {
-      expect(lighter_model).toBe('gpt-4.1-nano');
+      expect(LIGHTER_MODEL).toBe('gpt-4.1-nano');
+    });
+  });
+
+  describe('cost tracking', () => {
+    it('should include estimated_cost_usd in tracking data', async () => {
+      const mockResponse = {
+        choices: [{
+          message: { content: 'Test response' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 10000,
+          completion_tokens: 5000,
+          total_tokens: 15000
+        },
+        model: 'gpt-4.1-mini'
+      };
+
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false
+      );
+
+      // gpt-4.1-mini: (10000/1M * 0.40) + (5000/1M * 1.60) = 0.004 + 0.008 = 0.012
+      expect(mockSupabase.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          estimated_cost_usd: expect.any(Number)
+        })
+      );
+
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.012, 6);
+    });
+
+    it('should calculate zero cost for zero tokens', async () => {
+      const mockResponse = {
+        choices: [{
+          message: { content: 'Test response' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        },
+        model: 'gpt-4.1-mini'
+      };
+
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini',
+        false,
+        null,
+        null,
+        null,
+        false
+      );
+
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBe(0);
+    });
+
+    it('should use default pricing for unknown model', async () => {
+      // Mock response with an unknown model (would fall back to default pricing)
+      const mockResponse = {
+        choices: [{
+          message: { content: 'Test response' },
+          finish_reason: 'stop'
+        }],
+        usage: {
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500
+        },
+        model: 'unknown-model-xyz'
+      };
+
+      mockCreateSpy.mockResolvedValueOnce(mockResponse);
+
+      await callLLM(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini', // Request model is valid, but API returns different model
+        false,
+        null,
+        null,
+        null,
+        false
+      );
+
+      // Default pricing: (1000/1M * 10.00) + (500/1M * 30.00) = 0.01 + 0.015 = 0.025
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.025, 6);
     });
   });
 
@@ -508,7 +695,7 @@ describe('llms', () => {
       });
 
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -536,7 +723,7 @@ describe('llms', () => {
       });
 
       try {
-        await callOpenAIModel(
+        await callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -568,7 +755,7 @@ describe('llms', () => {
 
       const setText = jest.fn();
       await expect(
-        callOpenAIModel(
+        callLLM(
           'Test prompt',
           'test_source',
           'user123',
@@ -582,6 +769,181 @@ describe('llms', () => {
       ).rejects.toThrow('Stream interrupted');
 
       expect(setText).toHaveBeenCalledWith('Partial ');
+    });
+  });
+
+  describe('isAnthropicModel', () => {
+    it('should identify claude models as Anthropic', () => {
+      expect(isAnthropicModel('claude-sonnet-4-20250514')).toBe(true);
+      expect(isAnthropicModel('claude-3-5-sonnet-20241022')).toBe(true);
+      expect(isAnthropicModel('claude-3-haiku-20240307')).toBe(true);
+    });
+
+    it('should not identify non-Claude models as Anthropic', () => {
+      expect(isAnthropicModel('gpt-4.1-mini')).toBe(false);
+      expect(isAnthropicModel('deepseek-chat')).toBe(false);
+      expect(isAnthropicModel('o3-mini')).toBe(false);
+    });
+  });
+
+  describe('Anthropic model routing', () => {
+    let mockAnthropicCreate: jest.Mock;
+    let mockAnthropicInstance: any;
+
+    beforeAll(() => {
+      mockAnthropicInstance = {
+        messages: {
+          create: jest.fn(),
+          stream: jest.fn(),
+        },
+      };
+      (Anthropic as jest.MockedClass<typeof Anthropic>).mockImplementation(() => mockAnthropicInstance);
+    });
+
+    beforeEach(() => {
+      mockAnthropicCreate = mockAnthropicInstance.messages.create;
+      mockAnthropicCreate.mockReset();
+      process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
+    });
+
+    it('should route Claude models to Anthropic provider', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        id: 'msg_test',
+        type: 'message',
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Claude response' }],
+        model: 'claude-sonnet-4-20250514',
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 50, output_tokens: 100 },
+      });
+
+      const result = await callLLMModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(result).toBe('Claude response');
+      expect(mockAnthropicCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 8192,
+          messages: [{ role: 'user', content: 'Test prompt' }],
+        })
+      );
+      // Verify OpenAI was NOT called
+      expect(mockCreateSpy).not.toHaveBeenCalled();
+    });
+
+    it('should track Anthropic call costs in llmCallTracking', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Response' }],
+        usage: { input_tokens: 1000, output_tokens: 500 },
+        stop_reason: 'end_turn',
+      });
+
+      await callLLMModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(mockSupabase.insert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          model: 'claude-sonnet-4-20250514',
+          prompt_tokens: 1000,
+          completion_tokens: 500,
+          total_tokens: 1500,
+          finish_reason: 'end_turn',
+          estimated_cost_usd: expect.any(Number),
+        })
+      );
+
+      // claude-sonnet-4: (1000/1M * 3.00) + (500/1M * 15.00) = 0.003 + 0.0075 = 0.0105
+      const insertCall = mockSupabase.insert.mock.calls[0][0];
+      expect(insertCall.estimated_cost_usd).toBeCloseTo(0.0105, 5);
+    });
+
+    it('should throw when ANTHROPIC_API_KEY is missing for Claude model', async () => {
+      delete process.env.ANTHROPIC_API_KEY;
+
+      await expect(
+        callLLMModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'claude-sonnet-4-20250514',
+          false,
+          null,
+        )
+      ).rejects.toThrow('ANTHROPIC_API_KEY required for Claude models');
+    });
+
+    it('should route non-Claude models to OpenAI provider', async () => {
+      mockCreateSpy.mockResolvedValueOnce({
+        choices: [{ message: { content: 'OpenAI response' }, finish_reason: 'stop' }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+
+      const result = await callLLMModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'gpt-4.1-mini',
+        false,
+        null,
+      );
+
+      expect(result).toBe('OpenAI response');
+      expect(mockCreateSpy).toHaveBeenCalled();
+      expect(mockAnthropicCreate).not.toHaveBeenCalled();
+    });
+
+    it('should handle empty Anthropic response', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: '' }],
+        usage: { input_tokens: 50, output_tokens: 0 },
+        stop_reason: 'end_turn',
+      });
+
+      await expect(
+        callLLMModel(
+          'Test prompt',
+          'test_source',
+          'user123',
+          'claude-sonnet-4-20250514',
+          false,
+          null,
+        )
+      ).rejects.toThrow('No response received from Anthropic');
+    });
+
+    it('callOpenAIModel backward compat should also route Claude to Anthropic', async () => {
+      mockAnthropicCreate.mockResolvedValueOnce({
+        content: [{ type: 'text', text: 'Via backward compat' }],
+        usage: { input_tokens: 50, output_tokens: 100 },
+        stop_reason: 'end_turn',
+      });
+
+      // callOpenAIModel is now an alias for callLLMModel
+      const result = await callOpenAIModel(
+        'Test prompt',
+        'test_source',
+        'user123',
+        'claude-sonnet-4-20250514',
+        false,
+        null,
+      );
+
+      expect(result).toBe('Via backward compat');
+      expect(mockAnthropicCreate).toHaveBeenCalled();
     });
   });
 });

@@ -75,17 +75,23 @@ describe('CostAnalytics Service', () => {
   });
 
   describe('getCostSummaryAction', () => {
-    it('should return cost summary', async () => {
+    it('should return cost summary with nullCostCount', async () => {
       const mockData = [
         { estimated_cost_usd: '0.05', total_tokens: 1000 },
         { estimated_cost_usd: '0.10', total_tokens: 2000 }
       ];
 
-      mockSupabase.lte.mockResolvedValue({
-        data: mockData,
-        error: null,
-        count: 2
-      });
+      // First call: main query, second call: null count query
+      mockSupabase.lte
+        .mockResolvedValueOnce({
+          data: mockData,
+          error: null,
+          count: 2
+        })
+        .mockResolvedValueOnce({
+          count: 5,
+          error: null
+        });
 
       const result = await getCostSummaryAction({});
 
@@ -93,21 +99,58 @@ describe('CostAnalytics Service', () => {
       expect(result.data?.totalCost).toBeCloseTo(0.15, 2);
       expect(result.data?.totalCalls).toBe(2);
       expect(result.data?.totalTokens).toBe(3000);
+      expect(result.data?.nullCostCount).toBe(5);
       expect(requireAdmin).toHaveBeenCalled();
     });
 
     it('should handle empty data', async () => {
-      mockSupabase.lte.mockResolvedValue({
-        data: [],
-        error: null,
-        count: 0
-      });
+      mockSupabase.lte
+        .mockResolvedValueOnce({
+          data: [],
+          error: null,
+          count: 0
+        })
+        .mockResolvedValueOnce({
+          count: 0,
+          error: null
+        });
 
       const result = await getCostSummaryAction({});
 
       expect(result.success).toBe(true);
       expect(result.data?.totalCost).toBe(0);
       expect(result.data?.totalCalls).toBe(0);
+      expect(result.data?.nullCostCount).toBe(0);
+    });
+
+    it('should handle ISO timestamp filters', async () => {
+      const mockData = [
+        { estimated_cost_usd: '0.05', total_tokens: 1000 }
+      ];
+
+      mockSupabase.lte
+        .mockResolvedValueOnce({
+          data: mockData,
+          error: null,
+          count: 1
+        })
+        .mockResolvedValueOnce({
+          count: 0,
+          error: null
+        });
+
+      // Pass full ISO timestamps (for 1h range)
+      const now = new Date();
+      const start = new Date(now.getTime() - 60 * 60 * 1000);
+      const result = await getCostSummaryAction({
+        startDate: start.toISOString(),
+        endDate: now.toISOString()
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.totalCalls).toBe(1);
+      // Verify timestamps are passed through (not converted to date-only)
+      expect(mockSupabase.gte).toHaveBeenCalled();
     });
 
     it('should return error when not admin', async () => {
@@ -260,6 +303,29 @@ describe('CostAnalytics Service', () => {
         'Cost backfill completed',
         expect.objectContaining({ processed: 2 })
       );
+    });
+
+    it('should process multiple batches until all records are done', async () => {
+      const batch1 = [
+        { id: 1, model: 'gpt-4o', prompt_tokens: 100, completion_tokens: 50, reasoning_tokens: 0 },
+        { id: 2, model: 'gpt-4o', prompt_tokens: 100, completion_tokens: 50, reasoning_tokens: 0 }
+      ];
+      const batch2 = [
+        { id: 3, model: 'gpt-4o', prompt_tokens: 100, completion_tokens: 50, reasoning_tokens: 0 }
+      ];
+
+      // First call returns full batch, second returns partial (signals end)
+      mockSupabase.limit
+        .mockResolvedValueOnce({ data: batch1, error: null })
+        .mockResolvedValueOnce({ data: batch2, error: null });
+
+      mockSupabase.eq.mockResolvedValue({ data: null, error: null });
+
+      const result = await backfillCostsAction({ batchSize: 2 });
+
+      expect(result.success).toBe(true);
+      expect(result.data?.processed).toBe(3);
+      expect(result.data?.updated).toBe(3);
     });
 
     it('should handle empty records', async () => {

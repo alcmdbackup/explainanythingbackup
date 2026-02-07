@@ -481,7 +481,8 @@ describe('Source Server Actions', () => {
         favicon_url: 'https://example.com/favicon.ico',
         domain: 'example.com',
         status: 'success',
-        error_message: null
+        error_message: null,
+        source_cache_id: 1,
       });
       expect(result.data?.[1]?.status).toBe('loading');
       expect(result.data?.[2]?.status).toBe('failed');

@@ -21,8 +21,8 @@ import * as llmsModule from '@/lib/services/llms';
 // Mock the llms module functions
 jest.mock('@/lib/services/llms', () => ({
   ...jest.requireActual('@/lib/services/llms'),
-  callOpenAIModel: jest.fn(),
-  default_model: 'gpt-4',
+  callLLM: jest.fn(),
+  DEFAULT_MODEL: 'gpt-4',
 }));
 
 // Mock validateApiAuth - will be configured per test with actual testUserId
@@ -68,7 +68,7 @@ describe('Streaming API Integration Tests', () => {
   describe('Successful Streaming Response', () => {
     it('should stream chat response with proper SSE formatting', async () => {
       // Arrange - mock OpenAI streaming response
-      const mockCallOpenAIModel = llmsModule.callOpenAIModel as jest.MockedFunction<typeof llmsModule.callOpenAIModel>;
+      const mockCallOpenAIModel = llmsModule.callLLM as jest.MockedFunction<typeof llmsModule.callLLM>;
 
       mockCallOpenAIModel.mockImplementation(
         async (
@@ -145,7 +145,7 @@ describe('Streaming API Integration Tests', () => {
 
     it('should handle long streaming content correctly', async () => {
       // Arrange - mock OpenAI with longer content
-      const mockCallOpenAIModel = llmsModule.callOpenAIModel as jest.MockedFunction<typeof llmsModule.callOpenAIModel>;
+      const mockCallOpenAIModel = llmsModule.callLLM as jest.MockedFunction<typeof llmsModule.callLLM>;
 
       mockCallOpenAIModel.mockImplementation(
         async (
@@ -197,7 +197,7 @@ describe('Streaming API Integration Tests', () => {
   describe('Error Handling', () => {
     it('should handle error before streaming starts', async () => {
       // Arrange - mock OpenAI to throw error
-      const mockCallOpenAIModel = llmsModule.callOpenAIModel as jest.MockedFunction<typeof llmsModule.callOpenAIModel>;
+      const mockCallOpenAIModel = llmsModule.callLLM as jest.MockedFunction<typeof llmsModule.callLLM>;
 
       mockCallOpenAIModel.mockRejectedValueOnce(
         new Error('OpenAI API error: Rate limit exceeded')
@@ -274,7 +274,7 @@ describe('Streaming API Integration Tests', () => {
   describe('Request ID Context Propagation', () => {
     it('should propagate request ID through streaming callbacks', async () => {
       // Arrange
-      const mockCallOpenAIModel = llmsModule.callOpenAIModel as jest.MockedFunction<typeof llmsModule.callOpenAIModel>;
+      const mockCallOpenAIModel = llmsModule.callLLM as jest.MockedFunction<typeof llmsModule.callLLM>;
       const testRequestId = 'test-request-propagation-123';
 
       mockCallOpenAIModel.mockImplementation(

@@ -345,6 +345,121 @@ async function unlinkSourcesFromExplanationImpl(
   if (error) throw error;
 }
 
+// ============================================================================
+// SOURCE MANAGEMENT OPERATIONS (Phase 1: Manage Sources)
+// ============================================================================
+
+/**
+ * Atomically replace all sources for an explanation.
+ * Calls replace_explanation_sources RPC which handles delete+insert in a transaction.
+ */
+async function updateSourcesForExplanationImpl(
+  explanationId: number,
+  sourceIds: number[]
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase.rpc('replace_explanation_sources', {
+    p_explanation_id: explanationId,
+    p_source_ids: sourceIds,
+  });
+
+  if (error) throw error;
+
+  logger.info('updateSourcesForExplanation: Replaced sources', {
+    explanationId,
+    sourceCount: sourceIds.length,
+  });
+}
+
+/**
+ * Add a new source to an explanation by URL.
+ * Fetches/caches the source content, then links it at the next available position.
+ */
+async function addSourceToExplanationImpl(
+  explanationId: number,
+  sourceUrl: string,
+  userid: string
+): Promise<SourceCacheFullType> {
+  // Get or create the cached source
+  const { source, error: cacheError } = await getOrCreateCachedSourceImpl(sourceUrl, userid);
+
+  if (!source) {
+    throw new Error(cacheError || 'Failed to fetch and cache source');
+  }
+
+  // Get current sources to determine next position
+  const currentSources = await getSourcesByExplanationIdImpl(explanationId);
+  if (currentSources.length >= 5) {
+    throw new Error('Maximum 5 sources allowed per explanation');
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // Append to existing sources via replace RPC
+  const allSourceIds = [...currentSources.map(s => s.id), source.id];
+  const { error } = await supabase.rpc('replace_explanation_sources', {
+    p_explanation_id: explanationId,
+    p_source_ids: allSourceIds,
+  });
+
+  if (error) throw error;
+
+  logger.info('addSourceToExplanation: Added source', {
+    explanationId,
+    sourceCacheId: source.id,
+    newPosition: allSourceIds.length,
+  });
+
+  return source;
+}
+
+/**
+ * Remove a specific source from an explanation and renumber remaining positions.
+ * Calls remove_and_renumber_source RPC.
+ */
+async function removeSourceFromExplanationImpl(
+  explanationId: number,
+  sourceCacheId: number
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase.rpc('remove_and_renumber_source', {
+    p_explanation_id: explanationId,
+    p_source_cache_id: sourceCacheId,
+  });
+
+  if (error) throw error;
+
+  logger.info('removeSourceFromExplanation: Removed and renumbered', {
+    explanationId,
+    sourceCacheId,
+  });
+}
+
+/**
+ * Reorder sources on an explanation.
+ * sourceIds must contain exactly the same IDs currently linked, in the desired new order.
+ */
+async function reorderSourcesImpl(
+  explanationId: number,
+  sourceIds: number[]
+): Promise<void> {
+  const supabase = await createSupabaseServerClient();
+
+  const { error } = await supabase.rpc('reorder_explanation_sources', {
+    p_explanation_id: explanationId,
+    p_source_ids: sourceIds,
+  });
+
+  if (error) throw error;
+
+  logger.info('reorderSources: Reordered sources', {
+    explanationId,
+    newOrder: sourceIds,
+  });
+}
+
 // Wrap all async functions with automatic logging for entry/exit/timing
 export const insertSourceCache = withLogging(
   insertSourceCacheImpl,
@@ -393,5 +508,29 @@ export const getSourcesByExplanationId = withLogging(
 export const unlinkSourcesFromExplanation = withLogging(
   unlinkSourcesFromExplanationImpl,
   'unlinkSourcesFromExplanation',
+  { logErrors: true }
+);
+
+export const updateSourcesForExplanation = withLogging(
+  updateSourcesForExplanationImpl,
+  'updateSourcesForExplanation',
+  { logErrors: true }
+);
+
+export const addSourceToExplanation = withLogging(
+  addSourceToExplanationImpl,
+  'addSourceToExplanation',
+  { logErrors: true }
+);
+
+export const removeSourceFromExplanation = withLogging(
+  removeSourceFromExplanationImpl,
+  'removeSourceFromExplanation',
+  { logErrors: true }
+);
+
+export const reorderSources = withLogging(
+  reorderSourcesImpl,
+  'reorderSources',
   { logErrors: true }
 );

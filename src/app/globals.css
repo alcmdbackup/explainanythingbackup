@@ -2716,11 +2716,13 @@
   border: 1px solid var(--border-default);
   border-radius: 0.75rem;
   overflow: hidden;
-  transition: border-color 0.2s ease;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .feed-card:hover {
   border-color: var(--border-strong);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(180, 115, 51, 0.1);
 }
 
 /* Feed card entrance animation */

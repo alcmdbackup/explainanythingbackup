@@ -3,11 +3,11 @@
  */
 
 import { detectSource, validateImportContent, cleanupAndReformat } from './importArticle';
-import { callOpenAIModel } from './llms';
+import { callLLM } from './llms';
 
 jest.mock('./llms', () => ({
-    callOpenAIModel: jest.fn(),
-    default_model: 'gpt-4o-mini',
+    callLLM: jest.fn(),
+    DEFAULT_MODEL: 'gpt-4o-mini',
 }));
 
 describe('importArticle service', () => {
@@ -177,7 +177,7 @@ describe('importArticle service', () => {
     });
 
     describe('cleanupAndReformat', () => {
-        const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+        const mockCallOpenAIModel = callLLM as jest.MockedFunction<typeof callLLM>;
 
         it('returns formatted title and content on success', async () => {
             const mockResponse = JSON.stringify({

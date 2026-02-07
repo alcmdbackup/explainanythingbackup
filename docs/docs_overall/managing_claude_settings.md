@@ -9,6 +9,7 @@ This document explains how Claude Code permissions are stored, how they persist 
 | `~/.claude/settings.json` | User (global) | ✅ Always | No (outside repo) |
 | `.claude/settings.json` | Project (shared) | ✅ Yes | Yes |
 | `.claude/settings.local.json` | Project (personal) | ✅ Yes* | No (globally gitignored) |
+| `.claude/doc-mapping.json` | Project (shared) | ✅ Yes | Yes |
 
 *Project-local settings persist in `explainanything-feature0/` but are destroyed in worktrees during reset.
 
@@ -133,3 +134,46 @@ The global gitignore at `~/.config/git/ignore` contains:
 ```
 
 This ensures personal settings are never accidentally committed.
+
+## Documentation Mapping
+
+The `.claude/doc-mapping.json` file maps code patterns to documentation files for automatic updates during `/finalize`.
+
+### Structure
+
+```json
+{
+  "version": "1.0",
+  "mappings": [
+    {
+      "pattern": "src/lib/services/tags*.ts",
+      "docs": ["docs/feature_deep_dives/tag_system.md"]
+    }
+  ],
+  "alwaysConsider": [
+    "docs/docs_overall/architecture.md"
+  ]
+}
+```
+
+### How It Works
+
+1. When `/finalize` runs, it checks changed files against patterns in `mappings`
+2. Matched files queue their associated docs for AI-driven updates
+3. Docs in `alwaysConsider` are always evaluated for updates
+4. New mappings can be added during `/initialize` or when `/finalize` detects unmapped files
+
+### Adding New Mappings
+
+Via `/initialize`:
+- When creating a new feature deep dive doc, you'll be prompted for code patterns
+
+Via `/finalize`:
+- If unmapped files with doc-worthy changes are detected, you can add rules
+
+### Pattern Syntax
+
+Patterns use glob syntax:
+- `src/lib/services/tags*.ts` - matches `tags.ts`, `tagsParser.ts`, etc.
+- `src/editorFiles/**` - matches all files recursively
+- `{tests,e2e}/**` - matches both `tests/` and `e2e/` directories

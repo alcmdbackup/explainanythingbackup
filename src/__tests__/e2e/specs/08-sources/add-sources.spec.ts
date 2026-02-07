@@ -25,12 +25,12 @@ test.describe('Add Sources Feature', () => {
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Click the add sources toggle
-      const toggle = authenticatedPage.locator('[data-testid="add-sources-toggle"]');
+      const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
       await expect(toggle).toBeVisible({ timeout: 10000 });
       await toggle.click();
 
       // Source input should now be visible
-      const sourceInput = authenticatedPage.locator('[data-testid="source-url-input"]');
+      const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
     });
 
@@ -41,17 +41,17 @@ test.describe('Add Sources Feature', () => {
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
-      const toggle = authenticatedPage.locator('[data-testid="add-sources-toggle"]');
+      const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
       await expect(toggle).toBeVisible({ timeout: 10000 });
       await toggle.click();
 
       // Enter Wikipedia URL
-      const sourceInput = authenticatedPage.locator('[data-testid="source-url-input"]');
+      const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(WIKIPEDIA_URL);
 
       // Click add button
-      const addButton = authenticatedPage.locator('[data-testid="source-add-button"]');
+      const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
 
       // Wait for loading chip to appear then transition to success
@@ -77,16 +77,16 @@ test.describe('Add Sources Feature', () => {
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
-      const toggle = authenticatedPage.locator('[data-testid="add-sources-toggle"]');
+      const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
       await toggle.click();
 
       // Enter invalid URL
-      const sourceInput = authenticatedPage.locator('[data-testid="source-url-input"]');
+      const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(MALFORMED_URL);
 
       // Click add button
-      const addButton = authenticatedPage.locator('[data-testid="source-add-button"]');
+      const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
 
       // Should show validation error (inline, not chip)
@@ -105,16 +105,16 @@ test.describe('Add Sources Feature', () => {
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
-      const toggle = authenticatedPage.locator('[data-testid="add-sources-toggle"]');
+      const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
       await toggle.click();
 
       // Enter a URL that will fail to fetch (non-existent domain)
-      const sourceInput = authenticatedPage.locator('[data-testid="source-url-input"]');
+      const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill('https://this-domain-definitely-does-not-exist-12345.com/article');
 
       // Click add button
-      const addButton = authenticatedPage.locator('[data-testid="source-add-button"]');
+      const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
 
       // Wait for loading chip
@@ -124,10 +124,6 @@ test.describe('Add Sources Feature', () => {
       // Wait for failed chip (network error)
       const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
       await expect(failedChip).toBeVisible({ timeout: 20000 });
-
-      // Error message should appear
-      const errorMessage = authenticatedPage.locator('[data-testid="sources-failed-message"]');
-      await expect(errorMessage).toBeVisible({ timeout: 5000 });
     });
 
     test('should allow removing a source chip', async ({ authenticatedPage }) => {
@@ -137,15 +133,15 @@ test.describe('Add Sources Feature', () => {
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Expand sources section
-      const toggle = authenticatedPage.locator('[data-testid="add-sources-toggle"]');
+      const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
       await toggle.click();
 
       // Add a source
-      const sourceInput = authenticatedPage.locator('[data-testid="source-url-input"]');
+      const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(WIKIPEDIA_URL);
 
-      const addButton = authenticatedPage.locator('[data-testid="source-add-button"]');
+      const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
 
       // Wait for success chip
@@ -169,14 +165,14 @@ test.describe('Add Sources Feature', () => {
       await authenticatedPage.waitForLoadState('domcontentloaded');
 
       // Add a source first
-      const toggle = authenticatedPage.locator('[data-testid="add-sources-toggle"]');
+      const toggle = authenticatedPage.locator('[data-testid="home-add-source-button"]');
       await toggle.click();
 
-      const sourceInput = authenticatedPage.locator('[data-testid="source-url-input"]');
+      const sourceInput = authenticatedPage.locator('[data-testid="home-source-url-input"]');
       await expect(sourceInput).toBeVisible({ timeout: 5000 });
       await sourceInput.fill(WIKIPEDIA_URL);
 
-      const addButton = authenticatedPage.locator('[data-testid="source-add-button"]');
+      const addButton = authenticatedPage.locator('[data-testid="home-source-add-button"]');
       await addButton.click();
 
       // Wait for success chip
@@ -184,11 +180,11 @@ test.describe('Add Sources Feature', () => {
       await expect(successChip).toBeVisible({ timeout: 20000 });
 
       // Enter search query
-      const searchInput = authenticatedPage.locator('[data-testid="search-input"]');
+      const searchInput = authenticatedPage.locator('[data-testid="home-search-input"]');
       await searchInput.fill('Explain quantum computing');
 
       // Submit search
-      const searchButton = authenticatedPage.locator('[data-testid="search-submit"]');
+      const searchButton = authenticatedPage.locator('[data-testid="home-search-submit"]');
       await searchButton.click();
 
       // Should navigate to results page

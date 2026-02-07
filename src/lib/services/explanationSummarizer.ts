@@ -4,7 +4,7 @@
  * Used during article publish to generate preview text, SEO descriptions, and keywords.
  */
 
-import { callOpenAIModel, lighter_model } from './llms';
+import { callLLM, LIGHTER_MODEL } from './llms';
 import { explanationSummarySchema, type ExplanationSummary } from '../schemas/schemas';
 import { logger } from '../server_utilities';
 import { createSupabaseServerClient } from '../utils/supabase/server';
@@ -68,11 +68,11 @@ export async function generateAndSaveExplanationSummary(
             .replace('{title}', title)
             .replace('{content}', content.slice(0, 4000)); // Limit context for cost
 
-        const result = await callOpenAIModel(
+        const result = await callLLM(
             prompt,
             'explanation_summarization',
             userid,
-            lighter_model,
+            LIGHTER_MODEL,
             false,
             null,
             explanationSummarySchema,

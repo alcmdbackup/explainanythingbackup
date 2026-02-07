@@ -8,7 +8,7 @@ import {
   cleanupAfterEnhancements,
   createLinksInContentPrompt
 } from './links';
-import { callOpenAIModel } from '@/lib/services/llms';
+import { callLLM } from '@/lib/services/llms';
 import { logger } from '@/lib/server_utilities';
 import { ServiceError } from '@/lib/errors/serviceError';
 import { ERROR_CODES } from '@/lib/errorHandling';
@@ -30,7 +30,7 @@ jest.mock('@/lib/prompts', () => ({
 }));
 
 describe('Links Service', () => {
-  const mockCallOpenAIModel = callOpenAIModel as jest.MockedFunction<typeof callOpenAIModel>;
+  const mockCallOpenAIModel = callLLM as jest.MockedFunction<typeof callLLM>;
 
   beforeEach(() => {
     jest.clearAllMocks();

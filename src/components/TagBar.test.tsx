@@ -931,7 +931,7 @@ describe('TagBar', () => {
 
   describe('Edge Cases & Outside Click', () => {
     it('should close available tags dropdown on outside click', async () => {
-      const simpleTag = createMockSimpleTag();
+      const simpleTag = createMockSimpleTag({ id: 1 });
       const availableTag = {
         id: 2,
         tag_name: 'Available',
@@ -955,9 +955,7 @@ describe('TagBar', () => {
       });
 
       // Wait for available tags to load from async action
-      await waitFor(() => {
-        expect(screen.getByText('Available')).toBeInTheDocument();
-      });
+      await screen.findByText('Available');
 
       // Click outside
       fireEvent.mouseDown(document.body);

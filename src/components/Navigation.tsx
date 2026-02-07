@@ -146,6 +146,13 @@ export default function Navigation({
                             Explore
                         </Link>
                         <Link
+                            href="/sources"
+                            className="scholar-nav-link hover:text-[var(--accent-gold)] text-base font-ui font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
+                            style={{ color: navColors.textMuted }}
+                        >
+                            Sources
+                        </Link>
+                        <Link
                             href="/settings"
                             className="scholar-nav-link hover:text-[var(--accent-gold)] text-base font-ui font-semibold transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-gold)] focus-visible:ring-offset-2 rounded px-1"
                             style={{ color: navColors.textMuted }}
