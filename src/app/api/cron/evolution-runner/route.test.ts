@@ -48,6 +48,7 @@ jest.mock('@/lib/evolution', () => ({
   DebateAgent: jest.fn(),
   ProximityAgent: jest.fn(),
   MetaReviewAgent: jest.fn(),
+  OutlineGenerationAgent: jest.fn(),
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -247,7 +248,7 @@ describe('Evolution Runner Cron API', () => {
       expect(mockExecuteFullPipeline).toHaveBeenCalled();
     });
 
-    it('passes all 9 agents to executeFullPipeline', async () => {
+    it('passes all 10 agents to executeFullPipeline', async () => {
       const mockSupabase = createMockSupabase();
       mockSupabase.from().maybeSingle
         .mockResolvedValueOnce({
@@ -281,6 +282,7 @@ describe('Evolution Runner Cron API', () => {
           debate: expect.anything(),
           proximity: expect.anything(),
           metaReview: expect.anything(),
+          outlineGeneration: expect.anything(),
         }),
         expect.anything(), // ctx
         expect.anything(), // evolutionLogger

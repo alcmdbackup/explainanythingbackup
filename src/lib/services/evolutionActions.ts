@@ -324,6 +324,7 @@ const _triggerEvolutionRunAction = withLogging(async (
       DebateAgent,
       ProximityAgent,
       MetaReviewAgent,
+      OutlineGenerationAgent,
     } = await import('@/lib/evolution');
     type PipelineAgents = import('@/lib/evolution').PipelineAgents;
 
@@ -363,6 +364,7 @@ const _triggerEvolutionRunAction = withLogging(async (
       debate: new DebateAgent(),
       proximity: new ProximityAgent(),
       metaReview: new MetaReviewAgent(),
+      outlineGeneration: new OutlineGenerationAgent(),
     };
     const startMs = Date.now();
 

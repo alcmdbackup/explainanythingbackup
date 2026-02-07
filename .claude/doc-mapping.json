@@ -303,6 +303,10 @@
       "docs": ["docs/feature_deep_dives/manage_sources.md", "docs/feature_deep_dives/add_sources_citations.md"]
     },
     {
+      "pattern": "src/lib/evolution/agents/*outline*.ts",
+      "docs": ["docs/feature_deep_dives/outline_based_generation_editing.md"]
+    },
+    {
       "pattern": "src/lib/evolution/treeOfThought*.ts",
       "docs": ["docs/feature_deep_dives/tree_of_thought_revisions.md"]
     }

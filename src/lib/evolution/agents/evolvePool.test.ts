@@ -1,9 +1,9 @@
-// Unit tests for EvolutionAgent: mutation, crossover, creative exploration, and format validation.
+// Unit tests for EvolutionAgent: mutation, crossover, creative exploration, outline mutation, and format validation.
 
 import { EvolutionAgent, getDominantStrategies, shouldTriggerCreativeExploration, EVOLUTION_STRATEGIES } from './evolvePool';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation } from '../types';
-import { BASELINE_STRATEGY } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation, OutlineVariant, GenerationStep } from '../types';
+import { BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
 const VALID_TEXT = `# Test Title
@@ -299,4 +299,91 @@ describe('EvolutionAgent', () => {
 const originalRandom = Math.random;
 afterEach(() => {
   Math.random = originalRandom;
+});
+
+// ─── Outline mutation tests ─────────────────────────────────────
+
+describe('EvolutionAgent outline mutation', () => {
+  const agent = new EvolutionAgent();
+
+  function makeOutlineVariant(id: string): OutlineVariant {
+    const steps: GenerationStep[] = [
+      { name: 'outline', input: 'original', output: '## Intro\nSummary of intro.', score: 0.85, costUsd: 0.001 },
+      { name: 'expand', input: '## Intro\nSummary', output: VALID_TEXT, score: 0.7, costUsd: 0.002 },
+      { name: 'polish', input: VALID_TEXT, output: VALID_TEXT, score: 0.9, costUsd: 0.001 },
+    ];
+    return {
+      id,
+      text: VALID_TEXT,
+      version: 1,
+      parentIds: [],
+      strategy: 'outline_generation',
+      createdAt: Date.now() / 1000,
+      iterationBorn: 0,
+      steps,
+      outline: '## Intro\nSummary of intro.',
+      weakestStep: 'expand',
+    };
+  }
+
+  it('produces mutate_outline variant when parent is OutlineVariant', async () => {
+    const state = new PipelineStateImpl('# Original\n\n## Sec\n\nOriginal text. More text here.');
+    const ov = makeOutlineVariant('ov-1');
+    state.addToPool(ov);
+    state.addToPool({
+      id: 'pv-1', text: VALID_TEXT, version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('ov-1', { mu: 30, sigma: 4 });
+    state.ratings.set('pv-1', { mu: 28, sigma: 4 });
+    state.matchCounts.set('ov-1', 3);
+    state.matchCounts.set('pv-1', 3);
+
+    // Suppress creative exploration
+    Math.random = () => 0.9;
+    try {
+      const ctx: ExecutionContext = {
+        payload: {
+          originalText: state.originalText,
+          title: 'Test',
+          explanationId: 1,
+          runId: 'test-run',
+          config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+        },
+        state,
+        llmClient: makeMockLLMClient([VALID_TEXT]),
+        logger: makeMockLogger(),
+        costTracker: makeMockCostTracker(),
+        runId: 'test-run',
+      };
+
+      const result = await agent.execute(ctx);
+      expect(result.success).toBe(true);
+
+      const outlineVariants = state.pool.filter(v => v.strategy === 'mutate_outline');
+      expect(outlineVariants.length).toBe(1);
+      expect(isOutlineVariant(outlineVariants[0])).toBe(true);
+      if (isOutlineVariant(outlineVariants[0])) {
+        expect(outlineVariants[0].parentIds).toContain('ov-1');
+        expect(outlineVariants[0].steps).toHaveLength(2);
+        expect(outlineVariants[0].steps[0].name).toBe('outline');
+        expect(outlineVariants[0].steps[1].name).toBe('expand');
+      }
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
+
+  it('does not produce mutate_outline when no OutlineVariant parents', async () => {
+    const ctx = makeCtx([VALID_TEXT], 4);
+    Math.random = () => 0.9;
+    try {
+      await agent.execute(ctx);
+
+      const outlineVariants = ctx.state.pool.filter(v => v.strategy === 'mutate_outline');
+      expect(outlineVariants.length).toBe(0);
+    } finally {
+      Math.random = originalRandom;
+    }
+  });
 });

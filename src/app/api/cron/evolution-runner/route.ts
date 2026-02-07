@@ -123,6 +123,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       DebateAgent,
       ProximityAgent,
       MetaReviewAgent,
+      OutlineGenerationAgent,
     } = await import('@/lib/evolution');
     type PipelineAgents = import('@/lib/evolution').PipelineAgents;
 
@@ -161,6 +162,7 @@ export async function GET(request: Request): Promise<NextResponse> {
       debate: new DebateAgent(),
       proximity: new ProximityAgent(),
       metaReview: new MetaReviewAgent(),
+      outlineGeneration: new OutlineGenerationAgent(),
     };
 
     // 6. Start heartbeat interval (keeps watchdog happy)

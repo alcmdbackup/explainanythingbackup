@@ -30,6 +30,42 @@ export interface TextVariation {
   costUsd?: number;
 }
 
+// ─── Outline generation types (step-level scoring) ──────────────
+
+export type GenerationStepName = 'outline' | 'expand' | 'polish' | 'verify';
+
+/** A single step in the outline generation pipeline with its score and cost. */
+export interface GenerationStep {
+  name: GenerationStepName;
+  input: string;
+  output: string;
+  /** Step quality score from LLM judge, 0-1. Defaults to 0.5 on parse failure. */
+  score: number;
+  /** LLM cost in USD for this step. */
+  costUsd: number;
+}
+
+/** Extends TextVariation with step-level scoring for outline-based generation. */
+export interface OutlineVariant extends TextVariation {
+  steps: GenerationStep[];
+  /** The intermediate outline text (section headings + summaries). */
+  outline: string;
+  /** Cached weakest step name for mutation targeting. Null if no steps scored. */
+  weakestStep: GenerationStepName | null;
+}
+
+/** Type guard: returns true if a TextVariation is an OutlineVariant with step data. */
+export function isOutlineVariant(v: TextVariation): v is OutlineVariant {
+  const candidate = v as OutlineVariant;
+  return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
+}
+
+/** Parse a raw LLM score output to a number in [0, 1], defaulting to 0.5 on failure. */
+export function parseStepScore(rawOutput: string): number {
+  const parsed = parseFloat(rawOutput);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.5;
+}
+
 export interface Critique {
   variationId: string;
   dimensionScores: Record<string, number>;

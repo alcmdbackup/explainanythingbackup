@@ -103,8 +103,38 @@ The IterativeEditingAgent depends on ReflectionAgent output:
 - Reads `dimensionScores`, `badExamples`, and `notes` to select edit targets
 - Also runs its own inline critique after accepted edits (duplicates the ReflectionAgent prompt since `buildCritiquePrompt` is module-private in reflectionAgent.ts)
 
+## Step-Aware Editing for Outline Variants
+
+When the top variant is an `OutlineVariant` (produced by `OutlineGenerationAgent`), the agent adds step-based edit targets before dimension-based targets.
+
+### How Step Targeting Works
+
+In `pickEditTarget()`, if the variant has step metadata (`isOutlineVariant(variant)` returns true), a `step:{weakestStep}` target is unshifted to the front of the target array:
+
+```typescript
+if (isOutlineVariant(variant) && variant.weakestStep) {
+  targets.unshift({
+    dimension: `step:${variant.weakestStep}`,
+    description: `Re-generate the ${variant.weakestStep} step (score: ${stepScore})`,
+    score: stepScore,
+  });
+}
+```
+
+The `step:` prefix in the `dimension` field triggers a step-specific prompt in `buildEditPrompt()`:
+- `step:outline` → "Create a better section outline with improved structure, coverage, and logical flow"
+- `step:expand` → "Expand the outline sections into better prose with stronger examples"
+- `step:polish` → "Polish the text for better readability, transitions, flow, and coherence"
+
+### Behavior Difference
+
+For regular `TextVariation` inputs, behavior is unchanged — only dimension-based targets from `Critique.dimensionScores` are used. The step targeting is additive and only activates when the variant carries step metadata.
+
+Note: Step-targeted edits currently produce plain `TextVariation` results (not `OutlineVariant`), since re-scoring steps would require additional LLM calls. The edit still benefits from targeting the weakest generation step, but the resulting variant loses step metadata for subsequent iterations.
+
 ## Related Documentation
 
 - [Evolution Pipeline](./evolution_pipeline.md) — Full pipeline architecture and agent interactions
 - [Comparison Infrastructure](./comparison_infrastructure.md) — Pairwise comparison and bias mitigation patterns
+- [Outline-Based Generation](./outline_based_generation_editing.md) — OutlineGenerationAgent and step scoring
 - [Tree of Thought Revisions](./tree_of_thought_revisions.md) — Beam search evolution of the linear editing approach (mutually exclusive via feature flag)

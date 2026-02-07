@@ -27,6 +27,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       dryRunOnly: false,
       debateEnabled: true,
       iterativeEditingEnabled: true,
+      outlineGenerationEnabled: false,
       treeSearchEnabled: false,
     });
   });
@@ -45,6 +46,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       dryRunOnly: true,
       debateEnabled: true,
       iterativeEditingEnabled: true,
+      outlineGenerationEnabled: false,
       treeSearchEnabled: false,
     });
   });

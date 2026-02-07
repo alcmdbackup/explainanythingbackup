@@ -17,6 +17,7 @@ export type GenerationStrategy = (typeof GENERATION_STRATEGIES)[number];
 export interface PhaseConfig {
   phase: PipelinePhase;
   runGeneration: boolean;
+  runOutlineGeneration: boolean;
   runReflection: boolean;
   runIterativeEditing: boolean;
   runTreeSearch: boolean;
@@ -159,6 +160,7 @@ export class PoolSupervisor {
       return {
         phase: 'EXPANSION',
         runGeneration: true,
+        runOutlineGeneration: false,
         runReflection: false,
         runIterativeEditing: false,
         runTreeSearch: false,
@@ -177,6 +179,7 @@ export class PoolSupervisor {
     return {
       phase: 'COMPETITION',
       runGeneration: true,
+      runOutlineGeneration: true,
       runReflection: true,
       runIterativeEditing: true,
       runTreeSearch: true,

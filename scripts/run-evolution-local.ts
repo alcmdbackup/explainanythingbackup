@@ -42,6 +42,8 @@ import { ProximityAgent } from '../src/lib/evolution/agents/proximityAgent';
 import { MetaReviewAgent } from '../src/lib/evolution/agents/metaReviewAgent';
 import { DebateAgent } from '../src/lib/evolution/agents/debateAgent';
 import { IterativeEditingAgent } from '../src/lib/evolution/agents/iterativeEditingAgent';
+import { OutlineGenerationAgent } from '../src/lib/evolution/agents/outlineGenerationAgent';
+import { isOutlineVariant } from '../src/lib/evolution/types';
 import { TreeSearchAgent } from '../src/lib/evolution/agents/treeSearchAgent';
 
 // ─── Types ────────────────────────────────────────────────────────
@@ -59,6 +61,7 @@ interface CLIArgs {
   seedModel: string | null;
   mock: boolean;
   full: boolean;
+  outline: boolean;
   iterations: number;
   budget: number;
   output: string;
@@ -96,6 +99,7 @@ Options:
   --output <path>          Output JSON path (default: auto-generated)
   --explanation-id <n>     Optional: link run to an explanation in DB
   --model <name>           LLM model (default: deepseek-chat)
+  --outline                Enable outline-based generation agent (decomposed step pipeline)
   --bank                   Add winner (+ baseline) to article bank after completion
   --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
                              Requires --bank and --prompt. Runs to max checkpoint iteration.
@@ -148,6 +152,7 @@ Options:
     seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
     full: getFlag('full'),
+    outline: getFlag('outline'),
     iterations,
     budget: parseFloat(getValue('budget') ?? '5.00'),
     output: getValue('output') ?? defaultOutput,
@@ -560,9 +565,10 @@ interface NamedAgents {
   debate: PipelineAgent;
   proximity: PipelineAgent;
   metaReview: PipelineAgent;
+  outlineGeneration?: PipelineAgent;
 }
 
-function buildAgents(): NamedAgents {
+function buildAgents(outline: boolean): NamedAgents {
   return {
     generation: new GenerationAgent(),
     calibration: new CalibrationRanker(),
@@ -574,6 +580,7 @@ function buildAgents(): NamedAgents {
     debate: new DebateAgent(),
     proximity: new ProximityAgent({ testMode: true }),
     metaReview: new MetaReviewAgent(),
+    ...(outline ? { outlineGeneration: new OutlineGenerationAgent() } : {}),
   };
 }
 
@@ -619,18 +626,25 @@ async function snapshotCheckpointToBank(
     return;
   }
 
+  const checkpointMeta: Record<string, unknown> = {
+    iterations: iteration,
+    seed_model: args.seedModel ?? args.model,
+    winning_strategy: winner.strategy,
+    checkpoint: true,
+  };
+  if (isOutlineVariant(winner)) {
+    checkpointMeta.outline_mode = true;
+    checkpointMeta.outline = winner.outline;
+    checkpointMeta.weakest_step = winner.weakestStep;
+    checkpointMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
+  }
   const bankResult = await addEntryToBank(supabase, {
     prompt: args.prompt,
     content: winner.text,
     generation_method: 'evolution_winner',
     model: args.model,
     total_cost_usd: ctx.costTracker.getTotalSpent(),
-    metadata: {
-      iterations: iteration,
-      seed_model: args.seedModel ?? args.model,
-      winning_strategy: winner.strategy,
-      checkpoint: true,
-    },
+    metadata: checkpointMeta,
   });
   logger.info('Checkpoint snapshot saved to bank', {
     iteration,
@@ -738,6 +752,7 @@ async function runFullPipeline(
     // Run agents in phase-defined order
     const steps: Array<{ run: boolean; agent: PipelineAgent }> = [
       { run: phaseConfig.runGeneration, agent: agents.generation },
+      ...(agents.outlineGeneration ? [{ run: phaseConfig.runOutlineGeneration, agent: agents.outlineGeneration }] : []),
       { run: phaseConfig.runReflection, agent: agents.reflection },
       { run: phaseConfig.runIterativeEditing, agent: agents.iterativeEditing },
       { run: phaseConfig.runTreeSearch, agent: agents.treeSearch },
@@ -970,11 +985,11 @@ async function main() {
     runId,
   };
 
-  const agents = buildAgents();
+  const agents = buildAgents(args.outline);
   const agentNames = args.full
-    ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview']
+    ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(args.outline ? ['outlineGeneration'] : [])]
     : ['generation', 'calibration'];
-  logger.info('Agent suite', { agents: agentNames, mode: args.full ? 'full' : 'minimal' });
+  logger.info('Agent suite', { agents: agentNames, mode: args.full ? 'full' : 'minimal', outline: args.outline });
 
   // Run pipeline
   await updateRunStatus(dbTracking ? supabase : null, runId, {
@@ -1040,19 +1055,26 @@ async function main() {
         const winner = topVariants[0];
         if (winner) {
           logger.info('Adding winner to article bank...');
+          const winnerMeta: Record<string, unknown> = {
+              iterations: state.iteration,
+              duration_seconds: Math.round(durationMs / 1000),
+              stop_reason: stopReason,
+              seed_model: args.seedModel ?? args.model,
+              winning_strategy: winner.strategy,
+          };
+          if (isOutlineVariant(winner)) {
+            winnerMeta.outline_mode = true;
+            winnerMeta.outline = winner.outline;
+            winnerMeta.weakest_step = winner.weakestStep;
+            winnerMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
+          }
           const bankResult = await addEntryToBank(supabase, {
             prompt: args.prompt,
             content: winner.text,
             generation_method: 'evolution_winner',
             model: args.model,
             total_cost_usd: costTracker.getTotalSpent(),
-            metadata: {
-              iterations: state.iteration,
-              duration_seconds: Math.round(durationMs / 1000),
-              stop_reason: stopReason,
-              seed_model: args.seedModel ?? args.model,
-              winning_strategy: winner.strategy,
-            },
+            metadata: winnerMeta,
           });
           logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
         }

@@ -13,7 +13,9 @@ import type {
   PipelinePhase,
   SerializedPipelineState,
   EvolutionRunStatus,
+  GenerationStepName,
 } from '@/lib/evolution/types';
+import { isOutlineVariant } from '@/lib/evolution/types';
 import type { AgentCostBreakdown } from '@/lib/services/evolutionActions';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -779,7 +781,58 @@ const _getEvolutionRunComparisonAction = withLogging(async (
 
 export const getEvolutionRunComparisonAction = serverReadRequestId(_getEvolutionRunComparisonAction);
 
-// ─── 7. Tree Search ─────────────────────────────────────────────
+// ─── 7. Variant Step Scores ─────────────────────────────────────
+
+/** Step score data for outline variants, keyed by variant ID. */
+export interface VariantStepData {
+  variantId: string;
+  steps: Array<{ name: GenerationStepName; score: number; costUsd: number }>;
+  outline: string;
+  weakestStep: GenerationStepName | null;
+}
+
+const _getEvolutionRunStepScoresAction = withLogging(async (
+  runId: string
+): Promise<ActionResult<VariantStepData[]>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: latestCp, error: cpError } = await supabase
+      .from('evolution_checkpoints')
+      .select('state_snapshot')
+      .eq('run_id', runId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (cpError) throw cpError;
+
+    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    const state = deserializeState(snapshot);
+
+    const stepDataList: VariantStepData[] = [];
+    for (const v of state.pool) {
+      if (isOutlineVariant(v)) {
+        stepDataList.push({
+          variantId: v.id,
+          steps: v.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd })),
+          outline: v.outline,
+          weakestStep: v.weakestStep,
+        });
+      }
+    }
+
+    return { success: true, data: stepDataList, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunStepScoresAction', { runId }) };
+  }
+}, 'getEvolutionRunStepScoresAction');
+
+export const getEvolutionRunStepScoresAction = serverReadRequestId(_getEvolutionRunStepScoresAction);
+
+// ─── 8. Tree Search ─────────────────────────────────────────────
 
 const _getEvolutionRunTreeSearchAction = withLogging(async (
   runId: string

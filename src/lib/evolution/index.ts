@@ -17,8 +17,11 @@ export type {
   CostTracker,
   Checkpoint,
   SerializedPipelineState,
+  OutlineVariant,
+  GenerationStep,
+  GenerationStepName,
 } from './types';
-export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from './types';
+export { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema, isOutlineVariant, parseStepScore } from './types';
 export type { EvolutionRunSummary } from './types';
 export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
@@ -36,6 +39,7 @@ export type { PipelineAgents, FullPipelineOptions } from './core/pipeline';
 export { PoolSupervisor, supervisorConfigFromRunConfig } from './core/supervisor';
 export type { PhaseConfig, SupervisorResumeState, SupervisorConfig } from './core/supervisor';
 export { GenerationAgent } from './agents/generationAgent';
+export { OutlineGenerationAgent } from './agents/outlineGenerationAgent';
 export { CalibrationRanker } from './agents/calibrationRanker';
 export { PairwiseRanker } from './agents/pairwiseRanker';
 export { Tournament } from './agents/tournament';

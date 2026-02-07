@@ -163,6 +163,7 @@ async function executeEvolutionRun(
     IterativeEditingAgent,
     ProximityAgent,
     MetaReviewAgent,
+    OutlineGenerationAgent,
   } = await import('../src/lib/evolution/index');
 
   const { fetchEvolutionFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
@@ -200,6 +201,7 @@ async function executeEvolutionRun(
     debate: new DebateAgent(),
     proximity: new ProximityAgent(),
     metaReview: new MetaReviewAgent(),
+    outlineGeneration: new OutlineGenerationAgent(),
   };
 
   const startMs = Date.now();

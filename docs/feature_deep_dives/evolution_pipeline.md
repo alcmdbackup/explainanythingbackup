@@ -10,14 +10,16 @@ The pipeline uses an evolutionary algorithm metaphor: a pool of text variants co
 Article Text → EXPANSION phase (grow pool) → COMPETITION phase (refine pool) → Winner Applied
                  │                              │
                  ├─ GenerationAgent              ├─ GenerationAgent (focused strategy)
-                 ├─ CalibrationRanker            ├─ ReflectionAgent (critique top 3)
-                 ├─ ProximityAgent               ├─ IterativeEditingAgent (critique→edit→judge)
+                 ├─ CalibrationRanker            ├─ OutlineGenerationAgent* (outline→expand→polish)
+                 ├─ ProximityAgent               ├─ ReflectionAgent (critique top 3)
+                 │                              ├─ IterativeEditingAgent (critique→edit→judge)
                  │                              ├─ DebateAgent (structured 3-turn debate)
                  │                              ├─ EvolutionAgent (mutate/crossover)
                  │                              ├─ CalibrationRanker or Tournament
                  │                              ├─ ProximityAgent (diversity tracking)
                  │                              └─ MetaReviewAgent (meta-feedback)
 ```
+\* OutlineGenerationAgent gated by `evolution_outline_generation_enabled` feature flag (default: `false`). See [Outline-Based Generation](./outline_based_generation_editing.md).
 
 ## Key Concepts
 
@@ -108,6 +110,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 **COMPETITION** (iterations N+1 to max): Refine the best variants
 - GenerationAgent creates 3 variants per iteration (same as EXPANSION). **Note:** The supervisor prepares a rotating single-strategy payload for COMPETITION, but the current `GenerationAgent` does not consume it — it always generates all 3 strategies. This is a known gap between the supervisor's design intent and the agent's implementation.
+- OutlineGenerationAgent (if enabled) creates 1 outline-based variant via a 6-call pipeline: outline → score → expand → score → polish → score → verify. Each step scored independently (0-1). Produces `OutlineVariant` with step-level metadata. Gated by `outlineGenerationEnabled` feature flag. See [Outline-Based Generation](./outline_based_generation_editing.md).
 - ReflectionAgent critiques top 3 variants across 5 dimensions: clarity, structure, engagement, precision, coherence. Produces per-dimension scores (1–10), examples, and notes.
 - IterativeEditingAgent takes the top variant by ordinal, identifies weaknesses from ReflectionAgent critiques and open-ended review, generates surgical edits, and gates each edit via blind diff-based LLM comparison with direction-reversal bias mitigation. Only edits that pass the blind judge are added to the pool. Gated by `iterativeEditingEnabled` feature flag. See [Iterative Editing Agent](./iterative_editing_agent.md) for details.
 - DebateAgent selects the top 2 non-baseline variants by ordinal and runs a structured 3-turn debate: Advocate A argues for Variant A, Advocate B rebuts and argues for Variant B, a Judge synthesizes recommendations into JSON. A fourth LLM call generates an improved variant from the judge's recommendations. Consumes ReflectionAgent critiques as optional context. Produces a `debate_synthesis` variant with both debated variants as parents. Gated by `debateEnabled` feature flag. Inspired by Google DeepMind's AI Co-Scientist (arxiv 2502.18864).
@@ -118,7 +121,7 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 
 ### Two Pipeline Modes
 
-- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. **Used by the admin UI trigger (`triggerEvolutionRunAction`)** with all 9 agents.
+- **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. **Used by the admin UI trigger (`triggerEvolutionRunAction`)** with all 10 agents (9 core + optional OutlineGenerationAgent).
 - **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) when running with specific agents.
 
 ### Agent Framework
@@ -167,7 +170,7 @@ Rating updates use the OpenSkill pairwise functions (`core/rating.ts`):
 ### Budget Enforcement
 
 The `CostTracker` (`core/costTracker.ts`) enforces budget at two levels:
-- **Per-agent caps**: Configurable percentage of total budget (default: generation 25%, calibration 15%, tournament 25%, evolution 15%, reflection 5%, debate 5%, iterativeEditing 10%). See Configuration for values. **Note:** DebateAgent currently hardcodes `costUsd: 0` in its return value, so its 4 LLM calls are charged to the global budget via CostTracker reservations but the agent-level cost attribution will show zero.
+- **Per-agent caps**: Configurable percentage of total budget (default: generation 20%, calibration 15%, tournament 25%, evolution 10%, reflection 5%, debate 5%, iterativeEditing 10%, outlineGeneration 10%). See Configuration for values. **Note:** DebateAgent currently hardcodes `costUsd: 0` in its return value, so its 4 LLM calls are charged to the global budget via CostTracker reservations but the agent-level cost attribution will show zero.
 - **Global cap**: Default $5.00 per run
 - **Pre-call reservation with optimistic locking**: Budget is checked *before* every LLM call with a 30% safety margin. Reserved amounts are tracked separately from actual spend (`reservedByAgent` + `totalReserved`) so concurrent parallel calls cannot all pass budget checks. When `recordSpend()` is called after an LLM response, the reservation is released and replaced with actual spend.
 - **Pause, not fail**: `BudgetExceededError` pauses the run (status='paused') rather than marking it failed. An admin can increase the budget and resume from the last checkpoint. `BudgetExceededError` is re-thrown through `Promise.allSettled` rejection handling in all agents to ensure propagation to the pipeline orchestrator.
@@ -238,6 +241,7 @@ Controlled by `FORMAT_VALIDATION_MODE` env var:
    │
    ├─ [COMPETITION]
    │   ├─ GenerationAgent → 3 new variants (all 3 strategies)
+   │   ├─ OutlineGenerationAgent* → 1 outline variant (6-call pipeline, step scores)
    │   ├─ ReflectionAgent → critique top 3 variants (5 dimensions)
    │   ├─ IterativeEditingAgent → critique→edit→judge on top variant → accepted edits
    │   ├─ DebateAgent → 3-turn debate on top 2 → synthesis variant
@@ -286,6 +290,7 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | DebateAgent | `pool` (top 2 non-baseline by ordinal), `allCritiques` | `pool` (debate_synthesis variant via `addToPool`), `debateTranscripts` |
 | TreeSearchAgent | `pool` (top by μ), `allCritiques`, `ratings` | `pool` (tree_search_* variant via `addToPool`), `treeSearchResults`, `treeSearchStates` |
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
+| OutlineGenerationAgent | `originalText`, config (`generationModel`, `judgeModel`) | `pool` (OutlineVariant with steps, outline, weakestStep) |
 | MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
 
 **State lifecycle notes:**
@@ -351,13 +356,14 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     minOpponents: 2,     // Adaptive early exit: skip remaining after N consecutive decisive matches
   },
   budgetCaps: {          // Per-agent % of budgetCapUsd — see Budget Enforcement
-    generation: 0.25,
+    generation: 0.20,
     calibration: 0.15,
     tournament: 0.25,
-    evolution: 0.15,
+    evolution: 0.10,
     reflection: 0.05,
     debate: 0.05,
     iterativeEditing: 0.10,
+    outlineGeneration: 0.10,
   },
   useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
@@ -378,6 +384,7 @@ Five flags are managed by the evolution feature flag system (`core/featureFlags.
 | `evolution_dry_run_only` | `false` | When `true`, pipeline logs only — no LLM calls |
 | `evolution_debate_enabled` | `true` | When `false`, DebateAgent skipped in COMPETITION phase |
 | `evolution_iterative_editing_enabled` | `true` | When `false`, IterativeEditingAgent skipped in COMPETITION phase |
+| `evolution_outline_generation_enabled` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Outline-Based Generation](./outline_based_generation_editing.md) |
 | `evolution_tree_search_enabled` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
@@ -421,6 +428,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `iterativeEditingAgent.ts` | Critique-driven surgical edits on top variant with blind diff-based LLM judge and direction-reversal bias mitigation. Produces `critique_edit_*` variants. Consumes ReflectionAgent critiques. COMPETITION only. |
 | `treeSearchAgent.ts` | Beam search tree-of-thought revisions. Explores K×B×D revision candidates across multiple dimensions, hybrid two-stage evaluation (parent-relative diff filter + sibling mini-tournament). Produces `tree_search_*` variants. Mutually exclusive with IterativeEditingAgent. COMPETITION only. See [tree_of_thought_revisions.md](./tree_of_thought_revisions.md). |
 | `debateAgent.ts` | Structured 3-turn debate (Advocate A / Advocate B / Judge) over top 2 non-baseline variants by ordinal, produces `debate_synthesis` variant. 4 sequential LLM calls. Consumes ReflectionAgent critiques. COMPETITION only. |
+| `outlineGenerationAgent.ts` | Outline-based generation: 6-call pipeline (outline → score → expand → score → polish → score) with per-step scoring. Produces `OutlineVariant` with step metadata. See [Outline-Based Generation](./outline_based_generation_editing.md) |
 | `metaReviewAgent.ts` | Analyzes strategy performance via ordinal analysis, detects weaknesses in bottom-quartile variants, recommends priority improvements (computation-only, no LLM calls) |
 | `proximityAgent.ts` | Computes cosine similarity between variant embeddings, maintains sparse similarity matrix, derives pool diversity score |
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
@@ -459,7 +467,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `scripts/add-to-bank.ts` | Adds evolution run winner (and optionally baseline) to article bank |
 | `scripts/lib/bankUtils.ts` | Shared article bank insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
-| `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 5 generation methods (3 oneshot + 1 minimal evolution + 1 full/tree-search evolution), comparison settings |
+| `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods (3 oneshot + 1 minimal evolution + 1 outline evolution + 1 tree-search evolution), comparison settings |
 | `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--max-runs` and `--dry-run` inputs |
 
 ### Database Tables
@@ -517,6 +525,9 @@ npx tsx scripts/run-evolution-local.ts --file any-markdown.md --model gpt-4.1-mi
 
 # With bank checkpoints (snapshot intermediate iterations to article bank)
 npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank --bank-checkpoints "3,5,10"
+
+# With outline-based generation enabled
+npx tsx scripts/run-evolution-local.ts --file article.md --full --outline --iterations 5
 ```
 
 Auto-persists to Supabase when `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set. Runs are tracked with `source='local:<filename>'` and `explanation_id=NULL`. Pass `--explanation-id N` to link a run to an existing explanation.
@@ -578,3 +589,4 @@ The `--bank` flag on both `generate-article.ts` (1-shot) and `run-evolution-loca
 - [Admin Panel](./admin_panel.md) — Evolution UI walkthrough at `/admin/quality/evolution`
 - [Metrics & Analytics](./metrics_analytics.md) — Cost tracking and LLM call attribution
 - [Request Tracing & Observability](./request_tracing_observability.md) — OpenTelemetry span details for debugging evolution runs
+- [Outline-Based Generation](./outline_based_generation_editing.md) — Step-level scoring, outline agent, step-targeted mutations

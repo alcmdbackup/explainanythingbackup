@@ -1,9 +1,10 @@
 // Unit tests for IterativeEditingAgent — critique-driven editing with blind diff-based judging.
+// Includes step-targeted mutation tests for OutlineVariant support.
 
 import { IterativeEditingAgent } from './iterativeEditingAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique } from '../types';
-import { BudgetExceededError } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, OutlineVariant, GenerationStep } from '../types';
+import { BudgetExceededError, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { DiffComparisonResult } from '../diffComparison';
 
@@ -470,5 +471,95 @@ describe('IterativeEditingAgent', () => {
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
     expect(cost).toBeGreaterThan(0);
+  });
+
+  describe('step-targeted editing for OutlineVariants', () => {
+    function makeOutlineCtx(): ExecutionContext {
+      const state = new PipelineStateImpl('# Original\n\n## Section\n\nOriginal text content here. This is a second sentence.');
+      const steps: GenerationStep[] = [
+        { name: 'outline', input: 'original', output: '## Intro\nSummary', score: 0.85, costUsd: 0.001 },
+        { name: 'expand', input: '## Intro\nSummary', output: 'Expanded.', score: 0.4, costUsd: 0.002 },
+        { name: 'polish', input: 'Expanded.', output: VALID_ARTICLE, score: 0.9, costUsd: 0.001 },
+      ];
+      const outlineVariant: OutlineVariant = {
+        id: 'ov-top',
+        text: VALID_ARTICLE,
+        version: 1,
+        parentIds: [],
+        strategy: 'outline_generation',
+        createdAt: Date.now() / 1000,
+        iterationBorn: 0,
+        steps,
+        outline: '## Intro\nSummary',
+        weakestStep: 'expand',
+      };
+
+      state.addToPool(outlineVariant);
+      state.ratings.set('ov-top', { mu: 30, sigma: 4 });
+      state.allCritiques = [makeCritique('ov-top')];
+
+      return {
+        payload: {
+          originalText: state.originalText,
+          title: 'Test',
+          explanationId: 1,
+          runId: 'test-run',
+          config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+        },
+        state,
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,  // open review
+          VALID_ARTICLE,      // edit (step-targeted)
+          VALID_CRITIQUE_JSON, // inline critique after accept
+          VALID_OPEN_REVIEW,  // open review after accept
+        ]),
+        logger: makeMockLogger(),
+        costTracker: makeMockCostTracker(),
+        runId: 'test-run',
+      };
+    }
+
+    it('targets weakest step first when variant is OutlineVariant', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeOutlineCtx();
+
+      await agent.execute(ctx);
+
+      // First edit should target the expand step (weakest at 0.4)
+      const newVariants = ctx.state.pool.filter(v => v.strategy.startsWith('critique_edit_'));
+      expect(newVariants.length).toBe(1);
+      expect(newVariants[0].strategy).toBe('critique_edit_step:expand');
+    });
+
+    it('generates step-specific prompt for step:expand target', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeOutlineCtx();
+
+      await agent.execute(ctx);
+
+      // The edit call should contain step-specific instructions
+      const editCall = (ctx.llmClient.complete as jest.Mock).mock.calls[1];
+      expect(editCall[0]).toContain('expand');
+      expect(editCall[0]).toContain('0.4');
+    });
+
+    it('falls back to dimension-based targets for plain TextVariation (regression)', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_CRITIQUE_JSON,
+          VALID_OPEN_REVIEW,
+        ]),
+      });
+
+      await agent.execute(ctx);
+
+      const newVariants = ctx.state.pool.filter(v => v.strategy.startsWith('critique_edit_'));
+      expect(newVariants.length).toBe(1);
+      // Should target dimension, not step (plain TextVariation)
+      expect(newVariants[0].strategy).not.toContain('step:');
+    });
   });
 });

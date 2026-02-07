@@ -3,8 +3,8 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique } from '../types';
-import { BudgetExceededError } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation } from '../types';
+import { BudgetExceededError, isOutlineVariant } from '../types';
 import { compareWithDiff } from '../diffComparison';
 import { getCritiqueForVariant, CRITIQUE_DIMENSIONS } from './reflectionAgent';
 import { FORMAT_RULES } from './formatRules';
@@ -77,8 +77,8 @@ export class IterativeEditingAgent extends AgentBase {
         break;
       }
 
-      // Pick edit target from combined rubric + open review
-      const editTarget = this.pickEditTarget(currentCritique, openReview);
+      // Pick edit target from combined rubric + open review (passes variant for step-aware targeting)
+      const editTarget = this.pickEditTarget(currentCritique, openReview, current);
       if (!editTarget) break;
 
       // EDIT: generate targeted fix
@@ -244,9 +244,20 @@ Output ONLY valid JSON, no other text.`;
     }
   }
 
-  /** Pick the highest-priority unattempted edit target from combined rubric + open review. */
-  private pickEditTarget(critique: Critique | null, openReview: string[] | null): EditTarget | null {
+  /** Pick the highest-priority unattempted edit target from combined rubric + open review.
+   *  For OutlineVariants, step-based targets are added first (highest priority). */
+  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation): EditTarget | null {
     const targets: EditTarget[] = [];
+
+    // Step-based targets for OutlineVariants (highest priority)
+    if (variant && isOutlineVariant(variant) && variant.weakestStep) {
+      const stepScore = variant.steps.find(s => s.name === variant.weakestStep)?.score ?? 0;
+      targets.push({
+        dimension: `step:${variant.weakestStep}`,
+        description: `Re-generate the ${variant.weakestStep} step (score: ${stepScore.toFixed(2)})`,
+        score: stepScore,
+      });
+    }
 
     // Add rubric-based targets (dimensions scoring < qualityThreshold)
     if (critique) {
@@ -290,6 +301,30 @@ Output ONLY valid JSON, no other text.`;
 }
 
 function buildEditPrompt(text: string, target: EditTarget): string {
+  // Step-targeted prompt for OutlineVariants
+  if (target.dimension?.startsWith('step:')) {
+    const stepName = target.dimension.slice(5);
+    const stepInstructions =
+      stepName === 'outline' ? 'Create a better section outline with improved structure, coverage, and logical flow.' :
+      stepName === 'expand' ? 'Expand the outline sections into better prose with stronger examples, details, and grounding.' :
+      'Polish the text for better readability, transitions, flow, and coherence.';
+
+    return `You are a writing expert. The ${stepName} step of this article scored ${target.score}/1.
+
+## Task
+Re-generate ONLY the ${stepName} step to improve quality. Keep all other aspects unchanged.
+
+## Original Text
+${text}
+
+## Instructions
+${stepInstructions}
+
+${FORMAT_RULES}
+
+Output ONLY the improved text, no explanations.`;
+  }
+
   const weaknessSection = target.dimension
     ? `## Weakness to Fix: ${target.dimension.toUpperCase()} (score: ${target.score}/10)
 Problems identified:

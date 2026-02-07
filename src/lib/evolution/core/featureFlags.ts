@@ -15,17 +15,20 @@ export interface EvolutionFeatureFlags {
   debateEnabled: boolean;
   /** Whether the IterativeEditingAgent runs in COMPETITION phase. */
   iterativeEditingEnabled: boolean;
+  /** Whether the OutlineGenerationAgent runs in COMPETITION phase. */
+  outlineGenerationEnabled: boolean;
   /** Whether the TreeSearchAgent runs in COMPETITION phase (mutually exclusive with iterativeEditing). */
   treeSearchEnabled: boolean;
 }
 
-/** Safe defaults: agents enabled, dry-run off. */
+/** Safe defaults: agents enabled, dry-run off. Outline generation defaults to off (opt-in). */
 export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   tournamentEnabled: true,
   evolvePoolEnabled: true,
   dryRunOnly: false,
   debateEnabled: true,
   iterativeEditingEnabled: true,
+  outlineGenerationEnabled: false,
   treeSearchEnabled: false,
 };
 
@@ -36,6 +39,7 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_dry_run_only: 'dryRunOnly',
   evolution_debate_enabled: 'debateEnabled',
   evolution_iterative_editing_enabled: 'iterativeEditingEnabled',
+  evolution_outline_generation_enabled: 'outlineGenerationEnabled',
   evolution_tree_search_enabled: 'treeSearchEnabled',
 };
 

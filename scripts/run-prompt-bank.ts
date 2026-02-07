@@ -159,7 +159,9 @@ async function buildCoverageMatrix(
           } else if (m.type === 'evolution' && entry.generation_method === 'evolution_winner') {
             const meta = entry.metadata as Record<string, unknown> | null;
             const iterations = meta?.iterations;
-            if (typeof iterations === 'number' && m.checkpoints.includes(iterations)) {
+            const entryIsOutline = meta?.outline_mode === true;
+            const methodIsOutline = m.outline === true;
+            if (typeof iterations === 'number' && m.checkpoints.includes(iterations) && entryIsOutline === methodIsOutline) {
               const label = `${m.label}_${iterations}iter`;
               methodCoverage[label] = { exists: true, entryId: entry.id };
             }
@@ -380,6 +382,7 @@ async function main() {
           '--bank',
           '--bank-checkpoints', missingCps.join(','),
           ...(evoMethod.mode === 'full' ? ['--full'] : []),
+          ...(evoMethod.outline ? ['--outline'] : []),
         ];
 
         const projectRoot = path.resolve(__dirname, '..');

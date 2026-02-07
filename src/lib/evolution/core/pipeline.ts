@@ -201,6 +201,8 @@ const STRATEGY_TO_AGENT: Record<string, string> = {
   creative_exploration: 'evolution',
   debate_synthesis: 'debate',
   original_baseline: 'original',
+  outline_generation: 'outlineGeneration',
+  mutate_outline: 'outlineGeneration',
 };
 
 /** Map a strategy name to its agent, handling dynamic patterns. */
@@ -454,6 +456,7 @@ export interface PipelineAgents {
   debate?: PipelineAgent;
   proximity?: PipelineAgent;
   metaReview?: PipelineAgent;
+  outlineGeneration?: PipelineAgent;
 }
 
 /** Options for full pipeline execution. */
@@ -558,6 +561,15 @@ export async function executeFullPipeline(
         // === Generation ===
         if (config.runGeneration) {
           await runAgent(runId, agents.generation, ctx, phase, logger);
+        }
+
+        // === Outline Generation (COMPETITION only — optional) ===
+        if (config.runOutlineGeneration && agents.outlineGeneration) {
+          if (options.featureFlags?.outlineGenerationEnabled === false) {
+            logger.info('Outline generation agent disabled by feature flag', { iteration: ctx.state.iteration });
+          } else {
+            await runAgent(runId, agents.outlineGeneration, ctx, phase, logger);
+          }
         }
 
         // === Reflection (Slice C — optional) ===

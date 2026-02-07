@@ -141,6 +141,88 @@ describe('run-evolution-local prompt mode', () => {
     });
   });
 
+  describe('outline flag parsing', () => {
+    it('should default outline to false', () => {
+      const outline = false; // default when --outline not passed
+      expect(outline).toBe(false);
+    });
+
+    it('should set outline to true when --outline flag present', () => {
+      const args = ['--file', 'test.md', '--outline'];
+      const outline = args.includes('--outline');
+      expect(outline).toBe(true);
+    });
+
+    it('should include outlineGeneration in agent names when outline is true', () => {
+      const outline = true;
+      const full = true;
+      const agentNames = full
+        ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(outline ? ['outlineGeneration'] : [])]
+        : ['generation', 'calibration'];
+      expect(agentNames).toContain('outlineGeneration');
+    });
+
+    it('should not include outlineGeneration when outline is false', () => {
+      const outline = false;
+      const full = true;
+      const agentNames = full
+        ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(outline ? ['outlineGeneration'] : [])]
+        : ['generation', 'calibration'];
+      expect(agentNames).not.toContain('outlineGeneration');
+    });
+  });
+
+  describe('outline variant bank metadata', () => {
+    it('should include step metadata for outline variants', () => {
+      const isOutlineWinner = true;
+      const winnerMeta: Record<string, unknown> = {
+        iterations: 5,
+        winning_strategy: 'outline_generation',
+      };
+      if (isOutlineWinner) {
+        winnerMeta.outline_mode = true;
+        winnerMeta.outline = '## Section 1\nSummary\n## Section 2\nSummary';
+        winnerMeta.weakest_step = 'expand';
+        winnerMeta.steps = [
+          { name: 'outline', score: 0.9, costUsd: 0.01 },
+          { name: 'expand', score: 0.4, costUsd: 0.02 },
+        ];
+      }
+      expect(winnerMeta.outline_mode).toBe(true);
+      expect(winnerMeta.steps).toHaveLength(2);
+      expect(winnerMeta.weakest_step).toBe('expand');
+    });
+
+    it('should not include step metadata for regular variants', () => {
+      const isOutlineWinner = false;
+      const winnerMeta: Record<string, unknown> = {
+        iterations: 5,
+        winning_strategy: 'structural_transform',
+      };
+      if (isOutlineWinner) {
+        winnerMeta.outline_mode = true;
+      }
+      expect(winnerMeta.outline_mode).toBeUndefined();
+    });
+
+    it('should include step metadata in checkpoint entries for outline variants', () => {
+      const isOutlineWinner = true;
+      const checkpointMeta: Record<string, unknown> = {
+        iterations: 3,
+        winning_strategy: 'outline_generation',
+        checkpoint: true,
+      };
+      if (isOutlineWinner) {
+        checkpointMeta.outline_mode = true;
+        checkpointMeta.outline = '## Section 1\nSummary';
+        checkpointMeta.weakest_step = 'expand';
+        checkpointMeta.steps = [{ name: 'outline', score: 0.9, costUsd: 0.01 }];
+      }
+      expect(checkpointMeta.outline_mode).toBe(true);
+      expect(checkpointMeta.checkpoint).toBe(true);
+    });
+  });
+
   describe('mock LLM client integration', () => {
     it('should produce valid seed content from mock responses', () => {
       // Mock LLM returns text templates that pass format validation

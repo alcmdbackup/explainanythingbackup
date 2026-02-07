@@ -169,6 +169,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     TreeSearchAgent,
     ProximityAgent,
     MetaReviewAgent,
+    OutlineGenerationAgent,
   } = await import('../src/lib/evolution/index');
 
   const config = resolveConfig(run.config as Record<string, unknown>);
@@ -204,6 +205,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     debate: new DebateAgent(),
     proximity: new ProximityAgent(),
     metaReview: new MetaReviewAgent(),
+    outlineGeneration: new OutlineGenerationAgent(),
   };
 
   const heartbeat = startHeartbeat(run.id);
