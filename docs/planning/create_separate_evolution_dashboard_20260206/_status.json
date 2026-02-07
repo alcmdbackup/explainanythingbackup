@@ -1,0 +1,17 @@
+{
+  "branch": "feat/create_separate_evolution_dashboard_20260206",
+  "created_at": "2026-02-06T00:00:00.000Z",
+  "prerequisites": {
+    "getting_started_read": "2026-02-07T06:17:22Z",
+    "project_workflow_read": "2026-02-07T06:17:23Z",
+    "design_style_guide_read": "2026-02-07T06:17:23Z",
+    "testing_overview_read": "2026-02-07T06:17:24Z",
+    "todos_created": "2026-02-07T06:18:00Z"
+  },
+  "relevantDocs": [
+    "docs/feature_deep_dives/evolution_pipeline_visualization.md",
+    "docs/feature_deep_dives/evolution_pipeline.md",
+    "docs/feature_deep_dives/comparison_infrastructure.md",
+    "docs/feature_deep_dives/admin_panel.md"
+  ]
+}

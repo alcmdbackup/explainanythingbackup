@@ -7,6 +7,7 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 
 | Route | Purpose |
 |-------|---------|
+| `/admin/evolution-dashboard` | Evolution overview: stat cards (differentiated from ops), quick links to all sub-pages |
 | `/admin/quality/evolution` | Run management: queue new runs, filter by status/date, variant panel, apply winner, rollback, cost/quality charts |
 | `/admin/quality/evolution/dashboard` | Ops dashboard: stat cards, runs/spend trends, recent runs |
 | `/admin/quality/evolution/run/[runId]` | Run detail: 6-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants) + Add to Bank dialog |

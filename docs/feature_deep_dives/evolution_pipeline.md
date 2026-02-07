@@ -87,8 +87,7 @@ await rollbackEvolutionAction({ explanationId, historyId });
 
 ### Admin UI
 
-The evolution admin page lives at `/admin/quality/evolution` and provides:
-- Summary cards (total runs, completion rate, total/avg cost)
+The evolution dashboard entry point is `/admin/evolution-dashboard` (overview with stat cards and quick links to all sub-pages). The management page at `/admin/quality/evolution` provides:
 - Filterable runs table (by status and date range)
 - Variant panel showing rating-ranked variants with text preview
 - Queue dialog for manually queuing runs

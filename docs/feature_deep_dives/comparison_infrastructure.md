@@ -139,7 +139,7 @@ Two pages under `/admin/quality/article-bank/`:
 | `src/app/admin/quality/article-bank/page.tsx` | Topic list page |
 | `src/app/admin/quality/article-bank/[topicId]/page.tsx` | Topic detail page with 4-tab layout |
 | `src/app/admin/quality/evolution/run/[runId]/page.tsx` | Extended with "Add to Bank" button |
-| `src/components/admin/AdminSidebar.tsx` | Added "Article Bank" nav item |
+| `src/components/admin/EvolutionSidebar.tsx` | "Article Bank" nav item (moved from AdminSidebar to EvolutionSidebar) |
 
 ### Database
 | File | Purpose |

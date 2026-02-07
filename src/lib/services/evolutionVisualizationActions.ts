@@ -28,6 +28,9 @@ export interface DashboardData {
   runsPerDay: { date: string; completed: number; failed: number; paused: number }[];
   dailySpend: { date: string; amount: number }[];
   recentRuns: DashboardRun[];
+  previousMonthSpend: number;
+  articlesEvolvedCount: number;
+  articleBankSize: number;
 }
 
 export interface DashboardRun {
@@ -170,13 +173,18 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes] = await Promise.all([
+    const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+
+    const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
       supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed']),
       supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('content_evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
       supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
       supabase.from('content_evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
       supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed'),
+      supabase.from('article_bank_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
@@ -190,6 +198,15 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
 
     // Monthly spend
     const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
+
+    // Previous month spend (for trend comparison)
+    const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
+
+    // Articles with completed evolution runs (deduplicate explanation_ids)
+    const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
+
+    // Article bank size
+    const articleBankSize = bankRes.count ?? 0;
 
     // Runs per day (last 30d)
     const dayMap = new Map<string, { completed: number; failed: number; paused: number }>();
@@ -225,6 +242,9 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
         runsPerDay,
         dailySpend,
         recentRuns: (recentRes.data ?? []) as DashboardRun[],
+        previousMonthSpend,
+        articlesEvolvedCount,
+        articleBankSize,
       },
       error: null,
     };

@@ -6,6 +6,7 @@
 'use server';
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
+import { requireAdmin } from '@/lib/services/adminAuth';
 import { hashStrategyConfig, labelStrategyConfig, type StrategyConfig } from '../evolution/core/strategyConfig';
 import type { AgentROI } from '../evolution/core/adaptiveAllocation';
 
@@ -53,6 +54,7 @@ export async function getAgentROILeaderboardAction(
   filters?: { lookbackDays?: number; minSampleSize?: number }
 ): Promise<ActionResult<AgentROI[]>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
     const lookbackDays = filters?.lookbackDays ?? 30;
     // Default to 1 sample to show all data; callers can raise for statistical significance
@@ -111,6 +113,7 @@ export async function getAgentCostByModelAction(
   agentName: string
 ): Promise<ActionResult<Array<{ model: string; avgCost: number; sampleSize: number }>>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
@@ -148,6 +151,7 @@ export async function getStrategyLeaderboardAction(
   }
 ): Promise<ActionResult<StrategyLeaderboardEntry[]>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
     const minRuns = filters?.minRuns ?? 1;
     const sortBy = filters?.sortBy ?? 'avg_elo_per_dollar';
@@ -193,6 +197,7 @@ export async function resolveStrategyConfigAction(
   customName?: string
 ): Promise<ActionResult<{ id: string; isNew: boolean }>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
     const hash = hashStrategyConfig(config);
     const label = labelStrategyConfig(config);
@@ -234,6 +239,7 @@ export async function updateStrategyAction(
   updates: { name?: string; description?: string }
 ): Promise<ActionResult<StrategyLeaderboardEntry>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
     const { data, error } = await supabase
@@ -278,6 +284,7 @@ export async function getStrategyParetoAction(
   filters?: { minRuns?: number }
 ): Promise<ActionResult<ParetoPoint[]>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
     const minRuns = filters?.minRuns ?? 1;
 
@@ -349,6 +356,7 @@ export async function getRecommendedStrategyAction(
   reasoning: string;
 }>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
     // Get strategies with at least 3 runs for reliability
@@ -450,6 +458,7 @@ export async function getOptimizationSummaryAction(): Promise<ActionResult<{
   topAgent: { name: string; eloPerDollar: number } | null;
 }>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
     // Get strategy stats
@@ -550,6 +559,7 @@ export async function getStrategyRunsAction(
   limit: number = 20
 ): Promise<ActionResult<StrategyRunEntry[]>> {
   try {
+    await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
     // Get the strategy config hash
