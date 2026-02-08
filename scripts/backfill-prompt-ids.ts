@@ -275,6 +275,22 @@ export async function backfillStrategyConfigIds(
   return { linked, created, unlinked: 0 };
 }
 
+// ─── Drain stale in-flight runs ─────────────────────────────────
+
+/** Mark stale pending/claimed/running runs as failed so migration 000008 can proceed. Exported for tests. */
+export async function drainStaleRuns(
+  supabase: SupabaseClient,
+): Promise<{ drained: number }> {
+  const { data, error } = await supabase
+    .from('content_evolution_runs')
+    .update({ status: 'failed' })
+    .in('status', ['pending', 'claimed', 'running'])
+    .select('id');
+
+  if (error) throw new Error(`Failed to drain stale runs: ${error.message}`);
+  return { drained: data?.length ?? 0 };
+}
+
 // ─── CLI entry point ─────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -287,6 +303,10 @@ async function main(): Promise<void> {
   }
 
   const supabase = createClient(supabaseUrl, supabaseKey);
+
+  console.log('Draining stale in-flight runs...');
+  const drainResult = await drainStaleRuns(supabase);
+  console.log(`  Marked ${drainResult.drained} stale run(s) as failed`);
 
   console.log('Backfilling prompt_id...');
   const promptResult = await backfillPromptIds(supabase);

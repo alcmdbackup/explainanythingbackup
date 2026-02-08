@@ -31,7 +31,7 @@ const mockFrom = jest.fn().mockImplementation((table: string) => {
 
 const mockSupabase = { from: (...args: unknown[]) => mockFrom(...args) };
 
-import { backfillPromptIds, backfillStrategyConfigIds } from './backfill-prompt-ids';
+import { backfillPromptIds, backfillStrategyConfigIds, drainStaleRuns } from './backfill-prompt-ids';
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
@@ -220,5 +220,30 @@ describe('backfillStrategyConfigIds', () => {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(backfillStrategyConfigIds(mockSupabase as any)).rejects.toThrow('Failed to fetch runs');
+  });
+});
+
+// ─── drainStaleRuns Tests ───────────────────────────────────────
+
+describe('drainStaleRuns', () => {
+  it('marks stale runs as failed and returns count', async () => {
+    queueResult('content_evolution_runs', {
+      data: [{ id: 'run-stale-1' }, { id: 'run-stale-2' }],
+      error: null,
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await drainStaleRuns(mockSupabase as any);
+
+    expect(result).toEqual({ drained: 2 });
+  });
+
+  it('returns zero when no stale runs exist', async () => {
+    queueResult('content_evolution_runs', { data: [], error: null });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await drainStaleRuns(mockSupabase as any);
+
+    expect(result).toEqual({ drained: 0 });
   });
 });
