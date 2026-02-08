@@ -350,7 +350,7 @@ describe('strategyConfig', () => {
       const prompt: PromptMetadata = {
         id: 'prompt-id',
         prompt: 'Test prompt',
-        title: null,
+        title: 'Test prompt',
         difficulty_tier: null,
         domain_tags: [],
         status: 'active',

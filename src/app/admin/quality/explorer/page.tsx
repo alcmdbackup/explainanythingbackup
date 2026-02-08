@@ -2,11 +2,14 @@
 // Unified Dimensional Explorer page for cross-cutting analysis of evolution runs, articles, and tasks.
 // Supports table, matrix, and trend views with multi-dimensional filtering.
 
-import { Fragment, useState, useCallback, useEffect, type ReactNode } from 'react';
+import { Fragment, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import Link from 'next/link';
 import { logger } from '@/lib/client_utilities';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { getPromptsAction } from '@/lib/services/promptRegistryActions';
+import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
 import {
   getUnifiedExplorerAction,
   getExplorerMatrixAction,
@@ -220,6 +223,109 @@ function MultiInput({ label, value, onChange, placeholder }: {
   );
 }
 
+/** Searchable multi-select dropdown. Shows recent items, filterable by label or ID. */
+function SearchableMultiSelect({ label, items, selected, onChange, placeholder }: {
+  label: string;
+  items: { id: string; label: string }[];
+  selected: string[];
+  onChange: (ids: string[]) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const lowerSearch = search.toLowerCase();
+  const filtered = search
+    ? items.filter(i => i.label.toLowerCase().includes(lowerSearch) || i.id.toLowerCase().includes(lowerSearch))
+    : items.slice(0, 5);
+
+  const toggle = (id: string) => {
+    onChange(selected.includes(id) ? selected.filter(s => s !== id) : [...selected, id]);
+  };
+
+  const selectedLabels = selected
+    .map(id => items.find(i => i.id === id)?.label ?? id.slice(0, 8))
+    .join(', ');
+
+  return (
+    <div className="flex flex-col gap-1 relative" ref={ref}>
+      <span className="text-xs font-ui text-[var(--text-muted)]">{label}</span>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-left truncate focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
+        style={{ color: selected.length ? 'var(--text-primary)' : 'var(--text-muted)' }}
+      >
+        {selected.length ? selectedLabels : placeholder}
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book shadow-warm-lg max-h-56 overflow-hidden flex flex-col">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name or ID..."
+            autoFocus
+            className="px-3 py-2 text-sm font-ui bg-transparent border-b border-[var(--border-default)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none"
+          />
+          <div className="overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-2 text-xs text-[var(--text-muted)]">No matches</div>
+            ) : (
+              filtered.map(item => {
+                const isSelected = selected.includes(item.id);
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => toggle(item.id)}
+                    className="w-full px-3 py-1.5 text-left text-sm font-ui hover:bg-[var(--surface-secondary)] flex items-center gap-2"
+                  >
+                    <span
+                      className="w-3.5 h-3.5 rounded border flex-shrink-0 flex items-center justify-center text-xs"
+                      style={{
+                        borderColor: isSelected ? 'var(--accent-gold)' : 'var(--border-default)',
+                        backgroundColor: isSelected ? 'var(--accent-gold)' : 'transparent',
+                        color: isSelected ? 'var(--surface-primary)' : 'transparent',
+                      }}
+                    >
+                      {isSelected ? '✓' : ''}
+                    </span>
+                    <span className="truncate text-[var(--text-primary)]">{item.label}</span>
+                    <span className="ml-auto text-xs font-mono text-[var(--text-muted)] flex-shrink-0">
+                      {item.id.slice(0, 8)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          {selected.length > 0 && (
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              className="px-3 py-1.5 text-xs font-ui text-[var(--text-muted)] hover:text-[var(--text-secondary)] border-t border-[var(--border-default)]"
+            >
+              Clear all
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ButtonGroup<T extends string>({ options, value, onChange }: {
   options: { id: T; label: string }[];
   value: T;
@@ -286,11 +392,15 @@ export default function ExplorerPage() {
   const [unit, setUnit] = useState<UnitOfAnalysis>('run');
 
   // Filter state
-  const [promptFilter, setPromptFilter] = useState('');
-  const [strategyFilter, setStrategyFilter] = useState('');
+  const [promptFilter, setPromptFilter] = useState<string[]>([]);
+  const [strategyFilter, setStrategyFilter] = useState<string[]>([]);
   const [pipelineFilter, setPipelineFilter] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+
+  // Dropdown options (loaded once)
+  const [promptOptions, setPromptOptions] = useState<{ id: string; label: string }[]>([]);
+  const [strategyOptions, setStrategyOptions] = useState<{ id: string; label: string }[]>([]);
 
   // Matrix controls
   const [matrixRow, setMatrixRow] = useState<ExplorerDimension>('strategy');
@@ -314,13 +424,27 @@ export default function ExplorerPage() {
   const [articleDetail, setArticleDetail] = useState<ExplorerArticleDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // Load dropdown options on mount
+  useEffect(() => {
+    (async () => {
+      const [pRes, sRes] = await Promise.all([
+        getPromptsAction({ status: 'active' }),
+        getStrategiesAction({ status: 'active' }),
+      ]);
+      if (pRes.success && pRes.data) {
+        setPromptOptions(pRes.data.map(p => ({ id: p.id, label: p.title })));
+      }
+      if (sRes.success && sRes.data) {
+        setStrategyOptions(sRes.data.map(s => ({ id: s.id, label: s.name })));
+      }
+    })();
+  }, []);
+
   // Build filters object from input state
   const buildFilters = useCallback((): ExplorerFilters => {
     const filters: ExplorerFilters = {};
-    const promptIds = promptFilter.split(',').map(s => s.trim()).filter(Boolean);
-    if (promptIds.length) filters.promptIds = promptIds;
-    const strategyIds = strategyFilter.split(',').map(s => s.trim()).filter(Boolean);
-    if (strategyIds.length) filters.strategyIds = strategyIds;
+    if (promptFilter.length) filters.promptIds = promptFilter;
+    if (strategyFilter.length) filters.strategyIds = strategyFilter;
     const pipelineTypes = pipelineFilter.split(',').map(s => s.trim()).filter(Boolean);
     if (pipelineTypes.length) filters.pipelineTypes = pipelineTypes as ExplorerFilters['pipelineTypes'];
     if (dateFrom || dateTo) {
@@ -453,17 +577,19 @@ export default function ExplorerPage() {
       <Card className="bg-[var(--surface-secondary)] paper-texture">
         <CardContent className="pt-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-            <MultiInput
-              label="Prompt IDs"
-              value={promptFilter}
+            <SearchableMultiSelect
+              label="Prompts"
+              items={promptOptions}
+              selected={promptFilter}
               onChange={setPromptFilter}
-              placeholder="id1, id2..."
+              placeholder="All prompts"
             />
-            <MultiInput
-              label="Strategy IDs"
-              value={strategyFilter}
+            <SearchableMultiSelect
+              label="Strategies"
+              items={strategyOptions}
+              selected={strategyFilter}
               onChange={setStrategyFilter}
-              placeholder="id1, id2..."
+              placeholder="All strategies"
             />
             <MultiInput
               label="Pipeline Types"
@@ -691,7 +817,11 @@ function RunTable({ rows }: { rows: ExplorerRunRow[] }) {
             </Td>
             <Td className="font-mono text-xs">{formatCost(row.total_cost_usd)}</Td>
             <Td>{row.total_variants}</Td>
-            <Td className="text-xs text-[var(--text-muted)]">{formatDate(row.created_at)}</Td>
+            <Td className="text-xs">
+              <Link href={`/admin/quality/evolution/run/${row.id}`} className="text-[var(--accent-gold)] hover:underline font-mono">
+                {formatDate(row.created_at)}
+              </Link>
+            </Td>
           </tr>
         ))}
       </tbody>
@@ -748,8 +878,10 @@ function ArticleTable({ rows, expandedId, detail, detailLoading, onExpand }: {
                   <span className="text-[var(--accent-gold)] font-ui text-xs">#{row.hall_of_fame_rank}</span>
                 ) : '-'}
               </Td>
-              <Td className="font-mono text-xs text-[var(--text-muted)]">
-                {row.run_id.slice(0, 8)}
+              <Td className="font-mono text-xs">
+                <Link href={`/admin/quality/evolution/run/${row.run_id}`} className="text-[var(--accent-gold)] hover:underline" onClick={(e) => e.stopPropagation()}>
+                  {row.run_id.slice(0, 8)}
+                </Link>
               </Td>
             </tr>
 
@@ -808,8 +940,10 @@ function TaskTable({ rows }: { rows: ExplorerTaskRow[] }) {
               ) : '-'}
             </Td>
             <Td className="font-mono text-xs">{row.elo_per_dollar !== null ? row.elo_per_dollar.toFixed(0) : '-'}</Td>
-            <Td className="font-mono text-xs text-[var(--text-muted)]">
-              {row.run_id.slice(0, 8)}
+            <Td className="font-mono text-xs">
+              <Link href={`/admin/quality/evolution/run/${row.run_id}`} className="text-[var(--accent-gold)] hover:underline">
+                {row.run_id.slice(0, 8)}
+              </Link>
             </Td>
           </tr>
         ))}

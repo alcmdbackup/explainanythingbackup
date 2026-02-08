@@ -30,7 +30,7 @@ function normalizeStrategyRow(row: Record<string, unknown>): StrategyConfigRow {
 // ─── List strategies ─────────────────────────────────────────────
 
 const _getStrategiesAction = withLogging(async (
-  filters?: { status?: 'active' | 'archived'; isPredefined?: boolean; pipelineType?: PipelineType },
+  filters?: { status?: 'active' | 'archived'; isPredefined?: boolean; pipelineType?: PipelineType; limit?: number },
 ): Promise<ActionResult<StrategyConfigRow[]>> => {
   try {
     await requireAdmin();
@@ -44,6 +44,7 @@ const _getStrategiesAction = withLogging(async (
     if (filters?.status) query = query.eq('status', filters.status);
     if (filters?.isPredefined !== undefined) query = query.eq('is_predefined', filters.isPredefined);
     if (filters?.pipelineType) query = query.eq('pipeline_type', filters.pipelineType);
+    if (filters?.limit) query = query.limit(filters.limit);
 
     const { data, error } = await query;
     if (error) throw new Error(`Failed to fetch strategies: ${error.message}`);
@@ -95,6 +96,7 @@ export interface CreateStrategyInput {
 /** Core create-or-promote logic — no withLogging wrapper, safe for internal callers. */
 async function createStrategyCore(input: CreateStrategyInput): Promise<ActionResult<StrategyConfigRow>> {
   await requireAdmin();
+  if (!input.name.trim()) throw new Error('Strategy name is required');
   const supabase = await createSupabaseServiceClient();
 
   const configHash = hashStrategyConfig(input.config);
@@ -175,6 +177,9 @@ const _updateStrategyAction = withLogging(async (
 ): Promise<ActionResult<StrategyConfigRow>> => {
   try {
     await requireAdmin();
+    if (input.name !== undefined && !input.name.trim()) {
+      throw new Error('Strategy name cannot be empty');
+    }
     const supabase = await createSupabaseServiceClient();
 
     // Fetch current strategy

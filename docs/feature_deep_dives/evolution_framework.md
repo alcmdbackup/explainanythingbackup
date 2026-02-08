@@ -6,7 +6,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 ## Core Primitives
 
-- **Prompt** — A registered topic in `article_bank_topics` with metadata: difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
+- **Prompt** — A registered topic in `article_bank_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
 - **Run** — A single pipeline execution (`content_evolution_runs`). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `content_evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
@@ -25,7 +25,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 ### Pipeline Core
 - `src/lib/evolution/core/pipeline.ts` — `autoLinkPrompt()`, `feedHallOfFame()`, `linkStrategyConfig()`, pipeline type tracking
 - `src/lib/evolution/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
-- `src/lib/evolution/types.ts` — `PipelineType`, `PromptMetadata` types
+- `src/lib/evolution/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
 ### Migrations (in order)
 1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
@@ -36,6 +36,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 6. `20260207000006` — Explorer composite indexes
 7. `20260207000007` — Strategy lifecycle (status, created_by)
 8. `20260207000008` — NOT NULL enforcement (safety-gated)
+9. `20260208000001` — Enforce NOT NULL on prompt `title`, non-empty CHECK on prompt `title` and strategy `name`
 
 ### Scripts
 - `scripts/backfill-prompt-ids.ts` — One-time backfill of prompt_id on existing runs

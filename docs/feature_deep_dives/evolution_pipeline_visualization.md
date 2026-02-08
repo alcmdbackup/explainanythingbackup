@@ -8,10 +8,10 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 | Route | Purpose |
 |-------|---------|
 | `/admin/evolution-dashboard` | Evolution overview: stat cards (differentiated from ops), quick links to all sub-pages |
-| `/admin/quality/evolution` | Run management: queue new runs, filter by status/date, variant panel, apply winner, rollback, cost/quality charts |
+| `/admin/quality/evolution` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
 | `/admin/quality/evolution/dashboard` | Ops dashboard: stat cards, runs/spend trends, recent runs |
 | `/admin/quality/evolution/run/[runId]` | Run detail: 6-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants) + Add to Bank dialog |
-| `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, quality radar, stats summary (includes generationDepth) |
+| `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 
 ## Key Files
 
@@ -39,7 +39,7 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `ordinalToEloScale`)
 4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint (augmented with `treeSearchPath` for path highlighting and per-node `treeDepth`/`revisionAction`)
 5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown
-6. `getEvolutionRunComparisonAction` — Original vs winner text, quality scores, `generationDepth` (max variant version in pool)
+6. `getEvolutionRunComparisonAction` — Original vs winner text, Elo delta, `generationDepth` (max variant version in pool)
 7. `getEvolutionRunStepScoresAction` — Per-variant step scores for outline variants (returns `VariantStepData[]` with step names, scores, costs, and weakest step)
 8. `getEvolutionRunTreeSearchAction` — Tree search state: full tree nodes with depth/pruning/actions for the Tree tab
 
@@ -47,7 +47,7 @@ Additionally, the run detail page uses `getEvolutionRunSummaryAction(runId)` fro
 
 ### Run Detail Features
 - **Add to Bank dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the article bank. Prompts for a topic description and calls `addToBankAction()`.
-- **Compare button**: Links to the `/compare` sub-route for before/after text diff with quality radar and generation depth.
+- **Compare button**: Links to the `/compare` sub-route for before/after text diff with stats summary and generation depth.
 
 ### Timeline Tab - Per-Agent Detail
 
@@ -119,7 +119,7 @@ Jest mocks: d3 and d3-dag mocked via `moduleNameMapper` in jest.config.js.
 ## Dependencies
 | Package | Purpose |
 |---------|---------|
-| `recharts` | Line, bar, area, radar charts |
+| `recharts` | Line, bar, area charts |
 | `d3` + `@types/d3` | DAG rendering, zoom/pan |
 | `d3-dag` | Sugiyama layout (ESM-only, mocked in Jest) |
 | `diff` | Word-level text diffing on the compare page |

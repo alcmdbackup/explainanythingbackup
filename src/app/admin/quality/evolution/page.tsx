@@ -18,10 +18,8 @@ import {
   type EvolutionVariant,
   type AgentCostBreakdown,
 } from '@/lib/services/evolutionActions';
-import {
-  getEvolutionComparisonAction,
-  type EvolutionComparison,
-} from '@/lib/services/contentQualityActions';
+import { getPromptsAction } from '@/lib/services/promptRegistryActions';
+import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
@@ -30,9 +28,16 @@ import { EvolutionStatusBadge } from '@/components/evolution';
 
 type DateRange = '7d' | '30d' | '90d' | 'all';
 
+const DATE_RANGE_DAYS: Record<DateRange, number | null> = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+  all: null,
+};
+
 function getStartDate(range: DateRange): string | undefined {
-  if (range === 'all') return undefined;
-  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+  const days = DATE_RANGE_DAYS[range];
+  if (days === null) return undefined;
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString();
@@ -103,52 +108,93 @@ function AgentCostChart({ breakdown }: { breakdown: AgentCostBreakdown[] }) {
   );
 }
 
-// ─── Quality comparison bars (Phase E) ───────────────────────────
+// ─── Start Run card ──────────────────────────────────────────────
 
-function QualityComparison({ comparison }: { comparison: EvolutionComparison }) {
-  const dimensions = Array.from(
-    new Set([...Object.keys(comparison.before), ...Object.keys(comparison.after)]),
-  );
+function StartRunCard({ onQueued }: { onQueued: () => void }) {
+  const [promptId, setPromptId] = useState('');
+  const [strategyId, setStrategyId] = useState('');
+  const [budget, setBudget] = useState('5.00');
+  const [submitting, setSubmitting] = useState(false);
+  const [prompts, setPrompts] = useState<{ id: string; label: string }[]>([]);
+  const [strategies, setStrategies] = useState<{ id: string; label: string }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      const [pRes, sRes] = await Promise.all([
+        getPromptsAction({ status: 'active' }),
+        getStrategiesAction({ status: 'active' }),
+      ]);
+      if (pRes.success && pRes.data) {
+        setPrompts(pRes.data.map(p => ({ id: p.id, label: p.title })));
+      }
+      if (sRes.success && sRes.data) {
+        setStrategies(sRes.data.map(s => ({ id: s.id, label: s.name })));
+      }
+    })();
+  }, []);
+
+  const handleStart = async () => {
+    if (!promptId) { toast.error('Select a prompt'); return; }
+    if (!strategyId) { toast.error('Select a strategy'); return; }
+    const cap = parseFloat(budget);
+    if (!cap || cap <= 0) { toast.error('Budget must be positive'); return; }
+
+    setSubmitting(true);
+    const result = await queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd: cap });
+    if (result.success) {
+      toast.success('Run queued');
+      setPromptId('');
+      setStrategyId('');
+      onQueued();
+    } else {
+      toast.error(result.error?.message || 'Failed to queue run');
+    }
+    setSubmitting(false);
+  };
+
+  const selectClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
 
   return (
-    <div className="space-y-3">
-      <h4 className="text-sm font-semibold text-[var(--text-secondary)]">
-        Quality Impact
-        <span className={`ml-2 text-xs ${comparison.improvement >= 0 ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}`}>
-          {comparison.improvement >= 0 ? '+' : ''}{comparison.improvement.toFixed(1)}
-        </span>
-      </h4>
-      {dimensions.map((dim) => {
-        const before = comparison.before[dim] ?? 0;
-        const after = comparison.after[dim] ?? 0;
-        return (
-          <div key={dim} className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-[var(--text-muted)] capitalize">{dim.replace(/_/g, ' ')}</span>
-              <span className="text-[var(--text-secondary)]">{before.toFixed(1)} → {after.toFixed(1)}</span>
-            </div>
-            <div className="flex gap-1 h-3">
-              <div className="flex-1 bg-[var(--surface-secondary)] rounded overflow-hidden">
-                <div
-                  className="h-full bg-[var(--status-error)]/60 rounded"
-                  style={{ width: `${(before / 10) * 100}%` }}
-                  title={`Before: ${before.toFixed(1)}`}
-                />
-              </div>
-              <div className="flex-1 bg-[var(--surface-secondary)] rounded overflow-hidden">
-                <div
-                  className="h-full bg-[var(--status-success)]/60 rounded"
-                  style={{ width: `${(after / 10) * 100}%` }}
-                  title={`After: ${after.toFixed(1)}`}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      })}
-      <div className="flex justify-between text-xs text-[var(--text-muted)] pt-1 border-t border-[var(--border-default)]">
-        <span>Avg before: {comparison.beforeAvg.toFixed(1)}</span>
-        <span>Avg after: {comparison.afterAvg.toFixed(1)}</span>
+    <div
+      className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
+      data-testid="start-run-card"
+    >
+      <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+        Start New Run
+      </h3>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Prompt</span>
+          <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={selectClass}>
+            <option value="">Select prompt...</option>
+            {prompts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Strategy</span>
+          <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className={selectClass}>
+            <option value="">Select strategy...</option>
+            {strategies.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 w-28">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Budget ($)</span>
+          <input
+            type="number"
+            step="0.50"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            className={selectClass}
+          />
+        </label>
+        <button
+          onClick={handleStart}
+          disabled={submitting || !promptId || !strategyId}
+          data-testid="start-run-btn"
+          className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
+        >
+          {submitting ? 'Queuing...' : 'Start Run'}
+        </button>
       </div>
     </div>
   );
@@ -242,20 +288,13 @@ function VariantPanel({
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [costBreakdown, setCostBreakdown] = useState<AgentCostBreakdown[] | null>(null);
-  const [comparison, setComparison] = useState<EvolutionComparison | null>(null);
 
-  // Load cost breakdown and quality comparison when panel opens
+  // Load cost breakdown when panel opens
   useEffect(() => {
     void getEvolutionCostBreakdownAction(run.id).then((res) => {
       if (res.success && res.data) setCostBreakdown(res.data);
     });
-    // Quality comparison only if run completed with a winner
-    if (run.status === 'completed') {
-      void getEvolutionComparisonAction(run.explanation_id).then((res) => {
-        if (res.success && res.data) setComparison(res.data);
-      });
-    }
-  }, [run.id, run.explanation_id, run.status]);
+  }, [run.id]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -350,12 +389,6 @@ function VariantPanel({
           </div>
         )}
 
-        {/* Quality comparison (Phase E) */}
-        {comparison && (
-          <div className="border-t border-[var(--border-default)] pt-4">
-            <QualityComparison comparison={comparison} />
-          </div>
-        )}
       </div>
     </div>
   );
@@ -382,7 +415,7 @@ export default function EvolutionAdminPage() {
     setLoading(true);
     setError(null);
     const filters: { status?: EvolutionRunStatus; startDate?: string } = {};
-    if (statusFilter) filters.status = statusFilter as EvolutionRunStatus;
+    if (statusFilter) filters.status = statusFilter;
     const startDate = getStartDate(dateRange);
     if (startDate) filters.startDate = startDate;
 
@@ -539,6 +572,9 @@ export default function EvolutionAdminPage() {
 
       {/* Summary cards */}
       <SummaryCards runs={runs} />
+
+      {/* Start Run */}
+      <StartRunCard onQueued={loadRuns} />
 
       {/* Error */}
       {error && (

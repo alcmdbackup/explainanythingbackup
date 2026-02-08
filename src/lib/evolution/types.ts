@@ -304,7 +304,7 @@ export type PipelineType = 'full' | 'minimal' | 'batch';
 export interface PromptMetadata {
   id: string;
   prompt: string;
-  title: string | null;
+  title: string;
   difficulty_tier: string | null;
   domain_tags: string[];
   status: 'active' | 'archived';

@@ -220,6 +220,16 @@ describe('strategyRegistryActions', () => {
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('Failed to create');
     });
+
+    it('rejects empty strategy name', async () => {
+      const result = await createStrategyAction({
+        name: '  ',
+        config: sampleRow.config,
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Strategy name is required');
+    });
   });
 
   describe('updateStrategyAction', () => {

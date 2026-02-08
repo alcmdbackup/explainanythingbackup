@@ -218,6 +218,10 @@ async function resolvePromptTexts(
   return new Map((data ?? []).map((p: { id: string; prompt: string }) => [p.id, p.prompt]));
 }
 
+function emptyAggregation(): ExplorerAggregation {
+  return { totalCount: 0, avgElo: null, totalCost: 0, avgCostPerUnit: null, topStrategy: null, topAgent: null };
+}
+
 // ─── Table Mode: getUnifiedExplorerAction ────────────────────────
 
 const _getUnifiedExplorerAction = withLogging(async (
@@ -309,12 +313,12 @@ const _getUnifiedExplorerAction = withLogging(async (
       let variantQuery = supabase
         .from('content_evolution_variants')
         .select('id, run_id, variant_content, elo_score, agent_name, generation, parent_variant_id, match_count, is_winner, created_at')
-        .in('run_id', runIdList)
-        .order('elo_score', { ascending: false })
-        .range(offset, offset + limit - 1);
+        .in('run_id', runIdList);
 
       if (filters.agentNames?.length) variantQuery = variantQuery.in('agent_name', filters.agentNames);
       if (filters.variantIds?.length) variantQuery = variantQuery.in('id', filters.variantIds);
+
+      variantQuery = variantQuery.order('elo_score', { ascending: false }).range(offset, offset + limit - 1);
 
       const { data: variants, error } = await variantQuery;
       if (error) throw new Error(`Failed to query variants: ${error.message}`);
@@ -334,20 +338,26 @@ const _getUnifiedExplorerAction = withLogging(async (
 
       const promptTextMap = await resolvePromptTexts(supabase, [...new Set(Array.from(promptMap.values()))]);
 
-      const articles: ExplorerArticleRow[] = (variants ?? []).map((v: Record<string, unknown>) => ({
-        id: v.id as string,
-        run_id: v.run_id as string,
-        variant_content_preview: ((v.variant_content as string) ?? '').slice(0, 200),
-        elo_score: v.elo_score as number,
-        agent_name: v.agent_name as string,
-        generation: v.generation as number,
-        parent_variant_id: v.parent_variant_id as string | null,
-        match_count: v.match_count as number,
-        is_winner: v.is_winner as boolean,
-        prompt_text: promptMap.has(v.run_id as string) ? (promptTextMap.get(promptMap.get(v.run_id as string)!) ?? null) : null,
-        hall_of_fame_rank: rankMap.get(v.id as string) ?? null,
-        created_at: v.created_at as string,
-      }));
+      const articles: ExplorerArticleRow[] = (variants ?? []).map((v: Record<string, unknown>) => {
+        const runId = v.run_id as string;
+        const variantId = v.id as string;
+        const runPromptId = promptMap.get(runId);
+
+        return {
+          id: variantId,
+          run_id: runId,
+          variant_content_preview: ((v.variant_content as string) ?? '').slice(0, 200),
+          elo_score: v.elo_score as number,
+          agent_name: v.agent_name as string,
+          generation: v.generation as number,
+          parent_variant_id: v.parent_variant_id as string | null,
+          match_count: v.match_count as number,
+          is_winner: v.is_winner as boolean,
+          prompt_text: runPromptId ? (promptTextMap.get(runPromptId) ?? null) : null,
+          hall_of_fame_rank: rankMap.get(variantId) ?? null,
+          created_at: v.created_at as string,
+        };
+      });
 
       const avgElo = articles.length > 0 ? articles.reduce((s, a) => s + a.elo_score, 0) / articles.length : null;
 
@@ -389,11 +399,11 @@ const _getUnifiedExplorerAction = withLogging(async (
       let taskQuery = supabase
         .from('evolution_run_agent_metrics')
         .select('id, run_id, agent_name, cost_usd, variants_generated, avg_elo, elo_gain, elo_per_dollar')
-        .in('run_id', runIdList)
-        .order('elo_per_dollar', { ascending: false, nullsFirst: false })
-        .range(offset, offset + limit - 1);
+        .in('run_id', runIdList);
 
       if (filters.agentNames?.length) taskQuery = taskQuery.in('agent_name', filters.agentNames);
+
+      taskQuery = taskQuery.order('elo_per_dollar', { ascending: false, nullsFirst: false }).range(offset, offset + limit - 1);
 
       const { data: metrics, error } = await taskQuery;
       if (error) throw new Error(`Failed to query agent metrics: ${error.message}`);
@@ -447,10 +457,6 @@ const _getUnifiedExplorerAction = withLogging(async (
 }, 'getUnifiedExplorerAction');
 
 export const getUnifiedExplorerAction = serverReadRequestId(_getUnifiedExplorerAction);
-
-function emptyAggregation(): ExplorerAggregation {
-  return { totalCount: 0, avgElo: null, totalCost: 0, avgCostPerUnit: null, topStrategy: null, topAgent: null };
-}
 
 // ─── Matrix Mode: getExplorerMatrixAction ────────────────────────
 
@@ -844,9 +850,9 @@ async function resolveDimensionLabels(
   if (needsPrompt) {
     const ids = [...new Set(runs.map(r => r.prompt_id).filter(Boolean))] as string[];
     if (ids.length) {
-      const { data } = await supabase.from('article_bank_topics').select('id, prompt').in('id', ids);
-      for (const p of (data ?? []) as Array<{ id: string; prompt: string }>) {
-        labels.set(p.id, p.prompt.slice(0, 80));
+      const { data } = await supabase.from('article_bank_topics').select('id, title, prompt').in('id', ids);
+      for (const p of (data ?? []) as Array<{ id: string; title: string | null; prompt: string }>) {
+        labels.set(p.id, p.title ?? p.prompt.slice(0, 80));
       }
     }
   }

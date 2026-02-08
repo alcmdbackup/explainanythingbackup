@@ -105,6 +105,7 @@ function ConfirmDialog({
 // ─── Add / Edit dialog ──────────────────────────────────────────
 
 interface PromptFormData {
+  promptTitle: string;
   prompt: string;
   difficultyTier: string;
   domainTags: string;
@@ -127,6 +128,10 @@ function PromptFormDialog({
   const [form, setForm] = useState<PromptFormData>(initial);
 
   const handleSubmit = () => {
+    if (!form.promptTitle.trim()) {
+      toast.error('Title is required');
+      return;
+    }
     if (!form.prompt.trim()) {
       toast.error('Prompt text is required');
       return;
@@ -144,6 +149,21 @@ function PromptFormDialog({
         <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">
           {title}
         </h2>
+
+        {/* Title (short name) */}
+        <div>
+          <label className="block text-sm font-ui text-[var(--text-secondary)] mb-1">
+            Title
+          </label>
+          <input
+            type="text"
+            value={form.promptTitle}
+            onChange={(e) => setForm({ ...form, promptTitle: e.target.value })}
+            data-testid="prompt-form-title"
+            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)] font-ui"
+            placeholder="e.g. Quantum for Kids"
+          />
+        </div>
 
         {/* Prompt text */}
         <div>
@@ -287,6 +307,7 @@ export default function PromptRegistryPage() {
 
     const result = await createPromptAction({
       prompt: data.prompt.trim(),
+      title: data.promptTitle.trim(),
       difficultyTier: data.difficultyTier || undefined,
       domainTags: tags,
       status: data.status,
@@ -311,6 +332,7 @@ export default function PromptRegistryPage() {
     const result = await updatePromptAction({
       id: editingPrompt.id,
       prompt: data.prompt.trim(),
+      title: data.promptTitle.trim(),
       difficultyTier: data.difficultyTier || null,
       domainTags: tags,
       status: data.status,
@@ -413,6 +435,7 @@ export default function PromptRegistryPage() {
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-elevated)]">
             <tr>
+              <th className="p-3 text-left font-ui text-[var(--text-muted)]">Title</th>
               <th className="p-3 text-left font-ui text-[var(--text-muted)]">Prompt</th>
               <th className="p-3 text-left font-ui text-[var(--text-muted)]">Difficulty</th>
               <th className="p-3 text-left font-ui text-[var(--text-muted)]">Tags</th>
@@ -424,13 +447,13 @@ export default function PromptRegistryPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-[var(--text-muted)] font-body">
+                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)] font-body">
                   Loading...
                 </td>
               </tr>
             ) : prompts.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-[var(--text-muted)] font-body">
+                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)] font-body">
                   No prompts found. Click &quot;Add Prompt&quot; to create one.
                 </td>
               </tr>
@@ -441,6 +464,11 @@ export default function PromptRegistryPage() {
                   className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]"
                   data-testid={`prompt-row-${p.id}`}
                 >
+                  {/* Title */}
+                  <td className="p-3 text-[var(--text-primary)] font-ui font-medium whitespace-nowrap">
+                    {p.title}
+                  </td>
+
                   {/* Prompt text (truncated) */}
                   <td
                     className="p-3 text-[var(--text-primary)] max-w-[350px] truncate font-body"
@@ -519,7 +547,7 @@ export default function PromptRegistryPage() {
       {showAddDialog && (
         <PromptFormDialog
           title="Add Prompt"
-          initial={{ prompt: '', difficultyTier: '', domainTags: '', status: 'active' }}
+          initial={{ promptTitle: '', prompt: '', difficultyTier: '', domainTags: '', status: 'active' }}
           submitLabel="Create"
           onSubmit={handleCreate}
           onClose={() => setShowAddDialog(false)}
@@ -531,6 +559,7 @@ export default function PromptRegistryPage() {
         <PromptFormDialog
           title="Edit Prompt"
           initial={{
+            promptTitle: editingPrompt.title,
             prompt: editingPrompt.prompt,
             difficultyTier: editingPrompt.difficulty_tier ?? '',
             domainTags: editingPrompt.domain_tags.join(', '),

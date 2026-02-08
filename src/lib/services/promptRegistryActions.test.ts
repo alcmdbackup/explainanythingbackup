@@ -142,17 +142,24 @@ describe('promptRegistryActions', () => {
     it('rejects duplicate prompts (case-insensitive)', async () => {
       queueResult('article_bank_topics', { data: { id: 'existing' }, error: null });
 
-      const result = await createPromptAction({ prompt: 'Existing prompt' });
+      const result = await createPromptAction({ prompt: 'Existing prompt', title: 'Existing' });
 
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('already exists');
     });
 
     it('rejects empty prompt text', async () => {
-      const result = await createPromptAction({ prompt: '  ' });
+      const result = await createPromptAction({ prompt: '  ', title: 'Empty' });
 
       expect(result.success).toBe(false);
       expect(result.error?.message).toContain('required');
+    });
+
+    it('rejects empty title', async () => {
+      const result = await createPromptAction({ prompt: 'Valid prompt', title: '  ' });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Title is required');
     });
   });
 

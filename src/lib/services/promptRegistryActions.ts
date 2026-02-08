@@ -15,6 +15,7 @@ type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse 
 function normalizePromptRow(row: Record<string, unknown>): PromptMetadata {
   return {
     ...row,
+    title: (row.title as string | null) ?? (row.prompt as string).slice(0, 60),
     domain_tags: (row.domain_tags as string[] | null) ?? [],
     status: (row.status as string | null) ?? 'active',
   } as PromptMetadata;
@@ -23,7 +24,7 @@ function normalizePromptRow(row: Record<string, unknown>): PromptMetadata {
 // ─── List prompts ────────────────────────────────────────────────
 
 const _getPromptsAction = withLogging(async (
-  filters?: { status?: 'active' | 'archived'; includeDeleted?: boolean },
+  filters?: { status?: 'active' | 'archived'; includeDeleted?: boolean; limit?: number },
 ): Promise<ActionResult<PromptMetadata[]>> => {
   try {
     await requireAdmin();
@@ -39,6 +40,9 @@ const _getPromptsAction = withLogging(async (
     }
     if (filters?.status) {
       query = query.eq('status', filters.status);
+    }
+    if (filters?.limit) {
+      query = query.limit(filters.limit);
     }
 
     const { data, error } = await query;
@@ -58,7 +62,7 @@ export const getPromptsAction = serverReadRequestId(_getPromptsAction);
 
 export interface CreatePromptInput {
   prompt: string;
-  title?: string;
+  title: string;
   difficultyTier?: string;
   domainTags?: string[];
   status?: 'active' | 'archived';
@@ -73,6 +77,8 @@ const _createPromptAction = withLogging(async (
 
     const trimmedPrompt = input.prompt.trim();
     if (!trimmedPrompt) throw new Error('Prompt text is required');
+    const trimmedTitle = input.title.trim();
+    if (!trimmedTitle) throw new Error('Title is required');
 
     // Case-insensitive uniqueness check
     const { data: existing } = await supabase
@@ -90,7 +96,7 @@ const _createPromptAction = withLogging(async (
       .from('article_bank_topics')
       .insert({
         prompt: trimmedPrompt,
-        title: input.title ?? null,
+        title: trimmedTitle,
         difficulty_tier: input.difficultyTier ?? null,
         domain_tags: input.domainTags ?? [],
         status: input.status ?? 'active',
@@ -144,9 +150,13 @@ const _updatePromptAction = withLogging(async (
       }
     }
 
+    if (input.title !== undefined && !input.title.trim()) {
+      throw new Error('Title cannot be empty');
+    }
+
     const updates: Record<string, unknown> = {};
     if (input.prompt !== undefined) updates.prompt = input.prompt.trim();
-    if (input.title !== undefined) updates.title = input.title;
+    if (input.title !== undefined) updates.title = input.title.trim();
     if (input.difficultyTier !== undefined) updates.difficulty_tier = input.difficultyTier;
     if (input.domainTags !== undefined) updates.domain_tags = input.domainTags;
     if (input.status !== undefined) updates.status = input.status;
