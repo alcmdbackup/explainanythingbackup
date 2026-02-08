@@ -298,6 +298,20 @@ export interface SerializedPipelineState {
 
 export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused';
 
+export type PipelineType = 'full' | 'minimal' | 'batch';
+
+/** Metadata columns on article_bank_topics (prompt registry). */
+export interface PromptMetadata {
+  id: string;
+  prompt: string;
+  title: string | null;
+  difficulty_tier: string | null;
+  domain_tags: string[];
+  status: 'active' | 'archived';
+  deleted_at: string | null;
+  created_at: string;
+}
+
 export const BASELINE_STRATEGY = 'original_baseline' as const;
 
 // ─── Evolution run summary (persisted as JSONB) ─────────────────

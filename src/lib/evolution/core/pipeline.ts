@@ -112,6 +112,37 @@ async function markRunPaused(runId: string, error: BudgetExceededError): Promise
   }).eq('id', runId);
 }
 
+/** Compute the final Elo score from the top-rated variant. Returns null if pool is empty. */
+function computeFinalElo(ctx: ExecutionContext): number | null {
+  const topVariant = ctx.state.getTopByRating(1)[0];
+  if (!topVariant) return null;
+  return ordinalToEloScale(getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating()));
+}
+
+/** Update strategy_configs aggregates via RPC. Logs on failure. */
+async function updateStrategyAggregates(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  runId: string,
+  strategyId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const finalElo = computeFinalElo(ctx);
+  if (finalElo === null) return;
+
+  const { error } = await supabase.rpc('update_strategy_aggregates', {
+    p_strategy_id: strategyId,
+    p_cost_usd: ctx.costTracker.getTotalSpent(),
+    p_final_elo: finalElo,
+  });
+
+  if (error) {
+    logger.warn('Failed to update strategy aggregates', { runId, strategyId, error: error.message });
+  } else {
+    logger.info('Strategy aggregates updated', { runId, strategyId, finalElo });
+  }
+}
+
 /** Link run to strategy config and update aggregates for Elo optimization dashboard. */
 async function linkStrategyConfig(
   runId: string,
@@ -120,11 +151,22 @@ async function linkStrategyConfig(
 ): Promise<void> {
   const supabase = await createSupabaseServiceClient();
 
-  // Extract strategy config from run config
+  // If strategy_config_id is already set (pre-selected strategy), just update aggregates.
+  const { data: runRow } = await supabase
+    .from('content_evolution_runs')
+    .select('strategy_config_id')
+    .eq('id', runId)
+    .single();
+
+  if (runRow?.strategy_config_id) {
+    await updateStrategyAggregates(supabase, runId, runRow.strategy_config_id, ctx, logger);
+    return;
+  }
+
+  // Extract and hash strategy config from run config
   const defaultBudgetCaps = ctx.payload.config.budgetCaps ?? {};
   const stratConfig = extractStrategyConfig(ctx.payload.config, defaultBudgetCaps);
   const configHash = hashStrategyConfig(stratConfig);
-  const label = labelStrategyConfig(stratConfig);
 
   // Get or create strategy_configs entry
   const { data: existing } = await supabase
@@ -137,13 +179,12 @@ async function linkStrategyConfig(
   if (existing) {
     strategyId = existing.id;
   } else {
-    // Create new strategy entry
     const { data: created, error: createErr } = await supabase
       .from('strategy_configs')
       .insert({
         config_hash: configHash,
         name: `Strategy ${configHash.slice(0, 6)}`,
-        label,
+        label: labelStrategyConfig(stratConfig),
         config: stratConfig,
       })
       .select('id')
@@ -167,27 +208,7 @@ async function linkStrategyConfig(
     return;
   }
 
-  // Get final Elo from top variant
-  const topVariant = ctx.state.getTopByRating(1)[0];
-  const finalElo = topVariant
-    ? ordinalToEloScale(getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating()))
-    : null;
-  const totalCost = ctx.costTracker.getTotalSpent();
-
-  // Update strategy aggregates via RPC
-  if (finalElo !== null) {
-    const { error: aggErr } = await supabase.rpc('update_strategy_aggregates', {
-      p_strategy_id: strategyId,
-      p_cost_usd: totalCost,
-      p_final_elo: finalElo,
-    });
-
-    if (aggErr) {
-      logger.warn('Failed to update strategy aggregates', { runId, strategyId, error: aggErr.message });
-    } else {
-      logger.info('Strategy config linked and aggregates updated', { runId, strategyId, finalElo });
-    }
-  }
+  await updateStrategyAggregates(supabase, runId, strategyId, ctx, logger);
 }
 
 /** Strategy-to-agent mapping for cost attribution. */
@@ -349,7 +370,7 @@ export function validateRunSummary(
   return result.data;
 }
 
-/** Shared post-completion: persist run summary, variants, agent metrics, and strategy config. */
+/** Shared post-completion: persist run summary, variants, agent metrics, strategy config, and prompt link. */
 export async function finalizePipelineRun(
   runId: string,
   ctx: ExecutionContext,
@@ -381,6 +402,225 @@ export async function finalizePipelineRun(
 
   // Link run to strategy config for Elo optimization dashboard
   await linkStrategyConfig(runId, ctx, logger);
+
+  // Auto-link prompt_id if not already set (graceful during transition)
+  await autoLinkPrompt(runId, ctx, logger);
+
+  // Feed top 3 variants into article bank (hall of fame)
+  await feedHallOfFame(runId, ctx, logger);
+}
+
+/** Auto-link run to prompt by resolving from config or explanation title. Non-fatal on failure. */
+async function autoLinkPrompt(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  try {
+    const supabase = await createSupabaseServiceClient();
+
+    // Check if prompt_id is already set
+    const { data: run } = await supabase
+      .from('content_evolution_runs')
+      .select('prompt_id')
+      .eq('id', runId)
+      .single();
+
+    if (run?.prompt_id) return; // Already linked
+
+    // Strategy 1: Match via run config JSONB prompt field → article_bank_topics.prompt
+    const { data: runRow } = await supabase
+      .from('content_evolution_runs')
+      .select('config')
+      .eq('id', runId)
+      .single();
+
+    const configPrompt = (runRow?.config as Record<string, unknown>)?.prompt;
+    if (typeof configPrompt === 'string' && configPrompt.trim()) {
+      const { data: topic } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .ilike('prompt', configPrompt.trim())
+        .is('deleted_at', null)
+        .single();
+
+      if (topic) {
+        await supabase.from('content_evolution_runs')
+          .update({ prompt_id: topic.id })
+          .eq('id', runId);
+        logger.info('Auto-linked prompt via config JSONB', { runId, promptId: topic.id });
+        return;
+      }
+    }
+
+    // Strategy 2: Match via article_bank_entries for this run's topic
+    const { data: bankEntry } = await supabase
+      .from('article_bank_entries')
+      .select('topic_id')
+      .eq('evolution_run_id', runId)
+      .limit(1)
+      .single();
+
+    if (bankEntry?.topic_id) {
+      await supabase.from('content_evolution_runs')
+        .update({ prompt_id: bankEntry.topic_id })
+        .eq('id', runId);
+      logger.info('Auto-linked prompt via bank entry', { runId, promptId: bankEntry.topic_id });
+      return;
+    }
+
+    // Strategy 3: Match via explanation title → article_bank_topics.prompt
+    if (ctx.payload.explanationId) {
+      const { data: explanation } = await supabase
+        .from('explanations')
+        .select('explanation_title')
+        .eq('id', ctx.payload.explanationId)
+        .single();
+
+      if (explanation?.explanation_title) {
+        const { data: topic } = await supabase
+          .from('article_bank_topics')
+          .select('id')
+          .ilike('prompt', explanation.explanation_title.trim())
+          .is('deleted_at', null)
+          .single();
+
+        if (topic) {
+          await supabase.from('content_evolution_runs')
+            .update({ prompt_id: topic.id })
+            .eq('id', runId);
+          logger.info('Auto-linked prompt via explanation title', { runId, promptId: topic.id });
+          return;
+        }
+      }
+    }
+
+    logger.warn('Could not auto-link prompt_id (no match found)', { runId });
+  } catch (error) {
+    logger.warn('Auto-link prompt failed (non-fatal)', {
+      runId, error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/** Feed top 3 variants into article_bank_entries (hall of fame). Non-fatal on failure. */
+async function feedHallOfFame(
+  runId: string,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  try {
+    const supabase = await createSupabaseServiceClient();
+    const top3 = ctx.state.getTopByRating(3);
+    if (top3.length === 0) {
+      logger.info('No variants to feed into hall of fame', { runId });
+      return;
+    }
+
+    // Resolve topic_id: prefer prompt_id already linked on the run
+    const { data: run } = await supabase
+      .from('content_evolution_runs')
+      .select('prompt_id')
+      .eq('id', runId)
+      .single();
+
+    let topicId: string | null = run?.prompt_id ?? null;
+
+    // Fallback: resolve topic from explanation title
+    if (!topicId && ctx.payload.explanationId) {
+      const { data: explanation } = await supabase
+        .from('explanations')
+        .select('explanation_title')
+        .eq('id', ctx.payload.explanationId)
+        .single();
+
+      if (explanation?.explanation_title) {
+        const trimmed = explanation.explanation_title.trim();
+        // Select or insert topic
+        const { data: existing } = await supabase
+          .from('article_bank_topics')
+          .select('id')
+          .ilike('prompt', trimmed)
+          .is('deleted_at', null)
+          .single();
+
+        if (existing) {
+          topicId = existing.id;
+        } else {
+          const { data: created } = await supabase
+            .from('article_bank_topics')
+            .insert({ prompt: trimmed, title: ctx.payload.title })
+            .select('id')
+            .single();
+          topicId = created?.id ?? null;
+        }
+      }
+    }
+
+    if (!topicId) {
+      logger.warn('Cannot feed hall of fame — no topic resolved', { runId });
+      return;
+    }
+
+    const model = ctx.payload.config.generationModel ?? 'deepseek-chat';
+    const runCost = ctx.costTracker.getTotalSpent();
+    // Split cost evenly across top 3 for per-entry attribution
+    const perEntryCost = runCost / top3.length;
+
+    for (let i = 0; i < top3.length; i++) {
+      const variant = top3[i];
+      const rank = i + 1;
+      const genMethod = rank === 1 ? 'evolution_winner' : 'evolution_top3';
+
+      // Upsert: use evolution_run_id + rank as natural key (unique index)
+      const { data: entry, error: entryErr } = await supabase
+        .from('article_bank_entries')
+        .upsert(
+          {
+            topic_id: topicId,
+            content: variant.text,
+            generation_method: genMethod,
+            model,
+            total_cost_usd: perEntryCost,
+            evolution_run_id: runId,
+            evolution_variant_id: variant.id,
+            rank,
+            metadata: {},
+          },
+          { onConflict: 'evolution_run_id,rank' },
+        )
+        .select('id')
+        .single();
+
+      if (entryErr || !entry) {
+        logger.warn('Failed to upsert hall-of-fame entry', {
+          runId, rank, error: entryErr?.message,
+        });
+        continue;
+      }
+
+      // Initialize Elo rating (skip if already exists from previous run)
+      const eloScore = ordinalToEloScale(
+        getOrdinal(ctx.state.ratings.get(variant.id) ?? createRating()),
+      );
+      await supabase.from('article_bank_elo')
+        .upsert(
+          {
+            topic_id: topicId,
+            entry_id: entry.id,
+            elo_rating: eloScore,
+            match_count: 0,
+          },
+          { onConflict: 'entry_id' },
+        );
+    }
+
+    logger.info('Hall of fame updated', { runId, topicId, entriesInserted: top3.length });
+  } catch (error) {
+    logger.warn('Feed hall of fame failed (non-fatal)', {
+      runId, error: error instanceof Error ? error.message : String(error),
+    });
+  }
 }
 
 /**
@@ -403,6 +643,7 @@ export async function executeMinimalPipeline(
   await supabase.from('content_evolution_runs').update({
     status: 'running',
     started_at: new Date().toISOString(),
+    pipeline_type: 'minimal',
   }).eq('id', runId);
 
   insertBaselineVariant(ctx.state, runId);
@@ -509,6 +750,7 @@ export async function executeFullPipeline(
     await supabase.from('content_evolution_runs').update({
       status: 'running',
       started_at: new Date().toISOString(),
+      pipeline_type: 'full',
     }).eq('id', runId);
 
     // Construct supervisor
@@ -580,63 +822,28 @@ export async function executeFullPipeline(
           await runAgent(runId, agents.generation, ctx, phase, logger);
         }
 
-        // === Outline Generation (COMPETITION only — optional) ===
-        if (config.runOutlineGeneration && agents.outlineGeneration) {
-          if (options.featureFlags?.outlineGenerationEnabled === false) {
-            logger.info('Outline generation agent disabled by feature flag', { iteration: ctx.state.iteration });
-          } else {
-            await runAgent(runId, agents.outlineGeneration, ctx, phase, logger);
-          }
-        }
+        // Feature-flag-gated optional agents
+        const flagGatedAgents: Array<{
+          configKey: keyof typeof config;
+          agent: PipelineAgent | undefined;
+          flagKey?: keyof EvolutionFeatureFlags;
+        }> = [
+          { configKey: 'runOutlineGeneration', agent: agents.outlineGeneration, flagKey: 'outlineGenerationEnabled' },
+          { configKey: 'runReflection', agent: agents.reflection },
+          { configKey: 'runIterativeEditing', agent: agents.iterativeEditing, flagKey: 'iterativeEditingEnabled' },
+          { configKey: 'runTreeSearch', agent: agents.treeSearch, flagKey: 'treeSearchEnabled' },
+          { configKey: 'runSectionDecomposition', agent: agents.sectionDecomposition, flagKey: 'sectionDecompositionEnabled' },
+          { configKey: 'runDebate', agent: agents.debate, flagKey: 'debateEnabled' },
+          { configKey: 'runEvolution', agent: agents.evolution, flagKey: 'evolvePoolEnabled' },
+        ];
 
-        // === Reflection (Slice C — optional) ===
-        if (config.runReflection && agents.reflection) {
-          await runAgent(runId, agents.reflection, ctx, phase, logger);
-        }
-
-        // === Iterative Editing (COMPETITION only — optional) ===
-        if (config.runIterativeEditing && agents.iterativeEditing) {
-          if (options.featureFlags?.iterativeEditingEnabled === false) {
-            logger.info('Iterative editing agent disabled by feature flag', { iteration: ctx.state.iteration });
-          } else {
-            await runAgent(runId, agents.iterativeEditing, ctx, phase, logger);
+        for (const { configKey, agent, flagKey } of flagGatedAgents) {
+          if (!config[configKey] || !agent) continue;
+          if (flagKey && options.featureFlags?.[flagKey] === false) {
+            logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
+            continue;
           }
-        }
-
-        // === Tree Search (COMPETITION only — optional) ===
-        if (config.runTreeSearch && agents.treeSearch) {
-          if (options.featureFlags?.treeSearchEnabled === false) {
-            logger.info('Tree search agent disabled by feature flag', { iteration: ctx.state.iteration });
-          } else {
-            await runAgent(runId, agents.treeSearch, ctx, phase, logger);
-          }
-        }
-
-        // === Section Decomposition (COMPETITION only — optional) ===
-        if (config.runSectionDecomposition && agents.sectionDecomposition) {
-          if (options.featureFlags?.sectionDecompositionEnabled === false) {
-            logger.info('Section decomposition agent disabled by feature flag', { iteration: ctx.state.iteration });
-          } else {
-            await runAgent(runId, agents.sectionDecomposition, ctx, phase, logger);
-          }
-        }
-
-        // === Debate (COMPETITION only — optional) ===
-        if (config.runDebate && agents.debate) {
-          if (options.featureFlags?.debateEnabled === false) {
-            logger.info('Debate agent disabled by feature flag', { iteration: ctx.state.iteration });
-          } else {
-            await runAgent(runId, agents.debate, ctx, phase, logger);
-          }
-        }
-
-        // === Evolution (evolvePool) ===
-        if (config.runEvolution) {
-          if (options.featureFlags?.evolvePoolEnabled === false) {
-            logger.info('Evolution agent disabled by feature flag', { iteration: ctx.state.iteration });
-          } else {
-            await runAgent(runId, agents.evolution, ctx, phase, logger);
-          }
+          await runAgent(runId, agent, ctx, phase, logger);
         }
 
         // === Calibration (EXPANSION) or Tournament (COMPETITION) ===

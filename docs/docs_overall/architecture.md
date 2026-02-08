@@ -36,7 +36,7 @@ User Query → Vector Search (Pinecone) → Match Found? → Return Existing
 | Codebase | 60k+ LOC TypeScript |
 | Services | 17 domain services |
 | Actions | 50+ server actions |
-| Tests | 3400+ unit, 22 integration suites, 9 E2E specs |
+| Tests | 3900+ unit, 25 integration suites, 9 E2E specs |
 
 ---
 
@@ -98,6 +98,7 @@ export const functionName = serverReadRequestId(_functionName);
 For detailed implementation of each feature, see [feature_deep_dives/](../feature_deep_dives/).
 
 Key features include:
+- [Evolution Framework](../feature_deep_dives/evolution_framework.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
 - [Evolution Pipeline Visualization](../feature_deep_dives/evolution_pipeline_visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
 - [Comparison Infrastructure](../feature_deep_dives/comparison_infrastructure.md) — Article bank for cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox

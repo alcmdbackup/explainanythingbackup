@@ -9,7 +9,7 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
-import type { EvolutionRunStatus, PipelinePhase, EvolutionRunSummary } from '@/lib/evolution/types';
+import type { EvolutionRunStatus, PipelinePhase, PipelineType, EvolutionRunSummary } from '@/lib/evolution/types';
 import { EvolutionRunSummarySchema } from '@/lib/evolution/types';
 
 // ─── Types ───────────────────────────────────────────────────────
@@ -28,6 +28,9 @@ export interface EvolutionRun {
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
+  prompt_id: string | null;
+  pipeline_type: PipelineType | null;
+  strategy_config_id: string | null;
 }
 
 export interface EvolutionVariant {
@@ -61,18 +64,59 @@ export interface ContentHistoryRow {
 // ─── Queue a new evolution run ───────────────────────────────────
 
 const _queueEvolutionRunAction = withLogging(async (
-  input: { explanationId: number; budgetCapUsd?: number }
+  input: {
+    explanationId?: number;
+    budgetCapUsd?: number;
+    promptId?: string;
+    strategyId?: string;
+  }
 ): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
   try {
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
+    // Validate prompt reference if provided
+    if (input.promptId) {
+      const { data: prompt } = await supabase
+        .from('article_bank_topics')
+        .select('id')
+        .eq('id', input.promptId)
+        .is('deleted_at', null)
+        .single();
+      if (!prompt) throw new Error(`Prompt not found: ${input.promptId}`);
+    }
+
+    // Validate strategy reference and resolve budget cap if provided
+    let budgetCap = input.budgetCapUsd ?? 5.00;
+    if (input.strategyId) {
+      const { data: strategy } = await supabase
+        .from('strategy_configs')
+        .select('id, config')
+        .eq('id', input.strategyId)
+        .single();
+      if (!strategy) throw new Error(`Strategy not found: ${input.strategyId}`);
+      // Use strategy's budget cap if no explicit override
+      if (!input.budgetCapUsd) {
+        const config = strategy.config as { budgetCapUsd?: number };
+        budgetCap = config.budgetCapUsd ?? 5.00;
+      }
+    }
+
+    // Require at least explanationId or promptId
+    if (!input.explanationId && !input.promptId) {
+      throw new Error('Either explanationId or promptId is required');
+    }
+
+    const insertRow: Record<string, unknown> = {
+      budget_cap_usd: budgetCap,
+    };
+    if (input.explanationId) insertRow.explanation_id = input.explanationId;
+    if (input.promptId) insertRow.prompt_id = input.promptId;
+    if (input.strategyId) insertRow.strategy_config_id = input.strategyId;
+
     const { data, error } = await supabase
       .from('content_evolution_runs')
-      .insert({
-        explanation_id: input.explanationId,
-        budget_cap_usd: input.budgetCapUsd ?? 5.00,
-      })
+      .insert(insertRow)
       .select()
       .single();
 
@@ -86,7 +130,12 @@ const _queueEvolutionRunAction = withLogging(async (
       action: 'queue_evolution_run',
       entityType: 'evolution_run',
       entityId: data.id,
-      details: { explanationId: input.explanationId, budgetCapUsd: input.budgetCapUsd ?? 5.00 },
+      details: {
+        explanationId: input.explanationId,
+        promptId: input.promptId,
+        strategyId: input.strategyId,
+        budgetCapUsd: budgetCap,
+      },
     });
 
     return { success: true, data: data as EvolutionRun, error: null };

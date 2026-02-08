@@ -243,8 +243,24 @@
       "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
+      "pattern": "src/lib/services/promptRegistryActions.ts",
+      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+    },
+    {
+      "pattern": "src/lib/services/strategyRegistryActions.ts",
+      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+    },
+    {
+      "pattern": "src/lib/services/unifiedExplorerActions.ts",
+      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+    },
+    {
+      "pattern": "scripts/backfill-prompt-ids.ts",
+      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+    },
+    {
       "pattern": "src/lib/evolution/**",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_framework.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
     },
     {
       "pattern": "src/lib/services/articleBank*.ts",

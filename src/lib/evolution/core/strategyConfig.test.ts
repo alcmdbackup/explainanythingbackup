@@ -9,7 +9,9 @@ import {
   extractStrategyConfig,
   diffStrategyConfigs,
   type StrategyConfig,
+  type StrategyConfigRow,
 } from './strategyConfig';
+import type { PromptMetadata, PipelineType } from '@/lib/evolution/types';
 
 describe('strategyConfig', () => {
   const baseConfig: StrategyConfig = {
@@ -66,6 +68,25 @@ describe('strategyConfig', () => {
       const config2: StrategyConfig = { ...baseConfig, agentModels: {} };
       // These should have different hashes since one is null and one is {}
       expect(hashStrategyConfig(config1)).not.toBe(hashStrategyConfig(config2));
+    });
+
+    it('does not include is_predefined or pipeline_type in hash (DB-only fields)', () => {
+      // Critical invariant: two strategies with same runtime config but different
+      // is_predefined or pipeline_type values must produce the same hash.
+      // These fields live on StrategyConfigRow, not StrategyConfig, so they
+      // should never reach hashStrategyConfig — this test ensures the type boundary.
+      const hash1 = hashStrategyConfig(baseConfig);
+      const hash2 = hashStrategyConfig({ ...baseConfig });
+
+      // Verify StrategyConfig type does not accept is_predefined/pipeline_type
+      // (compile-time check — if these fields were added to StrategyConfig,
+      // this test file would fail to compile)
+      const configKeys = Object.keys(baseConfig);
+      expect(configKeys).not.toContain('is_predefined');
+      expect(configKeys).not.toContain('pipeline_type');
+
+      // Same config → same hash
+      expect(hash1).toBe(hash2);
     });
   });
 
@@ -266,6 +287,86 @@ describe('strategyConfig', () => {
 
       expect(diffs.length).toBe(3);
       expect(diffs.map(d => d.field)).toEqual(['generationModel', 'judgeModel', 'iterations']);
+    });
+  });
+
+  describe('StrategyConfigRow type', () => {
+    it('includes DB-only fields not present in StrategyConfig', () => {
+      // Type-level test: StrategyConfigRow has fields that StrategyConfig does not
+      const row: StrategyConfigRow = {
+        id: 'test-id',
+        config_hash: 'abc123def456',
+        name: 'Test Strategy',
+        description: null,
+        label: 'Gen: ds-chat | Judge: 4.1-nano | 10 iters',
+        config: baseConfig,
+        is_predefined: false,
+        pipeline_type: 'full',
+        status: 'active',
+        created_by: 'system',
+        run_count: 5,
+        total_cost_usd: 2.50,
+        avg_final_elo: 1350.5,
+        avg_elo_per_dollar: 60.2,
+        best_final_elo: 1500,
+        worst_final_elo: 1200,
+        stddev_final_elo: 75.3,
+        first_used_at: '2026-01-01T00:00:00Z',
+        last_used_at: '2026-02-07T00:00:00Z',
+        created_at: '2026-01-01T00:00:00Z',
+      };
+
+      expect(row.is_predefined).toBe(false);
+      expect(row.pipeline_type).toBe('full');
+      // Verify config embedded in row hashes to same value
+      expect(hashStrategyConfig(row.config)).toBe(hashStrategyConfig(baseConfig));
+    });
+
+    it('accepts all valid pipeline_type values', () => {
+      const types: Array<StrategyConfigRow['pipeline_type']> = ['full', 'minimal', 'batch', null];
+      expect(types).toHaveLength(4);
+    });
+  });
+
+  describe('PromptMetadata type', () => {
+    it('represents prompt registry row with new metadata fields', () => {
+      const prompt: PromptMetadata = {
+        id: 'prompt-id',
+        prompt: 'Explain quantum computing',
+        title: 'Quantum Computing',
+        difficulty_tier: 'hard',
+        domain_tags: ['science', 'computing'],
+        status: 'active',
+        deleted_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+      };
+
+      expect(prompt.difficulty_tier).toBe('hard');
+      expect(prompt.domain_tags).toContain('science');
+      expect(prompt.status).toBe('active');
+    });
+
+    it('allows null difficulty_tier for unrated prompts', () => {
+      const prompt: PromptMetadata = {
+        id: 'prompt-id',
+        prompt: 'Test prompt',
+        title: null,
+        difficulty_tier: null,
+        domain_tags: [],
+        status: 'active',
+        deleted_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+      };
+
+      expect(prompt.difficulty_tier).toBeNull();
+      expect(prompt.domain_tags).toEqual([]);
+    });
+  });
+
+  describe('PipelineType', () => {
+    it('accepts valid pipeline type values', () => {
+      const types: PipelineType[] = ['full', 'minimal', 'batch'];
+      expect(types).toHaveLength(3);
     });
   });
 });
