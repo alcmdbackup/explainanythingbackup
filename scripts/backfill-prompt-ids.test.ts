@@ -102,22 +102,26 @@ describe('backfillPromptIds', () => {
     expect(result).toEqual({ linked: 1, unlinked: 0 });
   });
 
-  it('counts unlinked runs when no match found', async () => {
+  it('assigns legacy prompt when no match found', async () => {
     queueResult('content_evolution_runs', {
       data: [{ id: 'run-3', explanation_id: null }],
       error: null,
     });
     // Bank entry → not found
     queueResult('article_bank_entries', { data: null, error: null });
+    // getOrCreateLegacyPrompt: find existing → found
+    queueResult('article_bank_topics', { data: { id: 'legacy-prompt' }, error: null });
+    // Update run with legacy prompt
+    queueResult('content_evolution_runs', { data: null, error: null });
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillPromptIds(mockSupabase as any);
 
-    expect(result).toEqual({ linked: 0, unlinked: 1 });
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('run-3'));
-    warnSpy.mockRestore();
+    expect(result).toEqual({ linked: 1, unlinked: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('legacy prompt'));
+    logSpy.mockRestore();
   });
 
   it('throws on DB error fetching runs', async () => {
@@ -191,20 +195,24 @@ describe('backfillStrategyConfigIds', () => {
     expect(result).toEqual({ linked: 0, created: 1, unlinked: 0 });
   });
 
-  it('skips runs with missing config fields', async () => {
+  it('assigns legacy strategy to runs with missing config fields', async () => {
     queueResult('content_evolution_runs', {
       data: [{ id: 'run-s3', config: { generationModel: 'gpt-4.1-mini' } }],
       error: null,
     });
+    // getOrCreateLegacyStrategy: find existing → found
+    queueResult('strategy_configs', { data: { id: 'legacy-strat' }, error: null });
+    // Update run with legacy strategy
+    queueResult('content_evolution_runs', { data: null, error: null });
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = await backfillStrategyConfigIds(mockSupabase as any);
 
-    expect(result).toEqual({ linked: 0, created: 0, unlinked: 1 });
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('run-s3'));
-    warnSpy.mockRestore();
+    expect(result).toEqual({ linked: 1, created: 0, unlinked: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('legacy strategy'));
+    logSpy.mockRestore();
   });
 
   it('throws on DB error fetching runs', async () => {

@@ -43,6 +43,68 @@ function labelStrategyConfig(config: StrategyConfig): string {
   return parts.join(' | ');
 }
 
+// ─── Legacy fallback helpers ────────────────────────────────────
+
+const LEGACY_PROMPT_TEXT = '[Legacy] Pre-framework runs';
+const LEGACY_STRATEGY_HASH = 'legacy000000';
+
+/** Find or create a catch-all "Legacy" prompt for unmatchable runs. */
+async function getOrCreateLegacyPrompt(supabase: SupabaseClient): Promise<string> {
+  const { data: existing } = await supabase
+    .from('article_bank_topics')
+    .select('id')
+    .eq('prompt', LEGACY_PROMPT_TEXT)
+    .is('deleted_at', null)
+    .limit(1)
+    .single();
+
+  if (existing) return existing.id;
+
+  const { data: inserted, error } = await supabase
+    .from('article_bank_topics')
+    .insert({ prompt: LEGACY_PROMPT_TEXT, difficulty_tier: 'easy', domain_tags: ['legacy'], status: 'archived' })
+    .select('id')
+    .single();
+
+  if (error || !inserted) throw new Error(`Failed to create legacy prompt: ${error?.message}`);
+  return inserted.id;
+}
+
+/** Find or create a catch-all "Legacy" strategy for runs with no config. */
+async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<string> {
+  const { data: existing } = await supabase
+    .from('strategy_configs')
+    .select('id')
+    .eq('config_hash', LEGACY_STRATEGY_HASH)
+    .limit(1)
+    .single();
+
+  if (existing) return existing.id;
+
+  const legacyConfig: StrategyConfig = {
+    generationModel: 'unknown',
+    judgeModel: 'unknown',
+    iterations: 1,
+    budgetCaps: { generation: 1.0 },
+  };
+
+  const { data: inserted, error } = await supabase
+    .from('strategy_configs')
+    .insert({
+      config_hash: LEGACY_STRATEGY_HASH,
+      name: 'Legacy (pre-framework)',
+      label: 'Legacy | Pre-framework runs',
+      config: legacyConfig,
+      is_predefined: false,
+      run_count: 0,
+    })
+    .select('id')
+    .single();
+
+  if (error || !inserted) throw new Error(`Failed to create legacy strategy: ${error?.message}`);
+  return inserted.id;
+}
+
 // ─── Backfill: prompt_id ────────────────────────────────────────
 
 /** Backfill prompt_id on runs that don't have one yet. Exported for tests. */
@@ -58,6 +120,7 @@ export async function backfillPromptIds(
   if (!runs || runs.length === 0) return { linked: 0, unlinked: 0 };
 
   let linked = 0;
+  const unmatchedRunIds: string[] = [];
 
   for (const run of runs) {
     // Strategy 1: Via article_bank_entries.topic_id
@@ -102,10 +165,22 @@ export async function backfillPromptIds(
       }
     }
 
-    console.warn(`Run ${run.id}: no prompt match found`);
+    unmatchedRunIds.push(run.id);
   }
 
-  return { linked, unlinked: runs.length - linked };
+  // Fallback: assign unmatched runs to a legacy catch-all prompt
+  if (unmatchedRunIds.length > 0) {
+    const legacyPromptId = await getOrCreateLegacyPrompt(supabase);
+    for (const runId of unmatchedRunIds) {
+      await supabase.from('content_evolution_runs')
+        .update({ prompt_id: legacyPromptId })
+        .eq('id', runId);
+    }
+    console.log(`  Assigned ${unmatchedRunIds.length} unmatched run(s) to legacy prompt`);
+    linked += unmatchedRunIds.length;
+  }
+
+  return { linked, unlinked: 0 };
 }
 
 // ─── Backfill: strategy_config_id ───────────────────────────────
@@ -125,10 +200,12 @@ export async function backfillStrategyConfigIds(
   let linked = 0;
   let created = 0;
 
+  const unmatchedRunIds: string[] = [];
+
   for (const run of runs) {
     const cfg = run.config as Record<string, unknown> | null;
     if (!cfg || !cfg.generationModel || !cfg.judgeModel || !cfg.iterations || !cfg.budgetCaps) {
-      console.warn(`Run ${run.id}: missing required config fields, skipping strategy backfill`);
+      unmatchedRunIds.push(run.id);
       continue;
     }
 
@@ -183,7 +260,19 @@ export async function backfillStrategyConfigIds(
       .eq('id', run.id);
   }
 
-  return { linked, created, unlinked: runs.length - linked - created };
+  // Fallback: assign unmatched runs to a legacy catch-all strategy
+  if (unmatchedRunIds.length > 0) {
+    const legacyStrategyId = await getOrCreateLegacyStrategy(supabase);
+    for (const runId of unmatchedRunIds) {
+      await supabase.from('content_evolution_runs')
+        .update({ strategy_config_id: legacyStrategyId })
+        .eq('id', runId);
+    }
+    console.log(`  Assigned ${unmatchedRunIds.length} unmatched run(s) to legacy strategy`);
+    linked += unmatchedRunIds.length;
+  }
+
+  return { linked, created, unlinked: 0 };
 }
 
 // ─── CLI entry point ─────────────────────────────────────────────
