@@ -160,17 +160,17 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
       data-testid="start-run-card"
     >
       <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-        Start New Run
+        Start New Pipeline
       </h3>
       <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+        <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
           <span className="text-xs font-ui text-[var(--text-muted)]">Prompt</span>
           <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={selectClass}>
             <option value="">Select prompt...</option>
             {prompts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1 flex-1 min-w-[180px]">
+        <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
           <span className="text-xs font-ui text-[var(--text-muted)]">Strategy</span>
           <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className={selectClass}>
             <option value="">Select strategy...</option>
@@ -193,7 +193,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
           data-testid="start-run-btn"
           className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
         >
-          {submitting ? 'Queuing...' : 'Start Run'}
+          {submitting ? 'Queuing...' : 'Start Pipeline'}
         </button>
       </div>
     </div>
@@ -432,7 +432,7 @@ export default function EvolutionAdminPage() {
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
-  const handleQueue = async (explanationId: number, budgetCapUsd: number) => {
+  const handleQueue = async (explanationId: number, budgetCapUsd: number): Promise<void> => {
     setActionLoading(true);
     const result = await queueEvolutionRunAction({ explanationId, budgetCapUsd });
     if (result.success) {
@@ -445,7 +445,7 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleTrigger = async (runId: string) => {
+  const handleTrigger = async (runId: string): Promise<void> => {
     setActionLoading(true);
     const result = await triggerEvolutionRunAction(runId);
     if (result.success) {
@@ -457,7 +457,7 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleViewVariants = async (run: EvolutionRun) => {
+  const handleViewVariants = async (run: EvolutionRun): Promise<void> => {
     setSelectedRun(run);
     setVariantsLoading(true);
     const result = await getEvolutionVariantsAction(run.id);
@@ -469,7 +469,7 @@ export default function EvolutionAdminPage() {
     setVariantsLoading(false);
   };
 
-  const handleApplyWinner = async (variantId: string) => {
+  const handleApplyWinner = async (variantId: string): Promise<void> => {
     if (!selectedRun) return;
     setActionLoading(true);
     const result = await applyWinnerAction({
@@ -487,10 +487,10 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleRollback = async (run: EvolutionRun) => {
+  const handleRollback = async (run: EvolutionRun): Promise<void> => {
     setActionLoading(true);
-    // Get evolution history to find the entry to rollback
     const historyResult = await getEvolutionHistoryAction(run.explanation_id);
+
     if (!historyResult.success || !historyResult.data || historyResult.data.length === 0) {
       toast.error('No evolution history found to rollback');
       setActionLoading(false);
@@ -507,6 +507,7 @@ export default function EvolutionAdminPage() {
       explanationId: run.explanation_id,
       historyId: latestHistory.id,
     });
+
     if (result.success) {
       toast.success('Content rolled back successfully');
       loadRuns();
@@ -529,18 +530,11 @@ export default function EvolutionAdminPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/admin/quality/evolution/dashboard"
-            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] text-sm"
-            data-testid="dashboard-link"
-          >
-            Dashboard
-          </Link>
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value as DateRange)}
             data-testid="evolution-date-filter"
-            className="px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+            className="relative z-10 px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
           >
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
@@ -551,7 +545,7 @@ export default function EvolutionAdminPage() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as EvolutionRunStatus | '')}
             data-testid="evolution-status-filter"
-            className="px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+            className="relative z-10 px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
           >
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>

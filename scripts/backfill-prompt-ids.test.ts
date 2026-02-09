@@ -65,7 +65,7 @@ describe('backfillPromptIds', () => {
       error: null,
     });
     // Bank entry lookup → found
-    queueResult('article_bank_entries', {
+    queueResult('hall_of_fame_entries', {
       data: { topic_id: 'topic-abc' },
       error: null,
     });
@@ -76,7 +76,7 @@ describe('backfillPromptIds', () => {
     const result = await backfillPromptIds(mockSupabase as any);
 
     expect(result).toEqual({ linked: 1, unlinked: 0 });
-    expect(mockFrom).toHaveBeenCalledWith('article_bank_entries');
+    expect(mockFrom).toHaveBeenCalledWith('hall_of_fame_entries');
   });
 
   it('links via explanation title (strategy 2) when bank entry not found', async () => {
@@ -85,14 +85,14 @@ describe('backfillPromptIds', () => {
       error: null,
     });
     // Bank entry → not found
-    queueResult('article_bank_entries', { data: null, error: null });
+    queueResult('hall_of_fame_entries', { data: null, error: null });
     // Explanation → title found
     queueResult('explanations', {
       data: { explanation_title: 'Explain gravity' },
       error: null,
     });
     // Topic match
-    queueResult('article_bank_topics', { data: { id: 'topic-grav' }, error: null });
+    queueResult('hall_of_fame_topics', { data: { id: 'topic-grav' }, error: null });
     // Update prompt_id
     queueResult('content_evolution_runs', { data: null, error: null });
 
@@ -108,9 +108,9 @@ describe('backfillPromptIds', () => {
       error: null,
     });
     // Bank entry → not found
-    queueResult('article_bank_entries', { data: null, error: null });
+    queueResult('hall_of_fame_entries', { data: null, error: null });
     // getOrCreateLegacyPrompt: find existing → found
-    queueResult('article_bank_topics', { data: { id: 'legacy-prompt' }, error: null });
+    queueResult('hall_of_fame_topics', { data: { id: 'legacy-prompt' }, error: null });
     // Update run with legacy prompt
     queueResult('content_evolution_runs', { data: null, error: null });
 

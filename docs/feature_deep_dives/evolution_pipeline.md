@@ -470,9 +470,9 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `src/lib/services/contentQualityActions.ts` | `getEvolutionComparisonAction` — partitions quality scores into before/after by evolution timestamp |
 | `scripts/run-prompt-bank.ts` | Batch generation across prompts × methods with coverage matrix, resume support, and evolution child process spawning |
 | `scripts/run-prompt-bank-comparisons.ts` | Batch all-pairs comparisons for all prompt bank topics with bias mitigation and Elo updates |
-| `scripts/run-bank-comparison.ts` | Single-topic pairwise comparison CLI with leaderboard output |
-| `scripts/add-to-bank.ts` | Adds evolution run winner (and optionally baseline) to article bank |
-| `scripts/lib/bankUtils.ts` | Shared article bank insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
+| `scripts/run-hall-of-fame-comparison.ts` | Single-topic pairwise comparison CLI with leaderboard output |
+| `scripts/add-to-hall-of-fame.ts` | Adds evolution run winner (and optionally baseline) to Hall of Fame |
+| `scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
 | `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods (3 oneshot + 1 minimal evolution + 1 outline evolution + 1 tree-search evolution), comparison settings |
 | `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--max-runs` and `--dry-run` inputs |
@@ -484,10 +484,10 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 | `content_evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
 | `feature_flags` | Four evolution flags seeded by migration `20260131000007` |
-| `article_bank_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
-| `article_bank_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
-| `article_bank_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
-| `article_bank_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
+| `hall_of_fame_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
+| `hall_of_fame_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
+| `hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
+| `hall_of_fame_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
 
 ## Observability
 
@@ -499,7 +499,7 @@ Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/rout
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for article bank)
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame)
 2. The `claim_evolution_run` RPC function is referenced but not yet created — the batch runner has a fallback using `UPDATE WHERE status='pending'` with optimistic locking
 
 ### Batch Runner
@@ -530,7 +530,7 @@ npx tsx scripts/run-evolution-local.ts --file docs/sample_evolution_content/fill
 # With specific model
 npx tsx scripts/run-evolution-local.ts --file any-markdown.md --model gpt-4.1-mini
 
-# With bank checkpoints (snapshot intermediate iterations to article bank)
+# With bank checkpoints (snapshot intermediate iterations to Hall of Fame)
 npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank --bank-checkpoints "3,5,10"
 
 # With outline-based generation enabled
@@ -570,7 +570,7 @@ The evolution pipeline supports starting from a text prompt instead of an existi
 # Generate seed article from prompt, then evolve it
 npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --seed-model gpt-4.1
 
-# With bank auto-insertion (adds winner + baseline to article bank)
+# With bank auto-insertion (adds winner + baseline to Hall of Fame)
 npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --bank
 ```
 
@@ -582,12 +582,12 @@ npx tsx scripts/run-evolution-local.ts --prompt "Explain quantum computing" --ba
    - Returns the generated article as the `originalText` for the pipeline
 2. `--seed-model` optionally specifies which model generates the seed (default: pipeline's `generationModel`)
 3. The `--prompt` flag is mutually exclusive with `--file` (one or the other, not both)
-4. When `--bank` is also set, the pipeline winner and baseline are added to the article bank after completion
-5. `--bank-checkpoints "3,5,10"` snapshots intermediate iteration winners to the article bank, enabling comparison of evolution quality at different stages. Automatically extends `--iterations` to the max checkpoint value. Prevents duplicate insertion if the final iteration matches a checkpoint.
+4. When `--bank` is also set, the pipeline winner and baseline are added to the Hall of Fame after completion
+5. `--bank-checkpoints "3,5,10"` snapshots intermediate iteration winners to the Hall of Fame, enabling comparison of evolution quality at different stages. Automatically extends `--iterations` to the max checkpoint value. Prevents duplicate insertion if the final iteration matches a checkpoint.
 
-### Article Bank Integration
+### Hall of Fame Integration
 
-The `--bank` flag on both `generate-article.ts` (1-shot) and `run-evolution-local.ts` (pipeline) adds results to the persistent article bank for cross-method comparison. See [Comparison Infrastructure](./comparison_infrastructure.md) for the full bank system.
+The `--bank` flag on both `generate-article.ts` (1-shot) and `run-evolution-local.ts` (pipeline) adds results to the persistent Hall of Fame for cross-method comparison. See [Comparison Infrastructure](./comparison_infrastructure.md) for the full bank system.
 
 ## Related Documentation
 

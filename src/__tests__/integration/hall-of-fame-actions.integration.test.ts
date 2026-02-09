@@ -1,7 +1,7 @@
 /**
  * @jest-environment node
  */
-// Integration tests for article bank server actions with real Supabase.
+// Integration tests for hall of fame server actions with real Supabase.
 // Validates CRUD, Elo initialization, cascade deletes, and concurrent upsert dedup
 // using direct Supabase calls (not server actions, which require Next.js runtime).
 
@@ -21,12 +21,12 @@ function createServiceClient(): SupabaseClient {
   });
 }
 
-/** Check if the article_bank_topics table exists. */
-async function articleBankTablesExist(
+/** Check if the hall_of_fame_topics table exists. */
+async function hallOfFameTablesExist(
   client: SupabaseClient,
 ): Promise<boolean> {
   const { error } = await client
-    .from('article_bank_topics')
+    .from('hall_of_fame_topics')
     .select('id')
     .limit(1);
   return !error;
@@ -43,13 +43,13 @@ const createdEntryIds: string[] = [];
 
 beforeAll(async () => {
   if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-    console.warn('Skipping article bank integration tests: missing Supabase env vars');
+    console.warn('Skipping hall of fame integration tests: missing Supabase env vars');
     return;
   }
   supabase = createServiceClient();
-  tablesReady = await articleBankTablesExist(supabase);
+  tablesReady = await hallOfFameTablesExist(supabase);
   if (!tablesReady) {
-    console.warn('Skipping article bank integration tests: article_bank_topics table not found');
+    console.warn('Skipping hall of fame integration tests: hall_of_fame_topics table not found');
   }
 });
 
@@ -68,31 +68,31 @@ async function cleanupAll() {
   // Delete comparisons for tracked entries
   for (const entryId of createdEntryIds) {
     await supabase
-      .from('article_bank_comparisons')
+      .from('hall_of_fame_comparisons')
       .delete()
       .or(`entry_a_id.eq.${entryId},entry_b_id.eq.${entryId}`);
   }
   // Delete elo rows for tracked entries
   for (const entryId of createdEntryIds) {
     await supabase
-      .from('article_bank_elo')
+      .from('hall_of_fame_elo')
       .delete()
       .eq('entry_id', entryId);
   }
   // Delete entries
   for (const entryId of createdEntryIds) {
     await supabase
-      .from('article_bank_entries')
+      .from('hall_of_fame_entries')
       .delete()
       .eq('id', entryId);
   }
   // Delete topics
   for (const topicId of createdTopicIds) {
     // Also clean elo/entries/comparisons by topic in case we missed individual ones
-    await supabase.from('article_bank_comparisons').delete().eq('topic_id', topicId);
-    await supabase.from('article_bank_elo').delete().eq('topic_id', topicId);
-    await supabase.from('article_bank_entries').delete().eq('topic_id', topicId);
-    await supabase.from('article_bank_topics').delete().eq('id', topicId);
+    await supabase.from('hall_of_fame_comparisons').delete().eq('topic_id', topicId);
+    await supabase.from('hall_of_fame_elo').delete().eq('topic_id', topicId);
+    await supabase.from('hall_of_fame_entries').delete().eq('topic_id', topicId);
+    await supabase.from('hall_of_fame_topics').delete().eq('id', topicId);
   }
   createdTopicIds.length = 0;
   createdEntryIds.length = 0;
@@ -101,7 +101,7 @@ async function cleanupAll() {
 /** Helper: insert a topic via direct Supabase call and track for cleanup. */
 async function insertTopic(prompt: string, title?: string) {
   const { data, error } = await supabase
-    .from('article_bank_topics')
+    .from('hall_of_fame_topics')
     .insert({ prompt, title: title ?? null })
     .select('id, prompt, title, created_at')
     .single();
@@ -120,7 +120,7 @@ async function insertEntry(
   metadata: Record<string, unknown> = {},
 ) {
   const { data, error } = await supabase
-    .from('article_bank_entries')
+    .from('hall_of_fame_entries')
     .insert({
       topic_id: topicId,
       content,
@@ -139,7 +139,7 @@ async function insertEntry(
 /** Helper: insert an Elo row for an entry. */
 async function insertElo(topicId: string, entryId: string, eloRating: number = 1200, matchCount: number = 0) {
   const { data, error } = await supabase
-    .from('article_bank_elo')
+    .from('hall_of_fame_elo')
     .insert({
       topic_id: topicId,
       entry_id: entryId,
@@ -161,7 +161,7 @@ async function insertComparison(
   winnerId: string | null = null,
 ) {
   const { data, error } = await supabase
-    .from('article_bank_comparisons')
+    .from('hall_of_fame_comparisons')
     .insert({
       topic_id: topicId,
       entry_a_id: entryAId,
@@ -186,7 +186,7 @@ const describeSuite = () => {
   // We conditionally guard each test with if (!tablesReady) return;
   // This allows the suite to report properly.
 
-  describe('Article Bank Actions Integration Tests', () => {
+  describe('Hall of Fame Actions Integration Tests', () => {
     // ─── Test 1: Create topic + add entry ──────────────────────────
 
     it('creates a topic and adds an entry', async () => {
@@ -213,7 +213,7 @@ const describeSuite = () => {
 
       // Verify topic exists via separate query
       const { data: fetchedTopic, error: topicErr } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .select('id, prompt')
         .eq('id', topic.id)
         .single();
@@ -223,7 +223,7 @@ const describeSuite = () => {
 
       // Verify entry exists via separate query
       const { data: fetchedEntry, error: entryErr } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, topic_id')
         .eq('id', entry.id)
         .single();
@@ -258,7 +258,7 @@ const describeSuite = () => {
 
       // Verify both entries exist under the same topic
       const { data: entries, error } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, generation_method, model')
         .eq('topic_id', topic.id)
         .is('deleted_at', null)
@@ -287,7 +287,7 @@ const describeSuite = () => {
 
       // Verify via a fresh query
       const { data: fetchedElo, error } = await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .select('elo_rating, match_count')
         .eq('entry_id', entry.id)
         .single();
@@ -314,7 +314,7 @@ const describeSuite = () => {
 
       // Soft-delete entry A
       const { error: softDeleteErr } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .update({ deleted_at: new Date().toISOString() })
         .eq('id', entryA.id);
 
@@ -322,19 +322,19 @@ const describeSuite = () => {
 
       // Hard-delete comparisons involving entry A
       await supabase
-        .from('article_bank_comparisons')
+        .from('hall_of_fame_comparisons')
         .delete()
         .or(`entry_a_id.eq.${entryA.id},entry_b_id.eq.${entryA.id}`);
 
       // Hard-delete Elo row for entry A
       await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .delete()
         .eq('entry_id', entryA.id);
 
       // Verify: entry A is soft-deleted (deleted_at is set)
       const { data: deletedEntry } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, deleted_at')
         .eq('id', entryA.id)
         .single();
@@ -344,7 +344,7 @@ const describeSuite = () => {
 
       // Verify: no Elo row for entry A
       const { data: eloRows } = await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .select('id')
         .eq('entry_id', entryA.id);
 
@@ -352,7 +352,7 @@ const describeSuite = () => {
 
       // Verify: no comparisons involving entry A
       const { data: compRows } = await supabase
-        .from('article_bank_comparisons')
+        .from('hall_of_fame_comparisons')
         .select('id')
         .or(`entry_a_id.eq.${entryA.id},entry_b_id.eq.${entryA.id}`);
 
@@ -360,7 +360,7 @@ const describeSuite = () => {
 
       // Verify: entry B and its Elo still intact
       const { data: entryBElo } = await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .select('id')
         .eq('entry_id', entryB.id);
 
@@ -383,7 +383,7 @@ const describeSuite = () => {
 
       // Soft-delete the topic
       const { error: topicDeleteErr } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .update({ deleted_at: new Date().toISOString() })
         .eq('id', topic.id);
 
@@ -391,25 +391,25 @@ const describeSuite = () => {
 
       // Hard-delete all comparisons for this topic
       await supabase
-        .from('article_bank_comparisons')
+        .from('hall_of_fame_comparisons')
         .delete()
         .eq('topic_id', topic.id);
 
       // Hard-delete all Elo rows for this topic
       await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .delete()
         .eq('topic_id', topic.id);
 
       // Soft-delete all entries for this topic
       await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .update({ deleted_at: new Date().toISOString() })
         .eq('topic_id', topic.id);
 
       // Verify: entries are soft-deleted
       const { data: entries } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, deleted_at')
         .eq('topic_id', topic.id);
 
@@ -420,7 +420,7 @@ const describeSuite = () => {
 
       // Verify: no active entries (filtering by deleted_at IS NULL)
       const { data: activeEntries } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id')
         .eq('topic_id', topic.id)
         .is('deleted_at', null);
@@ -429,7 +429,7 @@ const describeSuite = () => {
 
       // Verify: Elo rows are deleted
       const { data: eloRows } = await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .select('id')
         .eq('topic_id', topic.id);
 
@@ -455,7 +455,7 @@ const describeSuite = () => {
 
       // Query back with metadata
       const { data: fetched, error } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, metadata')
         .eq('id', entry.id)
         .single();
@@ -470,7 +470,7 @@ const describeSuite = () => {
 
       // Query using containedBy / contains filter on JSONB
       const { data: filtered } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id')
         .eq('topic_id', topic.id)
         .contains('metadata', { iterations: 10 });
@@ -481,7 +481,7 @@ const describeSuite = () => {
 
       // Negative filter: iterations=5 should return nothing
       const { data: noMatch } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id')
         .eq('topic_id', topic.id)
         .contains('metadata', { iterations: 5 });
@@ -499,7 +499,7 @@ const describeSuite = () => {
 
       // Search with uppercase should still find it
       const { data: found } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .select('id')
         .ilike('prompt', basePrompt.toUpperCase())
         .is('deleted_at', null)
@@ -511,7 +511,7 @@ const describeSuite = () => {
       // Search with mixed case
       const mixed = basePrompt.charAt(0).toUpperCase() + basePrompt.slice(1).toLowerCase();
       const { data: found2 } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .select('id')
         .ilike('prompt', mixed)
         .is('deleted_at', null)
@@ -541,7 +541,7 @@ const describeSuite = () => {
 
       // Query all entries for this topic
       const { data: entries } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, generation_method, metadata')
         .eq('topic_id', topic.id)
         .is('deleted_at', null)
@@ -556,7 +556,7 @@ const describeSuite = () => {
 
       // Query Elo ranked by rating
       const { data: eloRows } = await supabase
-        .from('article_bank_elo')
+        .from('hall_of_fame_elo')
         .select('entry_id, elo_rating, match_count')
         .eq('topic_id', topic.id)
         .order('elo_rating', { ascending: false });
@@ -590,7 +590,7 @@ const describeSuite = () => {
       // If there's no unique index, both succeed but with different IDs.
       // Either way, query for all topics with this prompt.
       const { data: topics } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .select('id, prompt')
         .eq('prompt', prompt);
 
@@ -610,7 +610,7 @@ const describeSuite = () => {
         expect(succeeded.length).toBe(2);
         // Warn that dedup via unique index is not enforced
         console.warn(
-          'article_bank_topics does not enforce prompt uniqueness; ' +
+          'hall_of_fame_topics does not enforce prompt uniqueness; ' +
           `${topics?.length} rows created for same prompt`,
         );
       }

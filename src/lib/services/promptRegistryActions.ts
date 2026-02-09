@@ -1,5 +1,5 @@
 'use server';
-// Server actions for prompt registry CRUD. Prompts are stored in article_bank_topics
+// Server actions for prompt registry CRUD. Prompts are stored in hall_of_fame_topics
 // with additional metadata columns (difficulty_tier, domain_tags, status).
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -31,7 +31,7 @@ const _getPromptsAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     let query = supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .select('id, prompt, title, difficulty_tier, domain_tags, status, deleted_at, created_at')
       .order('created_at', { ascending: false });
 
@@ -82,7 +82,7 @@ const _createPromptAction = withLogging(async (
 
     // Case-insensitive uniqueness check
     const { data: existing } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .select('id')
       .ilike('prompt', trimmedPrompt)
       .is('deleted_at', null)
@@ -93,7 +93,7 @@ const _createPromptAction = withLogging(async (
     }
 
     const { data, error } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .insert({
         prompt: trimmedPrompt,
         title: trimmedTitle,
@@ -138,7 +138,7 @@ const _updatePromptAction = withLogging(async (
       if (!trimmed) throw new Error('Prompt text cannot be empty');
 
       const { data: existing } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .select('id')
         .ilike('prompt', trimmed)
         .is('deleted_at', null)
@@ -166,7 +166,7 @@ const _updatePromptAction = withLogging(async (
     }
 
     const { data, error } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .update(updates)
       .eq('id', input.id)
       .is('deleted_at', null)
@@ -193,7 +193,7 @@ const _archivePromptAction = withLogging(async (
     const supabase = await createSupabaseServiceClient();
 
     const { error } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .update({ status: 'archived' })
       .eq('id', id)
       .is('deleted_at', null);
@@ -228,7 +228,7 @@ const _deletePromptAction = withLogging(async (
     }
 
     const { error } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .update({ deleted_at: new Date().toISOString() })
       .eq('id', id);
 
@@ -252,7 +252,7 @@ export async function resolvePromptByText(
   promptText: string,
 ): Promise<string | null> {
   const { data } = await supabase
-    .from('article_bank_topics')
+    .from('hall_of_fame_topics')
     .select('id')
     .ilike('prompt', promptText.trim())
     .is('deleted_at', null)

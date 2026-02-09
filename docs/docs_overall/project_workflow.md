@@ -93,6 +93,9 @@ See the planning doc for full bypass documentation.
 ## Problem Statement
 [Description of the problem]
 
+## Requirements (from GH Issue #NNN)
+[Detailed task list / requirements copied verbatim from the user]
+
 ## High Level Summary
 [Summary of findings]
 
@@ -109,6 +112,9 @@ See the planning doc for full bypass documentation.
 
 ## Background
 [3-5 sentences of context]
+
+## Requirements (from GH Issue #NNN)
+[Detailed task list / requirements copied verbatim from the user]
 
 ## Problem
 [3-5 sentences describing the problem]

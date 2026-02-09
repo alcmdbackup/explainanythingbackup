@@ -93,7 +93,7 @@ describe('getUnifiedExplorerAction', () => {
       // Runs query
       queueResult('content_evolution_runs', { data: [sampleRun], error: null });
       // Prompt labels
-      queueResult('article_bank_topics', { data: [{ id: 'prompt-1', prompt: 'Explain gravity' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'prompt-1', prompt: 'Explain gravity' }], error: null });
       // Strategy labels
       queueResult('strategy_configs', { data: [{ id: 'strat-1', label: 'Gen: ds-chat | 3 iters' }], error: null });
 
@@ -141,12 +141,12 @@ describe('getUnifiedExplorerAction', () => {
         error: null,
       });
       // Bank entries for rank
-      queueResult('article_bank_entries', {
+      queueResult('hall_of_fame_entries', {
         data: [{ evolution_variant_id: 'v1', rank: 1 }],
         error: null,
       });
       // Prompt texts
-      queueResult('article_bank_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'article');
 
@@ -180,7 +180,7 @@ describe('getUnifiedExplorerAction', () => {
         error: null,
       });
       // Prompt texts
-      queueResult('article_bank_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Test prompt' }], error: null });
 
       const result = await getUnifiedExplorerAction({}, 'task');
 
@@ -195,14 +195,14 @@ describe('getUnifiedExplorerAction', () => {
   describe('attribute filters', () => {
     it('resolves domain tags to prompt IDs via overlaps', async () => {
       // Attribute filter: domain_tags overlaps ['science']
-      queueResult('article_bank_topics', { data: [{ id: 'sci-prompt-1' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'sci-prompt-1' }], error: null });
       // Runs filtered by resolved prompt IDs
       queueResult('content_evolution_runs', {
         data: [{ ...sampleRun, prompt_id: 'sci-prompt-1' }],
         error: null,
       });
       // Prompt labels
-      queueResult('article_bank_topics', { data: [{ id: 'sci-prompt-1', prompt: 'Science topic' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'sci-prompt-1', prompt: 'Science topic' }], error: null });
       // Strategy labels
       queueResult('strategy_configs', { data: [], error: null });
 
@@ -212,7 +212,7 @@ describe('getUnifiedExplorerAction', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(mockFrom).toHaveBeenCalledWith('article_bank_topics');
+      expect(mockFrom).toHaveBeenCalledWith('hall_of_fame_topics');
     });
 
     it('resolves strategy model filter via parameterized query', async () => {
@@ -224,7 +224,7 @@ describe('getUnifiedExplorerAction', () => {
         error: null,
       });
       // Prompt labels
-      queueResult('article_bank_topics', { data: [], error: null });
+      queueResult('hall_of_fame_topics', { data: [], error: null });
       // Strategy labels
       queueResult('strategy_configs', { data: [{ id: 'strat-mini', label: 'Mini strat' }], error: null });
 
@@ -239,14 +239,14 @@ describe('getUnifiedExplorerAction', () => {
 
     it('resolves difficulty tier to prompt IDs', async () => {
       // Attribute filter resolution: difficulty_tier = 'hard'
-      queueResult('article_bank_topics', { data: [{ id: 'hard-prompt-1' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'hard-prompt-1' }], error: null });
       // Runs filtered by resolved prompt IDs
       queueResult('content_evolution_runs', {
         data: [{ ...sampleRun, prompt_id: 'hard-prompt-1' }],
         error: null,
       });
       // Prompt labels
-      queueResult('article_bank_topics', { data: [{ id: 'hard-prompt-1', prompt: 'Hard topic' }], error: null });
+      queueResult('hall_of_fame_topics', { data: [{ id: 'hard-prompt-1', prompt: 'Hard topic' }], error: null });
       // Strategy labels
       queueResult('strategy_configs', { data: [], error: null });
 
@@ -256,7 +256,7 @@ describe('getUnifiedExplorerAction', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(mockFrom).toHaveBeenCalledWith('article_bank_topics');
+      expect(mockFrom).toHaveBeenCalledWith('hall_of_fame_topics');
     });
   });
 });
@@ -275,7 +275,7 @@ describe('getExplorerMatrixAction', () => {
       error: null,
     });
     // Prompt labels
-    queueResult('article_bank_topics', {
+    queueResult('hall_of_fame_topics', {
       data: [{ id: 'p1', prompt: 'Prompt A' }, { id: 'p2', prompt: 'Prompt B' }],
       error: null,
     });
@@ -307,7 +307,7 @@ describe('getExplorerMatrixAction', () => {
       ],
       error: null,
     });
-    queueResult('article_bank_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
+    queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
     queueResult('strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
 
     const result = await getExplorerMatrixAction({
@@ -332,7 +332,7 @@ describe('getExplorerMatrixAction', () => {
       ],
       error: null,
     });
-    queueResult('article_bank_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
+    queueResult('hall_of_fame_topics', { data: [{ id: 'p1', prompt: 'Prompt A' }], error: null });
     queueResult('strategy_configs', { data: [{ id: 's1', label: 'Strat 1' }], error: null });
 
     const result = await getExplorerMatrixAction({

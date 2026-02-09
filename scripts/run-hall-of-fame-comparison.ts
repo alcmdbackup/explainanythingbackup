@@ -34,7 +34,7 @@ function parseArgs(): CLIArgs {
   }
 
   if (getFlag('help') || args.length === 0) {
-    console.log(`Usage: npx tsx scripts/run-bank-comparison.ts [options]
+    console.log(`Usage: npx tsx scripts/run-hall-of-fame-comparison.ts [options]
 
 Options:
   --topic-id <uuid>       Topic ID to compare (required)
@@ -129,7 +129,7 @@ async function main() {
   const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 
   console.log('\n┌─────────────────────────────────────────┐');
-  console.log('│  Bank Comparison Runner                  │');
+  console.log('│  Hall of Fame Comparison Runner           │');
   console.log('└─────────────────────────────────────────┘\n');
 
   // Fetch topic

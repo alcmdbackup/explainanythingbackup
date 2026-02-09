@@ -95,7 +95,7 @@ export function VariantsTab({ runId }: { runId: string }) {
   return (
     <div className="space-y-4" data-testid="variants-tab">
       {/* Filters */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between relative z-10">
         <select
           value={strategyFilter}
           onChange={e => setStrategyFilter(e.target.value)}

@@ -1,24 +1,24 @@
 'use client';
-// Article bank topic list page. Displays cross-topic cost efficiency summary cards
+// Hall of Fame topic list page. Displays cross-topic cost efficiency summary cards
 // and a table of topics with entry counts, Elo ranges, and best methods.
 
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
-  getBankTopicsAction,
+  getHallOfFameTopicsAction,
   getCrossTopicSummaryAction,
-  addToBankAction,
-  deleteBankTopicAction,
-  generateAndAddToBankAction,
+  addToHallOfFameAction,
+  deleteHallOfFameTopicAction,
+  generateAndAddToHallOfFameAction,
   getPromptBankCoverageAction,
   getPromptBankMethodSummaryAction,
-  runBankComparisonAction,
-  type BankTopicWithStats,
+  runHallOfFameComparisonAction,
+  type HallOfFameTopicWithStats,
   type CrossTopicMethodSummary,
   type PromptBankCoverageRow,
   type PromptBankMethodSummary,
-} from '@/lib/services/articleBankActions';
+} from '@/lib/services/hallOfFameActions';
 import { PROMPT_BANK, type MethodConfig } from '@/config/promptBankConfig';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
@@ -241,13 +241,13 @@ function PromptBankCoverage({
                       {m.label}
                     </td>
                     <td className={`p-2 text-right font-mono ${m.avgElo === bestElo && m.avgElo > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
-                      {m.avgElo > 0 ? m.avgElo.toFixed(0) : '—'}
+                      {m.avgElo > 0 ? m.avgElo.toFixed(0) : '\u2014'}
                     </td>
                     <td className={`p-2 text-right font-mono ${m.avgCostUsd === lowestCost && m.avgCostUsd > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
-                      {m.avgCostUsd > 0 ? `$${m.avgCostUsd.toFixed(4)}` : '—'}
+                      {m.avgCostUsd > 0 ? `$${m.avgCostUsd.toFixed(4)}` : '\u2014'}
                     </td>
                     <td className="p-2 text-right font-mono">
-                      {m.avgEloPerDollar !== null ? m.avgEloPerDollar.toFixed(1) : '—'}
+                      {m.avgEloPerDollar !== null ? m.avgEloPerDollar.toFixed(1) : '\u2014'}
                     </td>
                     <td className={`p-2 text-right font-mono ${m.winRate === bestWinRate && m.winRate > 0 ? 'text-[var(--accent-gold)] font-bold' : ''}`}>
                       {(m.winRate * 100).toFixed(0)}%
@@ -322,7 +322,7 @@ function NewTopicDialog({ onSubmit, onClose }: {
 function GenerateArticleDialog({ onClose, onGenerated, topics }: {
   onClose: () => void;
   onGenerated: (topicId: string) => void;
-  topics: BankTopicWithStats[];
+  topics: HallOfFameTopicWithStats[];
 }) {
   const [selectedTopicId, setSelectedTopicId] = useState<string>('__new__');
   const [newPrompt, setNewPrompt] = useState('');
@@ -340,7 +340,7 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
     setGenerating(true);
     setPreview(null);
 
-    const result = await generateAndAddToBankAction({ prompt: effectivePrompt, model });
+    const result = await generateAndAddToHallOfFameAction({ prompt: effectivePrompt, model });
 
     if (result.success && result.data) {
       setPreview({
@@ -349,7 +349,7 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
         topicId: result.data.topic_id,
         entryId: result.data.entry_id,
       });
-      toast.success('Article generated and added to bank');
+      toast.success('Article generated and added to Hall of Fame');
     } else {
       toast.error(result.error?.message || 'Generation failed');
     }
@@ -376,7 +376,7 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
             value={selectedTopicId}
             onChange={(e) => setSelectedTopicId(e.target.value)}
             data-testid="generate-topic-select"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
+            className="relative z-10 w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
             disabled={generating}
           >
             <option value="__new__">+ New topic</option>
@@ -408,7 +408,7 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
             value={model}
             onChange={(e) => setModel(e.target.value as AllowedLLMModelType)}
             data-testid="generate-model"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
+            className="relative z-10 w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-input)] text-[var(--text-primary)]"
             disabled={generating}
           >
             <option value="gpt-4.1">gpt-4.1 (best quality)</option>
@@ -462,9 +462,9 @@ function GenerateArticleDialog({ onClose, onGenerated, topics }: {
 
 // ─── Main page ──────────────────────────────────────────────────
 
-export default function ArticleBankPage() {
+export default function HallOfFamePage() {
   const router = useRouter();
-  const [topics, setTopics] = useState<BankTopicWithStats[]>([]);
+  const [topics, setTopics] = useState<HallOfFameTopicWithStats[]>([]);
   const [summaries, setSummaries] = useState<CrossTopicMethodSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -481,7 +481,7 @@ export default function ArticleBankPage() {
     setError(null);
 
     const [topicsResult, summaryResult, coverageResult, methodSummaryResult] = await Promise.all([
-      getBankTopicsAction(),
+      getHallOfFameTopicsAction(),
       getCrossTopicSummaryAction(),
       getPromptBankCoverageAction(),
       getPromptBankMethodSummaryAction(),
@@ -512,13 +512,13 @@ export default function ArticleBankPage() {
 
   const handleCreateTopic = async (prompt: string) => {
     setActionLoading(true);
-    // Create topic by adding a placeholder entry (topic is auto-created by addToBankAction)
-    // Actually, we just need to create the topic. Let's use addToBankAction with minimal content.
-    // But addToBankAction requires content. Instead, we'll just navigate after creating via prompt.
+    // Create topic by adding a placeholder entry (topic is auto-created by addToHallOfFameAction)
+    // Actually, we just need to create the topic. Let's use addToHallOfFameAction with minimal content.
+    // But addToHallOfFameAction requires content. Instead, we'll just navigate after creating via prompt.
     // For now, create a topic by inserting a minimal entry.
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt,
-      content: '_(empty topic — add articles to compare)_',
+      content: '_(empty topic \u2014 add articles to compare)_',
       generation_method: 'oneshot',
       model: 'placeholder',
       total_cost_usd: 0,
@@ -527,7 +527,7 @@ export default function ArticleBankPage() {
     if (result.success && result.data) {
       toast.success('Topic created');
       setShowNewTopic(false);
-      router.push(`/admin/quality/article-bank/${result.data.topic_id}`);
+      router.push(`/admin/quality/hall-of-fame/${result.data.topic_id}`);
     } else {
       toast.error(result.error?.message || 'Failed to create topic');
     }
@@ -537,7 +537,7 @@ export default function ArticleBankPage() {
   const handleDeleteTopic = async (topicId: string, prompt: string, entryCount: number) => {
     if (!confirm(`Delete topic "${prompt}"? This will delete ${entryCount} ${entryCount === 1 ? 'entry' : 'entries'} and all associated comparisons.`)) return;
     setActionLoading(true);
-    const result = await deleteBankTopicAction(topicId);
+    const result = await deleteHallOfFameTopicAction(topicId);
     if (result.success) {
       toast.success('Topic deleted');
       loadData();
@@ -564,7 +564,7 @@ export default function ArticleBankPage() {
     for (const topicId of topicIds) {
       completed++;
       setComparisonProgress(`${completed}/${topicIds.length}...`);
-      const result = await runBankComparisonAction(topicId, 'gpt-4.1-nano', PROMPT_BANK.comparison.rounds);
+      const result = await runHallOfFameComparisonAction(topicId, 'gpt-4.1-nano', PROMPT_BANK.comparison.rounds);
       if (result.success && result.data) {
         totalRun += result.data.comparisons_run;
       }
@@ -588,7 +588,7 @@ export default function ArticleBankPage() {
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            Article Bank
+            Hall of Fame
           </h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">
             Compare articles across generation methods with Elo rankings
@@ -664,7 +664,7 @@ export default function ArticleBankPage() {
                   key={topic.id}
                   className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
                   data-testid={`topic-row-${topic.id}`}
-                  onClick={() => router.push(`/admin/quality/article-bank/${topic.id}`)}
+                  onClick={() => router.push(`/admin/quality/hall-of-fame/${topic.id}`)}
                 >
                   <td className="p-3 text-[var(--text-primary)] max-w-[300px] truncate">
                     {topic.prompt}
@@ -672,14 +672,14 @@ export default function ArticleBankPage() {
                   <td className="p-3 text-right">{topic.entry_count}</td>
                   <td className="p-3 text-right font-mono text-xs">
                     {topic.elo_min !== null && topic.elo_max !== null
-                      ? `${topic.elo_min.toFixed(0)}–${topic.elo_max.toFixed(0)}`
-                      : '—'}
+                      ? `${topic.elo_min.toFixed(0)}\u2013${topic.elo_max.toFixed(0)}`
+                      : '\u2014'}
                   </td>
                   <td className="p-3 text-right font-mono">
-                    {topic.total_cost !== null ? `$${topic.total_cost.toFixed(4)}` : '—'}
+                    {topic.total_cost !== null ? `$${topic.total_cost.toFixed(4)}` : '\u2014'}
                   </td>
                   <td className="p-3">
-                    {topic.best_method ? <MethodBadge method={topic.best_method} /> : '—'}
+                    {topic.best_method ? <MethodBadge method={topic.best_method} /> : '\u2014'}
                   </td>
                   <td className="p-3 text-[var(--text-muted)] text-xs">
                     {new Date(topic.created_at).toLocaleDateString()}
@@ -715,7 +715,7 @@ export default function ArticleBankPage() {
           onClose={() => { setShowGenerate(false); loadData(); }}
           onGenerated={(topicId) => {
             setShowGenerate(false);
-            router.push(`/admin/quality/article-bank/${topicId}`);
+            router.push(`/admin/quality/hall-of-fame/${topicId}`);
           }}
         />
       )}

@@ -1,22 +1,23 @@
-// Unit tests for article bank server actions: CRUD, Elo updates, soft-delete cascading,
+// Unit tests for Hall of Fame server actions: CRUD, Elo updates, soft-delete cascading,
 // and cross-topic summary aggregation.
 
 import {
-  addToBankAction,
-  generateAndAddToBankAction,
-  getBankTopicAction,
-  getBankTopicsAction,
-  getBankEntriesAction,
-  getBankEntryDetailAction,
-  getBankLeaderboardAction,
-  getBankMatchHistoryAction,
-  runBankComparisonAction,
+  addToHallOfFameAction,
+  generateAndAddToHallOfFameAction,
+  getHallOfFameTopicAction,
+  getHallOfFameTopicsAction,
+  getHallOfFameEntriesAction,
+  getHallOfFameEntryDetailAction,
+  getHallOfFameLeaderboardAction,
+  getHallOfFameMatchHistoryAction,
+  runHallOfFameComparisonAction,
+  runHallOfFameComparisonInternal,
   getCrossTopicSummaryAction,
-  deleteBankEntryAction,
-  deleteBankTopicAction,
+  deleteHallOfFameEntryAction,
+  deleteHallOfFameTopicAction,
   getPromptBankCoverageAction,
   getPromptBankMethodSummaryAction,
-} from './articleBankActions';
+} from './hallOfFameActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
 import { compareWithBiasMitigation } from '@/lib/evolution/comparison';
@@ -115,7 +116,7 @@ beforeEach(() => {
   (requireAdmin as jest.Mock).mockResolvedValue('admin-user-id');
 });
 
-describe('addToBankAction', () => {
+describe('addToHallOfFameAction', () => {
   it('creates topic and entry when no existing topic matches', async () => {
     const eloInsertData: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
@@ -123,9 +124,9 @@ describe('addToBankAction', () => {
       (b) => { b.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } }); },
       // 2. insert new topic
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 3. article_bank_entries insert
+      // 3. hall_of_fame_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 4. article_bank_elo insert
+      // 4. hall_of_fame_elo insert
       (b) => {
         b.insert.mockImplementation((data: Record<string, unknown>) => {
           eloInsertData.push(data);
@@ -135,7 +136,7 @@ describe('addToBankAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt: 'Explain quantum entanglement',
       content: '# Quantum Entanglement\n\nArticle text...',
       generation_method: 'oneshot',
@@ -154,14 +155,14 @@ describe('addToBankAction', () => {
     const mock = createTableAwareMock([
       // 1. select existing topic → found
       (b) => { b.single.mockResolvedValueOnce({ data: { id: TOPIC_UUID }, error: null }); },
-      // 2. article_bank_entries insert
+      // 2. hall_of_fame_entries insert
       (b) => { b.single.mockResolvedValueOnce({ data: { id: ENTRY_UUID_A }, error: null }); },
-      // 3. article_bank_elo insert
+      // 3. hall_of_fame_elo insert
       (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt: 'Test prompt',
       content: 'Content',
       generation_method: 'evolution_winner',
@@ -175,7 +176,7 @@ describe('addToBankAction', () => {
   it('returns error when admin check fails', async () => {
     (requireAdmin as jest.Mock).mockRejectedValue(new Error('Unauthorized'));
 
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -187,7 +188,7 @@ describe('addToBankAction', () => {
   });
 });
 
-describe('getBankTopicAction', () => {
+describe('getHallOfFameTopicAction', () => {
   it('returns topic by ID', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -199,19 +200,19 @@ describe('getBankTopicAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankTopicAction(TOPIC_UUID);
+    const result = await getHallOfFameTopicAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.prompt).toBe('Test');
   });
 
   it('rejects invalid UUID', async () => {
-    const result = await getBankTopicAction('not-a-uuid');
+    const result = await getHallOfFameTopicAction('not-a-uuid');
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('Invalid topic ID');
   });
 });
 
-describe('getBankEntriesAction', () => {
+describe('getHallOfFameEntriesAction', () => {
   it('returns entries for a topic', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -226,13 +227,13 @@ describe('getBankEntriesAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankEntriesAction(TOPIC_UUID);
+    const result = await getHallOfFameEntriesAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(2);
   });
 });
 
-describe('getBankEntryDetailAction', () => {
+describe('getHallOfFameEntryDetailAction', () => {
   it('returns full entry with metadata', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -247,13 +248,13 @@ describe('getBankEntryDetailAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankEntryDetailAction(ENTRY_UUID_A);
+    const result = await getHallOfFameEntryDetailAction(ENTRY_UUID_A);
     expect(result.success).toBe(true);
     expect(result.data?.metadata).toHaveProperty('call_source');
   });
 });
 
-describe('getBankLeaderboardAction', () => {
+describe('getHallOfFameLeaderboardAction', () => {
   it('returns Elo-ranked entries with method/model', async () => {
     const mock = createTableAwareMock([
       // 1. Elo rows
@@ -279,7 +280,7 @@ describe('getBankLeaderboardAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankLeaderboardAction(TOPIC_UUID);
+    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(2);
     expect(result.data![0].elo_rating).toBe(1250);
@@ -293,13 +294,13 @@ describe('getBankLeaderboardAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankLeaderboardAction(TOPIC_UUID);
+    const result = await getHallOfFameLeaderboardAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 });
 
-describe('runBankComparisonAction', () => {
+describe('runHallOfFameComparisonAction', () => {
   it('runs all pairs and updates Elo', async () => {
     const upsertCalls: Record<string, unknown>[] = [];
     const mock = createTableAwareMock([
@@ -347,7 +348,7 @@ describe('runBankComparisonAction', () => {
       winner: 'A', confidence: 1.0, turns: 2,
     });
 
-    const result = await runBankComparisonAction(TOPIC_UUID, 'gpt-4.1-nano');
+    const result = await runHallOfFameComparisonAction(TOPIC_UUID, 'gpt-4.1-nano');
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(1);
     expect(result.data?.entries_updated).toBe(2);
@@ -372,7 +373,7 @@ describe('runBankComparisonAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await runBankComparisonAction(TOPIC_UUID);
+    const result = await runHallOfFameComparisonAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(0);
   });
@@ -410,13 +411,72 @@ describe('runBankComparisonAction', () => {
       winner: 'TIE', confidence: 0.5, turns: 2,
     });
 
-    const result = await runBankComparisonAction(TOPIC_UUID);
+    const result = await runHallOfFameComparisonAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.comparisons_run).toBe(1);
 
     // TIE: winner_id should be null
     expect(insertCalls.length).toBe(1);
     expect(insertCalls[0].winner_id).toBeNull();
+  });
+});
+
+describe('runHallOfFameComparisonInternal', () => {
+  it('runs comparison without requireAdmin', async () => {
+    const upsertCalls: Record<string, unknown>[] = [];
+    const mock = createTableAwareMock([
+      // 1. Fetch entries
+      (b) => {
+        b.is.mockResolvedValueOnce({
+          data: [
+            { id: ENTRY_UUID_A, content: 'Article A', total_cost_usd: 0.05 },
+            { id: ENTRY_UUID_B, content: 'Article B', total_cost_usd: 0.01 },
+          ],
+          error: null,
+        });
+      },
+      // 2. Fetch Elo rows
+      (b) => {
+        b.eq.mockResolvedValueOnce({
+          data: [
+            { entry_id: ENTRY_UUID_A, elo_rating: 1200, match_count: 0 },
+            { entry_id: ENTRY_UUID_B, elo_rating: 1200, match_count: 0 },
+          ],
+          error: null,
+        });
+      },
+      // 3. Insert comparison
+      (b) => { b.insert.mockResolvedValueOnce({ data: null, error: null }); },
+      // 4. Upsert Elo A
+      (b) => {
+        b.upsert.mockImplementation((data: Record<string, unknown>) => {
+          upsertCalls.push(data);
+          return Promise.resolve({ data: null, error: null });
+        });
+      },
+      // 5. Upsert Elo B
+      (b) => {
+        b.upsert.mockImplementation((data: Record<string, unknown>) => {
+          upsertCalls.push(data);
+          return Promise.resolve({ data: null, error: null });
+        });
+      },
+    ]);
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    (compareWithBiasMitigation as jest.Mock).mockResolvedValue({
+      winner: 'A', confidence: 0.8, turns: 2,
+    });
+
+    // Call internal function with explicit userId — no requireAdmin call
+    const result = await runHallOfFameComparisonInternal(TOPIC_UUID, 'system', 'gpt-4.1-nano', 1);
+
+    expect(result.success).toBe(true);
+    expect(result.data?.comparisons_run).toBe(1);
+    expect(result.data?.entries_updated).toBe(2);
+
+    // requireAdmin should NOT have been called
+    expect(requireAdmin).not.toHaveBeenCalled();
   });
 });
 
@@ -467,7 +527,7 @@ describe('getCrossTopicSummaryAction', () => {
   });
 });
 
-describe('deleteBankEntryAction', () => {
+describe('deleteHallOfFameEntryAction', () => {
   it('soft-deletes entry and hard-deletes comparisons/Elo', async () => {
     const mock = createTableAwareMock([
       // 1. Soft-delete entry
@@ -479,7 +539,7 @@ describe('deleteBankEntryAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await deleteBankEntryAction(ENTRY_UUID_A);
+    const result = await deleteHallOfFameEntryAction(ENTRY_UUID_A);
     expect(result.success).toBe(true);
     expect(result.data?.deleted).toBe(true);
     // 3 from() calls
@@ -487,12 +547,12 @@ describe('deleteBankEntryAction', () => {
   });
 
   it('rejects invalid UUID', async () => {
-    const result = await deleteBankEntryAction('bad');
+    const result = await deleteHallOfFameEntryAction('bad');
     expect(result.success).toBe(false);
   });
 });
 
-describe('deleteBankTopicAction', () => {
+describe('deleteHallOfFameTopicAction', () => {
   it('soft-deletes topic, hard-deletes comparisons/Elo, soft-deletes entries', async () => {
     const mock = createTableAwareMock([
       // 1. Soft-delete topic
@@ -506,7 +566,7 @@ describe('deleteBankTopicAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await deleteBankTopicAction(TOPIC_UUID);
+    const result = await deleteHallOfFameTopicAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.deleted).toBe(true);
     expect(mock.from).toHaveBeenCalledTimes(4);
@@ -533,7 +593,7 @@ describe('elo_per_dollar edge cases', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    await addToBankAction({
+    await addToHallOfFameAction({
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -564,7 +624,7 @@ describe('elo_per_dollar edge cases', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    await addToBankAction({
+    await addToHallOfFameAction({
       prompt: 'Test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -577,7 +637,7 @@ describe('elo_per_dollar edge cases', () => {
   });
 });
 
-describe('getBankTopicsAction', () => {
+describe('getHallOfFameTopicsAction', () => {
   it('returns topics with aggregated stats', async () => {
     const mock = createTableAwareMock([
       // Topics query
@@ -612,7 +672,7 @@ describe('getBankTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankTopicsAction();
+    const result = await getHallOfFameTopicsAction();
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(1);
 
@@ -630,7 +690,7 @@ describe('getBankTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankTopicsAction();
+    const result = await getHallOfFameTopicsAction();
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
@@ -648,7 +708,7 @@ describe('getBankTopicsAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankTopicsAction();
+    const result = await getHallOfFameTopicsAction();
     expect(result.success).toBe(true);
     const topic = result.data![0];
     expect(topic.entry_count).toBe(0);
@@ -658,7 +718,7 @@ describe('getBankTopicsAction', () => {
   });
 });
 
-describe('getBankMatchHistoryAction', () => {
+describe('getHallOfFameMatchHistoryAction', () => {
   it('returns comparisons for a topic', async () => {
     const mock = createTableAwareMock([
       (b) => {
@@ -682,7 +742,7 @@ describe('getBankMatchHistoryAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankMatchHistoryAction(TOPIC_UUID);
+    const result = await getHallOfFameMatchHistoryAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data?.length).toBe(1);
     expect(result.data![0].winner_id).toBe(ENTRY_UUID_A);
@@ -694,18 +754,18 @@ describe('getBankMatchHistoryAction', () => {
     ]);
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await getBankMatchHistoryAction(TOPIC_UUID);
+    const result = await getHallOfFameMatchHistoryAction(TOPIC_UUID);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 
   it('rejects invalid UUID', async () => {
-    const result = await getBankMatchHistoryAction('not-a-uuid');
+    const result = await getHallOfFameMatchHistoryAction('not-a-uuid');
     expect(result.success).toBe(false);
   });
 });
 
-describe('addToBankAction — retry on unique constraint violation', () => {
+describe('addToHallOfFameAction — retry on unique constraint violation', () => {
   it('retries select after unique violation on insert', async () => {
     let fromCallIdx = 0;
     const mock = {
@@ -733,7 +793,7 @@ describe('addToBankAction — retry on unique constraint violation', () => {
     };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt: 'Concurrent test',
       content: 'Content',
       generation_method: 'oneshot',
@@ -747,7 +807,7 @@ describe('addToBankAction — retry on unique constraint violation', () => {
   });
 });
 
-describe('generateAndAddToBankAction', () => {
+describe('generateAndAddToHallOfFameAction', () => {
   it('accumulates cost from LLM calls and stores in entry', async () => {
     const entryInsertData: Record<string, unknown>[] = [];
     const eloInsertData: Record<string, unknown>[] = [];
@@ -777,7 +837,7 @@ describe('generateAndAddToBankAction', () => {
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
     // Each callLLMModel mock invokes onUsage with 0.001, two calls = 0.002
-    const result = await generateAndAddToBankAction({
+    const result = await generateAndAddToHallOfFameAction({
       prompt: 'Test generation',
       model: 'gpt-4.1-mini',
     });

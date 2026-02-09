@@ -7,10 +7,9 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 
 | Route | Purpose |
 |-------|---------|
-| `/admin/evolution-dashboard` | Evolution overview: stat cards (differentiated from ops), quick links to all sub-pages |
+| `/admin/evolution-dashboard` | Evolution overview: quick links, run/spend charts, recent runs table |
 | `/admin/quality/evolution` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
-| `/admin/quality/evolution/dashboard` | Ops dashboard: stat cards, runs/spend trends, recent runs |
-| `/admin/quality/evolution/run/[runId]` | Run detail: 6-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants) + Add to Bank dialog |
+| `/admin/quality/evolution/run/[runId]` | Run detail: 6-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants) + Add to Hall of Fame dialog |
 | `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 
 ## Key Files
@@ -46,7 +45,7 @@ Visual monitoring and debugging tools for the evolution pipeline. Provides an op
 Additionally, the run detail page uses `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank).
 
 ### Run Detail Features
-- **Add to Bank dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the article bank. Prompts for a topic description and calls `addToBankAction()`.
+- **Add to Hall of Fame dialog**: Modal on the run detail page that exports the winner variant (and optionally the baseline) to the Hall of Fame. Prompts for a topic description and calls `addToHallOfFameAction()`.
 - **Compare button**: Links to the `/compare` sub-route for before/after text diff with stats summary and generation depth.
 
 ### Timeline Tab - Per-Agent Detail

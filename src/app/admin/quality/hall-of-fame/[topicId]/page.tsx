@@ -1,5 +1,5 @@
 'use client';
-// Topic detail page for the article bank. Shows Elo leaderboard with expandable entry rows,
+// Topic detail page for the Hall of Fame. Shows Elo leaderboard with expandable entry rows,
 // cost vs Elo scatter chart, side-by-side text diff, match history, and run comparison controls.
 
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
@@ -9,18 +9,18 @@ import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
 import { toast } from 'sonner';
 import {
-  getBankTopicAction,
-  getBankLeaderboardAction,
-  getBankEntriesAction,
-  getBankMatchHistoryAction,
-  runBankComparisonAction,
-  deleteBankEntryAction,
-  addToBankAction,
-  type BankTopic,
-  type BankEloEntry,
-  type BankEntry,
-  type BankComparison,
-} from '@/lib/services/articleBankActions';
+  getHallOfFameTopicAction,
+  getHallOfFameLeaderboardAction,
+  getHallOfFameEntriesAction,
+  getHallOfFameMatchHistoryAction,
+  runHallOfFameComparisonAction,
+  deleteHallOfFameEntryAction,
+  addToHallOfFameAction,
+  type HallOfFameTopic,
+  type HallOfFameEloEntry,
+  type HallOfFameEntry,
+  type HallOfFameComparison,
+} from '@/lib/services/hallOfFameActions';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, getEvolutionRunSummaryAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 
@@ -119,7 +119,7 @@ function TextDiff({ original, modified }: { original: string; modified: string }
 
 // ─── Expandable entry detail ──────────────────────────────────
 
-function EntryDetail({ entry }: { entry: BankEntry }) {
+function EntryDetail({ entry }: { entry: HallOfFameEntry }) {
   const [showFullText, setShowFullText] = useState(false);
   const meta = entry.metadata ?? {};
   const isEvolution = entry.generation_method.startsWith('evolution_');
@@ -389,7 +389,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
       }
     } catch { /* non-fatal */ }
 
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt,
       content: winner.variant_content,
       generation_method: 'evolution_winner',
@@ -407,7 +407,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
     }
 
     if (includeBaseline && baseline) {
-      await addToBankAction({
+      await addToHallOfFameAction({
         prompt,
         content: baseline.variant_content,
         generation_method: 'evolution_baseline',
@@ -495,7 +495,7 @@ function AddFromRunDialog({ prompt, onClose, onAdded }: {
             data-testid="add-from-run-submit"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50"
           >
-            {submitting ? 'Adding...' : 'Add to Bank'}
+            {submitting ? 'Adding...' : 'Add to Hall of Fame'}
           </button>
         </div>
       </div>
@@ -514,14 +514,14 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'diff', label: 'Compare Text' },
 ];
 
-export default function ArticleBankTopicDetailPage() {
+export default function HallOfFameTopicDetailPage() {
   const params = useParams();
   const topicId = params.topicId as string;
 
-  const [topic, setTopic] = useState<BankTopic | null>(null);
-  const [leaderboard, setLeaderboard] = useState<BankEloEntry[]>([]);
-  const [entries, setEntries] = useState<BankEntry[]>([]);
-  const [matches, setMatches] = useState<BankComparison[]>([]);
+  const [topic, setTopic] = useState<HallOfFameTopic | null>(null);
+  const [leaderboard, setLeaderboard] = useState<HallOfFameEloEntry[]>([]);
+  const [entries, setEntries] = useState<HallOfFameEntry[]>([]);
+  const [matches, setMatches] = useState<HallOfFameComparison[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('leaderboard');
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -537,9 +537,9 @@ export default function ArticleBankTopicDetailPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     const [topicRes, lbRes, entriesRes] = await Promise.all([
-      getBankTopicAction(topicId),
-      getBankLeaderboardAction(topicId),
-      getBankEntriesAction(topicId),
+      getHallOfFameTopicAction(topicId),
+      getHallOfFameLeaderboardAction(topicId),
+      getHallOfFameEntriesAction(topicId),
     ]);
 
     if (topicRes.success && topicRes.data) setTopic(topicRes.data);
@@ -549,7 +549,7 @@ export default function ArticleBankTopicDetailPage() {
   }, [topicId]);
 
   const loadMatches = useCallback(async () => {
-    const res = await getBankMatchHistoryAction(topicId);
+    const res = await getHallOfFameMatchHistoryAction(topicId);
     if (res.success && res.data) setMatches(res.data);
   }, [topicId]);
 
@@ -566,7 +566,7 @@ export default function ArticleBankTopicDetailPage() {
   const handleRunComparison = async (judgeModel: string, rounds: number) => {
     setShowComparisonDialog(false);
     setComparisonRunning(true);
-    const result = await runBankComparisonAction(topicId, judgeModel as AllowedLLMModelType, rounds);
+    const result = await runHallOfFameComparisonAction(topicId, judgeModel as AllowedLLMModelType, rounds);
     if (result.success && result.data) {
       toast.success(`${result.data.comparisons_run} comparisons complete`);
       loadData();
@@ -579,7 +579,7 @@ export default function ArticleBankTopicDetailPage() {
   const handleDeleteEntry = async (entryId: string) => {
     if (!confirm('Delete this entry? Elo and match history will be removed.')) return;
     setActionLoading(true);
-    const result = await deleteBankEntryAction(entryId);
+    const result = await deleteHallOfFameEntryAction(entryId);
     if (result.success) {
       toast.success('Entry deleted');
       loadData();
@@ -628,7 +628,7 @@ export default function ArticleBankTopicDetailPage() {
     <div className="space-y-6">
       {/* Breadcrumb */}
       <div className="text-xs text-[var(--text-muted)]">
-        <Link href="/admin/quality/article-bank" className="hover:text-[var(--accent-gold)]">Article Bank</Link>
+        <Link href="/admin/quality/hall-of-fame" className="hover:text-[var(--accent-gold)]">Hall of Fame</Link>
         <span className="mx-1">/</span>
         <span className="truncate">{topic.prompt.slice(0, 60)}{topic.prompt.length > 60 ? '...' : ''}</span>
       </div>
@@ -723,17 +723,17 @@ export default function ArticleBankTopicDetailPage() {
                           <td className="p-3 text-[var(--text-muted)]">
                             {i + 1}
                             {i === 0 && entry.match_count > 0 && (
-                              <span className="ml-1 text-[var(--status-success)] text-xs">★</span>
+                              <span className="ml-1 text-[var(--status-success)] text-xs">{'\u2605'}</span>
                             )}
                           </td>
                           <td className="p-3"><MethodBadge method={entry.generation_method} iterations={fullEntry?.metadata ? (fullEntry.metadata as Record<string, unknown>).iterations as number | undefined : undefined} /></td>
                           <td className="p-3 font-mono text-xs">{entry.model}</td>
                           <td className="p-3 text-right font-semibold">{entry.elo_rating.toFixed(0)}</td>
                           <td className={`p-3 text-right font-mono text-xs ${entry.elo_per_dollar !== null && entry.elo_per_dollar < 0 ? 'text-[var(--status-error)]' : ''}`}>
-                            {entry.elo_per_dollar !== null ? entry.elo_per_dollar.toFixed(1) : '—'}
+                            {entry.elo_per_dollar !== null ? entry.elo_per_dollar.toFixed(1) : '\u2014'}
                           </td>
                           <td className="p-3 text-right font-mono text-xs">
-                            {entry.total_cost_usd !== null ? `$${entry.total_cost_usd.toFixed(4)}` : '—'}
+                            {entry.total_cost_usd !== null ? `$${entry.total_cost_usd.toFixed(4)}` : '\u2014'}
                           </td>
                           <td className="p-3 text-right text-[var(--text-muted)]">{entry.match_count}</td>
                           <td className="p-3" onClick={(e) => e.stopPropagation()}>
@@ -744,7 +744,7 @@ export default function ArticleBankTopicDetailPage() {
                                 title="Open evolution run"
                                 data-testid={`source-link-${i}`}
                               >
-                                ↗ Run
+                                {'\u2197'} Run
                               </Link>
                             ) : (
                               <button
@@ -752,7 +752,7 @@ export default function ArticleBankTopicDetailPage() {
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
                                 data-testid={`source-link-${i}`}
                               >
-                                ↗ Detail
+                                {'\u2197'} Detail
                               </button>
                             )}
                           </td>
@@ -775,7 +775,7 @@ export default function ArticleBankTopicDetailPage() {
                                 className="text-[var(--accent-gold)] hover:underline text-xs"
                                 title={diffA === entry.entry_id ? 'Selected as A' : diffB === entry.entry_id ? 'Selected as B' : 'Select for diff'}
                               >
-                                {diffA === entry.entry_id ? 'A✓' : diffB === entry.entry_id ? 'B✓' : 'Diff'}
+                                {diffA === entry.entry_id ? 'A\u2713' : diffB === entry.entry_id ? 'B\u2713' : 'Diff'}
                               </button>
                               <button
                                 onClick={() => handleDeleteEntry(entry.entry_id)}
@@ -783,7 +783,7 @@ export default function ArticleBankTopicDetailPage() {
                                 className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
                                 data-testid={`delete-entry-${i}`}
                               >
-                                ✕
+                                {'\u2715'}
                               </button>
                             </div>
                           </td>
@@ -883,7 +883,7 @@ export default function ArticleBankTopicDetailPage() {
                           )}
                         </td>
                         <td className="p-3 text-right font-mono">
-                          {m.confidence !== null ? m.confidence.toFixed(2) : '—'}
+                          {m.confidence !== null ? m.confidence.toFixed(2) : '\u2014'}
                         </td>
                         <td className="p-3 font-mono text-xs text-[var(--text-muted)]">{m.judge_model}</td>
                         <td className="p-3 text-[var(--text-muted)] text-xs">

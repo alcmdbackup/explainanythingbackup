@@ -6,13 +6,13 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 ## Core Primitives
 
-- **Prompt** — A registered topic in `article_bank_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
+- **Prompt** — A registered topic in `hall_of_fame_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
 - **Run** — A single pipeline execution (`content_evolution_runs`). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `content_evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`.
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'`. Auto-set at pipeline start.
-- **Hall of Fame** — Top 3 variants from each run, upserted into `article_bank_entries` with rank 1/2/3. Deduped via `(evolution_run_id, rank)` unique index.
+- **Hall of Fame** — Top 3 variants from each run, upserted into `hall_of_fame_entries` with rank 1/2/3. Deduped via `(evolution_run_id, rank)` unique index.
 
 ## Key Files
 
@@ -56,8 +56,8 @@ Prompt + Strategy → queueEvolutionRunAction → Run
   → finalizePipelineRun:
       1. persistVariants + persistAgentMetrics
       2. linkStrategyConfig (auto-create or aggregate update)
-      3. autoLinkPrompt (config JSONB → bank entry → explanation title)
-      4. feedHallOfFame (top 3 → article_bank_entries with rank)
+      3. autoLinkPrompt (config JSONB → Hall of Fame entry → explanation title)
+      4. feedHallOfFame (top 3 → hall_of_fame_entries with rank)
 ```
 
 ## Strategy System

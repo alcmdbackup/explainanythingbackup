@@ -147,7 +147,7 @@ async function resolveAttributeFilters(
     || (filters.domainTags?.length ?? 0) > 0;
 
   if (hasPromptAttrs) {
-    let query = supabase.from('article_bank_topics').select('id').is('deleted_at', null);
+    let query = supabase.from('hall_of_fame_topics').select('id').is('deleted_at', null);
     if (filters.difficultyTiers?.length) {
       query = query.in('difficulty_tier', filters.difficultyTiers);
     }
@@ -214,7 +214,7 @@ async function resolvePromptTexts(
   promptIds: string[],
 ): Promise<Map<string, string>> {
   if (promptIds.length === 0) return new Map();
-  const { data } = await supabase.from('article_bank_topics').select('id, prompt').in('id', promptIds);
+  const { data } = await supabase.from('hall_of_fame_topics').select('id, prompt').in('id', promptIds);
   return new Map((data ?? []).map((p: { id: string; prompt: string }) => [p.id, p.prompt]));
 }
 
@@ -326,7 +326,7 @@ const _getUnifiedExplorerAction = withLogging(async (
       // Enrich with hall-of-fame rank and prompt text
       const variantIds = (variants ?? []).map((v: { id: string }) => v.id);
       const { data: bankEntries } = variantIds.length
-        ? await supabase.from('article_bank_entries').select('evolution_variant_id, rank').in('evolution_variant_id', variantIds)
+        ? await supabase.from('hall_of_fame_entries').select('evolution_variant_id, rank').in('evolution_variant_id', variantIds)
         : { data: [] };
 
       const rankMap = new Map<string, number>();
@@ -850,7 +850,7 @@ async function resolveDimensionLabels(
   if (needsPrompt) {
     const ids = [...new Set(runs.map(r => r.prompt_id).filter(Boolean))] as string[];
     if (ids.length) {
-      const { data } = await supabase.from('article_bank_topics').select('id, title, prompt').in('id', ids);
+      const { data } = await supabase.from('hall_of_fame_topics').select('id, title, prompt').in('id', ids);
       for (const p of (data ?? []) as Array<{ id: string; title: string | null; prompt: string }>) {
         labels.set(p.id, p.title ?? p.prompt.slice(0, 80));
       }

@@ -202,16 +202,26 @@ Create `$PROJECT_PATH/_status.json` using the **Write tool**. Include the `relev
 - Never include paths under `docs/planning/`
 - Populate from the user-confirmed list in step 2.7
 
-### 3.8. Ask for GitHub Issue Summary (used in docs + issue)
+### 3.8. Ask for GitHub Issue Summary and Detailed Requirements
 
-**YOU MUST use AskUserQuestion** to get the issue summary **before** creating project documents:
+**YOU MUST use AskUserQuestion** to get BOTH pieces of information **before** creating project documents:
+
+**Part A — Summary:**
 
 Prompt: "Please provide a 3-5 sentence summary for the GitHub issue describing what this project will accomplish:"
 
-Wait for the user's response. Store this as `ISSUE_SUMMARY` — it will be:
-1. Inserted as the Problem Statement in the research doc (step 4)
-2. Inserted as the Background in the planning doc (step 5)
-3. Used as the body of the GitHub issue (step 8)
+Wait for the user's response. Store this as `ISSUE_SUMMARY`.
+
+**Part B — Detailed Requirements:**
+
+Prompt: "Please provide the detailed requirements / task list for this project. Include all specific items, bug fixes, UI changes, behavioral changes, etc. (Bullet points, numbered lists, and multi-line input are all fine):"
+
+Wait for the user's response. Store this as `ISSUE_REQUIREMENTS`.
+
+**Usage of both:**
+1. `ISSUE_SUMMARY` → Problem Statement (research doc), Background (planning doc), GitHub issue body
+2. `ISSUE_REQUIREMENTS` → **Requirements** section in BOTH research doc (step 4) and planning doc (step 5), copied verbatim
+3. If the user provides detailed requirements as part of the summary (or earlier in the conversation), capture those as `ISSUE_REQUIREMENTS` — do NOT discard detail to fit a "3-5 sentence" constraint
 
 ### 4. Create Research Document
 
@@ -221,7 +231,10 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with
 # [Project Name] Research
 
 ## Problem Statement
-[Insert ISSUE_SUMMARY from step 3.8 here — the user's 3-5 sentence project description]
+[Insert ISSUE_SUMMARY from step 3.8 Part A here — the user's 3-5 sentence project description]
+
+## Requirements (from GH Issue #NNN)
+[Insert ISSUE_REQUIREMENTS from step 3.8 Part B here — the user's detailed task list, copied VERBATIM including any bullet points, numbered lists, sub-items, and formatting]
 
 ## High Level Summary
 [Summary of findings]
@@ -241,7 +254,9 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_research.md` using the **Write tool** with
 ```
 
 Replace `[Project Name]` with the actual project name in title case.
+Replace `#NNN` with the actual GitHub issue number (from step 8, or leave as placeholder if issue not yet created).
 Pre-populate the "Relevant Docs" section with the actual paths from `RELEVANT_DOCS`.
+**IMPORTANT:** Copy `ISSUE_REQUIREMENTS` verbatim — do not summarize, condense, or reformat the user's requirements.
 
 ### 5. Create Planning Document
 
@@ -251,7 +266,10 @@ Create `$PROJECT_PATH/${PROJECT_NAME}_planning.md` using the **Write tool** with
 # [Project Name] Plan
 
 ## Background
-[Insert ISSUE_SUMMARY from step 3.8 here — the user's 3-5 sentence project description]
+[Insert ISSUE_SUMMARY from step 3.8 Part A here — the user's 3-5 sentence project description]
+
+## Requirements (from GH Issue #NNN)
+[Insert ISSUE_REQUIREMENTS from step 3.8 Part B here — the user's detailed task list, copied VERBATIM including any bullet points, numbered lists, sub-items, and formatting]
 
 ## Problem
 [3-5 sentences describing the problem — refine after /research]
@@ -271,6 +289,8 @@ The following docs were identified as relevant and may need updates:
 ```
 
 Pre-populate the "Documentation Updates" section with the actual paths from `RELEVANT_DOCS`.
+Replace `#NNN` with the actual GitHub issue number.
+**IMPORTANT:** Copy `ISSUE_REQUIREMENTS` verbatim — do not summarize, condense, or reformat the user's requirements.
 
 ### 6. Create Progress Document
 

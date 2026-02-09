@@ -105,7 +105,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('accepts promptId + strategyId for structured run', async () => {
     // Prompt validation
-    queueResult('article_bank_topics', { data: { id: 'prompt-1' }, error: null });
+    queueResult('hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
     // Strategy validation + config
     queueResult('strategy_configs', {
       data: { id: 'strat-1', config: { budgetCapUsd: 3.00 } },
@@ -130,7 +130,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('rejects non-existent promptId', async () => {
     // Prompt not found
-    queueResult('article_bank_topics', { data: null, error: null });
+    queueResult('hall_of_fame_topics', { data: null, error: null });
 
     const result = await queueEvolutionRunAction({
       explanationId: 42,
@@ -163,7 +163,7 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
   it('uses strategy budget cap when no explicit budget provided', async () => {
     // Prompt validation
-    queueResult('article_bank_topics', { data: { id: 'p1' }, error: null });
+    queueResult('hall_of_fame_topics', { data: { id: 'p1' }, error: null });
     // Strategy with $3.00 budget
     queueResult('strategy_configs', {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },

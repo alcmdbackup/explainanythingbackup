@@ -41,15 +41,19 @@ async function persistCheckpoint(
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const supabase = await createSupabaseServiceClient();
-      await supabase.from('evolution_checkpoints').upsert(checkpoint, {
-        onConflict: 'run_id,iteration,last_agent',
-      });
-      await supabase.from('content_evolution_runs').update({
-        current_iteration: state.iteration,
-        phase,
-        last_heartbeat: new Date().toISOString(),
-        runner_agents_completed: state.pool.length,
-      }).eq('id', runId);
+      const [, runUpdate] = await Promise.all([
+        supabase.from('evolution_checkpoints').upsert(checkpoint, {
+          onConflict: 'run_id,iteration,last_agent',
+        }),
+        supabase.from('content_evolution_runs').update({
+          current_iteration: state.iteration,
+          phase,
+          last_heartbeat: new Date().toISOString(),
+          runner_agents_completed: state.pool.length,
+        }).eq('id', runId),
+      ]);
+
+      if (runUpdate.error) throw runUpdate.error;
       return;
     } catch (error) {
       if (attempt === maxRetries - 1) throw error;
@@ -275,14 +279,11 @@ async function persistAgentMetrics(
 /** Insert the original text as a baseline variant for rating comparison. Idempotent via BASELINE_STRATEGY check. */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export function insertBaselineVariant(state: PipelineState, runId: string): void {
-  // Check if baseline already exists by strategy (not by ID prefix)
   const existingBaseline = state.pool.find(v => v.strategy === BASELINE_STRATEGY);
   if (existingBaseline) return;
 
-  // Use proper UUID for database compatibility
-  const baselineId = uuidv4();
   state.addToPool({
-    id: baselineId,
+    id: uuidv4(),
     text: state.originalText,
     version: 0,
     parentIds: [],
@@ -406,7 +407,7 @@ export async function finalizePipelineRun(
   // Auto-link prompt_id if not already set (graceful during transition)
   await autoLinkPrompt(runId, ctx, logger);
 
-  // Feed top 3 variants into article bank (hall of fame)
+  // Feed top 3 variants into Hall of Fame
   await feedHallOfFame(runId, ctx, logger);
 }
 
@@ -419,57 +420,37 @@ async function autoLinkPrompt(
   try {
     const supabase = await createSupabaseServiceClient();
 
-    // Check if prompt_id is already set
     const { data: run } = await supabase
       .from('content_evolution_runs')
-      .select('prompt_id')
+      .select('prompt_id, config')
       .eq('id', runId)
       .single();
 
-    if (run?.prompt_id) return; // Already linked
+    if (run?.prompt_id) return;
 
-    // Strategy 1: Match via run config JSONB prompt field → article_bank_topics.prompt
-    const { data: runRow } = await supabase
-      .from('content_evolution_runs')
-      .select('config')
-      .eq('id', runId)
-      .single();
-
-    const configPrompt = (runRow?.config as Record<string, unknown>)?.prompt;
+    const configPrompt = (run?.config as Record<string, unknown>)?.prompt;
     if (typeof configPrompt === 'string' && configPrompt.trim()) {
-      const { data: topic } = await supabase
-        .from('article_bank_topics')
-        .select('id')
-        .ilike('prompt', configPrompt.trim())
-        .is('deleted_at', null)
-        .single();
-
-      if (topic) {
-        await supabase.from('content_evolution_runs')
-          .update({ prompt_id: topic.id })
-          .eq('id', runId);
-        logger.info('Auto-linked prompt via config JSONB', { runId, promptId: topic.id });
+      const topicId = await findTopicByPrompt(supabase, configPrompt.trim());
+      if (topicId) {
+        await linkPromptToRun(supabase, runId, topicId);
+        logger.info('Auto-linked prompt via config JSONB', { runId, promptId: topicId });
         return;
       }
     }
 
-    // Strategy 2: Match via article_bank_entries for this run's topic
     const { data: bankEntry } = await supabase
-      .from('article_bank_entries')
+      .from('hall_of_fame_entries')
       .select('topic_id')
       .eq('evolution_run_id', runId)
       .limit(1)
       .single();
 
     if (bankEntry?.topic_id) {
-      await supabase.from('content_evolution_runs')
-        .update({ prompt_id: bankEntry.topic_id })
-        .eq('id', runId);
+      await linkPromptToRun(supabase, runId, bankEntry.topic_id);
       logger.info('Auto-linked prompt via bank entry', { runId, promptId: bankEntry.topic_id });
       return;
     }
 
-    // Strategy 3: Match via explanation title → article_bank_topics.prompt
     if (ctx.payload.explanationId) {
       const { data: explanation } = await supabase
         .from('explanations')
@@ -478,18 +459,10 @@ async function autoLinkPrompt(
         .single();
 
       if (explanation?.explanation_title) {
-        const { data: topic } = await supabase
-          .from('article_bank_topics')
-          .select('id')
-          .ilike('prompt', explanation.explanation_title.trim())
-          .is('deleted_at', null)
-          .single();
-
-        if (topic) {
-          await supabase.from('content_evolution_runs')
-            .update({ prompt_id: topic.id })
-            .eq('id', runId);
-          logger.info('Auto-linked prompt via explanation title', { runId, promptId: topic.id });
+        const topicId = await findTopicByPrompt(supabase, explanation.explanation_title.trim());
+        if (topicId) {
+          await linkPromptToRun(supabase, runId, topicId);
+          logger.info('Auto-linked prompt via explanation title', { runId, promptId: topicId });
           return;
         }
       }
@@ -503,7 +476,30 @@ async function autoLinkPrompt(
   }
 }
 
-/** Feed top 3 variants into article_bank_entries (hall of fame). Non-fatal on failure. */
+async function findTopicByPrompt(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  promptText: string,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('hall_of_fame_topics')
+    .select('id')
+    .ilike('prompt', promptText)
+    .is('deleted_at', null)
+    .single();
+  return data?.id ?? null;
+}
+
+async function linkPromptToRun(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  runId: string,
+  topicId: string,
+): Promise<void> {
+  await supabase.from('content_evolution_runs')
+    .update({ prompt_id: topicId })
+    .eq('id', runId);
+}
+
+/** Feed top 3 variants into hall_of_fame_entries (hall of fame). Non-fatal on failure. */
 async function feedHallOfFame(
   runId: string,
   ctx: ExecutionContext,
@@ -538,7 +534,7 @@ async function feedHallOfFame(
         const trimmed = explanation.explanation_title.trim();
         // Select or insert topic
         const { data: existing } = await supabase
-          .from('article_bank_topics')
+          .from('hall_of_fame_topics')
           .select('id')
           .ilike('prompt', trimmed)
           .is('deleted_at', null)
@@ -548,7 +544,7 @@ async function feedHallOfFame(
           topicId = existing.id;
         } else {
           const { data: created } = await supabase
-            .from('article_bank_topics')
+            .from('hall_of_fame_topics')
             .insert({ prompt: trimmed, title: ctx.payload.title })
             .select('id')
             .single();
@@ -574,7 +570,7 @@ async function feedHallOfFame(
 
       // Upsert: use evolution_run_id + rank as natural key (unique index)
       const { data: entry, error: entryErr } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .upsert(
           {
             topic_id: topicId,
@@ -603,7 +599,7 @@ async function feedHallOfFame(
       const eloScore = ordinalToEloScale(
         getOrdinal(ctx.state.ratings.get(variant.id) ?? createRating()),
       );
-      await supabase.from('article_bank_elo')
+      await supabase.from('hall_of_fame_elo')
         .upsert(
           {
             topic_id: topicId,
@@ -611,11 +607,26 @@ async function feedHallOfFame(
             elo_rating: eloScore,
             match_count: 0,
           },
-          { onConflict: 'entry_id' },
+          { onConflict: 'topic_id,entry_id' },
         );
     }
 
     logger.info('Hall of fame updated', { runId, topicId, entriesInserted: top3.length });
+
+    // Auto re-rank after insertion (non-fatal). Dynamic import avoids circular deps.
+    try {
+      const { runHallOfFameComparisonInternal } = await import('@/lib/services/hallOfFameActions');
+      const result = await runHallOfFameComparisonInternal(topicId, 'system', 'gpt-4.1-nano', 1);
+      if (result.success) {
+        logger.info('Auto re-ranking completed', { runId, topicId, ...result.data });
+      } else {
+        logger.warn('Auto re-ranking failed', { runId, topicId, error: result.error?.message });
+      }
+    } catch (reRankError) {
+      logger.warn('Auto re-ranking threw (non-fatal)', {
+        runId, topicId, error: reRankError instanceof Error ? reRankError.message : String(reRankError),
+      });
+    }
   } catch (error) {
     logger.warn('Feed hall of fame failed (non-fatal)', {
       runId, error: error instanceof Error ? error.message : String(error),

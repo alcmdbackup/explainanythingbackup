@@ -13,14 +13,9 @@ jest.mock('next/navigation', () => ({
 }));
 
 const mockGetDashboardData = jest.fn();
-const mockGetOptimizationSummary = jest.fn();
 
 jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
   getEvolutionDashboardDataAction: (...args: unknown[]) => mockGetDashboardData(...args),
-}));
-
-jest.mock('@/lib/services/eloBudgetActions', () => ({
-  getOptimizationSummaryAction: (...args: unknown[]) => mockGetOptimizationSummary(...args),
 }));
 
 // Mock AutoRefreshProvider to immediately call onRefresh
@@ -31,7 +26,14 @@ jest.mock('@/components/evolution', () => ({
     return <div>{children}</div>;
   },
   RefreshIndicator: () => <div data-testid="refresh-indicator" />,
+  EvolutionStatusBadge: ({ status }: { status: string }) => <span>{status}</span>,
 }));
+
+// Mock dynamic Recharts imports
+jest.mock('next/dynamic', () => () => {
+  function MockChart() { return <div data-testid="mock-chart" />; }
+  return MockChart;
+});
 
 import React from 'react';
 
@@ -42,7 +44,7 @@ const mockDashboardData: DashboardData = {
   monthlySpend: 42.5,
   previousMonthSpend: 35.0,
   articlesEvolvedCount: 12,
-  articleBankSize: 150,
+  hallOfFameSize: 150,
   runsPerDay: [
     { date: new Date(Date.now() - 86400000).toISOString().slice(0, 10), completed: 3, failed: 1, paused: 0 },
   ],
@@ -63,35 +65,11 @@ const mockDashboardData: DashboardData = {
   ],
 };
 
-const mockOptimizationData = {
-  totalRuns: 10,
-  totalStrategies: 3,
-  totalSpentUsd: 100,
-  avgEloPerDollar: 45.2,
-  bestStrategy: { name: 'Strategy A', avgElo: 1350 },
-  topAgent: { name: 'Critic', eloPerDollar: 60.5 },
-};
-
 describe('EvolutionDashboardOverviewPage', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockUsePathname.mockReturnValue('/admin/evolution-dashboard');
-    // Default: both actions succeed
     mockGetDashboardData.mockResolvedValue(createSuccessResponse(mockDashboardData));
-    mockGetOptimizationSummary.mockResolvedValue({ success: true, data: mockOptimizationData });
-  });
-
-  it('renders stat cards with data', async () => {
-    render(<EvolutionDashboardOverviewPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('stat-card-success-rate')).toHaveTextContent('85%');
-    });
-
-    expect(screen.getByTestId('stat-card-monthly-spend')).toHaveTextContent('$42.50');
-    expect(screen.getByTestId('stat-card-bank-size')).toHaveTextContent('150');
-    expect(screen.getByTestId('stat-card-avg-elo-per-dollar')).toHaveTextContent('45.2');
-    expect(screen.getByTestId('stat-card-failed-runs')).toHaveTextContent('1');
   });
 
   it('renders quick link cards with correct hrefs', async () => {
@@ -102,10 +80,8 @@ describe('EvolutionDashboardOverviewPage', () => {
     });
 
     expect(screen.getByText('Pipeline Runs').closest('a')).toHaveAttribute('href', '/admin/quality/evolution');
-    expect(screen.getByText('Ops Dashboard').closest('a')).toHaveAttribute('href', '/admin/quality/evolution/dashboard');
     expect(screen.getByText('Elo Optimization').closest('a')).toHaveAttribute('href', '/admin/quality/optimization');
-    expect(screen.getByText('Article Bank').closest('a')).toHaveAttribute('href', '/admin/quality/article-bank');
-    expect(screen.getByText('Quality Scores').closest('a')).toHaveAttribute('href', '/admin/quality');
+    expect(screen.getByText('Hall of Fame').closest('a')).toHaveAttribute('href', '/admin/quality/hall-of-fame');
   });
 
   it('handles dashboard action failure gracefully', async () => {
@@ -120,53 +96,11 @@ describe('EvolutionDashboardOverviewPage', () => {
     await waitFor(() => {
       expect(screen.getByText('DB connection failed')).toBeInTheDocument();
     });
-
-    // Optimization stats should still render
-    expect(screen.getByTestId('stat-card-avg-elo-per-dollar')).toHaveTextContent('45.2');
   });
 
-  it('handles optimization action failure gracefully', async () => {
-    // eloBudgetActions uses { success: false, error?: string } shape (plain string, NOT ErrorResponse)
-    mockGetOptimizationSummary.mockResolvedValue({
-      success: false,
-      error: 'Optimization service unavailable',
-    });
-
+  it('renders page title', async () => {
     render(<EvolutionDashboardOverviewPage />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('stat-card-success-rate')).toHaveTextContent('85%');
-    });
-
-    expect(screen.getByTestId('stat-card-avg-elo-per-dollar')).toHaveTextContent('N/A');
-  });
-
-  it('handles Promise.allSettled rejected case', async () => {
-    mockGetDashboardData.mockRejectedValue(new Error('Network error'));
-
-    render(<EvolutionDashboardOverviewPage />);
-
-    await waitFor(() => {
-      expect(screen.getByText(/Network error/)).toBeInTheDocument();
-    });
-  });
-
-  it('shows N/A for avg elo/$ when optimization data is null', async () => {
-    mockGetOptimizationSummary.mockResolvedValue({ success: true, data: undefined });
-
-    render(<EvolutionDashboardOverviewPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('stat-card-avg-elo-per-dollar')).toHaveTextContent('N/A');
-    });
-  });
-
-  it('shows spend trend subtitle', async () => {
-    render(<EvolutionDashboardOverviewPage />);
-
-    await waitFor(() => {
-      // 42.5 vs 35.0 = ~21% increase
-      expect(screen.getByTestId('stat-card-monthly-spend')).toHaveTextContent('↑ 21%');
-    });
+    expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
   });
 });

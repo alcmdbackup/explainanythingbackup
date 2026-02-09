@@ -1,5 +1,5 @@
 // Standalone bias-mitigated pairwise comparison using 2-pass A/B reversal.
-// Extracted from CalibrationRanker for reuse by article bank comparisons.
+// Extracted from CalibrationRanker for reuse by hall of fame comparisons.
 
 import { createHash } from 'crypto';
 
@@ -61,7 +61,7 @@ function makeCacheKey(textA: string, textB: string): string {
  * Returns a ComparisonResult with winner relative to the original A/B order.
  *
  * The callLLM callback abstracts away the provider — callers pass their own
- * LLM function (bank service uses callLLMModel, pipeline uses ctx.llmClient.complete).
+ * LLM function (hall of fame service uses callLLMModel, pipeline uses ctx.llmClient.complete).
  * The optional cache parameter uses order-invariant SHA-256 keys.
  */
 export async function compareWithBiasMitigation(

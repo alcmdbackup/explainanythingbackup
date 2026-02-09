@@ -300,7 +300,9 @@ export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed'
 
 export type PipelineType = 'full' | 'minimal' | 'batch';
 
-/** Metadata columns on article_bank_topics (prompt registry). */
+export const PIPELINE_TYPES = ['full', 'minimal', 'batch'] as const satisfies readonly PipelineType[];
+
+/** Metadata columns on hall_of_fame_topics (prompt registry). */
 export interface PromptMetadata {
   id: string;
   prompt: string;

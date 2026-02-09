@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getPromptsAction } from '@/lib/services/promptRegistryActions';
 import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
+import { PIPELINE_TYPES } from '@/lib/evolution/types';
 import {
   getUnifiedExplorerAction,
   getExplorerMatrixAction,
@@ -143,6 +144,32 @@ const TIME_BUCKETS: { id: TimeBucket; label: string }[] = [
   { id: 'month', label: 'Month' },
 ];
 
+const PIPELINE_TYPE_OPTIONS = PIPELINE_TYPES.map(t => ({ id: t, label: t }));
+
+type DatePreset = 'last1d' | 'last7d' | 'last30d' | 'custom';
+
+const DATE_PRESETS: { id: DatePreset; label: string }[] = [
+  { id: 'last1d', label: 'Last 1 Day' },
+  { id: 'last7d', label: 'Last Week' },
+  { id: 'last30d', label: 'Last Month' },
+  { id: 'custom', label: 'Custom Date Range' },
+];
+
+function computeDatePreset(preset: DatePreset): { from: string; to: string } | null {
+  if (preset === 'custom') return null;
+  const to = new Date();
+  const from = new Date();
+  switch (preset) {
+    case 'last1d': from.setDate(from.getDate() - 1); break;
+    case 'last7d': from.setDate(from.getDate() - 7); break;
+    case 'last30d': from.setDate(from.getDate() - 30); break;
+  }
+  return {
+    from: from.toISOString().slice(0, 10),
+    to: to.toISOString().slice(0, 10),
+  };
+}
+
 // ─── Skeletons and helpers ───────────────────────────────────────
 
 function ChartSkeleton() {
@@ -203,26 +230,6 @@ function SelectControl({ label, value, onChange, options, className }: {
   );
 }
 
-function MultiInput({ label, value, onChange, placeholder }: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder: string;
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-ui text-[var(--text-muted)]">{label}</span>
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
-      />
-    </label>
-  );
-}
-
 /** Searchable multi-select dropdown. Shows recent items, filterable by label or ID. */
 function SearchableMultiSelect({ label, items, selected, onChange, placeholder }: {
   label: string;
@@ -270,7 +277,7 @@ function SearchableMultiSelect({ label, items, selected, onChange, placeholder }
         {selected.length ? selectedLabels : placeholder}
       </button>
       {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-30 bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book shadow-warm-lg max-h-56 overflow-hidden flex flex-col">
+        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book shadow-warm-lg max-h-56 overflow-hidden flex flex-col">
           <input
             type="text"
             value={search}
@@ -394,7 +401,8 @@ export default function ExplorerPage() {
   // Filter state
   const [promptFilter, setPromptFilter] = useState<string[]>([]);
   const [strategyFilter, setStrategyFilter] = useState<string[]>([]);
-  const [pipelineFilter, setPipelineFilter] = useState('');
+  const [pipelineFilter, setPipelineFilter] = useState<string[]>([]);
+  const [datePreset, setDatePreset] = useState<DatePreset>('last30d');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -445,13 +453,16 @@ export default function ExplorerPage() {
     const filters: ExplorerFilters = {};
     if (promptFilter.length) filters.promptIds = promptFilter;
     if (strategyFilter.length) filters.strategyIds = strategyFilter;
-    const pipelineTypes = pipelineFilter.split(',').map(s => s.trim()).filter(Boolean);
-    if (pipelineTypes.length) filters.pipelineTypes = pipelineTypes as ExplorerFilters['pipelineTypes'];
-    if (dateFrom || dateTo) {
+    if (pipelineFilter.length) filters.pipelineTypes = pipelineFilter as ExplorerFilters['pipelineTypes'];
+    // Date range: use preset or custom inputs
+    const presetRange = datePreset !== 'custom' ? computeDatePreset(datePreset) : null;
+    if (presetRange) {
+      filters.dateRange = presetRange;
+    } else if (dateFrom || dateTo) {
       filters.dateRange = { from: dateFrom || '2000-01-01', to: dateTo || '2099-12-31' };
     }
     return filters;
-  }, [promptFilter, strategyFilter, pipelineFilter, dateFrom, dateTo]);
+  }, [promptFilter, strategyFilter, pipelineFilter, datePreset, dateFrom, dateTo]);
 
   // Load data based on current view mode
   const loadData = useCallback(async () => {
@@ -591,30 +602,41 @@ export default function ExplorerPage() {
               onChange={setStrategyFilter}
               placeholder="All strategies"
             />
-            <MultiInput
+            <SearchableMultiSelect
               label="Pipeline Types"
-              value={pipelineFilter}
+              items={PIPELINE_TYPE_OPTIONS}
+              selected={pipelineFilter}
               onChange={setPipelineFilter}
-              placeholder="full, minimal, batch"
+              placeholder="All pipelines"
             />
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-ui text-[var(--text-muted)]">From</span>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className="text-xs font-ui text-[var(--text-muted)]">To</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
-              />
-            </label>
+            <SelectControl
+              label="Date Range"
+              value={datePreset}
+              onChange={(v) => setDatePreset(v as DatePreset)}
+              options={DATE_PRESETS}
+            />
+            {datePreset === 'custom' && (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-ui text-[var(--text-muted)]">From</span>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
+                  />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs font-ui text-[var(--text-muted)]">To</span>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
+                  />
+                </label>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>

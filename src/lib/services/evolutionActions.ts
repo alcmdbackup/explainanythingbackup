@@ -78,7 +78,7 @@ const _queueEvolutionRunAction = withLogging(async (
     // Validate prompt reference if provided
     if (input.promptId) {
       const { data: prompt } = await supabase
-        .from('article_bank_topics')
+        .from('hall_of_fame_topics')
         .select('id')
         .eq('id', input.promptId)
         .is('deleted_at', null)

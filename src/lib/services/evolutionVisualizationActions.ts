@@ -30,7 +30,7 @@ export interface DashboardData {
   recentRuns: DashboardRun[];
   previousMonthSpend: number;
   articlesEvolvedCount: number;
-  articleBankSize: number;
+  hallOfFameSize: number;
 }
 
 export interface DashboardRun {
@@ -184,7 +184,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
       supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
       supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
       supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed'),
-      supabase.from('article_bank_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
+      supabase.from('hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
@@ -205,8 +205,8 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     // Articles with completed evolution runs (deduplicate explanation_ids)
     const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
 
-    // Article bank size
-    const articleBankSize = bankRes.count ?? 0;
+    // Hall of Fame size
+    const hallOfFameSize = bankRes.count ?? 0;
 
     // Runs per day (last 30d)
     const dayMap = new Map<string, { completed: number; failed: number; paused: number }>();
@@ -244,7 +244,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
         recentRuns: (recentRes.data ?? []) as DashboardRun[],
         previousMonthSpend,
         articlesEvolvedCount,
-        articleBankSize,
+        hallOfFameSize,
       },
       error: null,
     };

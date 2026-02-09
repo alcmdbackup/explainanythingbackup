@@ -161,17 +161,17 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     // Queue: feedHallOfFame — read prompt_id → has value
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-123' }, error: null });
     // Queue: 3 upserts for top-3 entries
-    queueTableResult('article_bank_entries', { data: { id: 'entry-1' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
-    queueTableResult('article_bank_entries', { data: { id: 'entry-2' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
-    queueTableResult('article_bank_entries', { data: { id: 'entry-3' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'entry-1' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'entry-2' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'entry-3' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-run', ctx, ctx.logger, 'completed', 30.0);
 
-    // Verify article_bank_entries was called 3 times (one per rank)
-    const bankOps = getTableOps('article_bank_entries');
+    // Verify hall_of_fame_entries was called 3 times (one per rank)
+    const bankOps = getTableOps('hall_of_fame_entries');
     expect(bankOps.length).toBeGreaterThanOrEqual(3);
 
     // Verify logger.info reports success
@@ -203,7 +203,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
     queueTableResult('content_evolution_runs', { data: { prompt_id: null }, error: null }); // autoLink check
     // autoLink bank entry check
-    queueTableResult('article_bank_entries', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: null, error: null });
     // autoLink explanation lookup
     queueTableResult('explanations', { data: null, error: null });
     // feedHallOfFame prompt_id check → null
@@ -220,7 +220,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     );
 
     // No bank entries created
-    const bankOps = getTableOps('article_bank_entries');
+    const bankOps = getTableOps('hall_of_fame_entries');
     // Only the autoLink check, no upserts
     expect(bankOps.filter(op => op.method === 'upsert')).toHaveLength(0);
   });
@@ -247,10 +247,10 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // autoLink
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null }); // feedHoF
     // Top 2 (v1 + baseline) — 2 upserts
-    queueTableResult('article_bank_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
-    queueTableResult('article_bank_entries', { data: { id: 'e2' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('hof-few', ctx, ctx.logger, 'completed', 15.0);
 
@@ -271,6 +271,85 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     expect(ctx.logger.info).toHaveBeenCalledWith(
       'No variants to feed into hall of fame',
       expect.objectContaining({ runId: 'hof-empty' }),
+    );
+  });
+});
+
+// ─── Auto re-ranking after hall of fame insertion ─────────────────
+
+describe('auto re-ranking after feedHallOfFame', () => {
+  it('calls runBankComparisonInternal after inserting entries', async () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state, 'rerank-run');
+    state.addToPool({
+      id: 'v1', text: 'Variant 1', version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 1,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(20));
+
+    const ctx = makeCtx(state, 'rerank-run');
+
+    // Queue: summary, variants, agent metrics, linkStrategy, autoLink, feedHoF
+    queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
+    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // autoLink
+    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-rerank' }, error: null }); // feedHoF
+    // Top 2 entries
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    // Auto re-ranking: runBankComparisonInternal fetches entries (< 2 → returns 0 comparisons)
+    queueTableResult('hall_of_fame_entries', { data: [{ id: 'e1', content: 'C1', total_cost_usd: 0.01 }], error: null });
+
+    await finalizePipelineRun('rerank-run', ctx, ctx.logger, 'completed', 30.0);
+
+    // Verify re-ranking was attempted. The dynamic import resolves the actual module
+    // which may return success:true with 0 comparisons (< 2 entries in mock) or
+    // success:false if schema parse fails. Either way, it should not crash.
+    const infoCalls = (ctx.logger.info as jest.Mock).mock.calls.map((c: unknown[]) => c[0]);
+    const warnCalls = (ctx.logger.warn as jest.Mock).mock.calls.map((c: unknown[]) => c[0]);
+    const reRankLogged = infoCalls.includes('Auto re-ranking completed')
+      || warnCalls.some((m: unknown) => typeof m === 'string' && m.includes('re-ranking'));
+    expect(reRankLogged).toBe(true);
+  });
+
+  it('logs warning when re-ranking throws', async () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state, 'rerank-fail');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 1,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(20));
+
+    const ctx = makeCtx(state, 'rerank-fail');
+
+    queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
+    queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
+    queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
+    queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
+    queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
+    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // autoLink
+    queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-fail' }, error: null }); // feedHoF
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    // Re-ranking: entries fetch throws error
+    queueTableResult('hall_of_fame_entries', { data: null, error: { message: 'DB down' } });
+
+    await finalizePipelineRun('rerank-fail', ctx, ctx.logger, 'completed', 30.0);
+
+    // Should log warning, not crash
+    expect(ctx.logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('re-ranking'),
+      expect.objectContaining({ runId: 'rerank-fail' }),
     );
   });
 });
@@ -300,25 +379,23 @@ describe('autoLinkPrompt config JSONB strategy', () => {
     queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
 
-    // autoLinkPrompt: prompt_id check → null (not yet linked)
-    queueTableResult('content_evolution_runs', { data: { prompt_id: null }, error: null });
-    // autoLinkPrompt: config JSONB read → has prompt field
+    // autoLinkPrompt: combined prompt_id + config read → not yet linked, has prompt field
     queueTableResult('content_evolution_runs', {
-      data: { config: { prompt: 'Explain gravity' } },
+      data: { prompt_id: null, config: { prompt: 'Explain gravity' } },
       error: null,
     });
-    // autoLinkPrompt: article_bank_topics match → found
-    queueTableResult('article_bank_topics', { data: { id: 'topic-from-config' }, error: null });
+    // autoLinkPrompt: hall_of_fame_topics match → found
+    queueTableResult('hall_of_fame_topics', { data: { id: 'topic-from-config' }, error: null });
     // autoLinkPrompt: update prompt_id → success
     queueTableResult('content_evolution_runs', { data: null, error: null });
 
     // feedHallOfFame: prompt_id check → now linked
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-from-config' }, error: null });
     // feedHallOfFame: upsert entries
-    queueTableResult('article_bank_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
-    queueTableResult('article_bank_entries', { data: { id: 'e2' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('cfg-link', ctx, ctx.logger, 'completed', 20.0);
 
@@ -441,10 +518,10 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
     // Queue: feedHoF → prompt_id set
     queueTableResult('content_evolution_runs', { data: { prompt_id: 'topic-1' }, error: null });
     // Queue: upsert entries
-    queueTableResult('article_bank_entries', { data: { id: 'e1' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
-    queueTableResult('article_bank_entries', { data: { id: 'e2' }, error: null });
-    queueTableResult('article_bank_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e1' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
+    queueTableResult('hall_of_fame_entries', { data: { id: 'e2' }, error: null });
+    queueTableResult('hall_of_fame_elo', { data: null, error: null });
 
     await finalizePipelineRun('pre-linked', ctx, ctx.logger, 'completed', 30.0);
 

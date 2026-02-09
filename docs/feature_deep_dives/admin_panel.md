@@ -164,8 +164,8 @@ Admins resolve reports via `resolveContentReportAction`, optionally hiding the r
 - `/admin/quality/evolution/run/[runId]` - Run detail with 6 tabs (Timeline, Elo, Lineage, Tree, Budget, Variants)
 - `/admin/quality/evolution/run/[runId]/compare` - Before/after text diff and quality comparison
 - `/admin/quality/optimization` - Elo budget optimization dashboard
-- `/admin/quality/article-bank` - Article bank topic list with cross-topic summary, prompt bank coverage grid, and method summary table
-- `/admin/quality/article-bank/[topicId]` - Topic detail with 4 tabs (Leaderboard, Cost vs Elo, Match History, Compare Text)
+- `/admin/quality/hall-of-fame` - Hall of Fame topic list with cross-topic summary, prompt bank coverage grid, and method summary table
+- `/admin/quality/hall-of-fame/[topicId]` - Topic detail with 4 tabs (Leaderboard, Cost vs Elo, Match History, Compare Text)
 - `/admin/audit` - Audit log
 - `/admin/settings` - System settings
 - `/admin/dev-tools` - Development utilities

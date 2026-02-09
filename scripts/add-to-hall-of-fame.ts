@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 
 dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
-import { addEntryToBank } from './lib/bankUtils';
+import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
 
 // ─── CLI Argument Parsing ────────────────────────────────────────
 
@@ -30,7 +30,7 @@ function parseArgs(): CLIArgs {
   }
 
   if (getFlag('help') || args.length === 0) {
-    console.log(`Usage: npx tsx scripts/add-to-bank.ts [options]
+    console.log(`Usage: npx tsx scripts/add-to-hall-of-fame.ts [options]
 
 Options:
   --run-id <uuid>       Evolution run ID (required)
@@ -129,7 +129,7 @@ async function main() {
   };
 
   // Add winner to bank
-  const winnerResult = await addEntryToBank(supabase, {
+  const winnerResult = await addEntryToHallOfFame(supabase, {
     prompt: args.prompt,
     content: winner.content,
     generation_method: 'evolution_winner',
@@ -148,7 +148,7 @@ async function main() {
   if (args.includeBaseline) {
     const baseline = variants.find((v) => v.agent_name === 'original_baseline' || v.generation === 0);
     if (baseline) {
-      const baselineResult = await addEntryToBank(supabase, {
+      const baselineResult = await addEntryToHallOfFame(supabase, {
         prompt: args.prompt,
         content: baseline.content,
         generation_method: 'evolution_baseline',

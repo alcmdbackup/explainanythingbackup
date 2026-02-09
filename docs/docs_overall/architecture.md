@@ -100,7 +100,7 @@ For detailed implementation of each feature, see [feature_deep_dives/](../featur
 Key features include:
 - [Evolution Framework](../feature_deep_dives/evolution_framework.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
 - [Evolution Pipeline Visualization](../feature_deep_dives/evolution_pipeline_visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
-- [Comparison Infrastructure](../feature_deep_dives/comparison_infrastructure.md) — Article bank for cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
+- [Comparison Infrastructure](../feature_deep_dives/comparison_infrastructure.md) — Hall of Fame for cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 
@@ -151,13 +151,13 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | `userExplanationEvents` | Analytics events |
 | `explanationMetrics` | Aggregated metrics |
 
-### Article Bank Tables
+### Hall of Fame Tables
 | Table | Purpose |
 |-------|---------|
-| `article_bank_topics` | Prompt-based grouping for cross-method comparison |
-| `article_bank_entries` | Generated articles with method, model, cost metadata |
-| `article_bank_comparisons` | Head-to-head match results with confidence scores |
-| `article_bank_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
+| `hall_of_fame_topics` | Prompt-based grouping for cross-method comparison |
+| `hall_of_fame_entries` | Generated articles with method, model, cost metadata |
+| `hall_of_fame_comparisons` | Head-to-head match results with confidence scores |
+| `hall_of_fame_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
 
 ### Source Management Tables
 | Table | Purpose |
