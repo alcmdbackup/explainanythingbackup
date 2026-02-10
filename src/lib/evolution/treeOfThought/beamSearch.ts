@@ -8,6 +8,7 @@ import type { TreeState, TreeSearchResult, BeamSearchConfig, TreeNode } from './
 import { DEFAULT_BEAM_SEARCH_CONFIG } from './types';
 import { createRootNode, createChildNode, getPath, getBestLeaf, pruneSubtree } from './treeNode';
 import { selectRevisionActions, buildRevisionPrompt } from './revisionActions';
+import { getFlowCritiqueForVariant, getWeakestDimensionAcrossCritiques } from '../flowRubric';
 import { filterByParentComparison, rankSurvivors } from './evaluator';
 import type { EvalCandidate } from './evaluator';
 import { validateFormat } from '../agents/formatValidator';
@@ -176,7 +177,16 @@ async function generateCandidates(
   const generationPromises: Array<Promise<void>> = [];
 
   for (const member of beam) {
-    const actions = selectRevisionActions(member.critique, branchingFactor);
+    // Compute flow-aware weakest dimension override if flow critiques exist
+    let weakestOverride: string | undefined;
+    if (ctx.state.allCritiques) {
+      const flowCritique = getFlowCritiqueForVariant(member.node.variantId, ctx.state.allCritiques);
+      if (flowCritique) {
+        const result = getWeakestDimensionAcrossCritiques(member.critique, flowCritique);
+        if (result) weakestOverride = result.dimension;
+      }
+    }
+    const actions = selectRevisionActions(member.critique, branchingFactor, weakestOverride);
 
     for (const action of actions) {
       generationPromises.push(
@@ -297,7 +307,7 @@ async function runMiniTournament(
 
 /**
  * Inline critique for re-evaluation at depth >= 2.
- * Duplicates the prompt structure from IterativeEditingAgent.runInlineCritique.
+ * Uses shared buildQualityCritiquePrompt from flowRubric.ts.
  */
 async function runInlineCritique(
   text: string,
@@ -305,42 +315,8 @@ async function runInlineCritique(
   llmClient: ExecutionContext['llmClient'],
   agentName: string,
 ): Promise<Critique | null> {
-  const { CRITIQUE_DIMENSIONS } = await import('../agents/reflectionAgent');
-  const dimensionsList = CRITIQUE_DIMENSIONS.map((d: string) => `- ${d}`).join('\n');
-  const prompt = `You are an expert writing critic. Analyze this text across multiple quality dimensions.
-
-## Text to Analyze
-"""${text}"""
-
-## Dimensions to Evaluate
-${dimensionsList}
-
-## Task
-For each dimension, provide:
-1. A score from 1-10
-2. One specific good example (quote from text)
-3. One specific area for improvement (quote or describe)
-4. Brief notes on what works and what doesn't
-
-## Output Format (JSON)
-{
-    "scores": {
-        "clarity": 7,
-        "structure": 8
-    },
-    "good_examples": {
-        "clarity": "The opening paragraph clearly states..."
-    },
-    "bad_examples": {
-        "clarity": "The phrase 'it was noted that' is vague"
-    },
-    "notes": {
-        "clarity": "Generally clear but some passive constructions..."
-    }
-}
-
-Output ONLY valid JSON, no other text.`;
-
+  const { buildQualityCritiquePrompt } = await import('../flowRubric');
+  const prompt = buildQualityCritiquePrompt(text);
   const response = await llmClient.complete(prompt, agentName);
   const data = extractJSON<{
     scores?: Record<string, number>;

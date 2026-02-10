@@ -5,16 +5,12 @@ import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique } from '../types';
 import { BudgetExceededError } from '../types';
 import { extractJSON } from '../core/jsonParser';
+import { QUALITY_DIMENSIONS } from '../flowRubric';
 
-export const CRITIQUE_DIMENSIONS = [
-  'clarity',
-  'structure',
-  'engagement',
-  'precision',
-  'coherence',
-] as const;
+/** @deprecated Use QUALITY_DIMENSIONS from flowRubric.ts instead. */
+export const CRITIQUE_DIMENSIONS = Object.keys(QUALITY_DIMENSIONS);
 
-export type CritiqueDimension = (typeof CRITIQUE_DIMENSIONS)[number];
+export type CritiqueDimension = string;
 
 /** Build the LLM prompt for dimensional critique. */
 function buildCritiquePrompt(text: string, dimensions: readonly string[]): string {
@@ -99,7 +95,7 @@ export class ReflectionAgent extends AgentBase {
 
   constructor(dimensions?: readonly string[]) {
     super();
-    this.dimensions = dimensions ?? CRITIQUE_DIMENSIONS;
+    this.dimensions = dimensions ?? Object.keys(QUALITY_DIMENSIONS);
   }
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {

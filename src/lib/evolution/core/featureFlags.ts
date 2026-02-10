@@ -21,6 +21,8 @@ export interface EvolutionFeatureFlags {
   treeSearchEnabled: boolean;
   /** Whether the SectionDecompositionAgent runs in COMPETITION phase. */
   sectionDecompositionEnabled: boolean;
+  /** Whether flow critique + flow comparison runs as a second pass. */
+  flowCritiqueEnabled: boolean;
 }
 
 /** Safe defaults: agents enabled, dry-run off. Outline generation defaults to off (opt-in). */
@@ -33,6 +35,7 @@ export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   outlineGenerationEnabled: false,
   treeSearchEnabled: false,
   sectionDecompositionEnabled: true,
+  flowCritiqueEnabled: false,
 };
 
 /** Flag name → field mapping. */
@@ -45,6 +48,7 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_outline_generation_enabled: 'outlineGenerationEnabled',
   evolution_tree_search_enabled: 'treeSearchEnabled',
   evolution_section_decomposition_enabled: 'sectionDecompositionEnabled',
+  evolution_flow_critique_enabled: 'flowCritiqueEnabled',
 };
 
 const FLAG_NAMES = Object.keys(FLAG_MAP);

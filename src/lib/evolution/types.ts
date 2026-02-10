@@ -74,6 +74,8 @@ export interface Critique {
   badExamples: Record<string, string[]>;
   notes: Record<string, string>;
   reviewer: string;
+  /** Score scale: '1-10' for quality critiques (default), '0-5' for flow critiques. */
+  scale?: '1-10' | '0-5';
 }
 
 export interface MetaFeedback {
@@ -98,6 +100,8 @@ export interface Match {
   confidence: number;
   turns: number;
   dimensionScores: Record<string, string>;
+  /** Friction sentences from flow comparison (optional, only present when flow is enabled). */
+  frictionSpots?: { a: string[]; b: string[] };
 }
 
 // ─── Agent types ─────────────────────────────────────────────────
@@ -133,6 +137,8 @@ export interface ExecutionContext {
   runId: string;
   /** Optional comparison cache shared across agents within a run. */
   comparisonCache?: import('./core/comparisonCache').ComparisonCache;
+  /** Optional feature flags for agent-level gating (e.g., flow critique). */
+  featureFlags?: import('./core/featureFlags').EvolutionFeatureFlags;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────

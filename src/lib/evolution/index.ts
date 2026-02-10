@@ -69,6 +69,8 @@ export { Tournament } from './agents/tournament';
 export { EvolutionAgent } from './agents/evolvePool';
 export { ReflectionAgent, CRITIQUE_DIMENSIONS, getCritiqueForVariant, getWeakestDimension, getImprovementSuggestions } from './agents/reflectionAgent';
 export type { CritiqueDimension } from './agents/reflectionAgent';
+export { QUALITY_DIMENSIONS, FLOW_DIMENSIONS, normalizeScore, getFlowCritiqueForVariant, getWeakestDimensionAcrossCritiques, buildQualityCritiquePrompt } from './flowRubric';
+export type { ScaleType, WeakestDimensionResult, FlowComparisonResult, FlowCritiqueResult } from './flowRubric';
 export { MetaReviewAgent } from './agents/metaReviewAgent';
 export { DebateAgent } from './agents/debateAgent';
 export { IterativeEditingAgent, DEFAULT_ITERATIVE_EDITING_CONFIG } from './agents/iterativeEditingAgent';

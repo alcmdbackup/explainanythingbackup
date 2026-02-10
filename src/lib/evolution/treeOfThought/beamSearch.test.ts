@@ -20,8 +20,39 @@ jest.mock('../agents/formatValidator', () => ({
   validateFormat: jest.fn().mockReturnValue({ valid: true, issues: [] }),
 }));
 
-jest.mock('../agents/reflectionAgent', () => ({
-  CRITIQUE_DIMENSIONS: ['clarity', 'structure', 'engagement', 'accuracy', 'grammar'],
+jest.mock('../flowRubric', () => ({
+  buildQualityCritiquePrompt: (text: string) =>
+    `You are an expert writing critic. Analyze this text across multiple quality dimensions.\n\n${text.slice(0, 50)}`,
+  QUALITY_DIMENSIONS: {
+    clarity: 'Clear writing',
+    engagement: 'Compelling writing',
+    precision: 'Accurate language',
+    voice_fidelity: 'Preserves tone',
+    conciseness: 'Appropriately brief',
+  },
+  getFlowCritiqueForVariant: (variantId: string, critiques: Array<{ variationId: string; scale?: string }>) =>
+    critiques.find((c) => c.variationId === variantId && c.scale === '0-5') ?? undefined,
+  getWeakestDimensionAcrossCritiques: (
+    qualityCritique: { dimensionScores: Record<string, number>; scale?: string },
+    flowCritique?: { dimensionScores: Record<string, number>; scale?: string },
+  ) => {
+    if (!flowCritique) {
+      const entries = Object.entries(qualityCritique.dimensionScores);
+      if (entries.length === 0) return null;
+      entries.sort((a, b) => a[1] - b[1]);
+      return { dimension: entries[0][0], normalizedScore: (entries[0][1] - 1) / 9, source: 'quality' as const };
+    }
+    const qEntries = Object.entries(qualityCritique.dimensionScores);
+    const fEntries = Object.entries(flowCritique.dimensionScores);
+    if (qEntries.length === 0 && fEntries.length === 0) return null;
+    const weakQ = qEntries.sort((a, b) => a[1] - b[1])[0];
+    const weakF = fEntries.sort((a, b) => a[1] - b[1])[0];
+    const normQ = weakQ ? (weakQ[1] - 1) / 9 : 1;
+    const normF = weakF ? weakF[1] / 5 : 1;
+    if (normF <= normQ && weakF) return { dimension: weakF[0], normalizedScore: normF, source: 'flow' as const };
+    if (weakQ) return { dimension: weakQ[0], normalizedScore: normQ, source: 'quality' as const };
+    return null;
+  },
 }));
 
 jest.mock('../../../../instrumentation', () => ({
@@ -505,6 +536,50 @@ describe('beamSearch', () => {
 
       const { result } = await beamSearch(root, critique, ctx, config);
       expect(result.maxDepth).toBe(2);
+    });
+  });
+
+  describe('flow-aware dimension override', () => {
+    it('passes weakest dimension override when flow critique exists', async () => {
+      // Provide a state with allCritiques including a flow critique
+      const { PipelineStateImpl } = await import('../core/state');
+      const state = new PipelineStateImpl('test');
+      state.allCritiques = [
+        makeCritique('root-var'),
+        {
+          variationId: 'root-var',
+          dimensionScores: { local_cohesion: 1, global_coherence: 4, transition_quality: 3, rhythm_variety: 4, redundancy: 4 },
+          goodExamples: {},
+          badExamples: {},
+          notes: {},
+          reviewer: 'llm',
+          scale: '0-5' as const,
+        },
+      ];
+
+      const ctx = makeCtx({ state });
+      const root = makeRootVariant();
+      const critique = makeCritique(root.id);
+
+      await beamSearch(root, critique, ctx, MINIMAL_CONFIG);
+
+      // Should have generated candidates (LLM was called)
+      expect(ctx.llmClient.complete).toHaveBeenCalled();
+    });
+
+    it('works without flow critique (no override)', async () => {
+      const { PipelineStateImpl } = await import('../core/state');
+      const state = new PipelineStateImpl('test');
+      // Only quality critique, no flow
+      state.allCritiques = [makeCritique('root-var')];
+
+      const ctx = makeCtx({ state });
+      const root = makeRootVariant();
+      const critique = makeCritique(root.id);
+
+      const { result } = await beamSearch(root, critique, ctx, MINIMAL_CONFIG);
+      expect(result).toBeDefined();
+      expect(result.maxDepth).toBeGreaterThanOrEqual(0);
     });
   });
 

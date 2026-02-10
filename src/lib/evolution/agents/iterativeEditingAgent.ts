@@ -6,7 +6,8 @@ import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation } from '../types';
 import { BudgetExceededError, isOutlineVariant } from '../types';
 import { compareWithDiff } from '../diffComparison';
-import { getCritiqueForVariant, CRITIQUE_DIMENSIONS } from './reflectionAgent';
+import { getCritiqueForVariant } from './reflectionAgent';
+import { buildQualityCritiquePrompt, getFlowCritiqueForVariant } from '../flowRubric';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { extractJSON } from '../core/jsonParser';
@@ -78,8 +79,8 @@ export class IterativeEditingAgent extends AgentBase {
         break;
       }
 
-      // Pick edit target from combined rubric + open review (passes variant for step-aware targeting)
-      const editTarget = this.pickEditTarget(currentCritique, openReview, current);
+      // Pick edit target from combined rubric + open review (passes variant for step-aware + flow-aware targeting)
+      const editTarget = this.pickEditTarget(currentCritique, openReview, current, state.allCritiques);
       if (!editTarget) break;
 
       // EDIT: generate targeted fix
@@ -162,53 +163,14 @@ export class IterativeEditingAgent extends AgentBase {
     }
   }
 
-  /**
-   * Inline rubric critique matching ReflectionAgent's prompt structure. Returns null on parse failure.
-   * Note: This duplicates buildCritiquePrompt from reflectionAgent.ts which is module-private.
-   * If that prompt changes, this should be updated to match (or the prompt should be extracted
-   * into a shared module).
-   */
+  /** Inline rubric critique using shared quality critique prompt. Returns null on parse failure. */
   private async runInlineCritique(
     text: string,
     variantId: string,
     llmClient: ExecutionContext['llmClient'],
   ): Promise<Critique | null> {
     try {
-      const dimensionsList = CRITIQUE_DIMENSIONS.map((d) => `- ${d}`).join('\n');
-      const prompt = `You are an expert writing critic. Analyze this text across multiple quality dimensions.
-
-## Text to Analyze
-"""${text}"""
-
-## Dimensions to Evaluate
-${dimensionsList}
-
-## Task
-For each dimension, provide:
-1. A score from 1-10
-2. One specific good example (quote from text)
-3. One specific area for improvement (quote or describe)
-4. Brief notes on what works and what doesn't
-
-## Output Format (JSON)
-{
-    "scores": {
-        "clarity": 7,
-        "structure": 8
-    },
-    "good_examples": {
-        "clarity": "The opening paragraph clearly states..."
-    },
-    "bad_examples": {
-        "clarity": "The phrase 'it was noted that' is vague"
-    },
-    "notes": {
-        "clarity": "Generally clear but some passive constructions..."
-    }
-}
-
-Output ONLY valid JSON, no other text.`;
-
+      const prompt = buildQualityCritiquePrompt(text);
       const response = await llmClient.complete(prompt, this.name);
       const data = extractJSON<{
         scores?: Record<string, number>;
@@ -245,8 +207,9 @@ Output ONLY valid JSON, no other text.`;
   }
 
   /** Pick the highest-priority unattempted edit target from combined rubric + open review.
-   *  For OutlineVariants, step-based targets are added first (highest priority). */
-  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation): EditTarget | null {
+   *  For OutlineVariants, step-based targets are added first (highest priority).
+   *  When flow critique exists, flow dimensions are included via normalized scoring. */
+  private pickEditTarget(critique: Critique | null, openReview: string[] | null, variant?: TextVariation, allCritiques?: Critique[] | null): EditTarget | null {
     const targets: EditTarget[] = [];
 
     // Step-based targets for OutlineVariants (highest priority)
@@ -259,7 +222,7 @@ Output ONLY valid JSON, no other text.`;
       });
     }
 
-    // Add rubric-based targets (dimensions scoring < qualityThreshold)
+    // Add rubric-based targets (quality + flow dimensions below threshold)
     if (critique) {
       const sorted = Object.entries(critique.dimensionScores)
         .filter(([, score]) => score < this.config.qualityThreshold)
@@ -273,6 +236,26 @@ Output ONLY valid JSON, no other text.`;
           badExamples: critique.badExamples[dim],
           notes: critique.notes[dim],
         });
+      }
+    }
+
+    // Add flow dimension targets when flow critique is available
+    if (variant && allCritiques) {
+      const flowCritique = getFlowCritiqueForVariant(variant.id, allCritiques);
+      if (flowCritique) {
+        const sorted = Object.entries(flowCritique.dimensionScores)
+          .filter(([, score]) => score < 3) // flow threshold: 3/5 ≈ 60%
+          .sort((a, b) => a[1] - b[1]);
+
+        for (const [dim, score] of sorted) {
+          targets.push({
+            dimension: dim,
+            description: `Improve flow: ${dim}`,
+            score,
+            badExamples: flowCritique.badExamples[dim],
+            notes: flowCritique.notes[dim],
+          });
+        }
       }
     }
 

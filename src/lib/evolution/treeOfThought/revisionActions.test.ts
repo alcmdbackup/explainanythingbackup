@@ -60,6 +60,30 @@ describe('selectRevisionActions', () => {
     const actions = selectRevisionActions(critique, 1);
     expect(actions[0].description).toContain('4/10');
   });
+
+  it('uses weakestDimensionOverride for first slot when provided', () => {
+    const critique = makeCritique({ clarity: 3, engagement: 7, precision: 5 });
+    const actions = selectRevisionActions(critique, 3, 'local_cohesion');
+    expect(actions[0].type).toBe('edit_dimension');
+    expect(actions[0].dimension).toBe('local_cohesion');
+    expect(actions[0].description).toContain('flow-aware target');
+  });
+
+  it('falls back to weakest critique dimension when no override', () => {
+    const critique = makeCritique({ clarity: 3, engagement: 7, precision: 5 });
+    const actions = selectRevisionActions(critique, 3);
+    expect(actions[0].type).toBe('edit_dimension');
+    expect(actions[0].dimension).toBe('clarity');
+  });
+
+  it('override does not affect remaining action diversity', () => {
+    const critique = makeCritique({ clarity: 3 });
+    const actions = selectRevisionActions(critique, 4, 'transition_quality');
+    const types = actions.map((a) => a.type);
+    // First is edit_dimension, rest are diverse
+    expect(types[0]).toBe('edit_dimension');
+    expect(new Set(types).size).toBe(types.length);
+  });
 });
 
 describe('buildRevisionPrompt', () => {

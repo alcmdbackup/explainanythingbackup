@@ -1,12 +1,12 @@
-// Unit tests for pipeline helpers and iterativeEditing integration.
-// Tests baseline variant insertion, run summary, Zod validation, and agent execution order.
+// Unit tests for pipeline helpers, iterativeEditing integration, and flow critique integration.
+// Tests baseline variant insertion, run summary, Zod validation, agent execution order, and flow critique pipeline behavior.
 
 import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun } from './pipeline';
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
 import { BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
 import { getOrdinal } from './rating';
@@ -442,6 +442,199 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
     expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
     expect(executionOrder).not.toContain('iterativeEditing');
     expect(executionOrder).toContain('generation');
+  });
+});
+
+// ─── Flow critique pipeline integration tests ───────────────────
+
+describe('executeFullPipeline — flowCritique integration', () => {
+  const FLOW_CRITIQUE_JSON = JSON.stringify({
+    scores: { local_cohesion: 3, global_coherence: 4, transition_quality: 2, rhythm_variety: 4, redundancy: 5 },
+    friction_sentences: { local_cohesion: ['The next point is unclear.'] },
+  });
+
+  function makeSpyAgent(name: string, executionOrder: string[], sideEffect?: (ctx: ExecutionContext) => void): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async (ctx: ExecutionContext) => {
+        executionOrder.push(name);
+        if (sideEffect) sideEffect(ctx);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeFlowIntegrationCtx(
+    budgetCalls: number[],
+    flowLLMResponse = FLOW_CRITIQUE_JSON,
+  ): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Original article text for flow testing.');
+    // Add pool variants so agents can run
+    state.addToPool({
+      id: 'v-flow-1', text: 'Variant flow 1 with content.', version: 1,
+      parentIds: [], strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.addToPool({
+      id: 'v-flow-2', text: 'Variant flow 2 with content.', version: 1,
+      parentIds: [], strategy: 'lexical_simplify', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+
+    let budgetIdx = 0;
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+    };
+    return {
+      payload: {
+        originalText: state.originalText,
+        title: 'Flow Test Article',
+        explanationId: 1,
+        runId: 'flow-int-test',
+        config,
+      },
+      state,
+      llmClient: {
+        complete: jest.fn().mockResolvedValue(flowLLMResponse),
+        completeStructured: jest.fn(),
+      } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'flow-int-test',
+    };
+  }
+
+  function makeFlowAgents(executionOrder: string[], sideEffects?: Record<string, (ctx: ExecutionContext) => void>): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder, sideEffects?.['tournament']),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder, sideEffects?.['reflection']),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder, sideEffects?.['iterativeEditing']),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+  }
+
+  it('runs flow critique after reflection and before iterativeEditing when enabled', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeFlowAgents(executionOrder);
+    const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
+      startMs: Date.now(),
+    });
+
+    // Flow critique runs between reflection and editing
+    const reflectionIdx = executionOrder.indexOf('reflection');
+    const ieIdx = executionOrder.indexOf('iterativeEditing');
+    expect(reflectionIdx).toBeGreaterThanOrEqual(0);
+    expect(ieIdx).toBeGreaterThan(reflectionIdx);
+
+    // Verify flow critiques were appended to state (baseline + 2 added = 3 variants)
+    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    expect(flowCritiques.length).toBe(3);
+  });
+
+  it('skips flow critique when flowCritiqueEnabled is false', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeFlowAgents(executionOrder);
+    const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: false },
+      startMs: Date.now(),
+    });
+
+    // LLM should never be called for flow critique
+    const completeCalls = (ctx.llmClient.complete as jest.Mock).mock.calls;
+    const flowCritiqueCalls = completeCalls.filter(([, tag]: [string, string]) => tag === 'flowCritique');
+    expect(flowCritiqueCalls).toHaveLength(0);
+
+    // No flow critiques in state
+    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    expect(flowCritiques.length).toBe(0);
+  });
+
+  it('flow scores are available to downstream editing agents via state', async () => {
+    const executionOrder: string[] = [];
+    let capturedState: PipelineState | null = null;
+
+    const agents = makeFlowAgents(executionOrder, {
+      iterativeEditing: (ctx: ExecutionContext) => {
+        capturedState = ctx.state;
+      },
+    });
+    const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
+      startMs: Date.now(),
+    });
+
+    // iterativeEditing should see flow critiques and dimensionScores
+    expect(capturedState).not.toBeNull();
+    const flowCritiques = (capturedState!.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    expect(flowCritiques.length).toBe(3); // baseline + 2 added variants
+    expect(capturedState!.dimensionScores!['v-flow-1']).toBeDefined();
+    expect(capturedState!.dimensionScores!['v-flow-1']['flow:local_cohesion']).toBe(3);
+  });
+
+  it('propagates featureFlags to ctx.featureFlags for tournament access', async () => {
+    const executionOrder: string[] = [];
+    let capturedFlags: ExecutionContext['featureFlags'] = undefined;
+
+    const agents = makeFlowAgents(executionOrder, {
+      tournament: (ctx: ExecutionContext) => {
+        capturedFlags = ctx.featureFlags;
+      },
+    });
+    const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005]);
+
+    const flags = { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true };
+    await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: flags,
+      startMs: Date.now(),
+    });
+
+    expect(capturedFlags).toBeDefined();
+    expect(capturedFlags!.flowCritiqueEnabled).toBe(true);
+  });
+
+  it('flow critique parse failure is non-fatal — pipeline continues', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeFlowAgents(executionOrder);
+    // Invalid JSON → parseFlowCritiqueResponse returns null
+    const ctx = makeFlowIntegrationCtx([2.0, 2.0, 0.005], 'not valid json');
+
+    await executeFullPipeline('flow-int-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, flowCritiqueEnabled: true },
+      startMs: Date.now(),
+    });
+
+    // Pipeline should have continued through editing and tournament
+    expect(executionOrder).toContain('iterativeEditing');
+    expect(executionOrder).toContain('tournament');
+    // No flow critiques added since parsing failed
+    const flowCritiques = (ctx.state.allCritiques ?? []).filter((c) => c.scale === '0-5');
+    expect(flowCritiques.length).toBe(0);
   });
 });
 

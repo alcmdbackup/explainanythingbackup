@@ -298,6 +298,79 @@ describe('Tournament', () => {
     expect(getOrdinal(ratingA)).toBeGreaterThan(getOrdinal(ratingB));
   });
 
+  it('runs flow comparison when flowCritiqueEnabled is true', async () => {
+    const FLOW_RESPONSE = `local_cohesion: A
+global_coherence: B
+transition_quality: A
+rhythm_variety: TIE
+redundancy: A
+OVERALL_WINNER: A
+CONFIDENCE: HIGH
+FRICTION_A: This sentence is jarring.
+FRICTION_B: Moving on abruptly.`;
+
+    // Use a smart mock that returns flow format for flow prompts, 'A'/'B' for quality
+    const smartLLM: EvolutionLLMClient = {
+      complete: jest.fn().mockImplementation((prompt: string) => {
+        if (prompt.includes('local_cohesion') || prompt.includes('flow')) {
+          return Promise.resolve(FLOW_RESPONSE);
+        }
+        return Promise.resolve('A');
+      }),
+      completeStructured: jest.fn(),
+    };
+
+    const state = makeState(4);
+    const ctx: ExecutionContext = {
+      payload: {
+        originalText: state.originalText,
+        title: 'Test',
+        explanationId: 1,
+        runId: 'test-run',
+        config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+      },
+      state,
+      llmClient: smartLLM,
+      logger: makeMockLogger(),
+      costTracker: makeMockCostTracker(),
+      runId: 'test-run',
+      featureFlags: {
+        tournamentEnabled: true,
+        evolvePoolEnabled: true,
+        dryRunOnly: false,
+        debateEnabled: true,
+        iterativeEditingEnabled: true,
+        outlineGenerationEnabled: false,
+        treeSearchEnabled: false,
+        sectionDecompositionEnabled: true,
+        flowCritiqueEnabled: true,
+      },
+    };
+
+    const result = await tournament.execute(ctx);
+    expect(result.success).toBe(true);
+    expect(result.matchesPlayed).toBeGreaterThan(0);
+
+    // Flow comparison should have added flow: prefixed dimension scores to matches
+    const matchesWithFlowScores = state.matchHistory.filter((m) =>
+      Object.keys(m.dimensionScores).some((k) => k.startsWith('flow:')),
+    );
+    expect(matchesWithFlowScores.length).toBeGreaterThan(0);
+  });
+
+  it('does not run flow comparison when flowCritiqueEnabled is false', async () => {
+    const { ctx, state } = makeCtx(['A', 'B'], 3);
+    // No featureFlags set → flowCritiqueEnabled is undefined → no flow comparison
+    const result = await tournament.execute(ctx);
+    expect(result.success).toBe(true);
+
+    // No flow: prefixed dimensions should appear
+    const matchesWithFlowScores = state.matchHistory.filter((m) =>
+      Object.keys(m.dimensionScores).some((k) => k.startsWith('flow:')),
+    );
+    expect(matchesWithFlowScores.length).toBe(0);
+  });
+
   it('sigma-based convergence uses fewer comparisons than max rounds', async () => {
     // Regression test: sigma-based convergence should terminate
     // well before maxRounds when outcomes are consistent.

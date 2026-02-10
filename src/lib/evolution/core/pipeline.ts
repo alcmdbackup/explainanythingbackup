@@ -13,6 +13,8 @@ import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
 import { v4 as uuidv4 } from 'uuid';
 import { extractStrategyConfig, hashStrategyConfig, labelStrategyConfig } from './strategyConfig';
+import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
+import type { Critique } from '../types';
 
 /** Agent interface for pipeline execution. */
 export interface PipelineAgent {
@@ -786,6 +788,11 @@ export async function executeFullPipeline(
 
     insertBaselineVariant(ctx.state, runId);
 
+    // Propagate feature flags to execution context for agent-level access
+    if (options.featureFlags) {
+      ctx.featureFlags = options.featureFlags;
+    }
+
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
       ctx.state.startNewIteration();
 
@@ -833,14 +840,51 @@ export async function executeFullPipeline(
           await runAgent(runId, agents.generation, ctx, phase, logger);
         }
 
-        // Feature-flag-gated optional agents
-        const flagGatedAgents: Array<{
+        // Pre-edit agents: outline generation + quality critique (run before flow critique + editing)
+        const preEditAgents: Array<{
           configKey: keyof typeof config;
           agent: PipelineAgent | undefined;
           flagKey?: keyof EvolutionFeatureFlags;
         }> = [
           { configKey: 'runOutlineGeneration', agent: agents.outlineGeneration, flagKey: 'outlineGenerationEnabled' },
           { configKey: 'runReflection', agent: agents.reflection },
+        ];
+
+        for (const { configKey, agent, flagKey } of preEditAgents) {
+          if (!config[configKey] || !agent) continue;
+          if (flagKey && options.featureFlags?.[flagKey] === false) {
+            logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
+            continue;
+          }
+          await runAgent(runId, agent, ctx, phase, logger);
+        }
+
+        // === Flow Critique (step 3b) — runs after quality critique, before editing agents ===
+        if (config.runReflection && options.featureFlags?.flowCritiqueEnabled === true) {
+          try {
+            const flowResult = await runFlowCritiques(ctx, logger);
+            logger.info('Flow critique pass complete', {
+              critiqued: flowResult.critiqued,
+              costUsd: flowResult.costUsd,
+              iteration: ctx.state.iteration,
+            });
+            await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger);
+          } catch (error) {
+            if (error instanceof BudgetExceededError) {
+              logger.warn('Budget exceeded during flow critique', { error: error.message });
+              await markRunPaused(runId, error);
+              throw error;
+            }
+            logger.warn('Flow critique pass failed (non-fatal)', { error: String(error) });
+          }
+        }
+
+        // Feature-flag-gated editing + evolution agents
+        const flagGatedAgents: Array<{
+          configKey: keyof typeof config;
+          agent: PipelineAgent | undefined;
+          flagKey?: keyof EvolutionFeatureFlags;
+        }> = [
           { configKey: 'runIterativeEditing', agent: agents.iterativeEditing, flagKey: 'iterativeEditingEnabled' },
           { configKey: 'runTreeSearch', agent: agents.treeSearch, flagKey: 'treeSearchEnabled' },
           { configKey: 'runSectionDecomposition', agent: agents.sectionDecomposition, flagKey: 'sectionDecompositionEnabled' },
@@ -1015,4 +1059,69 @@ async function persistCheckpointWithSupervisor(
   } catch (error) {
     logger.warn('Iteration checkpoint failed', { error: String(error) });
   }
+}
+
+/**
+ * Standalone flow critique pass: scores each variant on 5 flow dimensions (0-5).
+ * Implemented as a standalone function (NOT via ReflectionAgent.execute()) because
+ * ReflectionAgent overwrites state.dimensionScores with the latest critique's scores.
+ * This function appends flow Critique objects to state.allCritiques only, preserving quality scores.
+ */
+export async function runFlowCritiques(
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<{ critiqued: number; costUsd: number }> {
+  const { state, llmClient, costTracker } = ctx;
+  let critiqued = 0;
+
+  // Critique all variants that don't already have a flow critique this iteration
+  const existingFlowIds = new Set(
+    (state.allCritiques ?? [])
+      .filter((c) => c.scale === '0-5')
+      .map((c) => c.variationId),
+  );
+
+  const toCritique = state.pool.filter((v) => !existingFlowIds.has(v.id));
+
+  for (const variant of toCritique) {
+    try {
+      const prompt = buildFlowCritiquePrompt(variant.text);
+      const response = await llmClient.complete(prompt, 'flowCritique');
+      const result = parseFlowCritiqueResponse(response);
+
+      if (result) {
+        const flowCritique: Critique = {
+          variationId: variant.id,
+          dimensionScores: result.scores,
+          goodExamples: {},
+          badExamples: Object.fromEntries(
+            Object.entries(result.frictionSentences).filter(([, v]) => v.length > 0),
+          ),
+          notes: {},
+          reviewer: 'llm',
+          scale: '0-5',
+        };
+
+        if (!state.allCritiques) state.allCritiques = [];
+        state.allCritiques.push(flowCritique);
+
+        // Write flow scores to dimensionScores with flow: prefix (visible to visualization)
+        if (!state.dimensionScores) state.dimensionScores = {};
+        if (!state.dimensionScores[variant.id]) state.dimensionScores[variant.id] = {};
+        for (const [dim, score] of Object.entries(result.scores)) {
+          state.dimensionScores[variant.id][`flow:${dim}`] = score;
+        }
+
+        critiqued++;
+      }
+    } catch (err) {
+      if (err instanceof BudgetExceededError) throw err;
+      logger.warn('Flow critique failed for variant (non-fatal)', {
+        variantId: variant.id,
+        error: String(err),
+      });
+    }
+  }
+
+  return { critiqued, costUsd: costTracker.getAgentCost('flowCritique') };
 }

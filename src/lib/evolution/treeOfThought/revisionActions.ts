@@ -22,19 +22,30 @@ const ALL_ACTION_TYPES: RevisionActionType[] = [
 export function selectRevisionActions(
   critique: Critique,
   branchingFactor: number,
+  weakestDimensionOverride?: string,
 ): RevisionAction[] {
   const actions: RevisionAction[] = [];
   const usedTypes = new Set<RevisionActionType>();
 
   // 1. First slot: edit_dimension targeting weakest critique dimension
-  const weakestDim = getWeakestDimensions(critique, 1)[0];
-  if (weakestDim) {
+  //    If override provided (from cross-scale flow analysis), use it instead.
+  if (weakestDimensionOverride) {
     actions.push({
       type: 'edit_dimension',
-      dimension: weakestDim.dimension,
-      description: `Improve ${weakestDim.dimension} (score: ${weakestDim.score}/10)`,
+      dimension: weakestDimensionOverride,
+      description: `Improve ${weakestDimensionOverride} (flow-aware target)`,
     });
     usedTypes.add('edit_dimension');
+  } else {
+    const weakestDim = getWeakestDimensions(critique, 1)[0];
+    if (weakestDim) {
+      actions.push({
+        type: 'edit_dimension',
+        dimension: weakestDim.dimension,
+        description: `Improve ${weakestDim.dimension} (score: ${weakestDim.score}/10)`,
+      });
+      usedTypes.add('edit_dimension');
+    }
   }
 
   // 2. Fill remaining slots with diverse action types

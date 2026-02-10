@@ -6,6 +6,7 @@ import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
+import { QUALITY_DIMENSIONS } from '../flowRubric';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
@@ -37,7 +38,7 @@ ${critiqueContext}
 Make a compelling argument for why Variant A is the better text. Cover:
 1. Specific strengths of Variant A (cite exact passages)
 2. Specific weaknesses of Variant B compared to A
-3. Which dimensions (clarity, structure, engagement, precision, coherence) A excels in
+3. Which dimensions (${Object.keys(QUALITY_DIMENSIONS).join(', ')}) A excels in
 
 Be specific and evidence-based. Cite exact phrases from both texts.`;
 }

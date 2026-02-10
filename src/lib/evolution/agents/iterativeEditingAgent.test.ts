@@ -23,14 +23,14 @@ const VALID_OPEN_REVIEW = JSON.stringify({
 });
 
 const VALID_CRITIQUE_JSON = JSON.stringify({
-  scores: { clarity: 6, structure: 8, engagement: 5, precision: 7, coherence: 8 },
+  scores: { clarity: 6, engagement: 5, precision: 7, voice_fidelity: 8, conciseness: 8 },
   good_examples: { clarity: 'Clear thesis statement' },
   bad_examples: { clarity: 'The phrase "it was noted" is vague', engagement: 'Opening lacks a hook' },
   notes: { clarity: 'Some passive voice issues', engagement: 'Needs stronger opening' },
 });
 
 const HIGH_SCORE_CRITIQUE_JSON = JSON.stringify({
-  scores: { clarity: 9, structure: 9, engagement: 9, precision: 9, coherence: 9 },
+  scores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
   good_examples: { clarity: 'Excellent phrasing' },
   bad_examples: {},
   notes: {},
@@ -70,7 +70,7 @@ function makeMockCostTracker(): CostTracker {
 function makeCritique(variantId: string, overrides?: Partial<Critique>): Critique {
   return {
     variationId: variantId,
-    dimensionScores: { clarity: 6, structure: 8, engagement: 5, precision: 7, coherence: 8 },
+    dimensionScores: { clarity: 6, engagement: 5, precision: 7, voice_fidelity: 8, conciseness: 8 },
     goodExamples: { clarity: ['Clear thesis'] },
     badExamples: { clarity: ['Vague phrasing'], engagement: ['Weak opening'] },
     notes: { clarity: 'Passive voice', engagement: 'Needs hook' },
@@ -223,7 +223,7 @@ describe('IterativeEditingAgent', () => {
     const ctx = makeCtx();
     // Override critique to have all high scores
     ctx.state.allCritiques = [makeCritique('v-2', {
-      dimensionScores: { clarity: 9, structure: 9, engagement: 9, precision: 9, coherence: 9 },
+      dimensionScores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
     })];
     // Open review returns null (no suggestions)
     const llmClient = makeMockLLMClient(['{}']); // invalid suggestions → null
@@ -471,6 +471,76 @@ describe('IterativeEditingAgent', () => {
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
     expect(cost).toBeGreaterThan(0);
+  });
+
+  describe('flow-aware edit targeting', () => {
+    it('includes flow dimension targets when flow critique exists in state', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_CRITIQUE_JSON,
+          VALID_OPEN_REVIEW,
+        ]),
+      });
+      // Add a flow critique for the top variant (v-2)
+      ctx.state.allCritiques!.push({
+        variationId: 'v-2',
+        dimensionScores: { local_cohesion: 2, global_coherence: 4, transition_quality: 1, rhythm_variety: 3, redundancy: 4 },
+        goodExamples: {},
+        badExamples: { transition_quality: ['Abrupt paragraph jump'] },
+        notes: { transition_quality: 'Missing connectives' },
+        reviewer: 'llm',
+        scale: '0-5' as const,
+      });
+
+      await agent.execute(ctx);
+
+      // The weakest quality dim is engagement (5), weakest flow dim is transition_quality (1/5 = 0.2 normalized)
+      // Flow dimension should be picked since 0.2 < (5-1)/9 ≈ 0.44
+      // But the edit target order is: rubric dims below threshold first, then flow dims
+      // Since engagement(5) < threshold(8), it gets targeted first
+      const newVariants = ctx.state.pool.filter((v) => v.strategy.startsWith('critique_edit_'));
+      expect(newVariants.length).toBe(1);
+      // First target is weakest quality dimension (engagement at 5)
+      expect(newVariants[0].strategy).toBe('critique_edit_engagement');
+    });
+
+    it('qualityThresholdMet only checks quality critique, not flow', async () => {
+      const ctx = makeCtx();
+      // Quality critique with all scores above threshold
+      ctx.state.allCritiques = [
+        {
+          variationId: 'v-2',
+          dimensionScores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
+          goodExamples: {},
+          badExamples: {},
+          notes: {},
+          reviewer: 'llm',
+        },
+        // Flow critique with low scores — should NOT prevent quality threshold from being met
+        {
+          variationId: 'v-2',
+          dimensionScores: { local_cohesion: 1, global_coherence: 1, transition_quality: 1, rhythm_variety: 1, redundancy: 1 },
+          goodExamples: {},
+          badExamples: {},
+          notes: {},
+          reviewer: 'llm',
+          scale: '0-5' as const,
+        },
+      ];
+      // Open review returns no suggestions → combined with quality threshold met → should stop
+      const llmClient = makeMockLLMClient(['{}']);
+      const result = await new IterativeEditingAgent().execute({ ...ctx, llmClient });
+
+      // Quality threshold is met (all ≥ 8), so should stop even though flow scores are low
+      const logger = ctx.logger as unknown as { info: jest.Mock };
+      const stopCalls = logger.info.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'Quality threshold met, stopping',
+      );
+      expect(stopCalls.length).toBe(1);
+    });
   });
 
   describe('step-targeted editing for OutlineVariants', () => {

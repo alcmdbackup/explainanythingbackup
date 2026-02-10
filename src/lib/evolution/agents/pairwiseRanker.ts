@@ -5,21 +5,26 @@ import { AgentBase } from './base';
 import { buildComparisonPrompt, parseWinner } from '../comparison';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
 import { BudgetExceededError } from '../types';
+import { QUALITY_DIMENSIONS, buildFlowComparisonPrompt, parseFlowComparisonResponse } from '../flowRubric';
+import type { FlowComparisonResult } from '../flowRubric';
 
-// Phase 7: Structured evaluation dimensions
-export const EVALUATION_DIMENSIONS: Record<string, string> = {
-  clarity: 'Is the writing clear and easy to follow?',
-  flow: 'Does the text flow naturally between ideas?',
-  engagement: 'Is the writing compelling and interesting?',
-  voice_fidelity: "Does it preserve the original author's voice?",
-  conciseness: 'Is the text appropriately concise without losing meaning?',
-};
+/** @deprecated Use QUALITY_DIMENSIONS from flowRubric.ts instead. */
+export const EVALUATION_DIMENSIONS = QUALITY_DIMENSIONS;
 
 // ─── Prompt builders ────────────────────────────────────────────
 
 function buildStructuredPrompt(textA: string, textB: string): string {
-  const dimensionsList = Object.entries(EVALUATION_DIMENSIONS)
+  const dims = Object.entries(QUALITY_DIMENSIONS);
+  const dimensionsList = dims
     .map(([name, desc]) => `- **${name}**: ${desc}`)
+    .join('\n');
+
+  const instructionsList = dims
+    .map(([name], i) => `${i + 1}. ${name}: [A/B/TIE]`)
+    .join('\n');
+
+  const responseTemplate = dims
+    .map(([name]) => `${name}: [your choice]`)
     .join('\n');
 
   return `You are an expert writing evaluator. Compare the following two text variations on multiple dimensions.
@@ -35,22 +40,14 @@ ${dimensionsList}
 
 ## Instructions
 Rate each dimension using ONLY "A", "B", or "TIE":
-1. clarity: [A/B/TIE]
-2. flow: [A/B/TIE]
-3. engagement: [A/B/TIE]
-4. voice_fidelity: [A/B/TIE]
-5. conciseness: [A/B/TIE]
+${instructionsList}
 
 Then provide:
 OVERALL_WINNER: [A/B/TIE]
 CONFIDENCE: [high/medium/low]
 
 Respond in this exact format:
-clarity: [your choice]
-flow: [your choice]
-engagement: [your choice]
-voice_fidelity: [your choice]
-conciseness: [your choice]
+${responseTemplate}
 OVERALL_WINNER: [your choice]
 CONFIDENCE: [your choice]`;
 }
@@ -72,7 +69,7 @@ export function parseStructuredResponse(
     if (!trimmed) continue;
 
     // Parse dimension scores
-    for (const dim of Object.keys(EVALUATION_DIMENSIONS)) {
+    for (const dim of Object.keys(QUALITY_DIMENSIONS)) {
       if (trimmed.toLowerCase().startsWith(`${dim}:`)) {
         const value = trimmed.split(':')[1].trim().toUpperCase();
         if (value.startsWith('A')) dimensionScores[dim] = 'A';
@@ -134,6 +131,19 @@ function mergeDimensionScores(
   return merged;
 }
 
+/** Swap A↔B in reversed-round results so they match the original frame of reference. */
+function normalizeReversedResult(
+  winner: string | null,
+  dimensionScores: Record<string, string>,
+): { winner: string | null; dimensionScores: Record<string, string> } {
+  const swap = (v: string) => (v === 'A' ? 'B' : v === 'B' ? 'A' : v);
+  const swappedDims: Record<string, string> = {};
+  for (const [dim, val] of Object.entries(dimensionScores)) {
+    swappedDims[dim] = swap(val);
+  }
+  return { winner: winner ? swap(winner) : null, dimensionScores: swappedDims };
+}
+
 // ─── PairwiseRanker agent ───────────────────────────────────────
 
 export class PairwiseRanker extends AgentBase {
@@ -178,8 +188,7 @@ export class PairwiseRanker extends AgentBase {
       const cached = ctx.comparisonCache.get(textA, textB, structured);
       if (cached) {
         ctx.logger.debug('Cache hit for bias-mitigated comparison', { idA, idB, structured });
-        // Map cached winnerId/loserId back to the current call's id params
-        const winner = cached.isDraw ? idA : (cached.winnerId === null ? idA : cached.winnerId);
+        const winner = cached.isDraw ? idA : (cached.winnerId ?? idA);
         return {
           variationA: idA, variationB: idB,
           winner, confidence: cached.confidence,
@@ -195,18 +204,8 @@ export class PairwiseRanker extends AgentBase {
       this.comparePair(ctx, textB, textA, structured),
     ]);
 
-    // Normalize round 2 winner to original frame
-    let winner2: string | null = r2.winner;
-    if (winner2 === 'A') winner2 = 'B';
-    else if (winner2 === 'B') winner2 = 'A';
-
-    // Normalize round 2 dimension scores
-    const dim2Normalized: Record<string, string> = {};
-    for (const [dim, val] of Object.entries(r2.dimensionScores)) {
-      if (val === 'A') dim2Normalized[dim] = 'B';
-      else if (val === 'B') dim2Normalized[dim] = 'A';
-      else dim2Normalized[dim] = val;
-    }
+    // Normalize round 2 to original frame (swap A↔B)
+    const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
 
     ctx.logger.debug('Comparison results', { idA, idB, round1: r1.winner, round2Normalized: winner2 });
 
@@ -240,6 +239,94 @@ export class PairwiseRanker extends AgentBase {
     ctx.comparisonCache?.set(textA, textB, structured, {
       winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
     });
+    return match;
+  }
+
+  /** Single flow comparison call. */
+  private async comparePairFlow(
+    ctx: ExecutionContext,
+    textA: string,
+    textB: string,
+  ): Promise<FlowComparisonResult> {
+    const prompt = buildFlowComparisonPrompt(textA, textB);
+    try {
+      const response = await ctx.llmClient.complete(prompt, 'flowCritique', {
+        model: ctx.payload.config.judgeModel,
+      });
+      return parseFlowComparisonResponse(response);
+    } catch (error) {
+      if (error instanceof BudgetExceededError) throw error;
+      ctx.logger.error('Flow comparison error', { error: String(error) });
+      return { winner: null, dimensionScores: {}, confidence: 0.0, frictionSpotsA: [], frictionSpotsB: [] };
+    }
+  }
+
+  /** Flow comparison with position-bias mitigation (2-pass reversal). */
+  async compareFlowWithBiasMitigation(
+    ctx: ExecutionContext,
+    idA: string,
+    textA: string,
+    idB: string,
+    textB: string,
+  ): Promise<Match> {
+    // Check flow cache
+    if (ctx.comparisonCache) {
+      const cached = ctx.comparisonCache.get(textA, textB, true, 'flow');
+      if (cached) {
+        ctx.logger.debug('Flow cache hit', { idA, idB });
+        const winner = cached.isDraw ? idA : (cached.winnerId ?? idA);
+        return {
+          variationA: idA, variationB: idB,
+          winner, confidence: cached.confidence,
+          turns: 2, dimensionScores: {},
+        };
+      }
+    }
+
+    // 2-pass reversal (same pattern as quality comparison)
+    const [r1, r2] = await Promise.all([
+      this.comparePairFlow(ctx, textA, textB),
+      this.comparePairFlow(ctx, textB, textA),
+    ]);
+
+    // Normalize round 2 to original frame (swap A↔B)
+    const { winner: winner2, dimensionScores: dim2Normalized } = normalizeReversedResult(r2.winner, r2.dimensionScores);
+
+    // Merge dimension scores (with flow: prefix)
+    const mergedRaw = mergeDimensionScores(r1.dimensionScores, dim2Normalized);
+    const mergedDims: Record<string, string> = {};
+    for (const [dim, val] of Object.entries(mergedRaw)) {
+      mergedDims[`flow:${dim}`] = val;
+    }
+
+    // Collect friction spots (union from both passes, deduplicated)
+    const frictionSpotsA = [...new Set([...r1.frictionSpotsA, ...r2.frictionSpotsB])];
+    const frictionSpotsB = [...new Set([...r1.frictionSpotsB, ...r2.frictionSpotsA])];
+
+    // Determine final winner
+    let match: Match;
+
+    if (r1.winner === null || winner2 === null) {
+      const partial = r1.winner ?? winner2;
+      if (partial === 'A') return { variationA: idA, variationB: idB, winner: idA, confidence: 0.3, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+      if (partial === 'B') return { variationA: idA, variationB: idB, winner: idB, confidence: 0.3, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+      return { variationA: idA, variationB: idB, winner: idA, confidence: 0.0, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+    } else if (r1.winner === winner2) {
+      const winnerId = r1.winner === 'B' ? idB : idA;
+      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 1.0, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+    } else if (r1.winner === 'TIE' || winner2 === 'TIE') {
+      const nonTie = r1.winner === 'TIE' ? winner2 : r1.winner;
+      const winnerId = nonTie === 'B' ? idB : idA;
+      match = { variationA: idA, variationB: idB, winner: winnerId, confidence: 0.7, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+    } else {
+      match = { variationA: idA, variationB: idB, winner: idA, confidence: 0.5, turns: 2, dimensionScores: mergedDims, frictionSpots: { a: frictionSpotsA, b: frictionSpotsB } };
+    }
+
+    // Cache valid results
+    const loserId = match.winner === idA ? idB : idA;
+    ctx.comparisonCache?.set(textA, textB, true, {
+      winnerId: match.winner, loserId, confidence: match.confidence, isDraw: false,
+    }, 'flow');
     return match;
   }
 

@@ -29,6 +29,7 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
     treeSearch: 0.10,
     outlineGeneration: 0.10,
     sectionDecomposition: 0.10,
+    flowCritique: 0.05,
   },
   useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano' as AllowedLLMModelType,

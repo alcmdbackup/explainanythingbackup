@@ -299,6 +299,43 @@ export class Tournament extends AgentBase {
         }
       }
 
+      // === Flow Comparison (step 9b): run on same pairs, merge into existing matches ===
+      if (ctx.featureFlags?.flowCritiqueEnabled === true) {
+        try {
+          const flowResults = await Promise.allSettled(
+            pairConfigs.map(async ({ varA, varB }) =>
+              this.pairwise.compareFlowWithBiasMitigation(ctx, varA.id, varA.text, varB.id, varB.text),
+            ),
+          );
+
+          // Correlate by index: merge flow scores + friction spots into quality matches
+          for (let fi = 0; fi < flowResults.length; fi++) {
+            if (flowResults[fi].status !== 'fulfilled') continue;
+            const flowMatch = (flowResults[fi] as PromiseFulfilledResult<Match>).value;
+
+            // Find the corresponding quality match in this round's results
+            if (fi < roundResults.length && roundResults[fi].status === 'fulfilled') {
+              const qualityMatch = (roundResults[fi] as PromiseFulfilledResult<Match>).value;
+              // Merge flow: prefixed dimension scores into quality match
+              Object.assign(qualityMatch.dimensionScores, flowMatch.dimensionScores);
+              if (flowMatch.frictionSpots) {
+                qualityMatch.frictionSpots = flowMatch.frictionSpots;
+              }
+            }
+          }
+
+          // Re-throw budget errors from flow comparisons
+          for (const r of flowResults) {
+            if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
+              throw r.reason;
+            }
+          }
+        } catch (flowErr) {
+          if (flowErr instanceof BudgetExceededError) throw flowErr;
+          logger.warn('Flow comparison round failed (non-fatal)', { round, error: String(flowErr) });
+        }
+      }
+
       // Sigma-based convergence: all ratings converged for N consecutive checks
       const allConverged = [...state.ratings.values()].every(
         (r) => isConverged(r, this.cfg.convergenceSigmaThreshold),
