@@ -17,6 +17,7 @@ import {
 } from '@/lib/services/strategyRegistryActions';
 import type { StrategyConfigRow, StrategyConfig } from '@/lib/evolution/core/strategyConfig';
 import type { PipelineType } from '@/lib/evolution/types';
+import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@/lib/services/costAnalyticsActions';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -380,7 +381,7 @@ function CloneDialog({
 
 // ─── Detail expansion row ────────────────────────────────────────
 
-function StrategyDetailRow({ strategy }: { strategy: StrategyConfigRow }) {
+function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow; accuracy?: StrategyAccuracyStats }) {
   const config = strategy.config;
   return (
     <tr>
@@ -414,7 +415,19 @@ function StrategyDetailRow({ strategy }: { strategy: StrategyConfigRow }) {
               <StatCard label="StdDev" value={strategy.stddev_final_elo?.toFixed(1) ?? '--'} />
               <StatCard label="Created by" value={strategy.created_by} />
             </div>
-            <div className="mt-2 text-xs text-[var(--text-muted)] font-ui">
+            {accuracy ? (
+              <div className="mt-2 text-xs text-[var(--text-muted)] font-ui" data-testid="accuracy-stats">
+                Avg estimation error: <span className={`font-mono font-semibold ${
+                  Math.abs(accuracy.avgDeltaPercent) <= 10 ? 'text-[var(--status-success)]'
+                    : Math.abs(accuracy.avgDeltaPercent) <= 30 ? 'text-[var(--accent-gold)]'
+                      : 'text-[var(--status-error)]'
+                }`}>{accuracy.avgDeltaPercent >= 0 ? '+' : ''}{accuracy.avgDeltaPercent}%</span>
+                {' '}(±{accuracy.stdDevPercent}%) across {accuracy.runCount} run{accuracy.runCount !== 1 ? 's' : ''}
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-[var(--text-muted)] font-ui">No estimate data yet</div>
+            )}
+            <div className="mt-1 text-xs text-[var(--text-muted)] font-ui">
               Created {new Date(strategy.created_at).toLocaleDateString()}
               {strategy.last_used_at && ` | Last used ${new Date(strategy.last_used_at).toLocaleDateString()}`}
             </div>
@@ -439,6 +452,7 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
 export default function StrategyRegistryPage() {
   const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
   const [presets, setPresets] = useState<StrategyPreset[]>([]);
+  const [accuracyMap, setAccuracyMap] = useState<Map<string, StrategyAccuracyStats>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState(false);
@@ -472,9 +486,10 @@ export default function StrategyRegistryPage() {
       if (predefinedOnly) filters.isPredefined = true;
       if (pipelineFilter !== 'all') filters.pipelineType = pipelineFilter;
 
-      const [strategiesRes, presetsRes] = await Promise.all([
+      const [strategiesRes, presetsRes, accuracyRes] = await Promise.all([
         getStrategiesAction(filters),
         getStrategyPresetsAction(),
+        getStrategyAccuracyAction(),
       ]);
 
       if (strategiesRes.success && strategiesRes.data) {
@@ -485,6 +500,10 @@ export default function StrategyRegistryPage() {
 
       if (presetsRes.success && presetsRes.data) {
         setPresets(presetsRes.data);
+      }
+
+      if (accuracyRes.success && accuracyRes.data) {
+        setAccuracyMap(new Map(accuracyRes.data.map(a => [a.strategyId, a])));
       }
     } catch (err) {
       const msg = String(err);
@@ -863,7 +882,7 @@ export default function StrategyRegistryPage() {
                       </div>
                     </td>
                   </tr>
-                  {expandedId === s.id && <StrategyDetailRow strategy={s} />}
+                  {expandedId === s.id && <StrategyDetailRow strategy={s} accuracy={accuracyMap.get(s.id)} />}
                 </Fragment>
               ))
             )}

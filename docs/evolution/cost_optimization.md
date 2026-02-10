@@ -65,6 +65,24 @@ Features:
 - Text length scaling for proportional estimates
 - Heuristic fallback when no baseline exists
 
+### Pre-Run Cost Estimate UI
+
+The `StartRunCard` on the evolution admin page calls `estimateRunCostAction` (debounced 500ms) when a strategy is selected. It displays total estimated cost, confidence level, budget-exceeded warnings, and a collapsible per-agent breakdown with bar charts.
+
+### Cost Prediction at Completion
+
+When a pipeline run completes, `finalizePipelineRun()` computes a `CostPrediction` comparing the pre-run estimate to actual costs. This is stored in `content_evolution_runs.cost_prediction` (JSONB) and includes `deltaPercent`, per-agent estimated vs actual, and overall confidence. After writing the prediction, `refreshAgentCostBaselines(30)` is called (non-blocking) to update the baselines used for future estimates.
+
+### Cost Accuracy Dashboard
+
+The optimization dashboard includes a **Cost Accuracy** tab (`CostAccuracyPanel`) that shows:
+- Confidence calibration cards (avg |delta%| per confidence level)
+- Delta trend line chart over recent runs
+- Per-agent accuracy table (avg estimated vs avg actual)
+- Outlier list (runs >50% off estimate, linked to run detail)
+
+Data is served by `getCostAccuracyOverviewAction` in `costAnalyticsActions.ts`. Strategy-level accuracy stats are shown in `StrategyDetailRow` via `getStrategyAccuracyAction`.
+
 ### Strategy Identity
 
 Each unique configuration gets a stable hash for deduplication:

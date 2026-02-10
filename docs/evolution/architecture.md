@@ -131,7 +131,9 @@ The PoolSupervisor evaluates four stopping conditions at the start of each itera
    ├─ Build EvolutionRunSummary via buildRunSummary()
    ├─ Validate with Zod schema (non-fatal — null on failure)
    ├─ Persist run_summary to content_evolution_runs (JSONB)
-   └─ Persist all variants to content_evolution_variants for admin UI
+   ├─ Persist all variants to content_evolution_variants for admin UI
+   ├─ Compute cost_prediction (estimated vs actual delta, per-agent) if cost_estimate_detail exists
+   └─ Fire-and-forget refreshAgentCostBaselines(30) to update estimation baselines
 
 6. Winner Application (admin action via applyWinnerAction)
    ├─ Replaces entire explanations.content column (including H1 title)

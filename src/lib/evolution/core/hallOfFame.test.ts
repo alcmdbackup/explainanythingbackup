@@ -150,6 +150,8 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_variants', { data: null, error: null });
     // Queue: persistAgentMetrics → success
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
+    // Queue: cost prediction read → no estimate (skip prediction)
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null });
     // Queue: linkStrategyConfig — read run.strategy_config_id → null (auto-create flow)
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
     // Queue: strategy_configs select → existing
@@ -198,6 +200,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
     queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy check
     queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null }); // existing strategy
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
@@ -241,6 +244,7 @@ describe('feedHallOfFame (via finalizePipelineRun)', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
     queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
     queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
@@ -289,10 +293,11 @@ describe('auto re-ranking after feedHallOfFame', () => {
 
     const ctx = makeCtx(state, 'rerank-run');
 
-    // Queue: summary, variants, agent metrics, linkStrategy, autoLink, feedHoF
+    // Queue: summary, variants, agent metrics, cost prediction, linkStrategy, autoLink, feedHoF
     queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
     queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null }); // linkStrategy
     queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
@@ -332,6 +337,7 @@ describe('auto re-ranking after feedHallOfFame', () => {
     queueTableResult('content_evolution_runs', { data: null, error: null }); // summary
     queueTableResult('content_evolution_variants', { data: null, error: null }); // variants
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null }); // metrics
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null }); // cost prediction
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
     queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
     queueTableResult('content_evolution_runs', { data: null, error: null }); // link run
@@ -374,6 +380,8 @@ describe('autoLinkPrompt config JSONB strategy', () => {
     queueTableResult('content_evolution_variants', { data: null, error: null });
     // Queue: agent metrics → success
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
+    // Queue: cost prediction read → no estimate
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null });
     // Queue: linkStrategy → strategy_config_id null (auto-create)
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: null }, error: null });
     queueTableResult('strategy_configs', { data: { id: 'strat-1' }, error: null });
@@ -511,6 +519,8 @@ describe('linkStrategyConfig (pre-linked strategy)', () => {
     queueTableResult('content_evolution_variants', { data: null, error: null });
     // Queue: agent metrics → success
     queueTableResult('evolution_run_agent_metrics', { data: null, error: null });
+    // Queue: cost prediction read → no estimate
+    queueTableResult('content_evolution_runs', { data: { cost_estimate_detail: null }, error: null });
     // Queue: linkStrategy reads run → strategy_config_id already set
     queueTableResult('content_evolution_runs', { data: { strategy_config_id: 'existing-strat' }, error: null });
     // Queue: autoLink → prompt_id already set

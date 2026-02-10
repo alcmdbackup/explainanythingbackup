@@ -403,6 +403,56 @@ export async function finalizePipelineRun(
   // Persist per-agent cost metrics for Elo/dollar optimization
   await persistAgentMetrics(runId, ctx, logger);
 
+  // Compute cost prediction (estimated vs actual) if estimate was stored at queue time
+  try {
+    const { data: runRow } = await supabase
+      .from('content_evolution_runs')
+      .select('cost_estimate_detail')
+      .eq('id', runId)
+      .single();
+
+    if (runRow?.cost_estimate_detail) {
+      const { computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } = await import('../index');
+      const estimateParsed = RunCostEstimateSchema.safeParse(runRow.cost_estimate_detail);
+      if (!estimateParsed.success) {
+        logger.warn('cost_estimate_detail failed Zod validation — skipping prediction', {
+          runId, errors: estimateParsed.error.issues.map(i => i.message),
+        });
+      } else {
+        const actualCosts = ctx.costTracker.getAllAgentCosts();
+        const prediction = computeCostPrediction(
+          estimateParsed.data,
+          actualCosts,
+        );
+        const parsed = CostPredictionSchema.safeParse(prediction);
+        if (!parsed.success) {
+          logger.warn('Cost prediction failed Zod validation — skipping write', {
+            runId, errors: parsed.error.issues.map(i => i.message),
+          });
+        } else {
+          const { error: predErr } = await supabase
+            .from('content_evolution_runs')
+            .update({ cost_prediction: parsed.data })
+            .eq('id', runId);
+          if (predErr) {
+            logger.warn('Failed to persist cost_prediction', { runId, error: predErr.message });
+          }
+        }
+
+        // Refresh baselines for future estimates (best-effort, non-blocking)
+        refreshAgentCostBaselines(30).catch((err: unknown) => {
+          logger.warn('refreshAgentCostBaselines failed (non-blocking)', {
+            runId, error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
+  } catch (err) {
+    logger.warn('Cost prediction computation failed (non-blocking)', {
+      runId, error: err instanceof Error ? err.message : String(err),
+    });
+  }
+
   // Link run to strategy config for Elo optimization dashboard
   await linkStrategyConfig(runId, ctx, logger);
 

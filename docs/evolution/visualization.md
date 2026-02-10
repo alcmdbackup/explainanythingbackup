@@ -27,7 +27,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `tabs/TimelineTab.tsx` | Iteration-by-iteration execution timeline with expandable per-agent detail panels |
 | `tabs/EloTab.tsx` | Rating trajectory line chart with top-N filtering (ordinal values mapped to Elo scale) |
 | `tabs/LineageTab.tsx` | Lineage DAG tab wrapper (dynamic import) |
-| `tabs/BudgetTab.tsx` | Cumulative burn curve + agent cost breakdown |
+| `tabs/BudgetTab.tsx` | Cumulative burn curve + agent cost breakdown + estimated vs actual comparison panel |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines and step score expansion |
 | `StepScoreBar.tsx` | Horizontal bar chart showing per-step scores for outline variants |
 | `tabs/TreeTab.tsx` | Tree search visualization: depth-layered beam search tree with winning path highlighting, pruned branch dimming, and node detail panel |
@@ -40,7 +40,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown with checkpoint diffing for accurate per-agent metrics (variants added, matches played, rating changes) and timestamp-based cost attribution
 3. `getEvolutionRunEloHistoryAction` — Rating trajectories from checkpoints (reads both new `ratings` and legacy `eloRatings` snapshot formats, mapped to Elo scale via `ordinalToEloScale`)
 4. `getEvolutionRunLineageAction` — Variant parentage DAG from latest checkpoint (augmented with `treeSearchPath` for path highlighting and per-node `treeDepth`/`revisionAction`)
-5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown
+5. `getEvolutionRunBudgetAction` — Cumulative cost burn + agent breakdown + cost estimate/prediction fields
 6. `getEvolutionRunComparisonAction` — Original vs winner text, Elo delta, `generationDepth` (max variant version in pool)
 7. `getEvolutionRunStepScoresAction` — Per-variant step scores for outline variants (returns `VariantStepData[]` with step names, scores, costs, and weakest step)
 8. `getEvolutionRunTreeSearchAction` — Tree search state: full tree nodes with depth/pruning/actions for the Tree tab
@@ -76,6 +76,25 @@ The Timeline tab shows all agents that executed in each iteration.
 **Data computation**: Uses sequential checkpoint diffing within each iteration to compute accurate per-agent metrics. The first agent in an iteration diffs against the previous iteration's final checkpoint.
 
 **Cost attribution**: Uses timestamp correlation between LLM calls and checkpoint boundaries. May be imprecise for concurrent runs (logged warning).
+
+**Expandable detail**: Click any agent row to see full metrics including new variant IDs, Elo changes, and error messages.
+
+### Budget Tab - Estimated vs Actual
+
+When a completed run has `cost_estimate_detail` and `cost_prediction`, the Budget tab shows an "Estimated vs Actual" comparison panel:
+- Summary delta badge (color-coded: ≤10% green, ≤30% amber, >30% red)
+- Per-agent comparison bars (estimated outline vs actual solid, with dollar amounts)
+- Confidence badge from the pre-run estimate
+
+The runs table also displays an "Est." column showing `estimated_cost_usd` with the same color-coding scheme applied to completed runs by comparing estimate accuracy.
+
+### Cost Analytics Actions (`src/lib/services/costAnalyticsActions.ts`)
+
+Separate from visualization actions, this file provides system-wide cost accuracy analytics:
+- `getStrategyAccuracyAction()` — Per-strategy avg delta %, std dev, run count
+- `getCostAccuracyOverviewAction()` — Delta trend, per-agent accuracy, confidence calibration, outliers
+
+These power the strategy detail row accuracy display and the Cost Accuracy tab on the optimization dashboard.
 
 ### Step Score Visualization
 

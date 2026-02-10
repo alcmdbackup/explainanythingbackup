@@ -20,13 +20,15 @@ import { StrategyParetoChart } from './_components/StrategyParetoChart';
 import { AgentROILeaderboard } from './_components/AgentROILeaderboard';
 import { CostSummaryCards } from './_components/CostSummaryCards';
 import { CostBreakdownPie } from './_components/CostBreakdownPie';
+import { CostAccuracyPanel } from './_components/CostAccuracyPanel';
 
-type TabId = 'strategy' | 'agent' | 'cost';
+type TabId = 'strategy' | 'agent' | 'cost' | 'accuracy';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'strategy', label: 'Strategy Analysis' },
   { id: 'agent', label: 'Agent Analysis' },
   { id: 'cost', label: 'Cost Analysis' },
+  { id: 'accuracy', label: 'Cost Accuracy' },
 ];
 
 interface OptimizationSummary {
@@ -179,6 +181,11 @@ export default function OptimizationDashboardPage() {
             <AgentROILeaderboard agents={agents} loading={loading} />
           </div>
         </div>
+      )}
+
+      {/* Cost Accuracy Tab */}
+      {activeTab === 'accuracy' && (
+        <CostAccuracyPanel />
       )}
     </div>
   );

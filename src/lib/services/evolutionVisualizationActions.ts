@@ -111,6 +111,22 @@ export interface BudgetData {
     cumulativeCost: number;
     budgetCap: number;
   }[];
+  /** Pre-run cost estimate (null if no estimate was stored at queue time) */
+  estimate: {
+    totalUsd: number;
+    perAgent: Record<string, number>;
+    perIteration: number;
+    confidence: 'high' | 'medium' | 'low';
+  } | null;
+  /** Estimated vs actual comparison (null if no prediction was computed) */
+  prediction: {
+    estimatedUsd: number;
+    actualUsd: number;
+    deltaUsd: number;
+    deltaPercent: number;
+    confidence: 'high' | 'medium' | 'low';
+    perAgent: Record<string, { estimated: number; actual: number }>;
+  } | null;
 }
 
 export interface TreeSearchData {
@@ -649,10 +665,10 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Get run time window and budget
+    // Get run time window, budget, and cost estimate fields
     const { data: run, error: runError } = await supabase
       .from('content_evolution_runs')
-      .select('started_at, completed_at, budget_cap_usd')
+      .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction')
       .eq('id', runId)
       .single();
 
@@ -699,7 +715,10 @@ const _getEvolutionRunBudgetAction = withLogging(async (
       };
     });
 
-    return { success: true, data: { agentBreakdown, cumulativeBurn }, error: null };
+    const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
+    const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
+
+    return { success: true, data: { agentBreakdown, cumulativeBurn, estimate, prediction }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunBudgetAction', { runId }) };
   }

@@ -2,7 +2,9 @@
 
 import {
   getEvolutionRunTimelineAction,
+  getEvolutionRunBudgetAction,
   type TimelineData,
+  type BudgetData,
 } from './evolutionVisualizationActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -409,5 +411,97 @@ describe('getEvolutionRunTimelineAction', () => {
 
     expect(result.success).toBe(true);
     expect(result.data!.iterations).toHaveLength(0);
+  });
+});
+
+describe('getEvolutionRunBudgetAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns estimate and prediction when present on run row', async () => {
+    const mock = createChainMock();
+    const mockEstimate = {
+      totalUsd: 1.50,
+      perAgent: { generation: 0.8, calibration: 0.4, evolution: 0.3 },
+      perIteration: 0.5,
+      confidence: 'high' as const,
+    };
+    const mockPrediction = {
+      estimatedUsd: 1.50,
+      actualUsd: 1.35,
+      deltaUsd: -0.15,
+      deltaPercent: -10,
+      confidence: 'high' as const,
+      perAgent: {
+        generation: { estimated: 0.8, actual: 0.7 },
+        calibration: { estimated: 0.4, actual: 0.35 },
+        evolution: { estimated: 0.3, actual: 0.3 },
+      },
+    };
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: '2026-01-01T01:00:00Z',
+        budget_cap_usd: 5,
+        cost_estimate_detail: mockEstimate,
+        cost_prediction: mockPrediction,
+      },
+      error: null,
+    });
+
+    // Terminal for LLM calls query (lte)
+    mock.lte.mockResolvedValue({
+      data: [
+        { call_source: 'evolution_generation', estimated_cost_usd: 0.7, created_at: '2026-01-01T00:01:00Z' },
+        { call_source: 'evolution_calibration', estimated_cost_usd: 0.35, created_at: '2026-01-01T00:02:00Z' },
+      ],
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.estimate).toEqual(mockEstimate);
+    expect(result.data!.prediction).toEqual(mockPrediction);
+    expect(result.data!.agentBreakdown).toHaveLength(2);
+    expect(result.data!.cumulativeBurn).toHaveLength(2);
+  });
+
+  it('returns null estimate and prediction when not present', async () => {
+    const mock = createChainMock();
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: '2026-01-01T01:00:00Z',
+        budget_cap_usd: 5,
+        cost_estimate_detail: null,
+        cost_prediction: null,
+      },
+      error: null,
+    });
+
+    mock.lte.mockResolvedValue({ data: [], error: null });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.estimate).toBeNull();
+    expect(result.data!.prediction).toBeNull();
+    expect(result.data!.agentBreakdown).toHaveLength(0);
+    expect(result.data!.cumulativeBurn).toHaveLength(0);
+  });
+
+  it('rejects invalid run ID', async () => {
+    const result = await getEvolutionRunBudgetAction('not-a-uuid');
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid run ID');
   });
 });

@@ -51,6 +51,8 @@ export { PipelineStateImpl, serializeState, deserializeState } from './core/stat
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
 export { createCostTracker } from './core/costTracker';
+export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
+export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
 export { ComparisonCache } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
 export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './comparison';

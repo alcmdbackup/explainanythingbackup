@@ -677,6 +677,80 @@ describe('finalizePipelineRun', () => {
       finalizePipelineRun('run-fin-fail', ctx, logger, 'completed', 10.0, undefined),
     ).resolves.toBeUndefined();
   });
+
+  it('computes cost_prediction when cost_estimate_detail exists on run row', async () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state, 'run-cost');
+    const ctx = makeCtx(state, 'run-cost');
+    const costTracker = ctx.costTracker;
+    // Record some spend to verify actual costs are used
+    costTracker.recordSpend('generation', 0.50);
+    costTracker.recordSpend('calibration', 0.30);
+
+    const logger = makeMockLogger();
+
+    // Make Supabase return cost_estimate_detail on the query after persistAgentMetrics
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // The select().eq().single() chain for cost_estimate_detail
+    let selectCallCount = 0;
+    (supabase.single as jest.Mock).mockImplementation(() => {
+      selectCallCount++;
+      // The cost_estimate_detail query happens after run_summary, variants, agent_metrics
+      // It's the single() call that selects 'cost_estimate_detail'
+      return Promise.resolve({
+        data: {
+          cost_estimate_detail: {
+            totalUsd: 1.00,
+            perAgent: { generation: 0.60, calibration: 0.40 },
+            perIteration: 0.10,
+            confidence: 'medium',
+          },
+        },
+        error: null,
+      });
+    });
+
+    await finalizePipelineRun('run-cost', ctx, logger, 'completed', 30.0, undefined);
+
+    // Verify update was called with cost_prediction
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const costPredictionUpdate = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg && typeof arg === 'object' && 'cost_prediction' in arg;
+      },
+    );
+    expect(costPredictionUpdate).toBeDefined();
+    const prediction = costPredictionUpdate[0].cost_prediction;
+    expect(prediction.estimatedUsd).toBe(1.00);
+    expect(prediction.actualUsd).toBeGreaterThan(0);
+    expect(typeof prediction.deltaPercent).toBe('number');
+  });
+
+  it('skips cost_prediction when no estimate exists (no error)', async () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state, 'run-no-est');
+    const ctx = makeCtx(state, 'run-no-est');
+    const logger = makeMockLogger();
+
+    // Default mock returns { data: null, error: null } for single()
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { cost_estimate_detail: null }, error: null });
+
+    await finalizePipelineRun('run-no-est', ctx, logger, 'completed', 30.0, undefined);
+
+    // Should not log any warnings about cost prediction
+    const warnCalls = (logger.warn as jest.Mock).mock.calls;
+    const costPredWarn = warnCalls.find(
+      (call: unknown[]) => typeof call[0] === 'string' && call[0].includes('cost_prediction'),
+    );
+    expect(costPredWarn).toBeUndefined();
+  });
 });
 
 // ─── createDefaultAgents factory tests ───────────────────────────

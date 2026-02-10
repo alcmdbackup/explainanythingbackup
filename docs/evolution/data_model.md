@@ -53,6 +53,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 ```
 Prompt + Strategy → queueEvolutionRunAction → Run
+  ├─ estimateRunCostWithAgentModels → estimated_cost_usd + cost_estimate_detail (best-effort)
   → executeMinimalPipeline / executeFullPipeline (sets pipeline_type)
   → agents execute (generation → calibration → tournament → ...)
   → finalizePipelineRun:
@@ -60,6 +61,8 @@ Prompt + Strategy → queueEvolutionRunAction → Run
       2. linkStrategyConfig (auto-create or aggregate update)
       3. autoLinkPrompt (config JSONB → Hall of Fame entry → explanation title)
       4. feedHallOfFame (top 3 → hall_of_fame_entries with rank)
+      5. computeCostPrediction → cost_prediction (if estimate exists)
+      6. refreshAgentCostBaselines (fire-and-forget)
 ```
 
 ## Strategy System

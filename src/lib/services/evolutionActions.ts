@@ -21,6 +21,7 @@ export interface EvolutionRun {
   phase: PipelinePhase;
   total_variants: number;
   total_cost_usd: number;
+  estimated_cost_usd: number | null;
   budget_cap_usd: number;
   current_iteration: number;
   variants_generated: number;
@@ -61,6 +62,80 @@ export interface ContentHistoryRow {
   applied_at: string;
 }
 
+// ─── Estimate run cost ──────────────────────────────────────────
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export interface CostEstimateResult {
+  totalUsd: number;
+  perAgent: Record<string, number>;
+  perIteration: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
+const _estimateRunCostAction = withLogging(async (
+  input: { strategyId: string; budgetCapUsd?: number; textLength?: number }
+): Promise<{ success: boolean; data: CostEstimateResult | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+
+    // Input validation
+    if (!UUID_RE.test(input.strategyId)) {
+      throw new Error('Invalid strategyId: must be a valid UUID');
+    }
+    if (input.budgetCapUsd !== undefined) {
+      if (typeof input.budgetCapUsd !== 'number' || !isFinite(input.budgetCapUsd) ||
+          input.budgetCapUsd < 0.01 || input.budgetCapUsd > 100) {
+        throw new Error('budgetCapUsd must be a number between 0.01 and 100');
+      }
+    }
+    let textLength = input.textLength ?? 5000;
+    if (typeof textLength !== 'number' || !isFinite(textLength) || textLength < 100) {
+      textLength = 5000; // fallback to default
+    }
+    textLength = Math.min(textLength, 100000);
+
+    const supabase = await createSupabaseServiceClient();
+
+    // Fetch strategy config
+    const { data: strategy, error: stratError } = await supabase
+      .from('strategy_configs')
+      .select('config')
+      .eq('id', input.strategyId)
+      .single();
+
+    if (stratError || !strategy) {
+      throw new Error(`Strategy not found: ${input.strategyId}`);
+    }
+
+    const config = strategy.config as {
+      generationModel?: string;
+      judgeModel?: string;
+      iterations?: number;
+      agentModels?: Record<string, string>;
+    };
+
+    // Dynamic import to avoid loading heavy evolution code at module level
+    const { estimateRunCostWithAgentModels } = await import('@/lib/evolution');
+
+    const estimate = await estimateRunCostWithAgentModels(
+      {
+        generationModel: config.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+        judgeModel: config.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+        maxIterations: config.iterations,
+        agentModels: config.agentModels as Record<string, import('@/lib/schemas/schemas').AllowedLLMModelType> | undefined,
+      },
+      textLength,
+    );
+
+    return { success: true, data: estimate, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'estimateRunCostAction', { input }) };
+  }
+}, 'estimateRunCostAction');
+
+export const estimateRunCostAction = serverReadRequestId(_estimateRunCostAction);
+
 // ─── Queue a new evolution run ───────────────────────────────────
 
 const _queueEvolutionRunAction = withLogging(async (
@@ -88,6 +163,8 @@ const _queueEvolutionRunAction = withLogging(async (
 
     // Validate strategy reference and resolve budget cap if provided
     let budgetCap = input.budgetCapUsd ?? 5.00;
+    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number };
+    let strategyConfig: QueueStrategyConfig | null = null;
     if (input.strategyId) {
       const { data: strategy } = await supabase
         .from('strategy_configs')
@@ -95,10 +172,10 @@ const _queueEvolutionRunAction = withLogging(async (
         .eq('id', input.strategyId)
         .single();
       if (!strategy) throw new Error(`Strategy not found: ${input.strategyId}`);
+      strategyConfig = strategy.config as QueueStrategyConfig;
       // Use strategy's budget cap if no explicit override
       if (!input.budgetCapUsd) {
-        const config = strategy.config as { budgetCapUsd?: number };
-        budgetCap = config.budgetCapUsd ?? 5.00;
+        budgetCap = strategyConfig?.budgetCapUsd ?? 5.00;
       }
     }
 
@@ -107,8 +184,43 @@ const _queueEvolutionRunAction = withLogging(async (
       throw new Error('Either explanationId or promptId is required');
     }
 
+    // Compute cost estimate (best-effort — queue succeeds even if estimation fails)
+    let estimatedCostUsd: number | null = null;
+    let costEstimateDetail: Record<string, unknown> | null = null;
+    if (strategyConfig) {
+      try {
+        const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@/lib/evolution');
+        const est = await estimateRunCostWithAgentModels(
+          {
+            generationModel: strategyConfig.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+            judgeModel: strategyConfig.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+            maxIterations: strategyConfig.iterations,
+            agentModels: strategyConfig.agentModels as Record<string, import('@/lib/schemas/schemas').AllowedLLMModelType> | undefined,
+          },
+          5000,
+        );
+        const parsed = RunCostEstimateSchema.safeParse(est);
+        if (parsed.success) {
+          estimatedCostUsd = parsed.data.totalUsd;
+          costEstimateDetail = parsed.data as unknown as Record<string, unknown>;
+        } else {
+          logger.warn('Cost estimate failed Zod validation (non-blocking)', {
+            strategyId: input.strategyId,
+            errors: parsed.error.issues.map(i => i.message),
+          });
+        }
+      } catch (err) {
+        logger.warn('Cost estimation failed at queue time (non-blocking)', {
+          strategyId: input.strategyId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
+      estimated_cost_usd: estimatedCostUsd,
+      cost_estimate_detail: costEstimateDetail,
     };
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;
