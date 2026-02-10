@@ -1,4 +1,8 @@
-# Comparison Infrastructure
+# Hall of Fame
+
+Persistent cross-method comparison system using Elo K-32 ratings, prompt bank, and bias-mitigated pairwise comparisons to rank articles across generation methods.
+
+**Note:** This doc covers the **cross-run** Elo rating system. For the **within-run** OpenSkill rating system, see [Rating & Comparison](./rating_and_comparison.md).
 
 ## Overview
 
@@ -17,7 +21,7 @@ A persistent store organized by **topics** (unique prompts). Each topic contains
 
 ### Bias-Mitigated Comparison
 
-Every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A) to mitigate position bias. The standalone `compareWithBiasMitigation()` function (extracted from the evolution pipeline's CalibrationRanker) uses order-invariant SHA-256 cache keys for deduplication. Results include a confidence score (1.0 = both rounds agree, 0.5 = disagreement treated as low-confidence draw).
+Every pairwise comparison runs twice with reversed presentation order (A-vs-B, then B-vs-A) to mitigate position bias. The standalone `compareWithBiasMitigation()` function (extracted from the evolution pipeline's CalibrationRanker) uses order-invariant SHA-256 cache keys for deduplication. Results include a confidence score (1.0 = both rounds agree, 0.5 = disagreement treated as low-confidence draw). See [Rating & Comparison](./rating_and_comparison.md) for the full comparison method details.
 
 ### Elo Rating System
 
@@ -34,7 +38,7 @@ Articles can be generated using OpenAI (gpt-4.1, gpt-4.1-mini, gpt-4o, gpt-5-min
 
 ### Database Schema
 
-Four tables (migration `20260201000001_article_bank.sql, renamed via 20260208000002_rename_article_bank_to_hall_of_fame.sql`):
+Four tables (migration `20260201000001_article_bank.sql, renamed via 20260208000002_rename_article_bank_to_hall_of_fame.sql`). See [Reference — Database Schema](./reference.md#database-schema) for the full table listing.
 
 | Table | Purpose |
 |-------|---------|
@@ -45,7 +49,7 @@ Four tables (migration `20260201000001_article_bank.sql, renamed via 20260208000
 
 ### Server Actions
 
-All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `serverReadRequestId` pattern. Mutation actions (`addToHallOfFameAction`, `generateAndAddToHallOfFameAction`, `runHallOfFameComparisonAction`) additionally validate inputs with Zod schemas (`addToHallOfFameInputSchema`, `generateAndAddToHallOfFameInputSchema`, `runHallOfFameComparisonInputSchema` from `schemas.ts`) before processing:
+All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `serverReadRequestId` pattern. Mutation actions additionally validate inputs with Zod schemas before processing:
 
 | Action | Purpose |
 |--------|---------|
@@ -61,7 +65,7 @@ All actions follow the `ActionResult<T>` + `requireAdmin()` + `withLogging` + `s
 | `getHallOfFameMatchHistoryAction` | All comparisons for a topic |
 | `deleteHallOfFameEntryAction` | Soft-delete entry + cascade comparisons/Elo |
 | `deleteHallOfFameTopicAction` | Soft-delete topic + cascade entries/comparisons/Elo |
-| `getPromptBankCoverageAction` | Coverage matrix: prompts × methods with exists/elo/matchCount per cell |
+| `getPromptBankCoverageAction` | Coverage matrix: prompts x methods with exists/elo/matchCount per cell |
 | `getPromptBankMethodSummaryAction` | Per-method aggregated stats: avg Elo, cost, elo/$, win rate |
 
 ### CLI Scripts
@@ -82,9 +86,9 @@ Two pages under `/admin/quality/hall-of-fame/`:
 
 **Topic List Page** (`page.tsx`):
 - Cross-topic cost efficiency summary cards (per generation method)
-- **Prompt Bank section**: coverage grid (prompts × methods) with color-coded status (green check = compared, yellow dot = exists but uncompared, grey = missing), sortable method summary table with gold highlighting for best values, "Run All Comparisons" button with sequential per-topic progress
+- **Prompt Bank section**: coverage grid (prompts x methods) with color-coded status (green check = compared, yellow dot = exists but uncompared, grey = missing), sortable method summary table with gold highlighting for best values, "Run All Comparisons" button with sequential per-topic progress
 - Topics table with entry counts, Elo ranges, costs, best method badges
-- "Generate New Article" button with topic picker dropdown (select existing topic or create new), model selector, generates via LLM, adds to bank
+- "Generate New Article" button with topic picker dropdown, model selector
 - "New Topic" button for empty topic creation
 
 **Topic Detail Page** (`[topicId]/page.tsx`):
@@ -101,51 +105,6 @@ Two pages under `/admin/quality/hall-of-fame/`:
 - "Add to Hall of Fame" button on completed run pages
 - Dialog with prompt input, baseline checkbox, winner preview
 - Success toast with link to navigate to the bank topic
-
-## Key Files
-
-### Config & Types
-| File | Purpose |
-|------|---------|
-| `src/config/promptBankConfig.ts` | Prompt bank config: 5 prompts × 4 methods, comparison settings |
-| `src/config/promptBankConfig.test.ts` | 14 tests validating config correctness |
-
-### Server Actions & Types
-| File | Purpose |
-|------|---------|
-| `src/lib/services/hallOfFameActions.ts` | 14 server actions for bank CRUD, comparison, aggregation, prompt bank coverage |
-| `src/lib/services/hallOfFameActions.test.ts` | 31 unit tests with table-aware Supabase mock (includes retry, cost accumulation, and coverage tests) |
-
-### Standalone Comparison
-| File | Purpose |
-|------|---------|
-| `src/lib/evolution/comparison.ts` | Extracted `compareWithBiasMitigation`, `buildComparisonPrompt`, `parseWinner` |
-| `src/lib/evolution/comparison.test.ts` | 23 tests for comparison logic |
-
-### CLI
-| File | Purpose |
-|------|---------|
-| `scripts/generate-article.ts` | Article generation with `--bank` flag (uses shared oneshotGenerator) |
-| `scripts/run-hall-of-fame-comparison.ts` | Pairwise comparison runner |
-| `scripts/add-to-hall-of-fame.ts` | Add evolution run winner to Hall of Fame |
-| `scripts/run-prompt-bank.ts` | Batch generation: reads config, builds coverage matrix, generates missing entries |
-| `scripts/run-prompt-bank-comparisons.ts` | Batch comparison: all-pairs Elo across prompt bank topics |
-| `scripts/lib/oneshotGenerator.ts` | Shared LLM generation (callLLM, trackLLMCall, generateOneshotArticle) |
-| `scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic for CLI scripts |
-
-### UI
-| File | Purpose |
-|------|---------|
-| `src/app/admin/quality/hall-of-fame/page.tsx` | Topic list page |
-| `src/app/admin/quality/hall-of-fame/[topicId]/page.tsx` | Topic detail page with 4-tab layout |
-| `src/app/admin/quality/evolution/run/[runId]/page.tsx` | Extended with "Add to Hall of Fame" button |
-| `src/components/admin/EvolutionSidebar.tsx` | "Hall of Fame" nav item (moved from AdminSidebar to EvolutionSidebar) |
-
-### Database
-| File | Purpose |
-|------|---------|
-| `supabase/migrations/20260201000001_article_bank.sql, renamed via 20260208000002_rename_article_bank_to_hall_of_fame.sql` | 4 tables with indexes and constraints |
-| `supabase/migrations/20260201000002_backfill_variants_generated.sql` | Backfill `variants_generated` from `total_variants` for existing completed evolution runs |
 
 ## Data Flow
 
@@ -183,31 +142,15 @@ Admin clicks "Run Comparison" on topic detail (dialog shows estimated pair count
     → Persist updated Elo ratings to DB
 ```
 
-## Testing
-
-| File | Type | Tests |
-|------|------|-------|
-| `src/config/promptBankConfig.test.ts` | Unit | 14 — config validation, prompt/method counts, label uniqueness |
-| `src/lib/services/hallOfFameActions.test.ts` | Unit | 31 — CRUD, Elo updates, aggregation, soft-delete cascade, retry on race, cost accumulation, prompt bank coverage |
-| `src/lib/evolution/comparison.test.ts` | Unit | 23 — bias mitigation, caching, prompt building, winner parsing |
-| `scripts/lib/hallOfFameUtils.test.ts` | Unit | 5 — Hall of Fame insertion, topic upsert, Elo init |
-| `scripts/lib/oneshotGenerator.test.ts` | Unit | 13 — provider routing, title parsing, cost calculation |
-| `scripts/run-hall-of-fame-comparison.test.ts` | Unit | Elo math, CLI arg parsing, comparison flow |
-| `scripts/run-prompt-bank.test.ts` | Unit | 22 — CLI parsing, coverage matrix, method filtering, cost caps |
-| `scripts/run-prompt-bank-comparisons.test.ts` | Unit | 14 — CLI parsing, prompt filtering, entry labeling, aggregation |
-| `scripts/run-evolution-local.test.ts` | Unit | 20 — checkpoint parsing, sorting, iteration adjustment, pipeline flow |
-| `src/__tests__/integration/hall-of-fame-actions.integration.test.ts` | Integration | Real Supabase: CRUD cycle, cascade deletes, concurrent upsert |
-| `src/__tests__/e2e/specs/09-admin/admin-hall-of-fame.spec.ts` | E2E | 11 Playwright tests: navigation, CRUD, diff, chart, comparison |
-
 ## Prompt Bank System
 
-The **Prompt Bank** extends the Hall of Fame with a curated set of prompts and generation methods for systematic cross-method comparison. It is configured in `src/config/promptBankConfig.ts` and uses two batch CLI scripts for generation and comparison.
+The **Prompt Bank** extends the Hall of Fame with a curated set of prompts and generation methods for systematic cross-method comparison. Configured in `src/config/promptBankConfig.ts`.
 
-### Config (`src/config/promptBankConfig.ts`)
+### Config
 - 5 prompts across difficulty tiers (easy/medium/hard) and domains (science, technology, history, philosophy, economics)
 - 5 methods: 3 oneshot (gpt-4.1-mini, gpt-4.1, deepseek-chat) + 1 minimal evolution (deepseek-chat) + 1 full evolution with tree search (deepseek-chat), both with checkpoints at 3, 5, 10 iterations
 - Evolution checkpoints expand to 3 columns in the coverage grid (e.g., `evolution_deepseek_3iter`, `_5iter`, `_10iter`)
-- Total coverage matrix: 5 prompts × 9 method slots = 45 cells
+- Total coverage matrix: 5 prompts x 9 method slots = 45 cells
 
 ### Generation Pipeline
 ```
@@ -226,12 +169,68 @@ run-prompt-bank-comparisons.ts → for each topic with ≥ min-entries:
 
 ### Admin UI
 The topic list page includes a `PromptBankCoverage` component:
-- **Coverage grid**: prompts × methods with status indicators (compared/uncompared/missing)
+- **Coverage grid**: prompts x methods with status indicators (compared/uncompared/missing)
 - **Method summary table**: sortable by avg Elo, cost, elo/$, win rate; gold highlighting for best values
 - **Run All Comparisons**: sequential per-topic execution with progress feedback
 
+## Key Files
+
+### Config & Types
+| File | Purpose |
+|------|---------|
+| `src/config/promptBankConfig.ts` | Prompt bank config: 5 prompts x 4 methods, comparison settings |
+
+### Server Actions & Types
+| File | Purpose |
+|------|---------|
+| `src/lib/services/hallOfFameActions.ts` | 14 server actions for bank CRUD, comparison, aggregation, prompt bank coverage |
+
+### CLI
+| File | Purpose |
+|------|---------|
+| `scripts/generate-article.ts` | Article generation with `--bank` flag (uses shared oneshotGenerator) |
+| `scripts/run-hall-of-fame-comparison.ts` | Pairwise comparison runner |
+| `scripts/add-to-hall-of-fame.ts` | Add evolution run winner to Hall of Fame |
+| `scripts/run-prompt-bank.ts` | Batch generation: reads config, builds coverage matrix, generates missing entries |
+| `scripts/run-prompt-bank-comparisons.ts` | Batch comparison: all-pairs Elo across prompt bank topics |
+| `scripts/lib/oneshotGenerator.ts` | Shared LLM generation (callLLM, trackLLMCall, generateOneshotArticle) |
+| `scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic for CLI scripts |
+
+### UI
+| File | Purpose |
+|------|---------|
+| `src/app/admin/quality/hall-of-fame/page.tsx` | Topic list page |
+| `src/app/admin/quality/hall-of-fame/[topicId]/page.tsx` | Topic detail page with 4-tab layout |
+| `src/app/admin/quality/evolution/run/[runId]/page.tsx` | Extended with "Add to Hall of Fame" button |
+| `src/components/admin/EvolutionSidebar.tsx` | "Hall of Fame" nav item |
+
+### Database
+| File | Purpose |
+|------|---------|
+| `supabase/migrations/20260201000001_article_bank.sql` | 4 tables with indexes and constraints (renamed via `20260208000002`) |
+| `supabase/migrations/20260201000002_backfill_variants_generated.sql` | Backfill `variants_generated` from `total_variants` |
+
+## Testing
+
+| File | Type | Tests |
+|------|------|-------|
+| `src/config/promptBankConfig.test.ts` | Unit | 14 — config validation, prompt/method counts, label uniqueness |
+| `src/lib/services/hallOfFameActions.test.ts` | Unit | 31 — CRUD, Elo updates, aggregation, soft-delete cascade, retry on race, cost accumulation, prompt bank coverage |
+| `src/lib/evolution/comparison.test.ts` | Unit | 23 — bias mitigation, caching, prompt building, winner parsing |
+| `scripts/lib/hallOfFameUtils.test.ts` | Unit | 5 — Hall of Fame insertion, topic upsert, Elo init |
+| `scripts/lib/oneshotGenerator.test.ts` | Unit | 13 — provider routing, title parsing, cost calculation |
+| `scripts/run-hall-of-fame-comparison.test.ts` | Unit | Elo math, CLI arg parsing, comparison flow |
+| `scripts/run-prompt-bank.test.ts` | Unit | 22 — CLI parsing, coverage matrix, method filtering, cost caps |
+| `scripts/run-prompt-bank-comparisons.test.ts` | Unit | 14 — CLI parsing, prompt filtering, entry labeling, aggregation |
+| `scripts/run-evolution-local.test.ts` | Unit | 20 — checkpoint parsing, sorting, iteration adjustment, pipeline flow |
+| `src/__tests__/integration/hall-of-fame-actions.integration.test.ts` | Integration | Real Supabase: CRUD cycle, cascade deletes, concurrent upsert |
+| `src/__tests__/e2e/specs/09-admin/admin-hall-of-fame.spec.ts` | E2E | 11 Playwright tests: navigation, CRUD, diff, chart, comparison |
+
 ## Related Documentation
 
-- [Evolution Pipeline](./evolution_pipeline.md) — The upstream evolution system whose winners feed into the Hall of Fame
-- [Hierarchical Decomposition Agent](./hierarchical_decomposition_agent.md) — Uses `compareWithDiff()` for section-level edit judging
-- [Testing Setup](./testing_setup.md) — Mock patterns for Supabase, LLM clients, and Jest configuration
+- [Architecture](./architecture.md) — The upstream evolution system whose winners feed into the Hall of Fame
+- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill (within-run) vs Elo (Hall of Fame) comparison
+- [Editing Agents](./agents/editing.md) — Uses `compareWithDiff()` for section-level edit judging
+- [Cost Optimization](./cost_optimization.md) — Cost tracking and Elo/$ analysis
+- [Visualization](./visualization.md) — Dashboard integration with Hall of Fame
+- [Reference](./reference.md) — Database schema, key files, testing

@@ -1,18 +1,16 @@
-# Tree of Thought Revisions
+# Tree Search Agent
 
-## Overview
+Beam search tree-of-thought revisions for the COMPETITION phase. Explores multiple revision strategies in parallel at each depth level, evaluates via comparison infrastructure, and prunes underperforming branches.
 
-The tree-of-thought revision strategy adds **beam search** to the evolution pipeline's COMPETITION phase. Instead of the IterativeEditingAgent's linear critique→edit→judge loop (one revision at a time), the TreeSearchAgent explores multiple revision strategies in parallel at each depth level, evaluates them via the existing comparison infrastructure, and prunes underperforming branches.
+Inspired by Tree-of-Thought prompting (Yao et al. 2023) adapted for prose quality improvement. Configuration: beam width K=3, branching factor B=3, max depth D=3 — generating up to 27 revision candidates per invocation, evaluating ~90 comparisons, at approximately $0.048 per run.
 
-The approach is inspired by Tree-of-Thought prompting (Yao et al. 2023) adapted for prose quality improvement. Configuration: beam width K=3, branching factor B=3, max depth D=3 — generating up to 27 revision candidates per invocation, evaluating ~90 comparisons, at approximately $0.048 per run.
+Budget cap: 10% ([details](../reference.md#budget-caps)). Feature flag: `evolution_tree_search_enabled` (default: `false`, opt-in). When enabled, IterativeEditingAgent is automatically disabled (mutually exclusive). See [Reference — Feature Flags](../reference.md#feature-flags).
 
-## How It Works
-
-### Beam Search Algorithm
+## Beam Search Algorithm
 
 At each depth level (1 to D):
 
-1. **Re-critique** each beam member (fresh dimension scores for already-modified text, depth ≥ 1)
+1. **Re-critique** each beam member (fresh dimension scores for already-modified text, depth >= 1)
 2. **Generate** B revisions per beam member using diverse action types:
    - `edit_dimension` — target weakest critique dimension
    - `structural_transform` — reorganize document structure
@@ -23,26 +21,22 @@ At each depth level (1 to D):
 4. **Stage 2 (Sibling mini-tournament)**: Adjacent-pair pairwise comparisons among survivors using local OpenSkill ratings. Select top K candidates with ancestry diversity slot.
 5. **Prune** non-selected candidates. Repeat at next depth.
 
-### Beam Collapse Mitigation
+### Root Selection
+
+Highest mu with sigma > convergence threshold — prioritizes underexplored high-potential variants over well-tested top performers.
+
+## Beam Collapse Mitigation
 
 Three mechanisms prevent beam slots from converging to similar variants:
 - **Action-type diversity**: Each sibling must use a different `RevisionActionType`
 - **Ancestry diversity slot**: Last beam position reserved for a different parent lineage
 - **Pool injection rate limiting**: Only best leaf added to shared pool (1 variant per invocation)
 
-### Error Handling
+## Error Handling
 
 - **All-rejected**: If no candidates improve on parents, beam terminates early
 - **Budget exhaustion**: Catches `BudgetExceededError` mid-beam, returns best result from completed depths
 - **LLM failures**: `Promise.allSettled` handles partial failures gracefully; beam narrows naturally
-
-## Pipeline Integration
-
-- **Phase**: COMPETITION only (after ReflectionAgent, requires critiques)
-- **Feature flag**: `evolution_tree_search_enabled` (default: `false`, opt-in)
-- **Mutual exclusivity**: When enabled, IterativeEditingAgent is automatically disabled
-- **Budget cap**: 10% of total ($0.50 at default $5.00), supports ~9 invocations
-- **Root selection**: Highest μ with σ > convergence threshold (underexplored high-potential variants)
 
 ## Visualization
 
@@ -57,7 +51,6 @@ Three mechanisms prevent beam slots from converging to similar variants:
 | `beamWidth` | 3 | Active candidates per depth (K) |
 | `branchingFactor` | 3 | Revisions per candidate (B) |
 | `maxDepth` | 3 | Maximum tree depth (D) |
-| `treeSearchEnabled` | false | Feature flag — opt-in |
 
 ## Key Files
 
@@ -84,7 +77,8 @@ Three mechanisms prevent beam slots from converging to similar variants:
 
 ## Related Documentation
 
-- [Evolution Pipeline](./evolution_pipeline.md) — Agent framework, pipeline phases, budget system
-- [Iterative Editing Agent](./iterative_editing_agent.md) — The linear editing approach that tree search extends
-- [Comparison Infrastructure](./comparison_infrastructure.md) — Article bank and prompt bank comparison system
-- [Pipeline Visualization](./evolution_pipeline_visualization.md) — Dashboard, timeline, Elo, lineage, budget tabs
+- [Architecture](../architecture.md) — Pipeline phases and COMPETITION agent sequence
+- [Rating & Comparison](../rating_and_comparison.md) — Comparison infrastructure used for evaluation stages
+- [Editing Agents](./editing.md) — The linear editing approach (mutually exclusive with tree search)
+- [Visualization](../visualization.md) — Dashboard tree tab and lineage graph
+- [Reference](../reference.md) — Feature flags, budget caps, configuration

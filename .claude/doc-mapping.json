@@ -240,39 +240,39 @@
     },
     {
       "pattern": "src/lib/services/evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/architecture.md", "docs/evolution/visualization.md", "docs/evolution/hall_of_fame.md", "docs/evolution/agents/editing.md", "docs/evolution/cost_optimization.md", "docs/evolution/reference.md"]
     },
     {
       "pattern": "src/lib/services/promptRegistryActions.ts",
-      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+      "docs": ["docs/evolution/data_model.md"]
     },
     {
       "pattern": "src/lib/services/strategyRegistryActions.ts",
-      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+      "docs": ["docs/evolution/data_model.md"]
     },
     {
       "pattern": "src/lib/services/unifiedExplorerActions.ts",
-      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+      "docs": ["docs/evolution/data_model.md"]
     },
     {
       "pattern": "scripts/backfill-prompt-ids.ts",
-      "docs": ["docs/feature_deep_dives/evolution_framework.md"]
+      "docs": ["docs/evolution/data_model.md"]
     },
     {
       "pattern": "src/lib/evolution/**",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/evolution_framework.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/iterative_editing_agent.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/architecture.md", "docs/evolution/data_model.md", "docs/evolution/hall_of_fame.md", "docs/evolution/agents/editing.md", "docs/evolution/cost_optimization.md", "docs/evolution/reference.md"]
     },
     {
       "pattern": "src/lib/services/articleBank*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/hall_of_fame.md", "docs/evolution/cost_optimization.md"]
     },
     {
       "pattern": "scripts/*bank*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/hall_of_fame.md", "docs/evolution/cost_optimization.md"]
     },
     {
       "pattern": "scripts/generate-article*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/hall_of_fame.md", "docs/evolution/cost_optimization.md"]
     },
     {
       "pattern": "src/lib/services/*recommend*.ts",
@@ -280,23 +280,23 @@
     },
     {
       "pattern": "scripts/evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/architecture.md", "docs/evolution/cost_optimization.md", "docs/evolution/reference.md"]
     },
     {
       "pattern": "scripts/run-evolution*.ts",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/architecture.md", "docs/evolution/cost_optimization.md", "docs/evolution/reference.md"]
     },
     {
       "pattern": "src/config/promptBankConfig.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/hall_of_fame.md", "docs/evolution/cost_optimization.md"]
     },
     {
       "pattern": "scripts/run-prompt-bank*.ts",
-      "docs": ["docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/hall_of_fame.md", "docs/evolution/cost_optimization.md"]
     },
     {
       "pattern": "src/components/evolution/**",
-      "docs": ["docs/feature_deep_dives/evolution_pipeline_visualization.md", "docs/feature_deep_dives/comparison_infrastructure.md", "docs/feature_deep_dives/elo_budget_optimization.md"]
+      "docs": ["docs/evolution/visualization.md", "docs/evolution/hall_of_fame.md", "docs/evolution/cost_optimization.md"]
     },
     {
       "pattern": "src/lib/services/source*.ts",
@@ -320,23 +320,55 @@
     },
     {
       "pattern": "src/lib/evolution/agents/*outline*.ts",
-      "docs": ["docs/feature_deep_dives/outline_based_generation_editing.md"]
+      "docs": ["docs/evolution/agents/generation.md"]
     },
     {
-      "pattern": "src/lib/evolution/treeOfThought*.ts",
-      "docs": ["docs/feature_deep_dives/tree_of_thought_revisions.md"]
+      "pattern": "src/lib/evolution/treeOfThought/**",
+      "docs": ["docs/evolution/agents/tree_search.md"]
     },
     {
       "pattern": "src/lib/services/decomposition*.ts",
-      "docs": ["docs/feature_deep_dives/hierarchical_decomposition_agent.md"]
+      "docs": ["docs/evolution/agents/editing.md"]
     },
     {
       "pattern": "src/lib/decomposition/**",
-      "docs": ["docs/feature_deep_dives/hierarchical_decomposition_agent.md"]
+      "docs": ["docs/evolution/agents/editing.md"]
     },
     {
       "pattern": "scripts/*decomposition*.ts",
-      "docs": ["docs/feature_deep_dives/hierarchical_decomposition_agent.md"]
+      "docs": ["docs/evolution/agents/editing.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/agents/*iterative*.ts",
+      "docs": ["docs/evolution/agents/editing.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/agents/*section*.ts",
+      "docs": ["docs/evolution/agents/editing.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/section/**",
+      "docs": ["docs/evolution/agents/editing.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/diffComparison.ts",
+      "docs": ["docs/evolution/agents/editing.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/agents/*treeSearch*.ts",
+      "docs": ["docs/evolution/agents/tree_search.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/agents/*debate*.ts",
+      "docs": ["docs/evolution/agents/support.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/agents/*reflect*.ts",
+      "docs": ["docs/evolution/agents/support.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/agents/*metaReview*.ts",
+      "docs": ["docs/evolution/agents/support.md"]
     }
   ],
   "alwaysConsider": [

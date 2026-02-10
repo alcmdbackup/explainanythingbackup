@@ -1,4 +1,6 @@
-# Evolution Framework
+# Evolution Data Model
+
+Core primitives and dimensional query system that structure the evolution pipeline around `prompt + strategy = run`.
 
 ## Overview
 
@@ -44,7 +46,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 ## Dimensional Model
 
 - **Dimensions**: prompt, strategy, pipeline type, agent
-- **Units of Analysis**: run, article, task (agent × run)
+- **Units of Analysis**: run, article, task (agent x run)
 - **Attribute Filters**: difficulty tier, domain tags, model, budget range — resolved server-side to entity IDs via parameterized queries
 
 ## Data Flow
@@ -73,3 +75,10 @@ Migration `000008` enforces `NOT NULL` on `prompt_id` and `strategy_config_id`. 
 - Aborts if any completed/failed/paused runs still have NULL FKs (backfill incomplete)
 - Aborts if any pending/claimed/running runs exist (queue not drained)
 - Apply only after running `scripts/backfill-prompt-ids.ts` and draining the queue
+
+## Related Documentation
+
+- [Architecture](./architecture.md) — Pipeline orchestration, phases, checkpoint/resume
+- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating system used for variant ranking
+- [Hall of Fame](./hall_of_fame.md) — Cross-run comparison using Elo K-32
+- [Reference](./reference.md) — Configuration, database schema, key files

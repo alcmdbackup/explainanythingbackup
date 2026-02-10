@@ -1,16 +1,16 @@
-# Elo Budget Optimization
+# Cost Optimization
 
-This feature maximizes Elo improvement per dollar spent by measuring agent effectiveness, tracking costs, and enabling systematic experimentation with model/iteration configurations.
+Cost tracking, adaptive allocation, Pareto frontier analysis, and batch experiments for maximizing Elo improvement per dollar spent.
 
 ## Overview
 
 The evolution pipeline previously used hardcoded budget allocations and lacked visibility into which configurations produce the best Elo/dollar ratio. This feature adds:
 
-1. **Cost Attribution** - Per-agent and per-variant cost tracking
-2. **Cost Estimation** - Data-driven predictions from historical LLM calls
-3. **Batch Experiments** - JSON-driven combinatorial exploration
-4. **Adaptive Allocation** - ROI-based budget shifting
-5. **Strategy Analysis** - Dashboard for Pareto-optimal configuration discovery
+1. **Cost Attribution** — Per-agent and per-variant cost tracking
+2. **Cost Estimation** — Data-driven predictions from historical LLM calls
+3. **Batch Experiments** — JSON-driven combinatorial exploration
+4. **Adaptive Allocation** — ROI-based budget shifting
+5. **Strategy Analysis** — Dashboard for Pareto-optimal configuration discovery
 
 ### The Optimization Loop
 
@@ -18,51 +18,6 @@ The evolution pipeline previously used hardcoded budget allocations and lacked v
 Measure → Instrument → Predict → Explore → Optimize → Measure...
     ↑__________________________________________|
 ```
-
-## Key Files
-
-### Core Infrastructure
-
-| File | Purpose |
-|------|---------|
-| `src/lib/evolution/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` |
-| `src/lib/evolution/core/costEstimator.ts` | Data-driven cost predictions |
-| `src/lib/evolution/core/adaptiveAllocation.ts` | ROI-based budget allocation |
-| `src/lib/evolution/core/strategyConfig.ts` | Strategy hashing and labeling |
-
-### Configuration & Execution
-
-| File | Purpose |
-|------|---------|
-| `src/config/batchRunSchema.ts` | Zod schemas for batch config |
-| `scripts/run-batch.ts` | CLI for batch experiments |
-
-### Server Actions
-
-| File | Purpose |
-|------|---------|
-| `src/lib/services/eloBudgetActions.ts` | Dashboard data queries |
-
-### Dashboard UI
-
-| File | Purpose |
-|------|---------|
-| `src/app/admin/quality/optimization/page.tsx` | Main dashboard page |
-| `_components/CostSummaryCards.tsx` | Metric summary cards |
-| `_components/StrategyLeaderboard.tsx` | Sortable strategy table |
-| `_components/StrategyParetoChart.tsx` | Cost vs Elo scatter plot |
-| `_components/StrategyConfigDisplay.tsx` | Config detail view |
-| `_components/AgentROILeaderboard.tsx` | Agent efficiency ranking |
-
-### Database Migrations
-
-| Migration | Creates |
-|-----------|---------|
-| `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` table |
-| `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
-| `20260205000003_add_agent_cost_baselines.sql` | `agent_cost_baselines` table |
-| `20260205000004_add_batch_runs.sql` | `batch_runs` table |
-| `20260205000005_add_strategy_configs.sql` | `strategy_configs` table |
 
 ## Implementation
 
@@ -94,7 +49,6 @@ async function persistAgentMetrics(
 The `costEstimator.ts` module provides data-driven predictions:
 
 ```typescript
-// Estimate cost for a run with per-agent model overrides
 const estimate = await estimateRunCostWithAgentModels({
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
@@ -151,7 +105,7 @@ JSON-based experiment definition with Cartesian product expansion:
 }
 ```
 
-Expands to: 2 prompts × 2 models × 1 judge × 3 iterations × 2 variants = **24 runs**
+Expands to: 2 prompts x 2 models x 1 judge x 3 iterations x 2 variants = **24 runs**
 
 Run with:
 ```bash
@@ -226,11 +180,7 @@ Use the batch CLI to plan experiments and estimate costs:
 npx tsx scripts/run-batch.ts --config experiments/my_experiment.json --dry-run
 ```
 
-This shows estimated costs, run order, and which runs fit within budget.
-
-**Note**: Full batch execution (with `--confirm`) currently simulates runs. Integration with the actual pipeline is planned.
-
-4. **View results** at `/admin/quality/optimization`
+3. **View results** at `/admin/quality/optimization`
 
 ### Interpreting Results
 
@@ -253,6 +203,46 @@ This shows estimated costs, run order, and which runs fit within budget.
 | `getRecommendedStrategyAction()` | Budget-aware recommendation |
 | `getOptimizationSummaryAction()` | Dashboard summary stats |
 
+## Key Files
+
+### Core Infrastructure
+| File | Purpose |
+|------|---------|
+| `src/lib/evolution/core/costTracker.ts` | Budget tracking with `getAllAgentCosts()` |
+| `src/lib/evolution/core/costEstimator.ts` | Data-driven cost predictions |
+| `src/lib/evolution/core/adaptiveAllocation.ts` | ROI-based budget allocation |
+| `src/lib/evolution/core/strategyConfig.ts` | Strategy hashing and labeling |
+
+### Configuration & Execution
+| File | Purpose |
+|------|---------|
+| `src/config/batchRunSchema.ts` | Zod schemas for batch config |
+| `scripts/run-batch.ts` | CLI for batch experiments |
+
+### Server Actions
+| File | Purpose |
+|------|---------|
+| `src/lib/services/eloBudgetActions.ts` | Dashboard data queries |
+
+### Dashboard UI
+| File | Purpose |
+|------|---------|
+| `src/app/admin/quality/optimization/page.tsx` | Main dashboard page |
+| `_components/CostSummaryCards.tsx` | Metric summary cards |
+| `_components/StrategyLeaderboard.tsx` | Sortable strategy table |
+| `_components/StrategyParetoChart.tsx` | Cost vs Elo scatter plot |
+| `_components/StrategyConfigDisplay.tsx` | Config detail view |
+| `_components/AgentROILeaderboard.tsx` | Agent efficiency ranking |
+
+### Database Migrations
+| Migration | Creates |
+|-----------|---------|
+| `20260205000001_add_evolution_run_agent_metrics.sql` | `evolution_run_agent_metrics` table |
+| `20260205000002_add_variant_cost.sql` | `cost_usd` column on variants |
+| `20260205000003_add_agent_cost_baselines.sql` | `agent_cost_baselines` table |
+| `20260205000004_add_batch_runs.sql` | `batch_runs` table |
+| `20260205000005_add_strategy_configs.sql` | `strategy_configs` table |
+
 ## Testing
 
 ```bash
@@ -271,24 +261,14 @@ npm test -- --testPathPatterns="costTracker|costEstimator|adaptiveAllocation|str
 ## Known Limitations
 
 1. **Per-agent model overrides not yet in pipeline**: The `agentModels` field is defined in the batch schema but not yet wired through the evolution pipeline. For now, use `generationModel` and `judgeModel` for all agents.
-
-2. **Secondary dashboard components partially implemented**: Remaining components:
-   - StrategyComparison (side-by-side strategy comparison)
-   - StrategyRecommender (budget-aware recommendation UI)
-   - AgentCostByModel (per-model cost breakdown)
-   - AgentBudgetOptimizer (suggested budget allocation UI)
-
-   Implemented components:
-   - StrategyDetail (full run history for a strategy) ✅
-   - CostBreakdownPie (cost distribution chart) ✅
-
+2. **Secondary dashboard components partially implemented**: Remaining: StrategyComparison, StrategyRecommender, AgentCostByModel, AgentBudgetOptimizer. Implemented: StrategyDetail, CostBreakdownPie.
 3. **Integration tests**: E2E tests for the dashboard are not yet written.
-
 4. **Strategy metrics require runs**: The strategy_configs table aggregates metrics from evolution runs. With no runs, the dashboard shows empty states.
 
 ## Related Documentation
 
-- [Evolution Pipeline](./evolution_pipeline.md) - Core evolution system
-- [Hierarchical Decomposition Agent](./hierarchical_decomposition_agent.md) - Section-level editing agent with 10% budget cap (`budgetCaps.sectionDecomposition`)
-- [Comparison Infrastructure](./comparison_infrastructure.md) - Elo ranking system
-- [Project Workflow](../docs_overall/project_workflow.md) - Development process
+- [Architecture](./architecture.md) — Core evolution pipeline
+- [Hall of Fame](./hall_of_fame.md) — Elo ranking system for cross-method comparison
+- [Rating & Comparison](./rating_and_comparison.md) — OpenSkill rating used within pipeline runs
+- [Visualization](./visualization.md) — Dashboard and visualization components
+- [Reference](./reference.md) — Budget caps, configuration, database schema
