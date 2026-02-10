@@ -344,6 +344,7 @@ FRICTION_B: Moving on abruptly.`;
         treeSearchEnabled: false,
         sectionDecompositionEnabled: true,
         flowCritiqueEnabled: true,
+        promptBasedEvolutionEnabled: true,
       },
     };
 

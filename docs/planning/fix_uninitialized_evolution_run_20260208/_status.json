@@ -1,0 +1,9 @@
+{
+  "branch": "fix/fix_uninitialized_evolution_run_20260208",
+  "created_at": "2026-02-08T12:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/feature_deep_dives/evolution_pipeline.md",
+    "docs/feature_deep_dives/evolution_framework.md"
+  ]
+}

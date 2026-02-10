@@ -21,8 +21,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 // Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
 import { calculateLLMCost } from '../src/config/llmPricing';
 import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
-import { createTitlePrompt, createExplanationPrompt } from '../src/lib/prompts';
-import { titleQuerySchema } from '../src/lib/schemas/schemas';
+// createTitlePrompt, createExplanationPrompt, titleQuerySchema moved to shared seedArticle.ts
 import { PipelineStateImpl, serializeState } from '../src/lib/evolution/core/state';
 import { createCostTracker } from '../src/lib/evolution/core/costTracker';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../src/lib/evolution/config';
@@ -541,43 +540,9 @@ function buildOutput(
 }
 
 // ─── Seed Article Generation (for --prompt mode) ─────────────────
-
-interface SeedResult {
-  title: string;
-  content: string;
-}
-
-async function generateSeedArticle(
-  prompt: string,
-  seedModel: string,
-  llmClient: EvolutionLLMClient,
-  logger: EvolutionLogger,
-): Promise<SeedResult> {
-  // Generate title
-  logger.info('Generating seed title...', { model: seedModel });
-  const titlePromptText = createTitlePrompt(prompt);
-  const titleRaw = await llmClient.complete(titlePromptText, 'seed_title');
-
-  let title: string;
-  try {
-    const parsed = titleQuerySchema.parse(JSON.parse(titleRaw));
-    title = parsed.title1;
-  } catch {
-    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
-  }
-
-  logger.info('Seed title generated', { title });
-
-  // Generate article
-  logger.info('Generating seed article...', { title });
-  const articlePrompt = createExplanationPrompt(title, []);
-  const content = await llmClient.complete(articlePrompt, 'seed_article');
-
-  const fullContent = `# ${title}\n\n${content}`;
-  logger.info('Seed article generated', { words: fullContent.split(/\s+/).length });
-
-  return { title, content: fullContent };
-}
+// Re-exported from shared module for CLI usage
+import { generateSeedArticle } from '../src/lib/evolution/core/seedArticle';
+export type { SeedResult } from '../src/lib/evolution/core/seedArticle';
 
 // ─── Main ────────────────────────────────────────────────────────
 
@@ -663,7 +628,7 @@ async function main() {
       ? llmClient
       : createDirectLLMClient(seedModel, costTracker, logger, supabase);
 
-    const seed = await generateSeedArticle(args.prompt, seedModel, seedClient, logger);
+    const seed = await generateSeedArticle(args.prompt, seedClient, logger);
     originalText = seed.content;
     title = seed.title;
   } else {

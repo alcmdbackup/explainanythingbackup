@@ -3,6 +3,7 @@
 // Displays all agents per iteration with expandable detail panels showing per-agent metrics.
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { PhaseIndicator } from '@/components/evolution';
 import {
   getEvolutionRunTimelineAction,
@@ -200,8 +201,15 @@ export function TimelineTab({ runId }: { runId: string }) {
                     maxIterations={data.iterations.length}
                   />
                 </div>
-                <div className="text-xs text-[var(--text-muted)]">
-                  {iter.agents.length} agents • +{totalVariants} variants • ${totalCost.toFixed(3)}
+                <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+                  <span>{iter.agents.length} agents • +{totalVariants} variants • ${totalCost.toFixed(3)}</span>
+                  <Link
+                    href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}`}
+                    className="text-[var(--accent-gold)] hover:underline"
+                    title={`View logs for iteration ${iter.iteration}`}
+                  >
+                    Logs
+                  </Link>
                 </div>
               </div>
 
@@ -234,6 +242,14 @@ export function TimelineTab({ runId }: { runId: string }) {
                           <span className="font-mono" data-testid={`agent-cost-${agent.name}`}>
                             ${agent.costUsd.toFixed(3)}
                           </span>
+                          <Link
+                            href={`/admin/quality/evolution/run/${runId}?tab=logs&iteration=${iter.iteration}&agent=${agent.name}`}
+                            className="text-[var(--accent-gold)] hover:underline ml-1"
+                            onClick={(e) => e.stopPropagation()}
+                            title={`View logs for ${agent.name} in iteration ${iter.iteration}`}
+                          >
+                            Logs
+                          </Link>
                           <button className="text-[var(--accent-gold)] hover:underline ml-2">
                             {isExpanded ? 'Hide' : 'Details'}
                           </button>

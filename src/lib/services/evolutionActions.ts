@@ -16,7 +16,7 @@ import { EvolutionRunSummarySchema } from '@/lib/evolution/types';
 
 export interface EvolutionRun {
   id: string;
-  explanation_id: number;
+  explanation_id: number | null;
   status: EvolutionRunStatus;
   phase: PipelinePhase;
   total_variants: number;
@@ -37,7 +37,7 @@ export interface EvolutionRun {
 export interface EvolutionVariant {
   id: string;
   run_id: string;
-  explanation_id: number;
+  explanation_id: number | null;
   variant_content: string;
   elo_score: number;
   generation: number;
@@ -217,10 +217,14 @@ const _queueEvolutionRunAction = withLogging(async (
       }
     }
 
+    // Set source column based on run type
+    const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
+
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
+      source,
     };
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;
@@ -433,7 +437,7 @@ const _triggerEvolutionRunAction = withLogging(async (
     // Verify run exists and is pending
     const { data: run, error: fetchError } = await supabase
       .from('content_evolution_runs')
-      .select('id, explanation_id, status, config, budget_cap_usd')
+      .select('id, explanation_id, prompt_id, status, config, budget_cap_usd')
       .eq('id', runId)
       .single();
 
@@ -457,15 +461,61 @@ const _triggerEvolutionRunAction = withLogging(async (
       return { success: true, error: null };
     }
 
-    // Get article content
-    const { data: explanation, error: contentError } = await supabase
-      .from('explanations')
-      .select('id, explanation_title, content')
-      .eq('id', run.explanation_id)
-      .single();
+    // Resolve content — explanation-based or prompt-based
+    let originalText: string;
+    let title: string;
+    let explanationId: number | null = run.explanation_id;
 
-    if (contentError || !explanation) {
-      throw new Error(`Explanation ${run.explanation_id} not found`);
+    if (run.explanation_id !== null) {
+      // Explanation-based run
+      const { data: explanation, error: contentError } = await supabase
+        .from('explanations')
+        .select('id, explanation_title, content')
+        .eq('id', run.explanation_id)
+        .single();
+
+      if (contentError || !explanation) {
+        throw new Error(`Explanation ${run.explanation_id} not found`);
+      }
+
+      originalText = explanation.content;
+      title = explanation.explanation_title;
+      explanationId = explanation.id;
+    } else if (run.prompt_id) {
+      // Prompt-based run — generate seed article
+      if (featureFlags.promptBasedEvolutionEnabled === false) {
+        throw new Error('Prompt-based evolution is temporarily disabled');
+      }
+
+      const { data: topic, error: topicError } = await supabase
+        .from('hall_of_fame_topics')
+        .select('prompt')
+        .eq('id', run.prompt_id)
+        .single();
+
+      if (topicError || !topic) {
+        throw new Error(`Prompt ${run.prompt_id} not found`);
+      }
+
+      const { generateSeedArticle } = await import('@/lib/evolution/core/seedArticle');
+      const { createEvolutionLLMClient } = await import('@/lib/evolution');
+      const { createCostTracker } = await import('@/lib/evolution/core/costTracker');
+      const { createEvolutionLogger } = await import('@/lib/evolution/core/logger');
+      const { resolveConfig } = await import('@/lib/evolution/config');
+
+      const seedConfig = resolveConfig(run.config ?? {});
+      const seedCostTracker = createCostTracker(seedConfig);
+      const seedLogger = createEvolutionLogger(runId);
+      const seedLlmClient = createEvolutionLLMClient('evolution-admin-seed', seedCostTracker, seedLogger);
+
+      const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
+      originalText = seed.content;
+      title = seed.title;
+      explanationId = null;
+
+      logger.info('Generated seed article from prompt', { runId, title, promptId: run.prompt_id });
+    } else {
+      throw new Error('Run has no explanation_id and no prompt_id');
     }
 
     // Dynamic import to avoid loading heavy evolution code at module level
@@ -476,9 +526,9 @@ const _triggerEvolutionRunAction = withLogging(async (
 
     const { ctx, agents } = preparePipelineRun({
       runId,
-      originalText: explanation.content,
-      title: explanation.explanation_title,
-      explanationId: explanation.id,
+      originalText,
+      title,
+      explanationId,
       configOverrides: run.config ?? {},
       llmClientId: 'evolution-admin',
     });
@@ -764,3 +814,65 @@ async function triggerPostEvolutionEval(
 
   logger.info('Post-evolution eval completed', { explanationId });
 }
+
+// ─── Run Logs ─────────────────────────────────────────────────────
+
+export interface RunLogEntry {
+  id: number;
+  created_at: string;
+  level: string;
+  agent_name: string | null;
+  iteration: number | null;
+  variant_id: string | null;
+  message: string;
+  context: Record<string, unknown> | null;
+}
+
+export interface RunLogFilters {
+  level?: string;
+  agentName?: string;
+  iteration?: number;
+  variantId?: string;
+  /** Max rows to return (default 200). */
+  limit?: number;
+  /** Offset for pagination. */
+  offset?: number;
+}
+
+const _getEvolutionRunLogsAction = withLogging(async (
+  runId: string,
+  filters?: RunLogFilters,
+): Promise<{ success: boolean; data: RunLogEntry[] | null; total: number | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    let query = supabase
+      .from('evolution_run_logs')
+      .select('id, created_at, level, agent_name, iteration, variant_id, message, context', { count: 'exact' })
+      .eq('run_id', runId)
+      .order('created_at', { ascending: true });
+
+    if (filters?.level) query = query.eq('level', filters.level);
+    if (filters?.agentName) query = query.eq('agent_name', filters.agentName);
+    if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
+    if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
+
+    const limit = filters?.limit ?? 200;
+    const offset = filters?.offset ?? 0;
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      logger.error('Error fetching run logs', { error: error.message, runId });
+      throw error;
+    }
+
+    return { success: true, data: (data as RunLogEntry[]) ?? [], total: count, error: null };
+  } catch (error) {
+    return { success: false, data: null, total: null, error: handleError(error, 'getEvolutionRunLogsAction', { runId }) };
+  }
+}, 'getEvolutionRunLogsAction');
+
+export const getEvolutionRunLogsAction = serverReadRequestId(_getEvolutionRunLogsAction);

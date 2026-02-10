@@ -1,0 +1,7 @@
+{
+  "crons": [
+    { "path": "/api/cron/evolution-runner", "schedule": "*/5 * * * *" },
+    { "path": "/api/cron/evolution-watchdog", "schedule": "*/15 * * * *" },
+    { "path": "/api/cron/content-quality-eval", "schedule": "0 */6 * * *" }
+  ]
+}

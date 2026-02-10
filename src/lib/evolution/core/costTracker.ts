@@ -25,9 +25,20 @@ export class CostTrackerImpl implements CostTracker {
     const agentSpent = (this.spentByAgent.get(agentName) ?? 0) + (this.reservedByAgent.get(agentName) ?? 0);
 
     if (agentSpent + withMargin > agentCap) {
+      console.warn('[CostTracker] Agent budget exceeded', {
+        agentName, estimatedCost, withMargin, agentCapPct, agentCap,
+        agentSpent, totalBudget: this.budgetCapUsd,
+        allAgentCosts: this.getAllAgentCosts(),
+      });
       throw new BudgetExceededError(agentName, agentSpent, agentCap);
     }
     if (this.totalSpent + this.totalReserved + withMargin > this.budgetCapUsd) {
+      console.warn('[CostTracker] Total budget exceeded', {
+        agentName, estimatedCost, withMargin,
+        totalSpent: this.totalSpent, totalReserved: this.totalReserved,
+        budgetCapUsd: this.budgetCapUsd,
+        allAgentCosts: this.getAllAgentCosts(),
+      });
       throw new BudgetExceededError('total', this.totalSpent + this.totalReserved, this.budgetCapUsd);
     }
 

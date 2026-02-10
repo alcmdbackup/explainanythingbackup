@@ -10,7 +10,7 @@ The evolution framework rearchitects the content evolution pipeline around core 
 
 - **Prompt** — A registered topic in `hall_of_fame_topics` with metadata: title (NOT NULL), difficulty tier, domain tags, status. CRUD via `promptRegistryActions.ts`.
 - **Strategy** — A predefined or auto-created config in `strategy_configs`: model choices, iterations, budget caps, agent selection. Hash-based dedup prevents duplicates. CRUD via `strategyRegistryActions.ts`.
-- **Run** — A single pipeline execution (`content_evolution_runs`). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
+- **Run** — A single pipeline execution (`content_evolution_runs`). Two types: explanation-based (`explanation_id` set) or prompt-based (`explanation_id` NULL, `prompt_id` set — cron runner generates seed article). Links to prompt via `prompt_id` FK and strategy via `strategy_config_id` FK. Tracks `pipeline_type` and cost.
 - **Article** — A generated text variant in `content_evolution_variants`. Rated via OpenSkill (mu/sigma). Top 3 per run ranked in hall of fame.
 - **Agent** — A pipeline component (generation, calibration, tournament, evolution, etc.) with per-agent cost tracking in `evolution_run_agent_metrics`.
 - **Pipeline Type** — `'full'` | `'minimal'` | `'batch'`. Auto-set at pipeline start.
@@ -22,7 +22,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - `src/lib/services/promptRegistryActions.ts` — Prompt CRUD (get, create, update, archive, delete, resolveByText)
 - `src/lib/services/strategyRegistryActions.ts` — Strategy CRUD (get, detail, create, update, clone, archive, delete, presets)
 - `src/lib/services/unifiedExplorerActions.ts` — Explorer views (table, matrix, trend, article detail)
-- `src/lib/services/evolutionActions.ts` — Run trigger with prompt/strategy validation
+- `src/lib/services/evolutionActions.ts` — Run trigger with prompt/strategy validation. Inline trigger rejects prompt-based runs (null explanation_id).
+- `src/lib/evolution/core/seedArticle.ts` — Shared seed article generator for prompt-based runs (used by cron runner and CLI)
 
 ### Pipeline Core
 - `src/lib/evolution/core/pipeline.ts` — `autoLinkPrompt()`, `feedHallOfFame()`, `linkStrategyConfig()`, pipeline type tracking

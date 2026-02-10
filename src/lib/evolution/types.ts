@@ -109,7 +109,7 @@ export interface Match {
 export interface AgentPayload {
   originalText: string;
   title: string;
-  explanationId: number;
+  explanationId: number | null;
   runId: string;
   config: EvolutionRunConfig;
 }
@@ -214,6 +214,8 @@ export interface EvolutionLogger {
   warn(message: string, context?: Record<string, unknown>): void;
   error(message: string, context?: Record<string, unknown>): void;
   debug(message: string, context?: Record<string, unknown>): void;
+  /** Flush buffered DB log entries. No-op if DB logging is not enabled. */
+  flush?(): Promise<void>;
 }
 
 // ─── Cost tracker interface (Decision 6) ─────────────────────────

@@ -65,17 +65,20 @@ export async function evolutionTablesExist(supabase: SupabaseClient): Promise<bo
 export async function cleanupEvolutionData(
   supabase: SupabaseClient,
   explanationIds: number[],
+  extraRunIds?: string[],
 ): Promise<void> {
-  if (explanationIds.length === 0) return;
+  if (explanationIds.length === 0 && (!extraRunIds || extraRunIds.length === 0)) return;
 
   try {
     // Get run IDs for these explanations
-    const { data: runs } = await supabase
-      .from('content_evolution_runs')
-      .select('id')
-      .in('explanation_id', explanationIds);
-
-    const runIds = (runs ?? []).map((r) => r.id);
+    const runIds: string[] = [...(extraRunIds ?? [])];
+    if (explanationIds.length > 0) {
+      const { data: runs } = await supabase
+        .from('content_evolution_runs')
+        .select('id')
+        .in('explanation_id', explanationIds);
+      runIds.push(...(runs ?? []).map((r) => r.id));
+    }
 
     if (runIds.length > 0) {
       // Delete in FK-safe order: children first
@@ -84,8 +87,10 @@ export async function cleanupEvolutionData(
     }
 
     // Delete quality scores and history by explanation
-    await supabase.from('content_quality_scores').delete().in('explanation_id', explanationIds);
-    await supabase.from('content_history').delete().in('explanation_id', explanationIds);
+    if (explanationIds.length > 0) {
+      await supabase.from('content_quality_scores').delete().in('explanation_id', explanationIds);
+      await supabase.from('content_history').delete().in('explanation_id', explanationIds);
+    }
 
     // Delete runs last (parent of variants/checkpoints)
     if (runIds.length > 0) {
@@ -104,7 +109,7 @@ export async function cleanupEvolutionData(
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
-  explanationId: number,
+  explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const row = {
@@ -130,7 +135,7 @@ export async function createTestEvolutionRun(
 export async function createTestVariant(
   supabase: SupabaseClient,
   runId: string,
-  explanationId: number,
+  explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const row = {

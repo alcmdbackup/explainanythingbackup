@@ -207,4 +207,22 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
 
     expect(result.success).toBe(true);
   });
+
+  it('succeeds with promptId only (no explanationId) for prompt-based runs', async () => {
+    // Prompt validation
+    queueResult('hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
+    // Insert → returns run with null explanation_id and source set
+    queueResult('content_evolution_runs', {
+      data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1' },
+      error: null,
+    });
+
+    const result = await queueEvolutionRunAction({
+      promptId: 'prompt-1',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data?.explanation_id).toBeNull();
+    expect(result.data?.prompt_id).toBe('prompt-1');
+  });
 });

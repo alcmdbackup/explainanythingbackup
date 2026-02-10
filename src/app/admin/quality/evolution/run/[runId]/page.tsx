@@ -3,7 +3,7 @@
 // Each tab is a separate component that lazily loads its own data on selection.
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionStatusBadge, PhaseIndicator } from '@/components/evolution';
@@ -15,8 +15,9 @@ import { EloTab } from '@/components/evolution/tabs/EloTab';
 import { LineageTab } from '@/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@/components/evolution/tabs/VariantsTab';
 import { TreeTab } from '@/components/evolution/tabs/TreeTab';
+import { LogsTab } from '@/components/evolution/tabs/LogsTab';
 
-type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants' | 'tree';
+type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants' | 'tree' | 'logs';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
@@ -25,6 +26,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'tree', label: 'Tree' },
   { id: 'budget', label: 'Budget' },
   { id: 'variants', label: 'Variants' },
+  { id: 'logs', label: 'Logs' },
 ];
 
 // ─── Add to Hall of Fame dialog ──────────────────────────────
@@ -162,9 +164,17 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
 export default function EvolutionRunDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const runId = params.runId as string;
   const [run, setRun] = useState<EvolutionRun | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>('timeline');
+
+  // URL params for cross-linking: ?tab=logs&agent=pairwise&iteration=2&variant=abc
+  const tabParam = searchParams.get('tab') as TabId | null;
+  const agentParam = searchParams.get('agent') ?? undefined;
+  const iterationParam = searchParams.get('iteration');
+  const variantParam = searchParams.get('variant') ?? undefined;
+
+  const [activeTab, setActiveTab] = useState<TabId>(tabParam ?? 'timeline');
   const [loading, setLoading] = useState(true);
   const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
 
@@ -283,6 +293,15 @@ export default function EvolutionRunDetailPage() {
         {activeTab === 'budget' && <BudgetTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
         {activeTab === 'tree' && <TreeTab runId={runId} />}
+        {activeTab === 'logs' && (
+          <LogsTab
+            runId={runId}
+            runStatus={run?.status}
+            initialAgent={agentParam}
+            initialIteration={iterationParam ? Number(iterationParam) : undefined}
+            initialVariant={variantParam}
+          />
+        )}
       </div>
 
       {/* Add to Hall of Fame dialog */}

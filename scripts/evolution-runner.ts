@@ -37,7 +37,7 @@ function log(level: string, message: string, ctx: Record<string, unknown> = {}) 
 
 interface ClaimedRun {
   id: string;
-  explanation_id: number;
+  explanation_id: number | null;
   config: Record<string, unknown>;
   budget_cap_usd: number;
 }
@@ -151,6 +151,13 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     return;
   }
 
+  // Batch runner does not support prompt-based runs (no explanation_id)
+  if (run.explanation_id === null) {
+    log('warn', 'Skipping run with null explanation_id (batch runner does not support prompt-based runs)', { runId: run.id });
+    await markRunFailed(run.id, 'Batch runner does not support prompt-based runs (null explanation_id). Use the cron runner instead.');
+    return;
+  }
+
   // Dynamic import to avoid loading heavy deps during dry-run
   const {
     executeFullPipeline,
@@ -185,8 +192,24 @@ async function executeRun(run: ClaimedRun): Promise<void> {
   } catch (error) {
     const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
     log('error', 'Run failed', { runId: run.id, error: String(error), duration_seconds: durationSeconds });
+    await markRunFailed(run.id, String(error));
   } finally {
     clearInterval(heartbeat);
+  }
+}
+
+// ─── Mark run failed ─────────────────────────────────────────────
+
+async function markRunFailed(runId: string, errorMessage: string): Promise<void> {
+  try {
+    const supabase = getSupabase();
+    await supabase.from('content_evolution_runs').update({
+      status: 'failed',
+      error_message: errorMessage.slice(0, 2000),
+      runner_id: null,
+    }).eq('id', runId);
+  } catch (err) {
+    log('error', 'Failed to mark run as failed', { runId, error: String(err) });
   }
 }
 

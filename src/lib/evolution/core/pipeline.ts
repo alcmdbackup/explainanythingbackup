@@ -461,6 +461,9 @@ export async function finalizePipelineRun(
 
   // Feed top 3 variants into Hall of Fame
   await feedHallOfFame(runId, ctx, logger);
+
+  // Flush any remaining buffered log entries to DB
+  if (logger.flush) await logger.flush();
 }
 
 /** Auto-link run to prompt by resolving from config or explanation title. Non-fatal on failure. */
@@ -734,11 +737,13 @@ export async function executeMinimalPipeline(
       if (error instanceof BudgetExceededError) {
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
         await markRunPaused(runId, error);
+        if (logger.flush) await logger.flush().catch(() => {});
         return;
       }
 
       logger.error('Agent failed', { agent: agent.name, error: String(error) });
       await markRunFailed(runId, agent.name, error);
+      if (logger.flush) await logger.flush().catch(() => {});
       throw error;
     }
   }
@@ -1015,6 +1020,8 @@ export async function executeFullPipeline(
   } catch (error) {
     pipelineSpan.recordException(error as Error);
     pipelineSpan.setStatus({ code: 2, message: (error as Error).message });
+    // Flush buffered log entries on error so they're visible in admin UI
+    if (logger.flush) await logger.flush().catch(() => {});
     throw error;
   } finally {
     pipelineSpan.end();

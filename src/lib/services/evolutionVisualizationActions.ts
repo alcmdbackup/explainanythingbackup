@@ -35,7 +35,7 @@ export interface DashboardData {
 
 export interface DashboardRun {
   id: string;
-  explanation_id: number;
+  explanation_id: number | null;
   status: EvolutionRunStatus;
   phase: PipelinePhase;
   current_iteration: number;

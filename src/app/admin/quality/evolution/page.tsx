@@ -164,8 +164,16 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
 
     setSubmitting(true);
     const result = await queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd: cap });
-    if (result.success) {
-      toast.success('Run queued');
+    if (result.success && result.data) {
+      toast.success('Run queued — triggering pipeline...');
+      onQueued();
+      // Immediately trigger the queued run
+      const triggerResult = await triggerEvolutionRunAction(result.data.id);
+      if (triggerResult.success) {
+        toast.success('Pipeline completed');
+      } else {
+        toast.error(triggerResult.error?.message || 'Pipeline trigger failed');
+      }
       setPromptId('');
       setStrategyId('');
       setEstimate(null);
@@ -220,7 +228,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
           data-testid="start-run-btn"
           className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
         >
-          {submitting ? 'Queuing...' : 'Start Pipeline'}
+          {submitting ? 'Running...' : 'Start Pipeline'}
         </button>
       </div>
 
@@ -570,6 +578,10 @@ export default function EvolutionAdminPage() {
 
   const handleApplyWinner = async (variantId: string): Promise<void> => {
     if (!selectedRun) return;
+    if (selectedRun.explanation_id === null) {
+      toast.error('Cannot apply winner: run has no explanation_id');
+      return;
+    }
     setActionLoading(true);
     const result = await applyWinnerAction({
       explanationId: selectedRun.explanation_id,
@@ -587,6 +599,10 @@ export default function EvolutionAdminPage() {
   };
 
   const handleRollback = async (run: EvolutionRun): Promise<void> => {
+    if (run.explanation_id === null) {
+      toast.error('Cannot rollback: run has no explanation_id');
+      return;
+    }
     setActionLoading(true);
     const historyResult = await getEvolutionHistoryAction(run.explanation_id);
 

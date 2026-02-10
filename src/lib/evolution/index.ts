@@ -4,7 +4,7 @@
 // Local imports for factories (re-exports below don't create local bindings)
 import { PipelineStateImpl as _PipelineStateImpl } from './core/state';
 import { createCostTracker as _createCostTracker } from './core/costTracker';
-import { createEvolutionLogger as _createEvolutionLogger } from './core/logger';
+import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logger';
 import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
 import { resolveConfig as _resolveConfig } from './config';
 import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext } from './types';
@@ -57,7 +57,7 @@ export { ComparisonCache } from './core/comparisonCache';
 export type { CachedMatch } from './core/comparisonCache';
 export { buildComparisonPrompt, parseWinner, compareWithBiasMitigation } from './comparison';
 export type { ComparisonResult } from './comparison';
-export { createEvolutionLogger } from './core/logger';
+export { createEvolutionLogger, createDbEvolutionLogger, LogBuffer } from './core/logger';
 export { createEvolutionLLMClient } from './core/llmClient';
 export { executeMinimalPipeline, executeFullPipeline } from './core/pipeline';
 export type { PipelineAgents, FullPipelineOptions } from './core/pipeline';
@@ -122,7 +122,7 @@ export interface PipelineRunInputs {
   runId: string;
   originalText: string;
   title: string;
-  explanationId: number;
+  explanationId: number | null;
   configOverrides?: Partial<EvolutionRunConfig>;
   /** Identifier for the LLM client (e.g. 'evolution-cron'). Ignored when llmClient is set. */
   llmClientId?: string;
@@ -147,7 +147,7 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
   const config = _resolveConfig(inputs.configOverrides ?? {});
   const state = new _PipelineStateImpl(inputs.originalText);
   const costTracker = _createCostTracker(config);
-  const logger = _createEvolutionLogger(inputs.runId);
+  const logger = _createDbEvolutionLogger(inputs.runId);
 
   if (!inputs.llmClient && !inputs.llmClientId) {
     throw new Error('preparePipelineRun: either llmClient or llmClientId must be provided');

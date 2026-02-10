@@ -31,6 +31,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       treeSearchEnabled: false,
       sectionDecompositionEnabled: true,
       flowCritiqueEnabled: false,
+      promptBasedEvolutionEnabled: true,
     });
   });
 
@@ -52,6 +53,7 @@ describe('fetchEvolutionFeatureFlags', () => {
       treeSearchEnabled: false,
       sectionDecompositionEnabled: true,
       flowCritiqueEnabled: false,
+      promptBasedEvolutionEnabled: true,
     });
   });
 
