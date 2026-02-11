@@ -753,6 +753,52 @@ describe('finalizePipelineRun', () => {
   });
 });
 
+// ─── persistAgentMetrics filtering tests ─────────────────────────
+
+describe('persistAgentMetrics — 0-variant agent filtering', () => {
+  it('skips agents with 0 pool variants (e.g. flowCritique, calibration)', async () => {
+    const state = new PipelineStateImpl('Original');
+    insertBaselineVariant(state, 'run-metrics');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(20));
+
+    // CostTracker reports costs for both generation (has variants) and flowCritique (has none)
+    const agentCosts = new Map<string, number>([
+      ['generation', 0.05],
+      ['flowCritique', 0.02],
+      ['calibration', 0.03],
+    ]);
+    const ctx = makeCtx(state, 'run-metrics');
+    (ctx.costTracker.getAllAgentCosts as jest.Mock).mockReturnValue(Object.fromEntries(agentCosts));
+
+    await finalizePipelineRun('run-metrics', ctx, makeMockLogger(), 'completed', 30.0, undefined);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
+
+    // Find upsert calls that look like agent metrics (have agent_name field)
+    type MetricRow = { agent_name: string; [key: string]: unknown };
+    const agentMetricUpserts: MetricRow[] = upsertCalls
+      .map((call: unknown[]) => call[0] as Record<string, unknown>)
+      .filter((row): row is MetricRow => row != null && typeof row === 'object' && 'agent_name' in row);
+
+    // generation has variants (structural_transform maps to generation) — should be upserted
+    const generationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'generation');
+    expect(generationUpsert).toBeDefined();
+
+    // flowCritique and calibration have 0 pool variants — should NOT be upserted
+    const flowUpsert = agentMetricUpserts.find((r) => r.agent_name === 'flowCritique');
+    expect(flowUpsert).toBeUndefined();
+    const calibrationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'calibration');
+    expect(calibrationUpsert).toBeUndefined();
+  });
+});
+
 // ─── createDefaultAgents factory tests ───────────────────────────
 
 describe('createDefaultAgents', () => {

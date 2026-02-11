@@ -191,6 +191,56 @@ describe('TimelineTab', () => {
   });
 });
 
+describe('AGENT_PALETTE coverage', () => {
+  // All 13 agents that appear in checkpoints (from PipelineAgents + flowCritique inline).
+  const ALL_CHECKPOINT_AGENTS = [
+    'generation', 'calibration', 'evolution', 'reflection',
+    'iterativeEditing', 'debate', 'proximity', 'metaReview',
+    'tournament', 'treeSearch', 'sectionDecomposition',
+    'outlineGeneration', 'flowCritique',
+  ];
+
+  it('has a palette color for every checkpoint agent name', async () => {
+    (visualizationActions.getEvolutionRunTimelineAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: {
+        iterations: [{
+          iteration: 0,
+          phase: 'COMPETITION',
+          agents: ALL_CHECKPOINT_AGENTS.map(name => ({
+            name,
+            costUsd: 0.001,
+            variantsAdded: 0,
+            matchesPlayed: 0,
+          })),
+          totalCostUsd: 0.013,
+          totalVariantsAdded: 0,
+          totalMatchesPlayed: 0,
+        }],
+        phaseTransitions: [],
+      },
+      error: null,
+    });
+
+    render(<TimelineTab runId="palette-test" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+    });
+
+    // Every agent row should have a colored indicator (not the muted fallback).
+    // The fallback is 'var(--text-muted)'; a palette hit uses a hex color.
+    for (const name of ALL_CHECKPOINT_AGENTS) {
+      const row = screen.getByTestId(`agent-row-${name}`);
+      const indicator = row.querySelector('.w-1.h-4.rounded-full') as HTMLElement;
+      expect(indicator).toBeTruthy();
+      expect(indicator.style.backgroundColor).not.toBe('var(--text-muted)');
+      // Hex colors get normalized to rgb() by jsdom
+      expect(indicator.style.backgroundColor).toMatch(/^rgb/);
+    }
+  });
+});
+
 describe('AgentDetailPanel', () => {
   beforeEach(() => {
     jest.clearAllMocks();

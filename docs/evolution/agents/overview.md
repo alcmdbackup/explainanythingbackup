@@ -54,6 +54,7 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 | ProximityAgent | `pool`, `newEntrantsThisIteration` | `similarityMatrix`, `diversityScore` |
 | OutlineGenerationAgent | `originalText`, config (`generationModel`, `judgeModel`) | `pool` (OutlineVariant with steps, outline, weakestStep) |
 | MetaReviewAgent | `pool`, `ratings`, `diversityScore` | `metaFeedback` |
+| FlowCritique | `pool`, `allCritiques` (to check existing) | `allCritiques` (scale='0-5'), `dimensionScores` (flow: prefix) |
 
 ### State Lifecycle Notes
 
@@ -110,4 +111,5 @@ Which ranking agent runs is controlled by `evolution_tournament_enabled` feature
 - [Editing Agents](./editing.md) — IterativeEditingAgent, SectionDecompositionAgent
 - [Tree Search Agent](./tree_search.md) — Beam search revisions
 - [Support Agents](./support.md) — Reflection, Debate, Evolution, Proximity, MetaReview
+- [Flow Critique](./flow_critique.md) — Flow evaluation pass and cross-scale targeting
 - [Reference](../reference.md) — Configuration, feature flags, budget caps

@@ -252,10 +252,10 @@ async function persistAgentMetrics(
   for (const [agentName, costUsd] of Object.entries(agentCosts)) {
     // Find variants produced by this agent
     const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
+    if (variants.length === 0) continue; // Skip non-generation agents (flowCritique, calibration, etc.)
     // Use mu (mean) from OpenSkill rating as the Elo equivalent
-    const avgElo = variants.length > 0
-      ? variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0) / variants.length
-      : null;
+    const avgElo =
+      variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0) / variants.length;
     // OpenSkill default mu is 25 (not 1200 like traditional Elo)
     const eloGain = avgElo ? avgElo - 25 : null;
     const eloPerDollar = eloGain && costUsd > 0 ? eloGain / costUsd : null;

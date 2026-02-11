@@ -369,6 +369,14 @@
     {
       "pattern": "src/lib/evolution/agents/*metaReview*.ts",
       "docs": ["docs/evolution/agents/support.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/flowRubric*.ts",
+      "docs": ["docs/evolution/agents/flow_critique.md"]
+    },
+    {
+      "pattern": "src/lib/evolution/*flow*.ts",
+      "docs": ["docs/evolution/agents/flow_critique.md"]
     }
   ],
   "alwaysConsider": [

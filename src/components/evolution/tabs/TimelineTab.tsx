@@ -21,6 +21,10 @@ const AGENT_PALETTE: Record<string, string> = {
   proximity: '#eab308', // yellow
   metaReview: '#6366f1', // indigo
   tournament: '#ef4444', // red
+  treeSearch: '#06b6d4', // cyan
+  sectionDecomposition: '#84cc16', // lime
+  outlineGeneration: '#f59e0b', // amber
+  flowCritique: '#d946ef', // fuchsia
 };
 
 type TimelineAgent = TimelineData['iterations'][number]['agents'][number];
