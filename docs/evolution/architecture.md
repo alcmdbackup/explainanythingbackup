@@ -47,9 +47,10 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 - ProximityAgent continues diversity monitoring. See [Support Agents](./agents/support.md#proximityagent).
 - MetaReviewAgent analyzes strategy performance and provides meta-feedback. See [Support Agents](./agents/support.md#metareviewagent).
 
-## Two Pipeline Modes
+## Three Pipeline Modes
 
 - **`executeFullPipeline`**: Production path. Uses PoolSupervisor for EXPANSION→COMPETITION phase transitions, checkpoint after each agent, convergence detection, and supervisor state persistence. Used by admin trigger, cron runner, batch runner, standalone runner, and local CLI `--full` mode. All callsites use `createDefaultAgents()` for consistent 12-agent construction and `finalizePipelineRun()` for shared post-completion persistence.
+- **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8), plateau (window: 2), or budget/iteration cap. Used by local CLI `--single` mode.
 - **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) default mode (generation + calibration only).
 
 ## Append-Only Pool
@@ -76,12 +77,13 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 
 ## Stopping Conditions
 
-The PoolSupervisor evaluates four stopping conditions at the start of each iteration:
+The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 
-1. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
-2. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-3. **Max iterations**: Hard cap at `maxIterations` (default: 15).
-4. **Degenerate state**: If diversity score drops below 0.01 during a plateau check, the pool has collapsed to near-identical variants — continuing would waste budget.
+1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality. This is a success condition and is checked before plateau detection so it takes priority.
+2. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
+3. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
+4. **Max iterations**: Hard cap at `maxIterations` (default: 15).
+5. **Degenerate state**: If diversity score drops below 0.01 during a plateau check, the pool has collapsed to near-identical variants — continuing would waste budget.
 
 ## Data Flow
 
@@ -122,6 +124,7 @@ The PoolSupervisor evaluates four stopping conditions at the start of each itera
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)
+   ├─ Quality threshold (single-article only: all critique dimensions >= 8)
    ├─ Quality plateau (top ordinal change < 0.12 over 3 iterations)
    ├─ Budget exhausted (available < $0.01)
    ├─ Max iterations reached (default: 15)

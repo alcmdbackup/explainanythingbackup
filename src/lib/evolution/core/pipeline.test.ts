@@ -1,7 +1,7 @@
 // Unit tests for pipeline helpers, iterativeEditing integration, and flow critique integration.
 // Tests baseline variant insertion, run summary, Zod validation, agent execution order, and flow critique pipeline behavior.
 
-import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun } from './pipeline';
+import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun, qualityThresholdMet } from './pipeline';
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
@@ -839,5 +839,219 @@ describe('preparePipelineRun', () => {
       title: 'T',
       explanationId: 1,
     })).toThrow('either llmClient or llmClientId must be provided');
+  });
+});
+
+// ─── qualityThresholdMet tests ──────────────────────────────────
+
+describe('qualityThresholdMet', () => {
+  it('returns false when allCritiques is null', () => {
+    const state = new PipelineStateImpl('text');
+    state.allCritiques = null;
+    expect(qualityThresholdMet(state, 8)).toBe(false);
+  });
+
+  it('returns false when allCritiques is empty', () => {
+    const state = new PipelineStateImpl('text');
+    state.allCritiques = [];
+    expect(qualityThresholdMet(state, 8)).toBe(false);
+  });
+
+  it('returns false when top variant has no critique', () => {
+    const state = new PipelineStateImpl('text');
+    insertBaselineVariant(state, 'run-qt');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(30)); // make v1 top
+    state.allCritiques = [{
+      variationId: 'nonexistent', dimensionScores: { clarity: 9 },
+      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+    }];
+    expect(qualityThresholdMet(state, 8)).toBe(false);
+  });
+
+  it('returns true when all dimensions >= threshold', () => {
+    const state = new PipelineStateImpl('text');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(30));
+    state.allCritiques = [{
+      variationId: 'v1',
+      dimensionScores: { clarity: 9, structure: 8, engagement: 8.5 },
+      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+    }];
+    expect(qualityThresholdMet(state, 8)).toBe(true);
+  });
+
+  it('returns false when one dimension is below threshold', () => {
+    const state = new PipelineStateImpl('text');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(30));
+    state.allCritiques = [{
+      variationId: 'v1',
+      dimensionScores: { clarity: 9, structure: 7, engagement: 8 },
+      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+    }];
+    expect(qualityThresholdMet(state, 8)).toBe(false);
+  });
+
+  it('uses latest critique for a variant (not first)', () => {
+    const state = new PipelineStateImpl('text');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(30));
+    state.allCritiques = [
+      {
+        variationId: 'v1',
+        dimensionScores: { clarity: 5, structure: 5 },
+        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+      },
+      {
+        variationId: 'v1',
+        dimensionScores: { clarity: 9, structure: 9 },
+        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+      },
+    ];
+    expect(qualityThresholdMet(state, 8)).toBe(true);
+  });
+
+  it('returns false when dimensionScores is empty', () => {
+    const state = new PipelineStateImpl('text');
+    state.addToPool({
+      id: 'v1', text: 'V1', version: 1, parentIds: [],
+      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+    });
+    state.ratings.set('v1', ratingWithOrdinal(30));
+    state.allCritiques = [{
+      variationId: 'v1', dimensionScores: {},
+      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+    }];
+    expect(qualityThresholdMet(state, 8)).toBe(false);
+  });
+});
+
+// ─── Single-article via executeFullPipeline tests ───────────────
+
+describe('executeFullPipeline — single-article mode', () => {
+  function makeSpyAgent(name: string, executionOrder: string[]): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeSingleArticleCtx(
+    budgetCalls: number[],
+  ): ExecutionContext {
+    const config = resolveConfig({
+      singleArticle: true,
+      maxIterations: 3,
+      expansion: { maxIterations: 0, minPool: 1, diversityThreshold: 0, minIterations: 0 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Original article for single-article test.');
+    let budgetIdx = 0;
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+    };
+    return {
+      payload: {
+        originalText: state.originalText,
+        title: 'Test Article',
+        explanationId: 1,
+        runId: 'single-test-run',
+        config,
+      },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'single-test-run',
+    };
+  }
+
+  function makeAllAgents(executionOrder: string[]): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      treeSearch: makeSpyAgent('treeSearch', executionOrder),
+      sectionDecomposition: makeSpyAgent('sectionDecomposition', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+  }
+
+  it('skips generation, outlineGeneration, and evolution agents', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeAllAgents(executionOrder);
+    // 3 iterations + 1 for budget exhaustion stop
+    const ctx = makeSingleArticleCtx([2.0, 2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('single-test-run', agents, ctx, ctx.logger, { startMs: Date.now() });
+
+    expect(executionOrder).not.toContain('generation');
+    expect(executionOrder).not.toContain('evolution');
+  });
+
+  it('runs improvement agents: reflection, iterativeEditing, treeSearch, sectionDecomposition', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeAllAgents(executionOrder);
+    const ctx = makeSingleArticleCtx([2.0, 2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('single-test-run', agents, ctx, ctx.logger, { startMs: Date.now() });
+
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('iterativeEditing');
+    expect(executionOrder).toContain('treeSearch');
+    expect(executionOrder).toContain('sectionDecomposition');
+  });
+
+  it('stops with quality_threshold when all critique dimensions >= 8', async () => {
+    const executionOrder: string[] = [];
+    const agents = makeAllAgents(executionOrder);
+    // Provide enough budget for all iterations
+    const ctx = makeSingleArticleCtx([5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0, 5.0]);
+
+    // After first iteration's reflection, inject high-quality critiques
+    const originalReflectionExecute = agents.reflection!.execute as jest.Mock;
+    originalReflectionExecute.mockImplementation(async () => {
+      executionOrder.push('reflection');
+      const topVariant = ctx.state.getTopByRating(1)[0];
+      if (topVariant) {
+        ctx.state.allCritiques = [{
+          variationId: topVariant.id,
+          dimensionScores: { clarity: 9, structure: 9, engagement: 9 },
+          goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+        }];
+      }
+      return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+    });
+
+    const result = await executeFullPipeline('single-test-run', agents, ctx, ctx.logger, { startMs: Date.now() });
+
+    expect(result.stopReason).toBe('quality_threshold');
   });
 });

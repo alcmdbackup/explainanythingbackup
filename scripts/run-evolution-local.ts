@@ -43,6 +43,7 @@ interface CLIArgs {
   seedModel: string | null;
   mock: boolean;
   full: boolean;
+  single: boolean;
   outline: boolean;
   iterations: number;
   budget: number;
@@ -76,7 +77,8 @@ Options:
   --seed-model <name>      Model for seed article generation (default: same as --model)
   --mock                   Use mock LLM (no API keys needed)
   --full                   Run full agent suite (default: minimal)
-  --iterations <n>         Number of iterations (default: 3)
+  --single                 Run single-article mode: sequential improvement, no population search
+  --iterations <n>         Number of iterations (default: 3, or 3 for --single)
   --budget <n>             Budget cap in USD (default: 5.00)
   --output <path>          Output JSON path (default: auto-generated)
   --explanation-id <n>     Optional: link run to an explanation in DB
@@ -99,6 +101,13 @@ Options:
 
   if (file && prompt) {
     console.error('Error: --file and --prompt are mutually exclusive');
+    process.exit(1);
+  }
+
+  const single = getFlag('single');
+  const full = getFlag('full');
+  if (single && full) {
+    console.error('Error: --single and --full are mutually exclusive');
     process.exit(1);
   }
 
@@ -133,7 +142,8 @@ Options:
     prompt: prompt ?? null,
     seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
-    full: getFlag('full'),
+    full,
+    single,
     outline: getFlag('outline'),
     iterations,
     budget: parseFloat(getValue('budget') ?? '5.00'),
@@ -562,7 +572,7 @@ async function main() {
   logger.info('Configuration', {
     input: inputLabel,
     mode: args.mock ? 'mock' : 'real',
-    pipeline: args.full ? 'full' : 'minimal',
+    pipeline: args.single ? 'single' : args.full ? 'full' : 'minimal',
     iterations: args.iterations,
     budget: args.budget,
     model: args.model,
@@ -570,12 +580,18 @@ async function main() {
     runId: runId.slice(0, 8),
   });
 
-  // Build config — adjust constraints for full mode with low iteration counts
+  // Build config — adjust constraints for full/single mode
   const configOverrides: Partial<ReturnType<typeof resolveConfig>> = {
     maxIterations: args.iterations,
     budgetCapUsd: args.budget,
   };
-  if (args.full) {
+  if (args.single) {
+    configOverrides.singleArticle = true;
+    configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
+    configOverrides.plateau = { window: 2, threshold: 0.02 };
+    configOverrides.maxIterations = args.iterations;
+    configOverrides.budgetCapUsd = args.budget;
+  } else if (args.full) {
     // Supervisor requires maxIterations > expansion.maxIterations + plateau.window + 1
     const expansionMax = Math.max(1, Math.floor(args.iterations * 0.4));
     const plateauWindow = DEFAULT_EVOLUTION_CONFIG.plateau.window;
@@ -657,16 +673,16 @@ async function main() {
   };
 
   const agents = buildAgents(args.outline);
-  const agentNames = args.full
+  const agentNames = (args.single || args.full)
     ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(args.outline ? ['outlineGeneration'] : [])]
     : ['generation', 'calibration'];
-  logger.info('Agent suite', { agents: agentNames, mode: args.full ? 'full' : 'minimal', outline: args.outline });
+  logger.info('Agent suite', { agents: agentNames, mode: args.single ? 'single' : args.full ? 'full' : 'minimal', outline: args.outline });
 
   // Run pipeline — canonical functions handle status updates, checkpoints, and variant persistence
   const startMs = Date.now();
   try {
     let stopReason: string;
-    if (args.full) {
+    if (args.single || args.full) {
       const result = await executeFullPipeline(runId, agents, ctx, logger, { startMs });
       stopReason = result.stopReason;
     } else {

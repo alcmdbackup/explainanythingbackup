@@ -689,6 +689,18 @@ async function feedHallOfFame(
   }
 }
 
+/** Check if the top variant's latest critique has all dimension scores >= threshold. */
+export function qualityThresholdMet(state: PipelineState, threshold: number): boolean {
+  if (!state.allCritiques || state.allCritiques.length === 0) return false;
+  const topVariant = state.getTopByRating(1)[0];
+  if (!topVariant) return false;
+  const critique = [...state.allCritiques].reverse().find(c => c.variationId === topVariant.id);
+  if (!critique) return false;
+  const scores = Object.values(critique.dimensionScores);
+  if (scores.length === 0) return false;
+  return scores.every(s => s >= threshold);
+}
+
 /**
  * Execute a minimal pipeline: run agents sequentially, checkpoint after each.
  * This is Slice A's simplified version — no phase transitions, single iteration.
@@ -818,7 +830,7 @@ export async function executeFullPipeline(
     await supabase.from('content_evolution_runs').update({
       status: 'running',
       started_at: new Date().toISOString(),
-      pipeline_type: 'full',
+      pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
     }).eq('id', runId);
 
     // Construct supervisor
@@ -880,6 +892,13 @@ export async function executeFullPipeline(
           phase,
           poolSize: ctx.state.getPoolSize(),
         });
+
+        // Single-article quality threshold: stop early when all critique dimensions >= 8
+        if (ctx.payload.config.singleArticle && qualityThresholdMet(ctx.state, 8)) {
+          logger.info('Stopping pipeline', { reason: 'quality_threshold' });
+          stopReason = 'quality_threshold';
+          break;
+        }
 
         // Check stopping conditions
         const availableBudget = ctx.costTracker.getAvailableBudget();

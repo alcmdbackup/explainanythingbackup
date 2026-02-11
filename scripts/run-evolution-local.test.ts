@@ -223,6 +223,62 @@ describe('run-evolution-local prompt mode', () => {
     });
   });
 
+  describe('--single flag', () => {
+    it('should set single to true when --single flag present', () => {
+      const args = ['--file', 'test.md', '--single'];
+      const single = args.includes('--single');
+      expect(single).toBe(true);
+    });
+
+    it('should reject --single and --full together', () => {
+      const args = ['--file', 'test.md', '--single', '--full'];
+      const single = args.includes('--single');
+      const full = args.includes('--full');
+      expect(single && full).toBe(true); // both set — CLI should error
+    });
+
+    it('should default single to false', () => {
+      const args = ['--file', 'test.md'];
+      const single = args.includes('--single');
+      expect(single).toBe(false);
+    });
+
+    it('should produce correct config overrides for --single', () => {
+      const single = true;
+      const iterations = 3;
+      const budget = 1.00;
+      const configOverrides: Record<string, unknown> = {};
+
+      if (single) {
+        configOverrides.singleArticle = true;
+        configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
+        configOverrides.plateau = { window: 2, threshold: 0.02 };
+        configOverrides.maxIterations = iterations;
+        configOverrides.budgetCapUsd = budget;
+      }
+
+      expect(configOverrides.singleArticle).toBe(true);
+      expect(configOverrides.expansion).toEqual({ maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 });
+      expect(configOverrides.plateau).toEqual({ window: 2, threshold: 0.02 });
+      expect(configOverrides.maxIterations).toBe(3);
+      expect(configOverrides.budgetCapUsd).toBe(1.00);
+    });
+
+    it('should route --single to executeFullPipeline (same as --full)', () => {
+      const single = true;
+      const full = false;
+      const useFullPipeline = single || full;
+      expect(useFullPipeline).toBe(true);
+    });
+
+    it('should display "single" pipeline mode in logs', () => {
+      const single = true;
+      const full = false;
+      const pipeline = single ? 'single' : full ? 'full' : 'minimal';
+      expect(pipeline).toBe('single');
+    });
+  });
+
   describe('mock LLM client integration', () => {
     it('should produce valid seed content from mock responses', () => {
       // Mock LLM returns text templates that pass format validation

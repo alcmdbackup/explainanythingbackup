@@ -268,6 +268,8 @@ export interface EvolutionRunConfig {
   judgeModel?: AllowedLLMModelType;
   /** Model for text generation calls (generation, evolution). */
   generationModel?: AllowedLLMModelType;
+  /** When true, runs single-article mode: no generation/evolution, just sequential improvement. */
+  singleArticle?: boolean;
 }
 
 // ─── Checkpoint types ────────────────────────────────────────────
@@ -306,9 +308,9 @@ export interface SerializedPipelineState {
 
 export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused';
 
-export type PipelineType = 'full' | 'minimal' | 'batch';
+export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
 
-export const PIPELINE_TYPES = ['full', 'minimal', 'batch'] as const satisfies readonly PipelineType[];
+export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
 
 /** Metadata columns on hall_of_fame_topics (prompt registry). */
 export interface PromptMetadata {
