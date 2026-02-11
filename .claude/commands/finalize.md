@@ -1,5 +1,5 @@
 ---
-description: Rebase off remote main, simplify code, run code review, run all checks (lint/tsc/build/unit/integration), update docs, fix issues, commit, and create PR
+description: Rebase off remote main, simplify code, run code review, run all checks (lint/tsc/build/unit/integration), update docs, fix issues, commit, create PR, and monitor CI until all checks pass
 argument-hint: [--e2e]
 allowed-tools: Bash(git:*), Bash(npm:*), Bash(npx:*), Bash(gh:*), Read, Edit, Write, Grep, Glob, AskUserQuestion, Task
 ---
@@ -430,7 +430,7 @@ File: $FILE_PATH  Line: $LINE
 Reason: $REASON
 
 Rubric:
-  0: False positive, doesn't stand up to scrutiny, or pre-existing issue
+  0: False positive, doesn't stand up to scrutiny
  25: Might be real, may also be false positive
  50: Verified real but may be a nitpick, not very important relative to overall PR
  75: Verified, important, will directly impact functionality or explicitly called out in CLAUDE.md
@@ -471,18 +471,18 @@ Use **AskUserQuestion**:
 
 **False positive guidance** (provided to all review agents in step 3.7b):
 
+Fix ALL bugs encountered regardless of whether they were introduced by this branch or pre-existed.
+
 Issues to IGNORE:
-- Pre-existing issues not introduced by this branch
 - Issues a linter, typechecker, or compiler would catch
 - Pedantic nitpicks a senior engineer wouldn't call out
 - General quality issues unless explicitly required in CLAUDE.md
 - Issues silenced by lint-ignore comments
 - Intentional functionality changes related to the broader change
-- Issues on lines not modified in this branch
 
 ### 4. Run Checks (fix issues as they arise)
 
-Run each check. If it fails, fix the issues and re-run until it passes:
+Run each check. If it fails, fix the issues and re-run until it passes. Fix ALL bugs encountered regardless of whether they originated from this branch or pre-existed:
 
 1. **Lint**: `npm run lint`
 2. **TypeScript**: `npx tsc --noEmit`
@@ -723,6 +723,121 @@ EOF
 
 Replace all `[bracketed placeholders]` with actual results collected during the finalization steps. If a GitHub issue exists for this project, add `Closes #N` to the summary.
 
+### 8. Monitor PR Checks
+
+After PR creation, monitor CI checks until they all pass. If any fail, fix issues locally, push, and re-monitor.
+
+**Step 8a: Wait for CI to start**
+
+Wait 30 seconds for GitHub Actions to pick up the new PR:
+```bash
+sleep 30
+```
+
+**Step 8b: Watch checks until completion**
+
+```bash
+timeout 900 gh pr checks --watch --fail-fast
+```
+
+This blocks until all checks complete or 15 minutes elapse. Check the exit code:
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| 0 | All checks passed | Proceed to Step 8e (success) |
+| 1 | One or more checks failed | Proceed to Step 8c (diagnose) |
+| 124 | Timeout (15 min elapsed) | Ask user: "CI timed out. Wait longer or abort?" |
+| 8 | Checks still pending | Re-run `gh pr checks --watch` |
+
+**Step 8c: Diagnose failures**
+
+Get structured failure details:
+
+```bash
+gh pr checks --json name,bucket,link,state
+```
+
+Display a summary table:
+```
+PR Check Results
+──────────────────────────────────────
+✓ CI / Detect Changes
+✓ CI / TypeScript Check
+✗ CI / Unit Tests          ← FAILED
+✓ CI / Lint
+✗ CI / E2E Tests (Critical) ← FAILED
+──────────────────────────────────────
+```
+
+Then get failure logs. Try `gh run view --log-failed` first; fall back to `gh run list` if it fails:
+
+```bash
+# Get unique run IDs for failed checks
+FAILED_RUN_IDS=$(gh pr checks --json link,bucket \
+  --jq 'map(select(.bucket == "fail") | .link | capture("runs/(?<id>[0-9]+)") | .id) | unique | .[]')
+
+# Get failure logs for each run
+for run_id in $FAILED_RUN_IDS; do
+  gh run view "$run_id" --log-failed
+done
+```
+
+If `--log-failed` produces no useful output, try:
+```bash
+BRANCH=$(git branch --show-current)
+gh run list --branch "$BRANCH" --status failure --json databaseId,name,conclusion
+# Then for each: gh run view <id> --log
+```
+
+**Step 8d: Fix, commit, and push**
+
+Use **AskUserQuestion**:
+- Question: "PR checks failed: [list failed check names]. Failure logs retrieved. How would you like to proceed?"
+- Options:
+  1. "Fix and retry" — fix the issues, re-run local checks (Step 4), commit, push, and re-monitor
+  2. "Abort monitoring" — stop monitoring, leave PR as-is for manual intervention
+
+If "Fix and retry":
+1. Analyze the failure logs to identify root causes
+2. Fix ALL issues locally (regardless of origin — pre-existing bugs included)
+3. Re-run local checks from Step 4 (lint, tsc, build, unit, integration) to verify fixes
+4. Commit fixes:
+   ```bash
+   git add -A
+   git commit -m "fix: address CI failures (iteration N)"
+   ```
+5. Push:
+   ```bash
+   git push
+   ```
+6. Return to Step 8a (wait 30s, then re-watch)
+
+**Maximum iterations**: 5 fix-push-watch cycles. After 5 failures:
+
+Use **AskUserQuestion**:
+- Question: "PR checks have failed 5 times. How would you like to proceed?"
+- Options:
+  1. "Continue trying" — reset counter and keep going
+  2. "Abort monitoring" — stop and leave PR for manual review
+
+**Step 8e: Success**
+
+When all checks pass (exit code 0):
+
+```
+PR Checks — ALL PASSED
+──────────────────────────────────────
+✓ CI / Detect Changes
+✓ CI / TypeScript Check
+✓ CI / Lint
+✓ CI / Unit Tests
+✓ CI / Integration Tests (Critical)
+✓ CI / E2E Tests (Critical)
+
+Iterations: N (0 = first attempt passed)
+──────────────────────────────────────
+```
+
 ## Success Criteria
 
 - Plan assessment passed (or user chose to proceed with gaps)
@@ -735,6 +850,7 @@ Replace all `[bracketed placeholders]` with actual results collected during the 
 - Documentation is updated for all doc-worthy changes
 - Working tree is clean (verified by `git status --porcelain` returning empty)
 - PR is created and URL is displayed
+- PR CI checks all pass (or user chose to abort monitoring)
 
 ## Output
 
@@ -748,3 +864,4 @@ When complete, display:
 7. Documentation updates made (list of docs updated)
 8. Working tree verification result (clean / N files handled)
 9. PR URL
+10. PR CI check results (all passed / N iterations / aborted)
