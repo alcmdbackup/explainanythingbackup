@@ -16,7 +16,7 @@ import type {
   GenerationStepName,
 } from '@/lib/evolution/types';
 import { isOutlineVariant } from '@/lib/evolution/types';
-import type { AgentCostBreakdown } from '@/lib/services/evolutionActions';
+import type { AgentCostBreakdown, EvolutionVariant } from '@/lib/services/evolutionActions';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -936,3 +936,84 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
 }, 'getEvolutionRunTreeSearchAction');
 
 export const getEvolutionRunTreeSearchAction = serverReadRequestId(_getEvolutionRunTreeSearchAction);
+
+// ─── 9. Checkpoint-based variant fallback ────────────────────────
+
+/**
+ * Reconstruct EvolutionVariant[] from the latest checkpoint when the DB table
+ * (content_evolution_variants) has no rows — e.g. for running, failed, or paused runs.
+ * Not a server action (no withLogging/serverReadRequestId) since it's called from
+ * getEvolutionVariantsAction which already handles auth/logging.
+ */
+export async function buildVariantsFromCheckpoint(
+  runId: string
+): Promise<ActionResult<EvolutionVariant[]>> {
+  try {
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const [cpResult, runResult] = await Promise.all([
+      supabase
+        .from('evolution_checkpoints')
+        .select('state_snapshot')
+        .eq('run_id', runId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('content_evolution_runs')
+        .select('explanation_id')
+        .eq('id', runId)
+        .single(),
+    ]);
+
+    if (cpResult.error) throw cpResult.error;
+    if (runResult.error) throw runResult.error;
+    if (!cpResult.data) {
+      return { success: true, data: [], error: null };
+    }
+
+    const snapshot = cpResult.data.state_snapshot as SerializedPipelineState;
+    const explanationId = runResult.data?.explanation_id ?? null;
+    const pool = snapshot.pool ?? [];
+    const matchCounts = snapshot.matchCounts ?? {};
+
+    const eloLookup = buildEloLookup(snapshot);
+
+    const variants: EvolutionVariant[] = pool.map(v => ({
+      id: v.id,
+      run_id: runId,
+      explanation_id: explanationId,
+      variant_content: v.text,
+      elo_score: eloLookup[v.id] ?? 1200,
+      generation: v.version,
+      agent_name: v.strategy,
+      match_count: matchCounts[v.id] ?? 0,
+      is_winner: false,
+      created_at: new Date(v.createdAt).toISOString(),
+    }));
+
+    variants.sort((a, b) => b.elo_score - a.elo_score);
+
+    return { success: true, data: variants, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'buildVariantsFromCheckpoint', { runId }) };
+  }
+}
+
+function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
+  const eloLookup: Record<string, number> = {};
+
+  if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
+    for (const [id, r] of Object.entries(snapshot.ratings)) {
+      eloLookup[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
+    }
+    return eloLookup;
+  }
+
+  if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
+    return snapshot.eloRatings;
+  }
+
+  return eloLookup;
+}

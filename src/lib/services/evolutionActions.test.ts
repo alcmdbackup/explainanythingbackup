@@ -6,6 +6,7 @@ import {
   rollbackEvolutionAction,
   getEvolutionRunsAction,
   estimateRunCostAction,
+  getEvolutionVariantsAction,
 } from './evolutionActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -36,6 +37,11 @@ jest.mock('@/lib/logging/server/automaticServerLoggingBase', () => ({
 
 jest.mock('@/lib/services/auditLog', () => ({
   logAdminAction: jest.fn(),
+}));
+
+const mockBuildVariantsFromCheckpoint = jest.fn();
+jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
+  buildVariantsFromCheckpoint: (...args: unknown[]) => mockBuildVariantsFromCheckpoint(...args),
 }));
 
 const mockEstimateRunCostWithAgentModels = jest.fn();
@@ -493,5 +499,71 @@ describe('Evolution Actions', () => {
       expect(result.success).toBe(true);
       expect(result.data?.confidence).toBe('low');
     });
+  });
+});
+
+// ─── getEvolutionVariantsAction fallback ─────────────────────────
+
+describe('getEvolutionVariantsAction fallback', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns DB data when content_evolution_variants has rows', async () => {
+    const mock = createChainMock();
+    const dbVariants = [
+      { id: 'v-1', run_id: 'run-1', elo_score: 1400, is_winner: true, variant_content: 'text', generation: 1, agent_name: 'gen', match_count: 5, created_at: '2026-01-01', explanation_id: 1 },
+    ];
+
+    mock.order.mockResolvedValueOnce({ data: dbVariants, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionVariantsAction('run-1');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(dbVariants);
+    expect(mockBuildVariantsFromCheckpoint).not.toHaveBeenCalled();
+  });
+
+  it('falls back to checkpoint when DB returns empty array', async () => {
+    const mock = createChainMock();
+    const checkpointVariants = [
+      { id: 'v-cp', run_id: 'run-1', elo_score: 1250, is_winner: false, variant_content: 'text', generation: 1, agent_name: 'gen', match_count: 2, created_at: '2026-01-01', explanation_id: null },
+    ];
+
+    mock.order.mockResolvedValueOnce({ data: [], error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+    mockBuildVariantsFromCheckpoint.mockResolvedValueOnce({ success: true, data: checkpointVariants, error: null });
+
+    const result = await getEvolutionVariantsAction('run-1');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(checkpointVariants);
+    expect(mockBuildVariantsFromCheckpoint).toHaveBeenCalledWith('run-1');
+  });
+
+  it('returns empty array when both DB and checkpoint are empty', async () => {
+    const mock = createChainMock();
+    mock.order.mockResolvedValueOnce({ data: [], error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+    mockBuildVariantsFromCheckpoint.mockResolvedValueOnce({ success: true, data: [], error: null });
+
+    const result = await getEvolutionVariantsAction('run-1');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+  });
+
+  it('propagates DB errors without fallback', async () => {
+    const mock = createChainMock();
+    mock.order.mockResolvedValueOnce({ data: null, error: { message: 'DB connection failed' } });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionVariantsAction('run-1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+    expect(mockBuildVariantsFromCheckpoint).not.toHaveBeenCalled();
   });
 });

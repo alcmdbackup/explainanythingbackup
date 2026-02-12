@@ -322,7 +322,12 @@ const _getEvolutionVariantsAction = withLogging(async (
       throw error;
     }
 
-    return { success: true, data: (data ?? []) as EvolutionVariant[], error: null };
+    if (data && data.length > 0) {
+      return { success: true, data: data as EvolutionVariant[], error: null };
+    }
+
+    const { buildVariantsFromCheckpoint } = await import('@/lib/services/evolutionVisualizationActions');
+    return buildVariantsFromCheckpoint(runId);
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionVariantsAction', { runId }) };
   }

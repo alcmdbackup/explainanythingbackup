@@ -45,7 +45,9 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 7. `getEvolutionRunStepScoresAction` — Per-variant step scores for outline variants (returns `VariantStepData[]` with step names, scores, costs, and weakest step)
 8. `getEvolutionRunTreeSearchAction` — Tree search state: full tree nodes with depth/pruning/actions for the Tree tab
 
-Additionally, the run detail page uses `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank).
+Additionally, the run detail page uses:
+- `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank)
+- `getEvolutionVariantsAction(runId)` from `evolutionActions.ts` for the Variants tab, which includes checkpoint fallback via `buildVariantsFromCheckpoint()` when the DB table has no rows (common for local CLI runs)
 
 ### Run Detail Features
 
