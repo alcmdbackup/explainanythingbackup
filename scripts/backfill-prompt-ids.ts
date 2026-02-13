@@ -105,6 +105,13 @@ async function getOrCreateLegacyStrategy(supabase: SupabaseClient): Promise<stri
   return inserted.id;
 }
 
+// ─── Table-existence guard ──────────────────────────────────────
+
+/** Returns true if the error indicates the table doesn't exist in the schema cache. */
+function isTableMissing(error: { message: string } | null): boolean {
+  return !!error?.message?.includes('Could not find the table');
+}
+
 // ─── Backfill: prompt_id ────────────────────────────────────────
 
 /** Backfill prompt_id on runs that don't have one yet. Exported for tests. */
@@ -116,7 +123,13 @@ export async function backfillPromptIds(
     .select('id, explanation_id')
     .is('prompt_id', null);
 
-  if (runsErr) throw new Error(`Failed to fetch runs: ${runsErr.message}`);
+  if (runsErr) {
+    if (isTableMissing(runsErr)) {
+      console.log('  content_evolution_runs table does not exist yet — skipping prompt_id backfill');
+      return { linked: 0, unlinked: 0 };
+    }
+    throw new Error(`Failed to fetch runs: ${runsErr.message}`);
+  }
   if (!runs || runs.length === 0) return { linked: 0, unlinked: 0 };
 
   let linked = 0;
@@ -194,7 +207,13 @@ export async function backfillStrategyConfigIds(
     .select('id, config')
     .is('strategy_config_id', null);
 
-  if (runsErr) throw new Error(`Failed to fetch runs: ${runsErr.message}`);
+  if (runsErr) {
+    if (isTableMissing(runsErr)) {
+      console.log('  content_evolution_runs table does not exist yet — skipping strategy_config_id backfill');
+      return { linked: 0, created: 0, unlinked: 0 };
+    }
+    throw new Error(`Failed to fetch runs: ${runsErr.message}`);
+  }
   if (!runs || runs.length === 0) return { linked: 0, created: 0, unlinked: 0 };
 
   let linked = 0;
@@ -287,7 +306,13 @@ export async function drainStaleRuns(
     .in('status', ['pending', 'claimed', 'running'])
     .select('id');
 
-  if (error) throw new Error(`Failed to drain stale runs: ${error.message}`);
+  if (error) {
+    if (isTableMissing(error)) {
+      console.log('  content_evolution_runs table does not exist yet — skipping drain');
+      return { drained: 0 };
+    }
+    throw new Error(`Failed to drain stale runs: ${error.message}`);
+  }
   return { drained: data?.length ?? 0 };
 }
 
