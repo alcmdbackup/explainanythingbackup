@@ -253,6 +253,8 @@ test.describe('Action Buttons', () => {
       // Navigate directly to test explanation
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
+      // Wait for lifecycle to reach 'viewing' to ensure content is fully rendered
+      await resultsPage.waitForViewingPhase();
 
       // Get initial content using ResultsPage.getContent()
       const initialContent = await resultsPage.getContent();

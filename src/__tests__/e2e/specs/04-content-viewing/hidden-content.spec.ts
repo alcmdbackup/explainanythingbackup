@@ -40,6 +40,23 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
+    // Get or create a test topic (required NOT NULL field)
+    const { data: topic, error: topicError } = await serviceClient
+      .from('topics')
+      .upsert(
+        {
+          topic_title: 'test-e2e-topic',
+          topic_description: 'Topic for E2E tests',
+        },
+        { onConflict: 'topic_title' }
+      )
+      .select('id')
+      .single();
+
+    if (topicError || !topic?.id) {
+      throw new Error(`Failed to get or create test topic: ${topicError?.message}`);
+    }
+
     // Create a hidden test explanation
     const { data, error } = await serviceClient
       .from('explanations')
@@ -48,6 +65,7 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
+        primary_topic_id: topic.id,
       })
       .select('id')
       .single();

@@ -54,7 +54,7 @@ export class UserLibraryPage extends BasePage {
         this.page.locator('[data-testid="feed-card"]').waitFor({ state: 'visible', timeout }).then(() => 'cards' as const),
         this.page.locator('[data-testid="library-error"]').waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
         this.page.locator('[data-testid="library-empty-state"]').waitFor({ state: 'visible', timeout }).then(() => 'empty' as const),
-        this.page.locator('main h1').waitFor({ state: 'visible', timeout }).then(() => 'title' as const),
+        this.page.locator('main header h1').waitFor({ state: 'visible', timeout }).then(() => 'title' as const),
       ]);
       return result;
     } catch {
@@ -107,7 +107,7 @@ export class UserLibraryPage extends BasePage {
   }
 
   async getPageTitle() {
-    return await this.page.locator('main h1').textContent();
+    return await this.page.locator('main header h1').textContent();
   }
 
   async hasSearchBar() {
