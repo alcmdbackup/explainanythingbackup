@@ -161,6 +161,68 @@ describe('serializeState / deserializeState', () => {
   });
 });
 
+describe('treeSearchResults / treeSearchStates serialization', () => {
+  it('round-trips treeSearchResults and treeSearchStates', () => {
+    const state = new PipelineStateImpl('test');
+    state.treeSearchResults = [{
+      bestLeafNodeId: 'leaf-1',
+      bestVariantId: 'v-leaf',
+      revisionPath: [{ type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' }],
+      treeSize: 5,
+      maxDepth: 2,
+      prunedBranches: 3,
+    }];
+    state.treeSearchStates = [{
+      rootNodeId: 'root-1',
+      nodes: {
+        'root-1': {
+          id: 'root-1', variantId: 'v-root', parentNodeId: null,
+          childNodeIds: ['leaf-1'], depth: 0,
+          revisionAction: { type: 'edit_dimension', description: 'root' },
+          value: 0, pruned: false,
+        },
+        'leaf-1': {
+          id: 'leaf-1', variantId: 'v-leaf', parentNodeId: 'root-1',
+          childNodeIds: [], depth: 1,
+          revisionAction: { type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' },
+          value: 1, pruned: false,
+        },
+      },
+    }];
+
+    const serialized = serializeState(state);
+    expect(serialized.treeSearchResults).toHaveLength(1);
+    expect(serialized.treeSearchStates).toHaveLength(1);
+
+    const restored = deserializeState(serialized);
+    expect(restored.treeSearchResults).toHaveLength(1);
+    expect(restored.treeSearchResults![0].bestLeafNodeId).toBe('leaf-1');
+    expect(restored.treeSearchResults![0].revisionPath[0].type).toBe('edit_dimension');
+    expect(restored.treeSearchStates).toHaveLength(1);
+    expect(restored.treeSearchStates![0].nodes['leaf-1'].value).toBe(1);
+    expect(restored.treeSearchStates![0].nodes['root-1'].childNodeIds).toEqual(['leaf-1']);
+  });
+
+  it('deserializes missing treeSearchResults as null (backward compat)', () => {
+    const snapshot = serializeState(new PipelineStateImpl('test'));
+    const legacy = { ...snapshot } as Record<string, unknown>;
+    delete legacy.treeSearchResults;
+    delete legacy.treeSearchStates;
+    const restored = deserializeState(legacy as never);
+    expect(restored.treeSearchResults).toBeNull();
+    expect(restored.treeSearchStates).toBeNull();
+  });
+
+  it('preserves null treeSearchResults through round-trip', () => {
+    const state = new PipelineStateImpl('test');
+    expect(state.treeSearchResults).toBeNull();
+    const serialized = serializeState(state);
+    const restored = deserializeState(serialized);
+    expect(restored.treeSearchResults).toBeNull();
+    expect(restored.treeSearchStates).toBeNull();
+  });
+});
+
 describe('backward compat: eloRatings deserialization', () => {
   it('converts old eloRatings snapshot to new ratings format', () => {
     const snapshot: SerializedPipelineState = {

@@ -17,8 +17,11 @@ export type GenerationStrategy = (typeof GENERATION_STRATEGIES)[number];
 export interface PhaseConfig {
   phase: PipelinePhase;
   runGeneration: boolean;
+  runOutlineGeneration: boolean;
   runReflection: boolean;
   runIterativeEditing: boolean;
+  runTreeSearch: boolean;
+  runSectionDecomposition: boolean;
   runDebate: boolean;
   runEvolution: boolean;
   runCalibration: boolean;
@@ -44,6 +47,7 @@ export interface SupervisorConfig {
   expansionMinPool: number;
   expansionDiversityThreshold: number;
   expansionMaxIterations: number;
+  singleArticle: boolean;
 }
 
 export function supervisorConfigFromRunConfig(cfg: EvolutionRunConfig): SupervisorConfig {
@@ -55,6 +59,7 @@ export function supervisorConfigFromRunConfig(cfg: EvolutionRunConfig): Supervis
     expansionMinPool: cfg.expansion.minPool,
     expansionDiversityThreshold: cfg.expansion.diversityThreshold,
     expansionMaxIterations: cfg.expansion.maxIterations,
+    singleArticle: cfg.singleArticle ?? false,
   };
 }
 
@@ -73,15 +78,18 @@ export class PoolSupervisor {
     if (expansionDiversityThreshold < 0 || expansionDiversityThreshold > 1) {
       throw new Error(`expansionDiversityThreshold must be in [0,1], got ${expansionDiversityThreshold}`);
     }
-    if (expansionMinPool < 5) {
-      throw new Error(`expansionMinPool must be >= 5, got ${expansionMinPool}`);
-    }
-    if (maxIterations <= expansionMaxIterations) {
-      throw new Error(`maxIterations (${maxIterations}) must be > expansionMaxIterations (${expansionMaxIterations})`);
-    }
-    const minViable = expansionMaxIterations + plateauWindow + 1;
-    if (maxIterations < minViable) {
-      throw new Error(`maxIterations (${maxIterations}) must be >= ${minViable}`);
+    // Skip pool/iteration guards when expansion is disabled (single-article mode)
+    if (expansionMaxIterations > 0) {
+      if (expansionMinPool < 5) {
+        throw new Error(`expansionMinPool must be >= 5, got ${expansionMinPool}`);
+      }
+      if (maxIterations <= expansionMaxIterations) {
+        throw new Error(`maxIterations (${maxIterations}) must be > expansionMaxIterations (${expansionMaxIterations})`);
+      }
+      const minViable = expansionMaxIterations + plateauWindow + 1;
+      if (maxIterations < minViable) {
+        throw new Error(`maxIterations (${maxIterations}) must be >= ${minViable}`);
+      }
     }
   }
 
@@ -158,8 +166,11 @@ export class PoolSupervisor {
       return {
         phase: 'EXPANSION',
         runGeneration: true,
+        runOutlineGeneration: false,
         runReflection: false,
         runIterativeEditing: false,
+        runTreeSearch: false,
+        runSectionDecomposition: false,
         runDebate: false,
         runEvolution: false,
         runCalibration: true,
@@ -171,14 +182,20 @@ export class PoolSupervisor {
     }
 
     // COMPETITION
+    // TODO: generationPayload.strategies is currently ignored by GenerationAgent,
+    // which always uses all 3 strategies. Wire this into GenerationAgent or remove
+    // the rotation logic to avoid dead code path.
     const currentStrategy = GENERATION_STRATEGIES[this._strategyRotationIndex];
     return {
       phase: 'COMPETITION',
-      runGeneration: true,
+      runGeneration: !this.cfg.singleArticle,
+      runOutlineGeneration: !this.cfg.singleArticle,
       runReflection: true,
       runIterativeEditing: true,
+      runTreeSearch: true,
+      runSectionDecomposition: true,
       runDebate: true,
-      runEvolution: true,
+      runEvolution: !this.cfg.singleArticle,
       runCalibration: true,
       runProximity: true,
       runMetaReview: true,

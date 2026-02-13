@@ -27,6 +27,11 @@ export interface OneshotResult {
   durationMs: number;
 }
 
+export interface OutlineOneshotResult extends OneshotResult {
+  outline: string;
+  steps: Array<{ name: string; score: number; costUsd: number }>;
+}
+
 // ─── Supabase Helper ──────────────────────────────────────────────
 
 /** Create a Supabase service-role client from env vars. Returns null if vars missing. */
@@ -206,6 +211,118 @@ export async function generateOneshotArticle(
     totalCostUsd: totalCost,
     promptTokens: titleResult.promptTokens + articleResult.promptTokens,
     completionTokens: titleResult.completionTokens + articleResult.completionTokens,
+    durationMs,
+  };
+}
+
+// ─── Outline Oneshot Generation ──────────────────────────────────
+
+/** Generate an article via outline → expand → polish pipeline (no evolution). */
+export async function generateOutlineOneshotArticle(
+  prompt: string,
+  model: string,
+  supabase: SupabaseClient | null,
+): Promise<OutlineOneshotResult> {
+  const callSource = `oneshot_outline_${model}`;
+  const startTime = Date.now();
+  let totalPromptTokens = 0;
+  let totalCompletionTokens = 0;
+  let totalCost = 0;
+  const isAnthropic = model.startsWith('claude-');
+  const finishReason = isAnthropic ? 'end_turn' : 'stop';
+  const provider = isAnthropic ? 'anthropic' : 'openai';
+  const steps: Array<{ name: string; score: number; costUsd: number }> = [];
+
+  // Helper to make an LLM call and track it
+  async function trackedCall(promptText: string, system?: string): Promise<LLMCallResult> {
+    const result = await callLLM(promptText, model, system);
+    const cost = calculateLLMCost(result.model, result.promptTokens, result.completionTokens, 0);
+    totalPromptTokens += result.promptTokens;
+    totalCompletionTokens += result.completionTokens;
+    totalCost += cost;
+    await trackLLMCall(supabase, {
+      prompt: promptText,
+      content: result.content,
+      callSource,
+      model: result.model,
+      promptTokens: result.promptTokens,
+      completionTokens: result.completionTokens,
+      costUsd: cost,
+      rawResponse: JSON.stringify({ provider, model: result.model }),
+      finishReason,
+    });
+    return result;
+  }
+
+  // Step 1: Generate title
+  const titlePromptText = createTitlePrompt(prompt);
+  const titleResult = await trackedCall(
+    titlePromptText,
+    'You are a helpful assistant. Please provide your response in JSON format.',
+  );
+  let title: string;
+  try {
+    const parsed = titleQuerySchema.parse(JSON.parse(titleResult.content));
+    title = parsed.title1;
+  } catch {
+    title = titleResult.content.replace(/["\n]/g, '').trim().slice(0, 200);
+  }
+
+  // Step 2: Outline
+  const outlinePrompt = `You are a writing expert. Create a detailed section outline for an explanatory article about: ${title}
+
+Each section should have a heading and 1-2 sentence summary of what it covers. Format as markdown headings (## Section Title) followed by the summary.
+
+Output ONLY the outline, no additional commentary.`;
+  const outlineResult = await trackedCall(outlinePrompt);
+  const outlineCost = calculateLLMCost(outlineResult.model, outlineResult.promptTokens, outlineResult.completionTokens, 0);
+  steps.push({ name: 'outline', score: 1, costUsd: outlineCost });
+
+  // Step 3: Expand
+  const expandPrompt = `You are a writing expert. Expand this outline into a full, detailed explanatory article.
+
+## Outline
+${outlineResult.content}
+
+## Instructions
+- Expand each section into rich, detailed prose with examples and explanations
+- Maintain the section structure from the outline
+- Write for an educated general audience
+- Include concrete examples and analogies where helpful
+
+Output ONLY the expanded article text, no additional commentary.`;
+  const expandResult = await trackedCall(expandPrompt);
+  const expandCost = calculateLLMCost(expandResult.model, expandResult.promptTokens, expandResult.completionTokens, 0);
+  steps.push({ name: 'expand', score: 1, costUsd: expandCost });
+
+  // Step 4: Polish
+  const polishPrompt = `You are a writing expert. Polish and improve this explanatory article for readability and flow.
+
+## Article
+${expandResult.content}
+
+## Instructions
+- Improve transitions between sections
+- Ensure consistent tone and style throughout
+- Fix any awkward phrasing or redundancy
+- Ensure the article flows naturally from introduction to conclusion
+
+Output ONLY the polished article text, no additional commentary.`;
+  const polishResult = await trackedCall(polishPrompt);
+  const polishCost = calculateLLMCost(polishResult.model, polishResult.promptTokens, polishResult.completionTokens, 0);
+  steps.push({ name: 'polish', score: 1, costUsd: polishCost });
+
+  const durationMs = Date.now() - startTime;
+
+  return {
+    title,
+    content: `# ${title}\n\n${polishResult.content}`,
+    outline: outlineResult.content,
+    steps,
+    model,
+    totalCostUsd: totalCost,
+    promptTokens: totalPromptTokens,
+    completionTokens: totalCompletionTokens,
     durationMs,
   };
 }

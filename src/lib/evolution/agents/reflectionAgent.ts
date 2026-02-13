@@ -4,16 +4,13 @@
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique } from '../types';
 import { BudgetExceededError } from '../types';
+import { extractJSON } from '../core/jsonParser';
+import { QUALITY_DIMENSIONS } from '../flowRubric';
 
-export const CRITIQUE_DIMENSIONS = [
-  'clarity',
-  'structure',
-  'engagement',
-  'precision',
-  'coherence',
-] as const;
+/** @deprecated Use QUALITY_DIMENSIONS from flowRubric.ts instead. */
+export const CRITIQUE_DIMENSIONS = Object.keys(QUALITY_DIMENSIONS);
 
-export type CritiqueDimension = (typeof CRITIQUE_DIMENSIONS)[number];
+export type CritiqueDimension = string;
 
 /** Build the LLM prompt for dimensional critique. */
 function buildCritiquePrompt(text: string, dimensions: readonly string[]): string {
@@ -64,11 +61,8 @@ interface CritiqueResponse {
 /** Parse LLM response into Critique. Handles JSON wrapped in markdown fences. */
 function parseCritiqueResponse(response: string, variationId: string): Critique | null {
   try {
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-
-    const data: CritiqueResponse = JSON.parse(jsonMatch[0]);
-    if (!data.scores || typeof data.scores !== 'object') return null;
+    const data = extractJSON<CritiqueResponse>(response);
+    if (!data || !data.scores || typeof data.scores !== 'object') return null;
 
     // Normalize examples to arrays
     const toArrayRecord = (
@@ -101,7 +95,7 @@ export class ReflectionAgent extends AgentBase {
 
   constructor(dimensions?: readonly string[]) {
     super();
-    this.dimensions = dimensions ?? CRITIQUE_DIMENSIONS;
+    this.dimensions = dimensions ?? Object.keys(QUALITY_DIMENSIONS);
   }
 
   async execute(ctx: ExecutionContext): Promise<AgentResult> {

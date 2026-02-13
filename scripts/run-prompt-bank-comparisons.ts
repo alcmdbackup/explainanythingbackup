@@ -1,5 +1,5 @@
-// Batch comparison script for the prompt bank — runs pairwise comparisons for all
-// prompt bank topics with multiple rounds. Reuses existing comparison logic.
+// Batch comparison script for the Hall of Fame prompt bank — runs pairwise comparisons for all
+// topics with multiple rounds. Reuses existing comparison logic.
 
 import dotenv from 'dotenv';
 import path from 'path';
@@ -159,7 +159,7 @@ async function main() {
 
   for (const p of prompts) {
     const { data: topic } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .select('id')
       .ilike('prompt', p.prompt.trim().toLowerCase())
       .is('deleted_at', null)
@@ -171,7 +171,7 @@ async function main() {
     }
 
     const { count } = await supabase
-      .from('article_bank_entries')
+      .from('hall_of_fame_entries')
       .select('id', { count: 'exact', head: true })
       .eq('topic_id', topic.id)
       .is('deleted_at', null);
@@ -206,7 +206,7 @@ async function main() {
 
     // Fetch entries
     const { data: entries } = await supabase
-      .from('article_bank_entries')
+      .from('hall_of_fame_entries')
       .select('id, content, generation_method, model, total_cost_usd, metadata')
       .eq('topic_id', tm.topicId)
       .is('deleted_at', null);
@@ -215,7 +215,7 @@ async function main() {
 
     // Fetch current Elo
     const { data: eloRows } = await supabase
-      .from('article_bank_elo')
+      .from('hall_of_fame_elo')
       .select('entry_id, elo_rating, match_count')
       .eq('topic_id', tm.topicId);
 
@@ -245,7 +245,7 @@ async function main() {
           if (result.winner === 'A') winnerId = a.id;
           else if (result.winner === 'B') winnerId = b.id;
 
-          await supabase.from('article_bank_comparisons').insert({
+          await supabase.from('hall_of_fame_comparisons').insert({
             topic_id: tm.topicId,
             entry_a_id: a.id,
             entry_b_id: b.id,
@@ -277,7 +277,7 @@ async function main() {
     const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
     for (const [entryId, elo] of eloMap) {
       const cost = costMap.get(entryId) ?? null;
-      await supabase.from('article_bank_elo').upsert({
+      await supabase.from('hall_of_fame_elo').upsert({
         topic_id: tm.topicId,
         entry_id: entryId,
         elo_rating: Math.round(elo.rating * 100) / 100,

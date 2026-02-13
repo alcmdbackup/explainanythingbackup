@@ -144,7 +144,7 @@ detect-changes → typecheck + lint (parallel)
 
 ### Evolution Batch Runner (`evolution-batch.yml`)
 
-**Trigger:** Manual dispatch or scheduled (when configured)
+**Trigger:** Manual dispatch or scheduled (when configured). See [Evolution Reference — CLI Commands](../evolution/reference.md#cli-commands).
 
 **Behavior:**
 - Runs the evolution pipeline batch runner against pending evolution runs

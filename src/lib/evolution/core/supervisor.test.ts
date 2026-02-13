@@ -150,6 +150,8 @@ describe('PoolSupervisor', () => {
       expect(config.runEvolution).toBe(false);
       expect(config.runReflection).toBe(false);
       expect(config.runIterativeEditing).toBe(false);
+      expect(config.runTreeSearch).toBe(false);
+      expect(config.runSectionDecomposition).toBe(false);
       expect(config.runDebate).toBe(false);
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(3);
     });
@@ -175,6 +177,8 @@ describe('PoolSupervisor', () => {
       expect(config.runEvolution).toBe(true);
       expect(config.runReflection).toBe(true);
       expect(config.runIterativeEditing).toBe(true);
+      expect(config.runTreeSearch).toBe(true);
+      expect(config.runSectionDecomposition).toBe(true);
       expect(config.runDebate).toBe(true);
       expect(config.runMetaReview).toBe(true);
       expect(config.calibrationPayload.opponentsPerEntrant).toBe(5);
@@ -284,6 +288,107 @@ describe('PoolSupervisor', () => {
     });
     it('rejects maxIterations <= expansionMaxIterations', () => {
       expect(() => new PoolSupervisor(makeConfig({ maxIterations: 5, expansionMaxIterations: 5 }))).toThrow();
+    });
+  });
+
+  describe('singleArticle mode', () => {
+    function makeSingleConfig(overrides: Partial<ReturnType<typeof supervisorConfigFromRunConfig>> = {}) {
+      return makeConfig({
+        singleArticle: true,
+        expansionMaxIterations: 0,
+        expansionMinPool: 1,
+        maxIterations: 3,
+        plateauWindow: 2,
+        plateauThreshold: 0.02,
+        ...overrides,
+      });
+    }
+
+    it('accepts expansionMinPool < 5 when expansionMaxIterations is 0', () => {
+      expect(() => new PoolSupervisor(makeSingleConfig({ expansionMinPool: 1 }))).not.toThrow();
+    });
+
+    it('still rejects expansionMinPool < 5 when expansionMaxIterations > 0', () => {
+      expect(() => new PoolSupervisor(makeConfig({ expansionMinPool: 3, expansionMaxIterations: 5 }))).toThrow();
+    });
+
+    it('accepts maxIterations: 1 when expansionMaxIterations is 0', () => {
+      expect(() => new PoolSupervisor(makeSingleConfig({ maxIterations: 1 }))).not.toThrow();
+    });
+
+    it('still rejects maxIterations <= expansionMaxIterations when expansion enabled', () => {
+      expect(() => new PoolSupervisor(makeConfig({ maxIterations: 2, expansionMaxIterations: 3 }))).toThrow();
+    });
+
+    it('detectPhase returns COMPETITION immediately when expansionMaxIterations is 0', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      expect(supervisor.detectPhase(state)).toBe('COMPETITION');
+    });
+
+    it('getPhaseConfig disables generation, outlineGeneration, and evolution', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      expect(config.phase).toBe('COMPETITION');
+      expect(config.runGeneration).toBe(false);
+      expect(config.runOutlineGeneration).toBe(false);
+      expect(config.runEvolution).toBe(false);
+    });
+
+    it('getPhaseConfig keeps improvement agents enabled', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      expect(config.runReflection).toBe(true);
+      expect(config.runIterativeEditing).toBe(true);
+      expect(config.runTreeSearch).toBe(true);
+      expect(config.runSectionDecomposition).toBe(true);
+      expect(config.runCalibration).toBe(true);
+      expect(config.runDebate).toBe(true);
+      expect(config.runProximity).toBe(true);
+      expect(config.runMetaReview).toBe(true);
+    });
+
+    it('getPhaseConfig with singleArticle false keeps all COMPETITION flags true', () => {
+      const cfg = makeConfig({ expansionMaxIterations: 1, singleArticle: false });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      expect(config.runGeneration).toBe(true);
+      expect(config.runOutlineGeneration).toBe(true);
+      expect(config.runEvolution).toBe(true);
+    });
+
+    it('shouldStop works with plateauWindow: 2 and maxIterations: 3', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
+
+      supervisor.beginIteration(state);
+      const [stop1] = supervisor.shouldStop(state, 10);
+      expect(stop1).toBe(false);
+    });
+
+    it('does not plateau after 1 data point with plateauWindow: 2', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
+
+      supervisor.beginIteration(state);
+      supervisor.shouldStop(state, 10); // records 1 data point
+
+      state.iteration = 1;
+      supervisor.beginIteration(state);
+      const [stop] = supervisor.shouldStop(state, 10); // 2nd data point — plateau check now has window
+      // With 2 data points of same value, improvement = 0, but plateau needs window=2 to trigger
+      expect(stop).toBe(true); // 2 data points, 0 improvement
     });
   });
 });

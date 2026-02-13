@@ -2,7 +2,10 @@
 
 import {
   getEvolutionRunTimelineAction,
+  getEvolutionRunBudgetAction,
+  buildVariantsFromCheckpoint,
   type TimelineData,
+  type BudgetData,
 } from './evolutionVisualizationActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -62,6 +65,7 @@ function createSnapshot(opts: {
   pool?: TextVariation[];
   eloRatings?: Record<string, number>;
   matchHistory?: Match[];
+  matchCounts?: Record<string, number>;
   allCritiques?: null;
   debateTranscripts?: [];
   diversityScore?: number | null;
@@ -75,7 +79,7 @@ function createSnapshot(opts: {
     newEntrantsThisIteration: [],
     ratings: opts.ratings ?? {},
     eloRatings: opts.eloRatings ?? {},
-    matchCounts: {},
+    matchCounts: opts.matchCounts ?? {},
     matchHistory: opts.matchHistory ?? [],
     dimensionScores: null,
     allCritiques: opts.allCritiques ?? null,
@@ -409,5 +413,275 @@ describe('getEvolutionRunTimelineAction', () => {
 
     expect(result.success).toBe(true);
     expect(result.data!.iterations).toHaveLength(0);
+  });
+});
+
+describe('getEvolutionRunBudgetAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns estimate and prediction when present on run row', async () => {
+    const mock = createChainMock();
+    const mockEstimate = {
+      totalUsd: 1.50,
+      perAgent: { generation: 0.8, calibration: 0.4, evolution: 0.3 },
+      perIteration: 0.5,
+      confidence: 'high' as const,
+    };
+    const mockPrediction = {
+      estimatedUsd: 1.50,
+      actualUsd: 1.35,
+      deltaUsd: -0.15,
+      deltaPercent: -10,
+      confidence: 'high' as const,
+      perAgent: {
+        generation: { estimated: 0.8, actual: 0.7 },
+        calibration: { estimated: 0.4, actual: 0.35 },
+        evolution: { estimated: 0.3, actual: 0.3 },
+      },
+    };
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: '2026-01-01T01:00:00Z',
+        budget_cap_usd: 5,
+        cost_estimate_detail: mockEstimate,
+        cost_prediction: mockPrediction,
+      },
+      error: null,
+    });
+
+    // Terminal for LLM calls query (lte)
+    mock.lte.mockResolvedValue({
+      data: [
+        { call_source: 'evolution_generation', estimated_cost_usd: 0.7, created_at: '2026-01-01T00:01:00Z' },
+        { call_source: 'evolution_calibration', estimated_cost_usd: 0.35, created_at: '2026-01-01T00:02:00Z' },
+      ],
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.estimate).toEqual(mockEstimate);
+    expect(result.data!.prediction).toEqual(mockPrediction);
+    expect(result.data!.agentBreakdown).toHaveLength(2);
+    expect(result.data!.cumulativeBurn).toHaveLength(2);
+  });
+
+  it('returns null estimate and prediction when not present', async () => {
+    const mock = createChainMock();
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: '2026-01-01T01:00:00Z',
+        budget_cap_usd: 5,
+        cost_estimate_detail: null,
+        cost_prediction: null,
+      },
+      error: null,
+    });
+
+    mock.lte.mockResolvedValue({ data: [], error: null });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.estimate).toBeNull();
+    expect(result.data!.prediction).toBeNull();
+    expect(result.data!.agentBreakdown).toHaveLength(0);
+    expect(result.data!.cumulativeBurn).toHaveLength(0);
+  });
+
+  it('rejects invalid run ID', async () => {
+    const result = await getEvolutionRunBudgetAction('not-a-uuid');
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('Invalid run ID');
+  });
+});
+
+// ─── buildVariantsFromCheckpoint ─────────────────────────────────
+
+describe('buildVariantsFromCheckpoint', () => {
+  const RUN_ID = '550e8400-e29b-41d4-a716-446655440000';
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('maps checkpoint pool to EvolutionVariant shape correctly', async () => {
+    const mock = createChainMock();
+    const now = 1700000000000;
+    const variant: TextVariation = {
+      id: 'v-1',
+      text: 'Hello world',
+      version: 2,
+      parentIds: [],
+      strategy: 'evolution',
+      createdAt: now,
+      iterationBorn: 1,
+    };
+
+    const snapshot = createSnapshot({
+      pool: [variant],
+      ratings: { 'v-1': { mu: 28, sigma: 4 } },
+      matchCounts: { 'v-1': 5 },
+    });
+
+    mock.maybeSingle.mockResolvedValueOnce({
+      data: { state_snapshot: snapshot },
+      error: null,
+    });
+    mock.single.mockResolvedValueOnce({
+      data: { explanation_id: 42 },
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await buildVariantsFromCheckpoint(RUN_ID);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(1);
+    const v = result.data![0];
+    expect(v.id).toBe('v-1');
+    expect(v.run_id).toBe(RUN_ID);
+    expect(v.explanation_id).toBe(42);
+    expect(v.variant_content).toBe('Hello world');
+    expect(v.generation).toBe(2);
+    expect(v.agent_name).toBe('evolution');
+    expect(v.match_count).toBe(5);
+    expect(v.is_winner).toBe(false);
+    expect(v.elo_score).toBeGreaterThan(1200); // mu 28 with sigma 4 → ordinal > 0
+    expect(v.created_at).toBe(new Date(now).toISOString());
+  });
+
+  it('handles legacy eloRatings format', async () => {
+    const mock = createChainMock();
+    const variant = createVariant('v-legacy', 0);
+    const snapshot = createSnapshot({
+      pool: [variant],
+      eloRatings: { 'v-legacy': 1350 },
+    });
+
+    mock.maybeSingle.mockResolvedValueOnce({
+      data: { state_snapshot: snapshot },
+      error: null,
+    });
+    mock.single.mockResolvedValueOnce({
+      data: { explanation_id: null },
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await buildVariantsFromCheckpoint(RUN_ID);
+
+    expect(result.success).toBe(true);
+    expect(result.data![0].elo_score).toBe(1350);
+  });
+
+  it('returns empty array when no checkpoint exists', async () => {
+    const mock = createChainMock();
+
+    mock.maybeSingle.mockResolvedValueOnce({
+      data: null,
+      error: null,
+    });
+    mock.single.mockResolvedValueOnce({
+      data: { explanation_id: 1 },
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await buildVariantsFromCheckpoint(RUN_ID);
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+  });
+
+  it('sorts by elo_score descending', async () => {
+    const mock = createChainMock();
+    const vA = createVariant('v-a', 0);
+    const vB = createVariant('v-b', 0);
+    const snapshot = createSnapshot({
+      pool: [vA, vB],
+      eloRatings: { 'v-a': 1100, 'v-b': 1400 },
+    });
+
+    mock.maybeSingle.mockResolvedValueOnce({
+      data: { state_snapshot: snapshot },
+      error: null,
+    });
+    mock.single.mockResolvedValueOnce({
+      data: { explanation_id: null },
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await buildVariantsFromCheckpoint(RUN_ID);
+
+    expect(result.success).toBe(true);
+    expect(result.data![0].elo_score).toBe(1400);
+    expect(result.data![1].elo_score).toBe(1100);
+  });
+
+  it('sets is_winner: false for all variants', async () => {
+    const mock = createChainMock();
+    const vA = createVariant('v-a', 0);
+    const vB = createVariant('v-b', 0);
+    const snapshot = createSnapshot({ pool: [vA, vB] });
+
+    mock.maybeSingle.mockResolvedValueOnce({
+      data: { state_snapshot: snapshot },
+      error: null,
+    });
+    mock.single.mockResolvedValueOnce({
+      data: { explanation_id: null },
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await buildVariantsFromCheckpoint(RUN_ID);
+
+    expect(result.success).toBe(true);
+    for (const v of result.data!) {
+      expect(v.is_winner).toBe(false);
+    }
+  });
+
+  it('handles missing matchCounts and ratings gracefully (defaults to 0 / 1200)', async () => {
+    const mock = createChainMock();
+    const variant = createVariant('v-no-data', 0);
+    // Snapshot with empty ratings and matchCounts
+    const snapshot = createSnapshot({ pool: [variant] });
+
+    mock.maybeSingle.mockResolvedValueOnce({
+      data: { state_snapshot: snapshot },
+      error: null,
+    });
+    mock.single.mockResolvedValueOnce({
+      data: { explanation_id: null },
+      error: null,
+    });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await buildVariantsFromCheckpoint(RUN_ID);
+
+    expect(result.success).toBe(true);
+    expect(result.data![0].elo_score).toBe(1200);
+    expect(result.data![0].match_count).toBe(0);
   });
 });

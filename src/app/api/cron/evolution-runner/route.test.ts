@@ -20,43 +20,93 @@ jest.mock('@/lib/evolution/core/featureFlags', () => ({
   fetchEvolutionFeatureFlags: jest.fn(),
 }));
 
-jest.mock('@/lib/evolution', () => ({
-  PipelineStateImpl: jest.fn().mockImplementation(() => ({
-    pool: [],
-    iteration: 0,
-    originalText: 'test',
-  })),
+const mockEvolutionLogger = {
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  debug: jest.fn(),
+};
+
+const mockAgents = {
+  generation: {},
+  calibration: {},
+  tournament: {},
+  evolution: {},
+  reflection: {},
+  iterativeEditing: {},
+  debate: {},
+  proximity: {},
+  metaReview: {},
+  outlineGeneration: {},
+  treeSearch: {},
+  sectionDecomposition: {},
+};
+
+jest.mock('@/lib/evolution/core/seedArticle', () => ({
+  generateSeedArticle: jest.fn().mockResolvedValue({
+    title: 'Generated Title',
+    content: '# Generated Title\n\nGenerated content...',
+  }),
+}));
+
+jest.mock('@/lib/evolution/core/costTracker', () => ({
   createCostTracker: jest.fn().mockReturnValue({
     getTotalSpent: jest.fn().mockReturnValue(0),
     getAvailableBudget: jest.fn().mockReturnValue(5),
+    reserveBudget: jest.fn(),
+    recordSpend: jest.fn(),
+    getAgentCost: jest.fn().mockReturnValue(0),
+    getAllAgentCosts: jest.fn().mockReturnValue({}),
   }),
+}));
+
+jest.mock('@/lib/evolution/core/logger', () => ({
   createEvolutionLogger: jest.fn().mockReturnValue({
     info: jest.fn(),
     warn: jest.fn(),
     error: jest.fn(),
     debug: jest.fn(),
   }),
-  createEvolutionLLMClient: jest.fn(),
+}));
+
+jest.mock('@/lib/evolution/config', () => ({
+  resolveConfig: jest.fn().mockReturnValue({ budgetCapUsd: 5 }),
+}));
+
+jest.mock('@/lib/evolution', () => ({
   executeFullPipeline: jest.fn(),
-  resolveConfig: jest.fn().mockReturnValue({}),
-  GenerationAgent: jest.fn(),
-  CalibrationRanker: jest.fn(),
-  Tournament: jest.fn(),
-  EvolutionAgent: jest.fn(),
-  ReflectionAgent: jest.fn(),
-  IterativeEditingAgent: jest.fn(),
-  DebateAgent: jest.fn(),
-  ProximityAgent: jest.fn(),
-  MetaReviewAgent: jest.fn(),
+  createEvolutionLLMClient: jest.fn().mockReturnValue({
+    complete: jest.fn(),
+    completeStructured: jest.fn(),
+  }),
+  preparePipelineRun: jest.fn().mockReturnValue({
+    ctx: {
+      logger: mockEvolutionLogger,
+      state: { pool: [], iteration: 0, originalText: 'test' },
+      costTracker: {
+        getTotalSpent: jest.fn().mockReturnValue(0),
+        getAvailableBudget: jest.fn().mockReturnValue(5),
+      },
+    },
+    agents: mockAgents,
+    config: {},
+    costTracker: {
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn().mockReturnValue(5),
+    },
+    logger: mockEvolutionLogger,
+  }),
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { fetchEvolutionFeatureFlags } from '@/lib/evolution/core/featureFlags';
 import { executeFullPipeline } from '@/lib/evolution';
+import { generateSeedArticle } from '@/lib/evolution/core/seedArticle';
 
 const mockCreateSupabaseServiceClient = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;
 const mockFetchFeatureFlags = fetchEvolutionFeatureFlags as jest.MockedFunction<typeof fetchEvolutionFeatureFlags>;
 const mockExecuteFullPipeline = executeFullPipeline as jest.MockedFunction<typeof executeFullPipeline>;
+const mockGenerateSeedArticle = generateSeedArticle as jest.MockedFunction<typeof generateSeedArticle>;
 
 describe('Evolution Runner Cron API', () => {
   const originalEnv = process.env;
@@ -247,7 +297,7 @@ describe('Evolution Runner Cron API', () => {
       expect(mockExecuteFullPipeline).toHaveBeenCalled();
     });
 
-    it('passes all 9 agents to executeFullPipeline', async () => {
+    it('passes all 10 agents to executeFullPipeline', async () => {
       const mockSupabase = createMockSupabase();
       mockSupabase.from().maybeSingle
         .mockResolvedValueOnce({
@@ -281,6 +331,7 @@ describe('Evolution Runner Cron API', () => {
           debate: expect.anything(),
           proximity: expect.anything(),
           metaReview: expect.anything(),
+          outlineGeneration: expect.anything(),
         }),
         expect.anything(), // ctx
         expect.anything(), // evolutionLogger
@@ -365,6 +416,115 @@ describe('Evolution Runner Cron API', () => {
 
       expect(response.status).toBe(404);
       expect(data.message).toBe('Explanation not found');
+    });
+  });
+
+  describe('Prompt-based runs', () => {
+    it('generates seed article when explanation_id is null but prompt_id is set', async () => {
+      const mockSupabase = createMockSupabase();
+      // Find pending run with null explanation_id + prompt_id
+      mockSupabase.from().maybeSingle
+        .mockResolvedValueOnce({
+          data: { id: 'run-prompt', explanation_id: null, config: {}, budget_cap_usd: 5, prompt_id: 'topic-1' },
+          error: null,
+        })
+        // Claim succeeds
+        .mockResolvedValueOnce({ data: { id: 'run-prompt' }, error: null });
+
+      // Fetch prompt text from hall_of_fame_topics
+      mockSupabase.from().single.mockResolvedValue({
+        data: { prompt: 'Explain quantum computing' },
+        error: null,
+      });
+
+      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
+      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: true } as never);
+      mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
+
+      const request = createMockRequest('Bearer test-secret');
+      const response = await GET(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(data.status).toBe('ok');
+      expect(data.message).toBe('Run completed');
+      expect(mockGenerateSeedArticle).toHaveBeenCalled();
+      expect(mockExecuteFullPipeline).toHaveBeenCalled();
+    });
+
+    it('marks run failed when explanation_id is null and prompt_id is null', async () => {
+      const mockSupabase = createMockSupabase();
+      // Find pending run with null explanation_id + null prompt_id
+      mockSupabase.from().maybeSingle
+        .mockResolvedValueOnce({
+          data: { id: 'run-bad', explanation_id: null, config: {}, budget_cap_usd: 5, prompt_id: null },
+          error: null,
+        })
+        // Claim succeeds
+        .mockResolvedValueOnce({ data: { id: 'run-bad' }, error: null });
+
+      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
+      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: true } as never);
+
+      const request = createMockRequest('Bearer test-secret');
+      const response = await GET(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.message).toBe('Run has no explanation_id and no prompt_id');
+      expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
+    });
+
+    it('marks run failed when seed generation throws (claimed → failed, not orphaned)', async () => {
+      const mockSupabase = createMockSupabase();
+      mockSupabase.from().maybeSingle
+        .mockResolvedValueOnce({
+          data: { id: 'run-seed-fail', explanation_id: null, config: {}, budget_cap_usd: 5, prompt_id: 'topic-1' },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { id: 'run-seed-fail' }, error: null });
+
+      // Fetch prompt succeeds
+      mockSupabase.from().single.mockResolvedValue({
+        data: { prompt: 'Explain quantum computing' },
+        error: null,
+      });
+
+      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
+      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: true } as never);
+      mockGenerateSeedArticle.mockRejectedValueOnce(new Error('LLM timeout'));
+
+      const request = createMockRequest('Bearer test-secret');
+      const response = await GET(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(500);
+      expect(data.message).toBe('Content resolution failed');
+      expect(data.error).toContain('LLM timeout');
+      // markRunFailed should have been called (update with status='failed')
+      expect(mockSupabase.from().update).toHaveBeenCalled();
+      expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
+    });
+
+    it('marks run failed when prompt-based evolution is disabled via feature flag', async () => {
+      const mockSupabase = createMockSupabase();
+      mockSupabase.from().maybeSingle
+        .mockResolvedValueOnce({
+          data: { id: 'run-flag-off', explanation_id: null, config: {}, budget_cap_usd: 5, prompt_id: 'topic-1' },
+          error: null,
+        })
+        .mockResolvedValueOnce({ data: { id: 'run-flag-off' }, error: null });
+
+      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
+      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: false } as never);
+
+      const request = createMockRequest('Bearer test-secret');
+      const response = await GET(request);
+      const data = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(data.message).toBe('Prompt-based evolution disabled');
+      expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
     });
   });
 });

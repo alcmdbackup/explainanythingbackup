@@ -15,15 +15,30 @@ export interface EvolutionFeatureFlags {
   debateEnabled: boolean;
   /** Whether the IterativeEditingAgent runs in COMPETITION phase. */
   iterativeEditingEnabled: boolean;
+  /** Whether the OutlineGenerationAgent runs in COMPETITION phase. */
+  outlineGenerationEnabled: boolean;
+  /** Whether the TreeSearchAgent runs in COMPETITION phase (mutually exclusive with iterativeEditing). */
+  treeSearchEnabled: boolean;
+  /** Whether the SectionDecompositionAgent runs in COMPETITION phase. */
+  sectionDecompositionEnabled: boolean;
+  /** Whether flow critique + flow comparison runs as a second pass. */
+  flowCritiqueEnabled: boolean;
+  /** Whether prompt-based evolution runs (null explanation_id) are enabled. */
+  promptBasedEvolutionEnabled: boolean;
 }
 
-/** Safe defaults: agents enabled, dry-run off. */
+/** Safe defaults: agents enabled, dry-run off. Outline generation defaults to off (opt-in). */
 export const DEFAULT_EVOLUTION_FLAGS: EvolutionFeatureFlags = {
   tournamentEnabled: true,
   evolvePoolEnabled: true,
   dryRunOnly: false,
   debateEnabled: true,
   iterativeEditingEnabled: true,
+  outlineGenerationEnabled: false,
+  treeSearchEnabled: false,
+  sectionDecompositionEnabled: true,
+  flowCritiqueEnabled: false,
+  promptBasedEvolutionEnabled: true,
 };
 
 /** Flag name → field mapping. */
@@ -33,6 +48,11 @@ const FLAG_MAP: Record<string, keyof EvolutionFeatureFlags> = {
   evolution_dry_run_only: 'dryRunOnly',
   evolution_debate_enabled: 'debateEnabled',
   evolution_iterative_editing_enabled: 'iterativeEditingEnabled',
+  evolution_outline_generation_enabled: 'outlineGenerationEnabled',
+  evolution_tree_search_enabled: 'treeSearchEnabled',
+  evolution_section_decomposition_enabled: 'sectionDecompositionEnabled',
+  evolution_flow_critique_enabled: 'flowCritiqueEnabled',
+  evolution_prompt_based_enabled: 'promptBasedEvolutionEnabled',
 };
 
 const FLAG_NAMES = Object.keys(FLAG_MAP);
@@ -61,6 +81,11 @@ export async function fetchEvolutionFeatureFlags(
     if (field) {
       flags[field] = row.enabled as boolean;
     }
+  }
+
+  // Mutual exclusivity: treeSearch enabled → iterativeEditing forced off
+  if (flags.treeSearchEnabled) {
+    flags.iterativeEditingEnabled = false;
   }
 
   return flags;

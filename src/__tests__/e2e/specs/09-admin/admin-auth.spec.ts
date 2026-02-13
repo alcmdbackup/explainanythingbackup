@@ -41,13 +41,16 @@ test.describe('Admin Access Control', () => {
    * Verifies non-admin users are redirected away from admin panel.
    * Uses regular TEST_USER (not admin) to verify access control.
    */
-  // FIXME: TEST_USER has admin role in staging DB, so redirect doesn't trigger.
-  // Re-enable once a dedicated non-admin test user exists.
-  test.fixme('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
-    // Try to access admin panel as non-admin user
-    await authenticatedPage.goto('/admin');
+  test('non-admin user is redirected to home page', async ({ authenticatedPage }) => {
+    const baseUrl = process.env.BASE_URL || 'http://localhost:3008';
 
-    // Should be redirected away from admin (server-side redirect in admin layout)
-    await expect(authenticatedPage).not.toHaveURL(/\/admin/, { timeout: 30000 });
+    // Try to access admin panel as non-admin user
+    await authenticatedPage.goto(`${baseUrl}/admin`);
+
+    // Should be redirected to home page
+    await authenticatedPage.waitForURL(`${baseUrl}/`);
+
+    // Verify we're on the home page, not admin
+    await expect(authenticatedPage).not.toHaveURL(/\/admin/);
   });
 });

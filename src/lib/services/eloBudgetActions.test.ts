@@ -15,6 +15,11 @@ import {
 } from './eloBudgetActions';
 import type { StrategyConfig } from '../evolution/core/strategyConfig';
 
+// Mock admin auth
+jest.mock('@/lib/services/adminAuth', () => ({
+  requireAdmin: jest.fn(),
+}));
+
 // Mock Supabase client
 jest.mock('@/lib/utils/supabase/server', () => ({
   createSupabaseServiceClient: jest.fn(),

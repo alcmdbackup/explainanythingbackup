@@ -57,11 +57,6 @@ export function isConverged(r: Rating, threshold: number = DEFAULT_CONVERGENCE_S
   return r.sigma < threshold;
 }
 
-/** Human-readable rating display: "25.3 +/- 4.1" */
-export function ratingToDisplay(r: Rating): string {
-  return `${r.mu.toFixed(1)} +/- ${r.sigma.toFixed(1)}`;
-}
-
 // ─── Backward compatibility helpers ─────────────────────────────
 
 /**

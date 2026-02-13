@@ -165,6 +165,12 @@ export default function AdminPage() {
           icon="⚙️"
         />
         <DashboardCard
+          title="Evolution"
+          description="Content quality pipeline"
+          href="/admin/evolution-dashboard"
+          icon="🧬"
+        />
+        <DashboardCard
           title="Dev Tools"
           description="Debug and test pages"
           href="/admin/dev-tools"

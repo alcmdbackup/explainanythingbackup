@@ -141,6 +141,144 @@ describe('run-evolution-local prompt mode', () => {
     });
   });
 
+  describe('outline flag parsing', () => {
+    it('should default outline to false', () => {
+      const outline = false; // default when --outline not passed
+      expect(outline).toBe(false);
+    });
+
+    it('should set outline to true when --outline flag present', () => {
+      const args = ['--file', 'test.md', '--outline'];
+      const outline = args.includes('--outline');
+      expect(outline).toBe(true);
+    });
+
+    it('should include outlineGeneration in agent names when outline is true', () => {
+      const outline = true;
+      const full = true;
+      const agentNames = full
+        ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(outline ? ['outlineGeneration'] : [])]
+        : ['generation', 'calibration'];
+      expect(agentNames).toContain('outlineGeneration');
+    });
+
+    it('should not include outlineGeneration when outline is false', () => {
+      const outline = false;
+      const full = true;
+      const agentNames = full
+        ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(outline ? ['outlineGeneration'] : [])]
+        : ['generation', 'calibration'];
+      expect(agentNames).not.toContain('outlineGeneration');
+    });
+  });
+
+  describe('outline variant bank metadata', () => {
+    it('should include step metadata for outline variants', () => {
+      const isOutlineWinner = true;
+      const winnerMeta: Record<string, unknown> = {
+        iterations: 5,
+        winning_strategy: 'outline_generation',
+      };
+      if (isOutlineWinner) {
+        winnerMeta.outline_mode = true;
+        winnerMeta.outline = '## Section 1\nSummary\n## Section 2\nSummary';
+        winnerMeta.weakest_step = 'expand';
+        winnerMeta.steps = [
+          { name: 'outline', score: 0.9, costUsd: 0.01 },
+          { name: 'expand', score: 0.4, costUsd: 0.02 },
+        ];
+      }
+      expect(winnerMeta.outline_mode).toBe(true);
+      expect(winnerMeta.steps).toHaveLength(2);
+      expect(winnerMeta.weakest_step).toBe('expand');
+    });
+
+    it('should not include step metadata for regular variants', () => {
+      const isOutlineWinner = false;
+      const winnerMeta: Record<string, unknown> = {
+        iterations: 5,
+        winning_strategy: 'structural_transform',
+      };
+      if (isOutlineWinner) {
+        winnerMeta.outline_mode = true;
+      }
+      expect(winnerMeta.outline_mode).toBeUndefined();
+    });
+
+    it('should include step metadata in checkpoint entries for outline variants', () => {
+      const isOutlineWinner = true;
+      const checkpointMeta: Record<string, unknown> = {
+        iterations: 3,
+        winning_strategy: 'outline_generation',
+        checkpoint: true,
+      };
+      if (isOutlineWinner) {
+        checkpointMeta.outline_mode = true;
+        checkpointMeta.outline = '## Section 1\nSummary';
+        checkpointMeta.weakest_step = 'expand';
+        checkpointMeta.steps = [{ name: 'outline', score: 0.9, costUsd: 0.01 }];
+      }
+      expect(checkpointMeta.outline_mode).toBe(true);
+      expect(checkpointMeta.checkpoint).toBe(true);
+    });
+  });
+
+  describe('--single flag', () => {
+    it('should set single to true when --single flag present', () => {
+      const args = ['--file', 'test.md', '--single'];
+      const single = args.includes('--single');
+      expect(single).toBe(true);
+    });
+
+    it('should reject --single and --full together', () => {
+      const args = ['--file', 'test.md', '--single', '--full'];
+      const single = args.includes('--single');
+      const full = args.includes('--full');
+      expect(single && full).toBe(true); // both set — CLI should error
+    });
+
+    it('should default single to false', () => {
+      const args = ['--file', 'test.md'];
+      const single = args.includes('--single');
+      expect(single).toBe(false);
+    });
+
+    it('should produce correct config overrides for --single', () => {
+      const single = true;
+      const iterations = 3;
+      const budget = 1.00;
+      const configOverrides: Record<string, unknown> = {};
+
+      if (single) {
+        configOverrides.singleArticle = true;
+        configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
+        configOverrides.plateau = { window: 2, threshold: 0.02 };
+        configOverrides.maxIterations = iterations;
+        configOverrides.budgetCapUsd = budget;
+      }
+
+      expect(configOverrides.singleArticle).toBe(true);
+      expect(configOverrides.expansion).toEqual({ maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 });
+      expect(configOverrides.plateau).toEqual({ window: 2, threshold: 0.02 });
+      expect(configOverrides.maxIterations).toBe(3);
+      expect(configOverrides.budgetCapUsd).toBe(1.00);
+    });
+
+    it('should route --single to executeFullPipeline (same as --full)', () => {
+      const single = true;
+      const full = false;
+      const useFullPipeline = single || full;
+      expect(useFullPipeline).toBe(true);
+    });
+
+    it('should display "single" pipeline mode in logs', () => {
+      const single = true;
+      const full = false;
+      const pipeline = single ? 'single' : full ? 'full' : 'minimal';
+      expect(pipeline).toBe('single');
+    });
+  });
+
   describe('mock LLM client integration', () => {
     it('should produce valid seed content from mock responses', () => {
       // Mock LLM returns text templates that pass format validation

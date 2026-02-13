@@ -3,7 +3,7 @@
  * Shows strategy configs ranked by Elo, Elo/$, or consistency.
  */
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { StrategyLeaderboardEntry } from '@/lib/services/eloBudgetActions';
 import { StrategyConfigDisplay } from './StrategyConfigDisplay';
@@ -90,9 +90,8 @@ export function StrategyLeaderboard({ strategies, loading }: StrategyLeaderboard
                 </tr>
               ) : (
                 sorted.map((s) => (
-                  <>
+                  <React.Fragment key={s.id}>
                     <tr
-                      key={s.id}
                       onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
                       className="border-t border-[var(--border-default)] hover:bg-[var(--surface-elevated)] cursor-pointer transition-colors"
                     >
@@ -149,7 +148,7 @@ export function StrategyLeaderboard({ strategies, loading }: StrategyLeaderboard
                         </td>
                       </tr>
                     )}
-                  </>
+                  </React.Fragment>
                 ))
               )}
             </tbody>

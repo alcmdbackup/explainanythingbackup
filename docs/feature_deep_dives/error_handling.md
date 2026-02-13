@@ -186,3 +186,33 @@ if (!result.success) {
 4. **Mask details**: User-facing messages should be generic
 5. **Log everything**: All errors should be logged with context
 6. **Consistent response**: Always return `{ success, data, error }` structure
+
+## Evolution Pipeline — Transient Error Classification
+
+The evolution pipeline has its own error classification system in `src/lib/evolution/core/errorClassification.ts`, separate from the global `errorHandling.ts` above. This is intentional: the evolution pipeline needs to decide whether to **retry** (transient) or **fail** (fatal), while the global system categorizes errors for user-facing display.
+
+### `isTransientError(error: unknown): boolean`
+
+Returns `true` for errors that are likely to succeed on retry:
+
+1. **OpenAI SDK classes** (via `instanceof`): `APIConnectionError`, `RateLimitError`, `InternalServerError`
+2. **Message patterns**: socket timeout, ECONNRESET, ECONNREFUSED, ETIMEDOUT, fetch failed, HTTP 429/408/500/502/503/504, rate limit, bad gateway, service unavailable, gateway timeout
+3. **Cause chain walking**: If `error.cause` is an `Error`, recursively checks the wrapped error
+
+### Defense-in-Depth Strategy
+
+Transient errors are handled at two layers:
+
+- **Agent-level**: IterativeEditingAgent and CalibrationRanker catch transient errors internally, treating them as soft rejections within their loops.
+- **Pipeline-level**: `runAgent()` in `pipeline.ts` retries the entire agent once with exponential backoff for transient errors that escape agent-level handling.
+
+`BudgetExceededError` is never retried — it checkpoints state and pauses the run.
+
+### Retry Amplification
+
+The OpenAI SDK retries 3× internally (`maxRetries: 3` in `llms.ts`), then the pipeline retries the entire agent once (`maxRetries: 1` default in `runAgent`). For a persistent transient error, this means up to 8 total LLM call attempts. This is intentional but documented to prevent future maintainers from adding another retry layer.
+
+### Scope
+
+- `executeMinimalPipeline` (single-article mode) does NOT have pipeline-level retry — it uses a simpler agent loop.
+- This classification is evolution-specific. Global error categorization remains in `src/lib/errorHandling.ts`.

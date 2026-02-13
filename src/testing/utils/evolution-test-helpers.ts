@@ -1,6 +1,7 @@
 // Reusable helpers for evolution pipeline integration tests.
 // Provides NOOP_SPAN, DB cleanup, test data factories, mock LLM client, and mock logger.
 
+import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EvolutionLLMClient, EvolutionLogger, SerializedPipelineState } from '@/lib/evolution/types';
 
@@ -65,17 +66,20 @@ export async function evolutionTablesExist(supabase: SupabaseClient): Promise<bo
 export async function cleanupEvolutionData(
   supabase: SupabaseClient,
   explanationIds: number[],
+  extraRunIds?: string[],
 ): Promise<void> {
-  if (explanationIds.length === 0) return;
+  if (explanationIds.length === 0 && (!extraRunIds || extraRunIds.length === 0)) return;
 
   try {
     // Get run IDs for these explanations
-    const { data: runs } = await supabase
-      .from('content_evolution_runs')
-      .select('id')
-      .in('explanation_id', explanationIds);
-
-    const runIds = (runs ?? []).map((r) => r.id);
+    const runIds: string[] = [...(extraRunIds ?? [])];
+    if (explanationIds.length > 0) {
+      const { data: runs } = await supabase
+        .from('content_evolution_runs')
+        .select('id')
+        .in('explanation_id', explanationIds);
+      runIds.push(...(runs ?? []).map((r) => r.id));
+    }
 
     if (runIds.length > 0) {
       // Delete in FK-safe order: children first
@@ -84,12 +88,32 @@ export async function cleanupEvolutionData(
     }
 
     // Delete quality scores and history by explanation
-    await supabase.from('content_quality_scores').delete().in('explanation_id', explanationIds);
-    await supabase.from('content_history').delete().in('explanation_id', explanationIds);
+    if (explanationIds.length > 0) {
+      await supabase.from('content_quality_scores').delete().in('explanation_id', explanationIds);
+      await supabase.from('content_history').delete().in('explanation_id', explanationIds);
+    }
 
-    // Delete runs last (parent of variants/checkpoints)
+    // Delete runs and their auto-created strategy configs
     if (runIds.length > 0) {
+      // Collect strategy_config_ids before deleting runs
+      const { data: runRows } = await supabase
+        .from('content_evolution_runs')
+        .select('strategy_config_id')
+        .in('id', runIds);
+      const strategyIds = (runRows ?? []).map((r) => r.strategy_config_id).filter(Boolean);
+
       await supabase.from('content_evolution_runs').delete().in('id', runIds);
+
+      // Clean up test strategy configs (name starts with 'test_strategy_')
+      if (strategyIds.length > 0) {
+        await supabase.from('strategy_configs').delete()
+          .in('id', strategyIds)
+          .ilike('name', 'test_strategy_%');
+      }
+
+      // Clean up auto-created prompt topics
+      await supabase.from('hall_of_fame_topics').delete()
+        .eq('prompt', 'Test evolution prompt');
     }
   } catch (error) {
     // Don't throw on cleanup failure — log only
@@ -99,18 +123,99 @@ export async function cleanupEvolutionData(
 
 // ─── Test data factories ────────────────────────────────────────
 
+/** Get or create a test strategy config and return its ID. Caller must clean up. */
+export async function createTestStrategyConfig(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const config = { generationModel: 'test-model', judgeModel: 'test-judge', iterations: 3, budgetCaps: { generation: 30 } };
+  const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 12);
+
+  // Try to find existing config with same hash first
+  const { data: existing } = await supabase
+    .from('strategy_configs')
+    .select('id')
+    .eq('config_hash', configHash)
+    .single();
+
+  if (existing) return existing.id;
+
+  const name = `test_strategy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const { data, error } = await supabase
+    .from('strategy_configs')
+    .insert({ config_hash: configHash, name, label: 'Test strategy', config })
+    .select('id')
+    .single();
+
+  // Handle race condition: another test may have inserted between select and insert
+  if (error?.code === '23505') {
+    const { data: retry } = await supabase
+      .from('strategy_configs')
+      .select('id')
+      .eq('config_hash', configHash)
+      .single();
+    if (retry) return retry.id;
+  }
+
+  if (error) throw new Error(`createTestStrategyConfig failed: ${error.message ?? error.code}`);
+  return data.id;
+}
+
+/** Get or create a test prompt topic and return its ID. */
+export async function createTestPromptTopic(
+  supabase: SupabaseClient,
+  prompt = 'Test evolution prompt',
+): Promise<string> {
+  const { data: existing } = await supabase
+    .from('hall_of_fame_topics')
+    .select('id')
+    .ilike('prompt', prompt)
+    .is('deleted_at', null)
+    .single();
+  if (existing) return existing.id;
+
+  const { data, error } = await supabase
+    .from('hall_of_fame_topics')
+    .insert({ prompt, title: prompt })
+    .select('id')
+    .single();
+  if (error?.code === '23505') {
+    const { data: retry } = await supabase
+      .from('hall_of_fame_topics')
+      .select('id')
+      .ilike('prompt', prompt)
+      .is('deleted_at', null)
+      .single();
+    if (retry) return retry.id;
+  }
+  if (error) throw new Error(`createTestPromptTopic failed: ${error.message ?? error.code}`);
+  return data.id;
+}
+
 /**
  * Insert a test evolution run and return the full row.
+ * Auto-creates a strategy config and prompt topic if not provided in overrides.
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
-  explanationId: number,
+  explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  let strategyConfigId = overrides?.strategy_config_id;
+  if (!strategyConfigId) {
+    strategyConfigId = await createTestStrategyConfig(supabase);
+  }
+
+  let promptId = overrides?.prompt_id;
+  if (!promptId) {
+    promptId = await createTestPromptTopic(supabase);
+  }
+
   const row = {
     explanation_id: explanationId,
     status: 'pending',
     budget_cap_usd: 5.0,
+    strategy_config_id: strategyConfigId,
+    prompt_id: promptId,
     ...overrides,
   };
 
@@ -130,7 +235,7 @@ export async function createTestEvolutionRun(
 export async function createTestVariant(
   supabase: SupabaseClient,
   runId: string,
-  explanationId: number,
+  explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   const row = {

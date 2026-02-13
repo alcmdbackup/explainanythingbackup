@@ -1,0 +1,14 @@
+{
+  "branch": "fix/bug_variants_tab_on_evolution_run_details_empty_20260211",
+  "created_at": "2026-02-11T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/evolution/visualization.md",
+    "docs/evolution/data_model.md",
+    "docs/evolution/reference.md",
+    "docs/evolution/architecture.md",
+    "docs/evolution/README.md",
+    "docs/evolution/agents/overview.md",
+    "docs/evolution/hall_of_fame.md"
+  ]
+}

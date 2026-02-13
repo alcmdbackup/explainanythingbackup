@@ -47,13 +47,12 @@ test.describe('Report Content Button', () => {
     const modalTitle = authenticatedPage.locator('h3:has-text("Report Content")');
     await expect(modalTitle).toBeVisible();
 
-    // Verify report reasons are shown (use radio input values to avoid strict mode violations
-    // from text= matching both label and description, e.g. "Spam" vs "Promotional content or spam")
-    await expect(authenticatedPage.locator('input[type="radio"][value="inappropriate"]')).toBeAttached();
-    await expect(authenticatedPage.locator('input[type="radio"][value="misinformation"]')).toBeAttached();
-    await expect(authenticatedPage.locator('input[type="radio"][value="spam"]')).toBeAttached();
-    await expect(authenticatedPage.locator('input[type="radio"][value="copyright"]')).toBeAttached();
-    await expect(authenticatedPage.locator('input[type="radio"][value="other"]')).toBeAttached();
+    // Verify report reasons are shown
+    await expect(authenticatedPage.locator('text=Inappropriate Content')).toBeVisible();
+    await expect(authenticatedPage.locator('text=Misinformation')).toBeVisible();
+    await expect(authenticatedPage.locator('text=Spam')).toBeVisible();
+    await expect(authenticatedPage.locator('text=Copyright Violation')).toBeVisible();
+    await expect(authenticatedPage.locator('text=Other')).toBeVisible();
   });
 
   test('should close modal when cancel is clicked', async ({ authenticatedPage }) => {
@@ -104,11 +103,12 @@ test.describe('Report Content Button', () => {
     const flagButton = authenticatedPage.locator('button[title="Report this content"]');
     await flagButton.click();
 
-    // Submit button should be disabled when no reason is selected
-    // (the button has disabled={loading || !reason}, so handleSubmit never fires)
+    // Try to submit without selecting reason
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
-    await expect(submitButton).toBeVisible();
-    await expect(submitButton).toBeDisabled();
+    await submitButton.click();
+
+    // Should show validation error
+    await expect(authenticatedPage.locator('text=Please select a reason')).toBeVisible();
   });
 
   test('should submit report successfully with reason selected', async ({ authenticatedPage }) => {
@@ -155,9 +155,9 @@ test.describe('Report Content Button', () => {
     await expect(modalContent).toBeVisible();
 
     // The modal backdrop should capture clicks (clicking outside closes modal)
-    // We verify the modal is properly stacked by checking the submit button is visible
+    // We verify the modal is properly stacked by checking the submit button is clickable
     const submitButton = authenticatedPage.locator('button:has-text("Submit Report")');
-    await expect(submitButton).toBeVisible();
+    await expect(submitButton).toBeEnabled();
 
     // Verify we can type in the textarea (proves modal is receiving input)
     const textarea = authenticatedPage.locator('textarea[placeholder*="additional context"]');

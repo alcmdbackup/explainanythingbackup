@@ -1,8 +1,9 @@
 {
+  "//": "IMPORTANT: 'type: url' is REQUIRED for remote MCP servers. Do NOT remove it during merge/rebase conflict resolution.",
   "mcpServers": {
     "honeycomb": {
-      "url": "https://mcp.honeycomb.io/mcp",
-      "type": "streamable-http"
+      "type": "url",
+      "url": "https://mcp.honeycomb.io/mcp"
     }
   }
 }

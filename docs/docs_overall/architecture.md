@@ -36,7 +36,7 @@ User Query → Vector Search (Pinecone) → Match Found? → Return Existing
 | Codebase | 60k+ LOC TypeScript |
 | Services | 17 domain services |
 | Actions | 50+ server actions |
-| Tests | 3400+ unit, 22 integration suites, 9 E2E specs |
+| Tests | 3900+ unit, 25 integration suites, 9 E2E specs |
 
 ---
 
@@ -97,9 +97,12 @@ export const functionName = serverReadRequestId(_functionName);
 
 For detailed implementation of each feature, see [feature_deep_dives/](../feature_deep_dives/).
 
+**Evolution System:** All evolution pipeline docs are in [docs/evolution/](../evolution/README.md) — architecture, agents, rating, cost optimization, and visualization.
+
 Key features include:
-- [Evolution Pipeline Visualization](../feature_deep_dives/evolution_pipeline_visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
-- [Comparison Infrastructure](../feature_deep_dives/comparison_infrastructure.md) — Article bank for cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
+- [Evolution Data Model](../evolution/data_model.md) — Prompt + strategy = run architecture with dimensional explorer, hall of fame, and strategy registry
+- [Evolution Visualization](../evolution/visualization.md) — Dashboard, run detail, lineage DAG, Elo charts, text diff comparison
+- [Hall of Fame](../evolution/hall_of_fame.md) — Cross-method quality comparison with Elo rankings, cost-efficiency metrics, and multi-provider LLM support
 - [Source Management](../feature_deep_dives/manage_sources.md) — CRUD operations, discovery pipeline, leaderboard, unified SourceCombobox
 - [Add Sources & Citations](../feature_deep_dives/add_sources_citations.md) — URL-based source input, content extraction, inline citations
 
@@ -150,13 +153,13 @@ See [environments.md](environments.md) for database config, env vars, Vercel set
 | `userExplanationEvents` | Analytics events |
 | `explanationMetrics` | Aggregated metrics |
 
-### Article Bank Tables
+### Hall of Fame Tables
 | Table | Purpose |
 |-------|---------|
-| `article_bank_topics` | Prompt-based grouping for cross-method comparison |
-| `article_bank_entries` | Generated articles with method, model, cost metadata |
-| `article_bank_comparisons` | Head-to-head match results with confidence scores |
-| `article_bank_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
+| `hall_of_fame_topics` | Prompt-based grouping for cross-method comparison |
+| `hall_of_fame_entries` | Generated articles with method, model, cost metadata |
+| `hall_of_fame_comparisons` | Head-to-head match results with confidence scores |
+| `hall_of_fame_elo` | Per-topic Elo ratings and elo_per_dollar efficiency |
 
 ### Source Management Tables
 | Table | Purpose |

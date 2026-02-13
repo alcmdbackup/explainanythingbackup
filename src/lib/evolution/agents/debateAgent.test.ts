@@ -202,7 +202,7 @@ describe('DebateAgent', () => {
     expect(ctx.state.debateTranscripts[0].synthesisVariantId).toBeNull();
   });
 
-  it('BudgetExceededError propagates', async () => {
+  it('BudgetExceededError propagates without corrupting state', async () => {
     const mockClient = makeMockLLMClient();
     (mockClient.complete as jest.Mock).mockRejectedValueOnce(
       new BudgetExceededError('debate', 1.0, 0.5),
@@ -210,9 +210,8 @@ describe('DebateAgent', () => {
     const ctx = makeCtx({ llmClient: mockClient });
     await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
 
-    // Partial transcript stored
-    expect(ctx.state.debateTranscripts).toHaveLength(1);
-    expect(ctx.state.debateTranscripts[0].turns).toHaveLength(0);
+    // BudgetExceededError should NOT push partial transcript to state (prevents checkpoint corruption)
+    expect(ctx.state.debateTranscripts).toHaveLength(0);
   });
 
   it('stores partial transcript on advocate B failure', async () => {

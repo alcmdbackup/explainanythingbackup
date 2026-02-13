@@ -61,15 +61,15 @@ describe('promptBankConfig', () => {
   });
 
   describe('methods', () => {
-    it('should have 4 methods total', () => {
-      expect(PROMPT_BANK.methods).toHaveLength(4);
+    it('should have 6 methods total', () => {
+      expect(PROMPT_BANK.methods).toHaveLength(6);
     });
 
-    it('should have 3 oneshot and 1 evolution methods', () => {
+    it('should have 3 oneshot and 3 evolution methods', () => {
       const oneshot = PROMPT_BANK.methods.filter((m) => m.type === 'oneshot');
       const evolution = PROMPT_BANK.methods.filter((m) => m.type === 'evolution');
       expect(oneshot).toHaveLength(3);
-      expect(evolution).toHaveLength(1);
+      expect(evolution).toHaveLength(3);
     });
 
     it('should have no duplicate labels', () => {

@@ -1,36 +1,15 @@
 'use client';
 // Before/after comparison page for an evolution run.
-// Shows word-level text diff, quality radar chart (when available), and stats summary.
+// Shows word-level text diff and stats summary.
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 import { diffWordsWithSpace } from 'diff';
 import {
   getEvolutionRunComparisonAction,
   type ComparisonData,
 } from '@/lib/services/evolutionVisualizationActions';
-
-const QualityRadar = dynamic(() => import('recharts').then((mod) => {
-  const { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, Legend } = mod;
-  function Chart({ scores }: { scores: ComparisonData['qualityScores'] }) {
-    if (!scores || scores.length === 0) return null;
-    return (
-      <ResponsiveContainer width="100%" height={300}>
-        <RadarChart data={scores}>
-          <PolarGrid stroke="var(--border-default)" />
-          <PolarAngleAxis dataKey="dimension" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-          <PolarRadiusAxis tick={{ fontSize: 9, fill: 'var(--text-muted)' }} />
-          <Radar name="Before" dataKey="before" stroke="var(--status-error)" fill="var(--status-error)" fillOpacity={0.15} />
-          <Radar name="After" dataKey="after" stroke="var(--status-success)" fill="var(--status-success)" fillOpacity={0.15} />
-          <Legend wrapperStyle={{ fontSize: 11, color: 'var(--text-secondary)' }} />
-        </RadarChart>
-      </ResponsiveContainer>
-    );
-  }
-  return Chart;
-}), { ssr: false, loading: () => <div className="h-[300px] bg-[var(--surface-secondary)] rounded-book animate-pulse" /> });
 
 function TextDiff({ original, modified }: { original: string; modified: string }) {
   const parts = diffWordsWithSpace(original, modified);
@@ -129,20 +108,6 @@ export default function EvolutionComparePage() {
         ) : (
           <div className="p-4 bg-[var(--surface-secondary)] rounded-book text-sm text-[var(--text-muted)]">
             No winner selected for this run
-          </div>
-        )}
-      </div>
-
-      {/* Quality radar chart */}
-      <div data-testid="quality-section">
-        <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Quality Scores</h3>
-        {data.qualityScores ? (
-          <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
-            <QualityRadar scores={data.qualityScores} />
-          </div>
-        ) : (
-          <div className="p-4 bg-[var(--surface-secondary)] rounded-book text-sm text-[var(--text-muted)]">
-            Quality scores not available for this run
           </div>
         )}
       </div>

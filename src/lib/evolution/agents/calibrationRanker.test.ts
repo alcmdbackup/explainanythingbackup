@@ -4,6 +4,7 @@
 import { CalibrationRanker } from './calibrationRanker';
 import { PipelineStateImpl } from '../core/state';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { createRating, type Rating } from '../core/rating';
 
@@ -190,6 +191,40 @@ describe('CalibrationRanker', () => {
     it('respects default minOpponents=2 from config', () => {
       const config = resolveConfig({});
       expect(config.calibration.minOpponents).toBe(2);
+    });
+  });
+
+  describe('BudgetExceededError propagation from allSettled', () => {
+    it('re-throws BudgetExceededError from first allSettled batch', async () => {
+      const mockClient = makeMockLLMClient(['A']);
+      // First call succeeds (for the callLLM wrapper's try-catch), but then
+      // budget error is thrown on the second call within the comparison
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce('A')  // first comparison fwd pass
+        .mockRejectedValueOnce(new BudgetExceededError('calibration', 5.0, 5.0));
+      const ctx = makeCtx(['A'], { calibration: { opponents: 3, minOpponents: 2 } });
+      ctx.llmClient = mockClient;
+
+      await expect(ranker.execute(ctx)).rejects.toThrow(BudgetExceededError);
+    });
+
+    it('re-throws BudgetExceededError from second allSettled batch', async () => {
+      // First batch: all disagree (confidence 0.5) to force second batch
+      // Then second batch throws BudgetExceededError
+      const mockClient = makeMockLLMClient([]);
+      const calls: string[] = [];
+      let callIdx = 0;
+      (mockClient.complete as jest.Mock).mockImplementation(() => {
+        callIdx++;
+        // First 4 calls (2 comparisons × 2 passes) all return 'A' → disagreement → not decisive
+        if (callIdx <= 4) return Promise.resolve('A');
+        // 5th call (start of second batch): throw budget error
+        return Promise.reject(new BudgetExceededError('calibration', 5.0, 5.0));
+      });
+      const ctx = makeCtx([], { calibration: { opponents: 5, minOpponents: 2 } });
+      ctx.llmClient = mockClient;
+
+      await expect(ranker.execute(ctx)).rejects.toThrow(BudgetExceededError);
     });
   });
 });

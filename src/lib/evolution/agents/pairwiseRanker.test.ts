@@ -3,7 +3,7 @@
 import { PairwiseRanker, parseWinner, parseStructuredResponse } from './pairwiseRanker';
 import { PipelineStateImpl } from '../core/state';
 import { ComparisonCache } from '../core/comparisonCache';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Match } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 
 function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
@@ -88,8 +88,8 @@ describe('parseWinner', () => {
 describe('parseStructuredResponse', () => {
   it('parses full structured response', () => {
     const response = `clarity: A
-flow: B
-engagement: A
+engagement: B
+precision: A
 voice_fidelity: TIE
 conciseness: A
 OVERALL_WINNER: A
@@ -98,14 +98,14 @@ CONFIDENCE: high`;
     expect(result.winner).toBe('A');
     expect(result.confidence).toBe(1.0);
     expect(result.dimensionScores.clarity).toBe('A');
-    expect(result.dimensionScores.flow).toBe('B');
+    expect(result.dimensionScores.engagement).toBe('B');
     expect(result.dimensionScores.voice_fidelity).toBe('TIE');
   });
 
   it('derives winner from dimension majority when no explicit winner', () => {
     const response = `clarity: A
-flow: A
-engagement: B
+engagement: A
+precision: B
 voice_fidelity: A
 conciseness: TIE`;
     const result = parseStructuredResponse(response);
@@ -292,5 +292,111 @@ describe('PairwiseRanker', () => {
     const match2 = await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
     expect(match2.confidence).toBeGreaterThan(0.0);
     expect(callCount).toBe(4); // 2 failed + 2 successful
+  });
+});
+
+// ─── Flow Comparison Tests ───────────────────────────────────────────────────
+
+const VALID_FLOW_RESPONSE = `local_cohesion: A
+global_coherence: B
+transition_quality: A
+rhythm_variety: TIE
+redundancy: A
+FRICTION_A: ["This leads to better outcomes."]
+FRICTION_B: ["Moving on to the next topic."]
+OVERALL_WINNER: A
+CONFIDENCE: high`;
+
+describe('PairwiseRanker flow comparison', () => {
+  const ranker = new PairwiseRanker();
+
+  it('compareFlowWithBiasMitigation returns flow: prefixed dimension scores', async () => {
+    // Both passes agree on A (r2 returns B which normalizes to A)
+    const ctx = makeCtx([VALID_FLOW_RESPONSE, VALID_FLOW_RESPONSE.replace(/A/g, 'B').replace(/B\n/g, 'A\n')]);
+    // Simplify: just use direct A responses for both passes
+    (ctx.llmClient.complete as jest.Mock).mockResolvedValue(VALID_FLOW_RESPONSE);
+
+    const match = await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    expect(match.dimensionScores['flow:local_cohesion']).toBeDefined();
+    expect(match.dimensionScores['flow:global_coherence']).toBeDefined();
+    expect(match.dimensionScores['flow:transition_quality']).toBeDefined();
+    expect(match.dimensionScores['flow:rhythm_variety']).toBeDefined();
+    expect(match.dimensionScores['flow:redundancy']).toBeDefined();
+    // Should NOT have unprefixed keys
+    expect(match.dimensionScores['local_cohesion']).toBeUndefined();
+  });
+
+  it('collects friction spots from both passes (union, deduped)', async () => {
+    const response1 = `local_cohesion: A
+FRICTION_A: ["Sentence one.", "Sentence two."]
+FRICTION_B: ["Bad sentence B."]
+OVERALL_WINNER: A
+CONFIDENCE: high`;
+    const response2 = `local_cohesion: B
+FRICTION_A: ["Sentence two.", "Unique from pass 2."]
+FRICTION_B: ["Another B friction."]
+OVERALL_WINNER: B
+CONFIDENCE: high`;
+
+    let callIdx = 0;
+    const ctx = makeCtx([]);
+    (ctx.llmClient.complete as jest.Mock).mockImplementation(() => {
+      callIdx++;
+      return Promise.resolve(callIdx === 1 ? response1 : response2);
+    });
+
+    const match = await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    expect(match.frictionSpots).toBeDefined();
+    // r1.frictionSpotsA + r2.frictionSpotsB (which is for text A in reversed frame)
+    expect(match.frictionSpots!.a).toContain('Sentence one.');
+    expect(match.frictionSpots!.a).toContain('Sentence two.');
+    expect(match.frictionSpots!.a).toContain('Another B friction.');
+    // r1.frictionSpotsB + r2.frictionSpotsA (which is for text B in reversed frame)
+    expect(match.frictionSpots!.b).toContain('Bad sentence B.');
+    expect(match.frictionSpots!.b).toContain('Unique from pass 2.');
+  });
+
+  it('uses flowCritique agent name for cost tracking', async () => {
+    const ctx = makeCtx([VALID_FLOW_RESPONSE, VALID_FLOW_RESPONSE]);
+
+    await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    const completeMock = ctx.llmClient.complete as jest.Mock;
+    for (const call of completeMock.mock.calls) {
+      expect(call[1]).toBe('flowCritique'); // agent name for cost tracking
+    }
+  });
+
+  it('flow cache key is separate from quality cache key', async () => {
+    const cache = new ComparisonCache();
+    const ctx = makeCtx([VALID_FLOW_RESPONSE, VALID_FLOW_RESPONSE], { comparisonCache: cache });
+
+    // Quality comparison first
+    const qualityResponses = ['A', 'B'];
+    let qIdx = 0;
+    (ctx.llmClient.complete as jest.Mock).mockImplementation(() => {
+      return Promise.resolve(qualityResponses[qIdx++ % 2] ?? 'A');
+    });
+    await ranker.compareWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    // Flow comparison with same texts
+    (ctx.llmClient.complete as jest.Mock).mockResolvedValue(VALID_FLOW_RESPONSE);
+    const flowMatch = await ranker.compareFlowWithBiasMitigation(ctx, 'id1', 'text1', 'id2', 'text2');
+
+    // Flow should NOT have hit quality cache (LLM was called)
+    expect(flowMatch.dimensionScores['flow:local_cohesion']).toBeDefined();
+    // Cache should have 2 entries (quality + flow)
+    expect(cache.size).toBe(2);
+  });
+
+  it('old Match records without frictionSpots deserialize cleanly', () => {
+    const oldMatch: Match = {
+      variationA: 'a', variationB: 'b', winner: 'a',
+      confidence: 1.0, turns: 2, dimensionScores: { clarity: 'A' },
+    };
+    // frictionSpots is optional — accessing it should return undefined
+    expect(oldMatch.frictionSpots).toBeUndefined();
   });
 });

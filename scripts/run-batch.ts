@@ -71,14 +71,35 @@ async function executeEvolutionRun(
   const supabase = getSupabaseClient();
 
   // 1. Create temporary explanation for this prompt
+  // First, get or create a "Batch Experiments" topic
+  const { data: existingTopic } = await supabase
+    .from('topics')
+    .select('id')
+    .eq('topic_title', 'Batch Experiments')
+    .single();
+
+  let topicId: number;
+  if (existingTopic) {
+    topicId = existingTopic.id;
+  } else {
+    const { data: newTopic, error: topicError } = await supabase
+      .from('topics')
+      .insert({ topic_title: 'Batch Experiments', topic_description: 'Auto-generated topic for batch evolution experiments' })
+      .select('id')
+      .single();
+    if (topicError || !newTopic) {
+      throw new Error(`Failed to create topic: ${topicError?.message ?? 'unknown'}`);
+    }
+    topicId = newTopic.id;
+  }
+
   const promptTitle = `[Batch: ${batchName}] ${run.prompt.slice(0, 50)}...`;
   const { data: explanation, error: expError } = await supabase
     .from('explanations')
     .insert({
-      title: promptTitle,
+      explanation_title: promptTitle,
       content: run.prompt,
-      topic_id: null,
-      user_id: null,
+      primary_topic_id: topicId,
       status: 'draft',
     })
     .select('id')
@@ -127,65 +148,28 @@ async function executeEvolutionRun(
 
   // 4. Execute pipeline inline (similar to evolution-runner.ts)
   const {
-    PipelineStateImpl,
     executeFullPipeline,
-    resolveConfig,
-    createCostTracker,
-    createEvolutionLogger,
-    createEvolutionLLMClient,
-    GenerationAgent,
-    CalibrationRanker,
-    Tournament,
-    EvolutionAgent,
-    ReflectionAgent,
-    DebateAgent,
-    IterativeEditingAgent,
-    ProximityAgent,
-    MetaReviewAgent,
+    preparePipelineRun,
   } = await import('../src/lib/evolution/index');
 
   const { fetchEvolutionFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
   const featureFlags = await fetchEvolutionFeatureFlags(supabase);
 
-  const config = resolveConfig(runConfig);
-  const state = new PipelineStateImpl(run.prompt); // Use prompt as original text
-
-  const logger = createEvolutionLogger(runId);
-  const costTracker = createCostTracker(config);
-  const llmClient = createEvolutionLLMClient(`batch-${batchId}`, costTracker, logger);
-
-  const ctx = {
-    payload: {
-      originalText: run.prompt,
-      title: promptTitle,
-      explanationId: explanation.id,
-      runId,
-      config,
-    },
-    state,
-    llmClient,
-    logger,
-    costTracker,
+  const { ctx, agents, costTracker } = preparePipelineRun({
     runId,
-  };
-
-  const agents = {
-    generation: new GenerationAgent(),
-    calibration: new CalibrationRanker(),
-    tournament: new Tournament(),
-    evolution: new EvolutionAgent(),
-    reflection: new ReflectionAgent(),
-    iterativeEditing: new IterativeEditingAgent(),
-    debate: new DebateAgent(),
-    proximity: new ProximityAgent(),
-    metaReview: new MetaReviewAgent(),
-  };
+    originalText: run.prompt,
+    title: promptTitle,
+    explanationId: explanation.id,
+    configOverrides: runConfig,
+    llmClientId: batchId,
+  });
 
   const startMs = Date.now();
-  const result = await executeFullPipeline(runId, agents, ctx, logger, { featureFlags, startMs });
+  const result = await executeFullPipeline(runId, agents, ctx, ctx.logger, { featureFlags, startMs });
 
   // 5. Get final stats
   const actualCost = costTracker.getTotalSpent();
+  const { state } = ctx;
 
   // Get top Elo from pool (ratings are OpenSkill format, convert to Elo scale)
   const topVariant = [...state.pool].sort((a, b) => {

@@ -10,3 +10,5 @@ export {
 } from './AutoRefreshProvider';
 export { EloSparkline } from './EloSparkline';
 export { VariantCard, STRATEGY_PALETTE } from './VariantCard';
+export { StepScoreBar } from './StepScoreBar';
+export type { StepScoreData } from './StepScoreBar';

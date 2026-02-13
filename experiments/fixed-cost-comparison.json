@@ -1,0 +1,46 @@
+{
+  "name": "model_comparison_fixed_cost",
+  "description": "Compare GPT-5.2, GPT-4.1-mini, and Deepseek - iterations adjusted for $1/run",
+  "totalBudgetUsd": 12.00,
+  "safetyMargin": 0.1,
+  "defaults": {
+    "budgetCapUsd": 1.20,
+    "judgeModel": "deepseek-chat",
+    "mode": "full"
+  },
+  "runs": [
+    {
+      "prompt": "Explain how the immune system fights off a viral infection",
+      "generationModel": "gpt-5.2",
+      "iterations": 12
+    },
+    {
+      "prompt": "Explain how the immune system fights off a viral infection",
+      "generationModel": "gpt-4.1-mini",
+      "iterations": 12
+    },
+    {
+      "prompt": "Explain how the immune system fights off a viral infection",
+      "generationModel": "deepseek-chat",
+      "iterations": 12
+    },
+    {
+      "prompt": "Explain how compound interest works and why it matters for savings",
+      "generationModel": "gpt-5.2",
+      "iterations": 12
+    },
+    {
+      "prompt": "Explain how compound interest works and why it matters for savings",
+      "generationModel": "gpt-4.1-mini",
+      "iterations": 12
+    },
+    {
+      "prompt": "Explain how compound interest works and why it matters for savings",
+      "generationModel": "deepseek-chat",
+      "iterations": 12
+    }
+  ],
+  "optimization": {
+    "prioritySort": "cost_asc"
+  }
+}

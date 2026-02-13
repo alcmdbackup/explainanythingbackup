@@ -34,30 +34,11 @@ test.describe('Hidden Content Visibility', () => {
   test.describe.configure({ retries: 1 });
   test.setTimeout(30000);
 
-  // FIXME: RLS does not filter hidden content on direct ID access.
-  // These tests verify defense-in-depth that is not yet implemented.
-  // Re-enable once RLS policy filters delete_status='hidden' from user queries.
-  test.fixme();
-
   let hiddenExplanationId: number | null = null;
   let serviceClient: ReturnType<typeof createServiceClient>;
 
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
-
-    // Get or create a topic (required for explanations.primary_topic_id NOT NULL)
-    const { data: topic, error: topicError } = await serviceClient
-      .from('topics')
-      .upsert(
-        { topic_title: 'test-e2e-hidden-content', topic_description: 'Topic for hidden content E2E test' },
-        { onConflict: 'topic_title' }
-      )
-      .select('id')
-      .single();
-
-    if (topicError || !topic?.id) {
-      throw new Error(`Failed to get or create test topic: ${topicError?.message}`);
-    }
 
     // Create a hidden test explanation
     const { data, error } = await serviceClient
@@ -67,7 +48,6 @@ test.describe('Hidden Content Visibility', () => {
         content: 'This content should never be visible to regular users.',
         status: 'published',
         delete_status: 'hidden',
-        primary_topic_id: topic.id,
       })
       .select('id')
       .single();

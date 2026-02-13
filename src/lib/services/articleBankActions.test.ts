@@ -928,8 +928,8 @@ describe('getPromptBankMethodSummaryAction', () => {
     expect(result.success).toBe(true);
     const data = result.data!;
 
-    // 6 labels: 3 oneshot + 3 evolution checkpoints
-    expect(data).toHaveLength(6);
+    // 12 labels: 3 oneshot + 3 evolution methods × 3 checkpoints each
+    expect(data).toHaveLength(12);
 
     const oneshotMini = data.find((d) => d.label === 'oneshot_gpt-4.1-mini');
     const evo10 = data.find((d) => d.label === 'evolution_deepseek_10iter');
