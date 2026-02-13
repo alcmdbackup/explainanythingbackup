@@ -85,9 +85,8 @@ test.describe('User Library Management', () => {
 
   test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, card count should be > 0
+    // Wait specifically for cards (test data created in beforeAll)
+    await libraryPage.waitForCards(30000);
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -102,9 +101,8 @@ test.describe('User Library Management', () => {
 
   test('should show saved date on cards', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, cards should be visible
+    // Wait specifically for cards (test data created in beforeAll)
+    await libraryPage.waitForCards(30000);
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
