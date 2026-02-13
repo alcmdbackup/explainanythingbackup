@@ -112,16 +112,10 @@ test.describe('User Library Management', () => {
     expect(savedDateCount).toBeGreaterThan(0);
   });
 
-  test('should have search bar in navigation', async ({ authenticatedPage }) => {
+  test('should have search bar in navigation', async () => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, cards should be visible
-    const hasCards = await safeIsVisible(
-      authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (search bar check)'
-    );
-    expect(hasCards).toBe(true);
+    // Wait for cards to confirm page is fully loaded
+    await libraryPage.waitForCards(30000);
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);
@@ -129,11 +123,8 @@ test.describe('User Library Management', () => {
 
   test('should handle search from library page', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // Search bar should always be present in navigation
-    const hasSearchBar = await libraryPage.hasSearchBar();
-    expect(hasSearchBar).toBe(true);
+    // Wait for cards to confirm page is fully loaded
+    await libraryPage.waitForCards(30000);
 
     // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');
