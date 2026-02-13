@@ -131,6 +131,22 @@ describe('backfillPromptIds', () => {
     await expect(backfillPromptIds(mockSupabase as any)).rejects.toThrow('Failed to fetch runs');
   });
 
+  it('returns zero counts when content_evolution_runs table does not exist', async () => {
+    queueResult('content_evolution_runs', {
+      data: null,
+      error: { message: "Could not find the table 'public.content_evolution_runs' in the schema cache" },
+    });
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await backfillPromptIds(mockSupabase as any);
+
+    expect(result).toEqual({ linked: 0, unlinked: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('does not exist yet'));
+    logSpy.mockRestore();
+  });
+
   it('is idempotent — re-running on already linked runs returns zero', async () => {
     // No runs with null prompt_id
     queueResult('content_evolution_runs', { data: [], error: null });
@@ -221,6 +237,22 @@ describe('backfillStrategyConfigIds', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await expect(backfillStrategyConfigIds(mockSupabase as any)).rejects.toThrow('Failed to fetch runs');
   });
+
+  it('returns zero counts when content_evolution_runs table does not exist', async () => {
+    queueResult('content_evolution_runs', {
+      data: null,
+      error: { message: "Could not find the table 'public.content_evolution_runs' in the schema cache" },
+    });
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await backfillStrategyConfigIds(mockSupabase as any);
+
+    expect(result).toEqual({ linked: 0, created: 0, unlinked: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('does not exist yet'));
+    logSpy.mockRestore();
+  });
 });
 
 // ─── drainStaleRuns Tests ───────────────────────────────────────
@@ -245,5 +277,21 @@ describe('drainStaleRuns', () => {
     const result = await drainStaleRuns(mockSupabase as any);
 
     expect(result).toEqual({ drained: 0 });
+  });
+
+  it('returns zero when content_evolution_runs table does not exist', async () => {
+    queueResult('content_evolution_runs', {
+      data: null,
+      error: { message: "Could not find the table 'public.content_evolution_runs' in the schema cache" },
+    });
+
+    const logSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const result = await drainStaleRuns(mockSupabase as any);
+
+    expect(result).toEqual({ drained: 0 });
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('does not exist yet'));
+    logSpy.mockRestore();
   });
 });
