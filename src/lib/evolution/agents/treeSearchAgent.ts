@@ -2,14 +2,13 @@
 // Explores multiple revision strategies in parallel via beam search, selecting the best path.
 
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TreeSearchExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { getCritiqueForVariant } from './reflectionAgent';
 import { RATING_CONSTANTS } from '../config';
 import { beamSearch } from '../treeOfThought/beamSearch';
 import type { BeamSearchConfig, TreeSearchResult, TreeState } from '../treeOfThought/types';
 import { DEFAULT_BEAM_SEARCH_CONFIG } from '../treeOfThought/types';
-
 
 export class TreeSearchAgent extends AgentBase {
   readonly name = 'treeSearch';
@@ -48,12 +47,7 @@ export class TreeSearchAgent extends AgentBase {
 
     // 3. Reserve budget
     const estimatedCost = this.estimateCost(ctx.payload);
-    try {
-      await costTracker.reserveBudget(this.name, estimatedCost);
-    } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      throw err;
-    }
+    await costTracker.reserveBudget(this.name, estimatedCost);
 
     // 4. Run beam search
     let searchResult: TreeSearchResult;
@@ -71,6 +65,7 @@ export class TreeSearchAgent extends AgentBase {
     }
 
     // 5. Add best leaf to pool (rate-limited: only best leaf added, root already in pool)
+    let addedToPool = false;
     if (searchResult.bestVariantId !== root.id && bestLeafText !== root.text) {
       const bestNode = treeState.nodes[searchResult.bestLeafNodeId];
       if (bestNode) {
@@ -87,6 +82,7 @@ export class TreeSearchAgent extends AgentBase {
         if (!state.poolIds.has(bestVariant.id)) {
           state.addToPool(bestVariant);
           variantsAdded++;
+          addedToPool = true;
         }
       }
     }
@@ -102,11 +98,31 @@ export class TreeSearchAgent extends AgentBase {
       variantsAdded,
     });
 
+    const detail: TreeSearchExecutionDetail = {
+      detailType: 'treeSearch',
+      rootVariantId: root.id,
+      config: { beamWidth: this.config.beamWidth, branchingFactor: this.config.branchingFactor, maxDepth: this.config.maxDepth },
+      result: {
+        treeSize: searchResult.treeSize,
+        maxDepth: searchResult.maxDepth,
+        prunedBranches: searchResult.prunedBranches,
+        revisionPath: searchResult.revisionPath.map(a => ({
+          type: a.type,
+          dimension: a.dimension,
+          description: a.description,
+        })),
+      },
+      bestLeafVariantId: searchResult.bestVariantId !== root.id ? searchResult.bestVariantId : undefined,
+      addedToPool,
+      totalCost: costTracker.getAgentCost(this.name),
+    };
+
     return {
       agentType: this.name,
       success: searchResult.maxDepth > 0,
       costUsd: costTracker.getAgentCost(this.name),
       variantsAdded,
+      executionDetail: detail,
     };
   }
 

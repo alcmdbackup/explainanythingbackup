@@ -159,6 +159,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    │   ├─ ProximityAgent → diversity score update
    │   └─ MetaReviewAgent → meta-feedback for next iteration
    │
+   ├─ persistAgentInvocation → execution detail to evolution_agent_invocations
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)

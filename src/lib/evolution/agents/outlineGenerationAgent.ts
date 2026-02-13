@@ -14,6 +14,7 @@ import type {
   GenerationStepName,
   OutlineVariant,
   LLMCompletionOptions,
+  OutlineGenerationExecutionDetail,
 } from '../types';
 import { BudgetExceededError, parseStepScore } from '../types';
 
@@ -139,6 +140,21 @@ export class OutlineGenerationAgent extends AgentBase {
       return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: 'No originalText in state' };
     }
 
+    // Helper to build execution detail from accumulated steps
+    const buildDetail = (variantId: string, genSteps: GenerationStep[]): OutlineGenerationExecutionDetail => ({
+      detailType: 'outlineGeneration',
+      steps: genSteps.map(s => ({
+        name: s.name,
+        score: s.score,
+        costUsd: s.costUsd,
+        inputLength: s.input.length,
+        outputLength: s.output.length,
+      })),
+      weakestStep: computeWeakestStep(genSteps),
+      variantId,
+      totalCost: costTracker.getAgentCost(this.name),
+    });
+
     const costBefore = costTracker.getAgentCost(this.name);
     const steps: GenerationStep[] = [];
     const genOptions: LLMCompletionOptions = { model: ctx.payload.config.generationModel };
@@ -151,7 +167,8 @@ export class OutlineGenerationAgent extends AgentBase {
       const outlineOutput = await llmClient.complete(outlinePrompt, this.name, genOptions);
       if (!outlineOutput.trim()) {
         logger.warn('Outline step produced empty output, falling back');
-        return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: 'Outline step empty' };
+        return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: 'Outline step empty',
+          executionDetail: buildDetail('', steps) };
       }
 
       // Step 2: Score outline
@@ -179,7 +196,8 @@ export class OutlineGenerationAgent extends AgentBase {
         logger.warn('Expand step produced empty output, using outline as text');
         const variant = this.buildVariant(state, outlineOutput.trim(), outlineOutput.trim(), steps, costTracker.getAgentCost(this.name) - costBefore);
         state.addToPool(variant);
-        return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1 };
+        return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
+          executionDetail: buildDetail(variant.id, steps) };
       }
 
       // Step 4: Score expansion
@@ -244,7 +262,8 @@ export class OutlineGenerationAgent extends AgentBase {
         textLength: finalText.length,
       });
 
-      return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1 };
+      return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
+        executionDetail: buildDetail(variant.id, steps) };
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
 
@@ -258,11 +277,13 @@ export class OutlineGenerationAgent extends AgentBase {
           const totalCost = costTracker.getAgentCost(this.name) - costBefore;
           const variant = this.buildVariant(state, partialText.trim(), steps[0]?.output ?? '', steps, totalCost);
           state.addToPool(variant);
-          return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1 };
+          return { agentType: this.name, success: true, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 1,
+            executionDetail: buildDetail(variant.id, steps) };
         }
       }
 
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: String(error) };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), error: String(error),
+        executionDetail: buildDetail('', steps) };
     }
   }
 

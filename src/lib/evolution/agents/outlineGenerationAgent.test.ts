@@ -4,7 +4,7 @@
 import { OutlineGenerationAgent } from './outlineGenerationAgent';
 import { PipelineStateImpl } from '../core/state';
 import { isOutlineVariant } from '../types';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, OutlineGenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
@@ -392,5 +392,57 @@ describe('OutlineGenerationAgent', () => {
       });
       expect(longCost).toBeGreaterThan(shortCost);
     });
+  });
+});
+
+describe('OutlineGenerationAgent executionDetail', () => {
+  const agent = new OutlineGenerationAgent();
+
+  it('captures 4 steps with scores and lengths on success', async () => {
+    const ctx = makeCtx();
+    const result = await agent.execute(ctx);
+
+    expect(result.executionDetail).toBeDefined();
+    expect(result.executionDetail!.detailType).toBe('outlineGeneration');
+    const detail = result.executionDetail as OutlineGenerationExecutionDetail;
+    expect(detail.steps).toHaveLength(4);
+    expect(detail.steps.map(s => s.name)).toEqual(['outline', 'expand', 'polish', 'verify']);
+    expect(detail.weakestStep).toBe('expand'); // 0.7 is lowest
+    expect(detail.variantId).toBeTruthy();
+    for (const s of detail.steps) {
+      expect(s.score).toBeGreaterThanOrEqual(0);
+      expect(s.score).toBeLessThanOrEqual(1);
+      expect(s.inputLength).toBeGreaterThan(0);
+      expect(s.outputLength).toBeGreaterThan(0);
+    }
+  });
+
+  it('captures detail on empty outline failure', async () => {
+    const ctx = makeCtx({
+      llmClient: makeMockLLMClient(['', '0.5', VALID_EXPANDED, '0.7', VALID_POLISHED, '0.9']),
+    });
+    const result = await agent.execute(ctx);
+
+    expect(result.success).toBe(false);
+    expect(result.executionDetail).toBeDefined();
+    const detail = result.executionDetail as OutlineGenerationExecutionDetail;
+    expect(detail.detailType).toBe('outlineGeneration');
+    expect(detail.steps).toHaveLength(0);
+    expect(detail.variantId).toBe('');
+  });
+
+  it('captures detail on expand fallback', async () => {
+    const ctx = makeCtx({
+      llmClient: makeMockLLMClient([VALID_OUTLINE, '0.85', '', '0.5', VALID_POLISHED, '0.9']),
+    });
+    const result = await agent.execute(ctx);
+
+    expect(result.success).toBe(true);
+    expect(result.executionDetail).toBeDefined();
+    const detail = result.executionDetail as OutlineGenerationExecutionDetail;
+    // Only outline step completed before fallback
+    expect(detail.steps).toHaveLength(1);
+    expect(detail.steps[0].name).toBe('outline');
+    expect(detail.variantId).toBeTruthy();
   });
 });

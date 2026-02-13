@@ -3,7 +3,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation, IterativeEditingExecutionDetail } from '../types';
 import { BudgetExceededError, isOutlineVariant } from '../types';
 import { isTransientError } from '../core/errorClassification';
 import { compareWithDiff } from '../diffComparison';
@@ -65,24 +65,35 @@ export class IterativeEditingAgent extends AgentBase {
     // Get the top variant and its latest critique
     let current = state.getTopByRating(1)[0];
     let currentCritique = getCritiqueForVariant(current.id, state);
+    const initialCritiqueSnapshot = currentCritique
+      ? { dimensionScores: { ...currentCritique.dimensionScores } }
+      : { dimensionScores: {} };
 
     // Initial open-ended review (rubric critique already in state from ReflectionAgent)
     let openReview = await this.runOpenReview(current.text, llmClient);
+
+    const cycleDetails: IterativeEditingExecutionDetail['cycles'] = [];
+    let stopReason: IterativeEditingExecutionDetail['stopReason'] = 'max_cycles';
 
     for (let cycle = 0; cycle < this.config.maxCycles; cycle++) {
       // Check stopping: all dimensions >= threshold AND open review found nothing
       if (this.qualityThresholdMet(currentCritique) && !openReview) {
         logger.info('Quality threshold met, stopping', { cycle });
+        stopReason = 'threshold_met';
         break;
       }
       if (consecutiveRejections >= this.config.maxConsecutiveRejections) {
         logger.info('Max consecutive rejections reached, stopping', { cycle, consecutiveRejections });
+        stopReason = 'max_rejections';
         break;
       }
 
       // Pick edit target from combined rubric + open review (passes variant for step-aware + flow-aware targeting)
       const editTarget = this.pickEditTarget(currentCritique, openReview, current, state.allCritiques);
-      if (!editTarget) break;
+      if (!editTarget) {
+        stopReason = 'no_targets';
+        break;
+      }
 
       try {
         // EDIT: generate targeted fix
@@ -94,6 +105,19 @@ export class IterativeEditingAgent extends AgentBase {
         if (!formatResult.valid) {
           logger.warn('Edit failed format validation', { cycle, issues: formatResult.issues });
           consecutiveRejections++;
+          cycleDetails.push({
+            cycleNumber: cycle,
+            target: {
+              dimension: editTarget.dimension,
+              description: editTarget.description,
+              score: editTarget.score,
+              source: editTarget.dimension ? 'rubric' : 'open_review',
+            },
+            verdict: 'REJECT',
+            confidence: 0,
+            formatValid: false,
+            formatIssues: formatResult.issues,
+          });
           continue;
         }
 
@@ -120,12 +144,38 @@ export class IterativeEditingAgent extends AgentBase {
 
           logger.info('Edit accepted', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
 
+          cycleDetails.push({
+            cycleNumber: cycle,
+            target: {
+              dimension: editTarget.dimension,
+              description: editTarget.description,
+              score: editTarget.score,
+              source: editTarget.dimension ? 'rubric' : 'open_review',
+            },
+            verdict: 'ACCEPT',
+            confidence: result.confidence,
+            formatValid: true,
+            newVariantId: editedVariant.id,
+          });
+
           // RE-EVALUATE: fresh rubric + open review on the accepted text
           currentCritique = await this.runInlineCritique(editedText, current.id, llmClient);
           openReview = await this.runOpenReview(editedText, llmClient);
         } else {
           consecutiveRejections++;
           logger.info('Edit rejected by judge', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
+          cycleDetails.push({
+            cycleNumber: cycle,
+            target: {
+              dimension: editTarget.dimension,
+              description: editTarget.description,
+              score: editTarget.score,
+              source: editTarget.dimension ? 'rubric' : 'open_review',
+            },
+            verdict: 'REJECT',
+            confidence: result.confidence,
+            formatValid: true,
+          });
         }
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
@@ -135,15 +185,40 @@ export class IterativeEditingAgent extends AgentBase {
           isTransient: isTransientError(error),
         });
         consecutiveRejections++;
+        cycleDetails.push({
+          cycleNumber: cycle,
+          target: {
+            dimension: editTarget.dimension,
+            description: editTarget.description,
+            score: editTarget.score,
+            source: editTarget.dimension ? 'rubric' : 'open_review',
+          },
+          verdict: 'REJECT',
+          confidence: 0,
+          formatValid: false,
+        });
         continue;
       }
     }
+
+    const detail: IterativeEditingExecutionDetail = {
+      detailType: 'iterativeEditing',
+      targetVariantId: state.getTopByRating(1)[0]?.id ?? current.id,
+      config: { ...this.config },
+      cycles: cycleDetails,
+      initialCritique: initialCritiqueSnapshot,
+      finalCritique: currentCritique ? { dimensionScores: { ...currentCritique.dimensionScores } } : undefined,
+      stopReason,
+      consecutiveRejections,
+      totalCost: costTracker.getAgentCost(this.name),
+    };
 
     return {
       agentType: this.name,
       success: variantsAdded > 0,
       costUsd: costTracker.getAgentCost(this.name),
       variantsAdded,
+      executionDetail: detail,
     };
   }
 
@@ -169,8 +244,6 @@ export class IterativeEditingAgent extends AgentBase {
       return data.suggestions && data.suggestions.length > 0 ? data.suggestions : null;
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
-      // Log non-budget errors for debugging (previously swallowed silently)
-      console.warn('[iterativeEditing] runOpenReview error:', String(err));
       return null;
     }
   }
@@ -209,7 +282,6 @@ export class IterativeEditingAgent extends AgentBase {
       };
     } catch (err) {
       if (err instanceof BudgetExceededError) throw err;
-      console.warn('[iterativeEditing] runInlineCritique error:', String(err));
       return null;
     }
   }

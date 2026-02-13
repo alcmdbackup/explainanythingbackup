@@ -6,6 +6,7 @@ import type { TimelineData } from '@/lib/services/evolutionVisualizationActions'
 
 jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
   getEvolutionRunTimelineAction: jest.fn(),
+  getAgentInvocationDetailAction: jest.fn(),
 }));
 
 const mockTimelineData: TimelineData = {
@@ -364,6 +365,114 @@ describe('AgentDetailPanel', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Budget exceeded/)).toBeInTheDocument();
+    });
+  });
+});
+
+describe('Execution detail lazy-loading', () => {
+  const dataWithDetail: TimelineData = {
+    iterations: [
+      {
+        iteration: 0,
+        phase: 'EXPANSION',
+        agents: [
+          {
+            name: 'proximity',
+            costUsd: 0.002,
+            variantsAdded: 0,
+            matchesPlayed: 0,
+            hasExecutionDetail: true,
+          },
+          {
+            name: 'generation',
+            costUsd: 0.01,
+            variantsAdded: 3,
+            matchesPlayed: 0,
+          },
+        ],
+        totalCostUsd: 0.012,
+        totalVariantsAdded: 3,
+        totalMatchesPlayed: 0,
+      },
+    ],
+    phaseTransitions: [],
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (visualizationActions.getEvolutionRunTimelineAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: dataWithDetail,
+      error: null,
+    });
+  });
+
+  it('fetches and renders execution detail when agent has hasExecutionDetail', async () => {
+    (visualizationActions.getAgentInvocationDetailAction as jest.Mock).mockResolvedValue({
+      success: true,
+      data: {
+        detailType: 'proximity',
+        totalCost: 0.002,
+        newEntrants: 3,
+        existingVariants: 5,
+        diversityScore: 0.823,
+        totalPairsComputed: 15,
+      },
+    });
+
+    render(<TimelineTab runId="test-run-id" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('agent-row-proximity'));
+
+    await waitFor(() => {
+      expect(visualizationActions.getAgentInvocationDetailAction).toHaveBeenCalledWith(
+        'test-run-id', 0, 'proximity'
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('proximity-detail')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('0.823')).toBeInTheDocument();
+  });
+
+  it('does not fetch execution detail for agents without hasExecutionDetail', async () => {
+    render(<TimelineTab runId="test-run-id" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('agent-row-generation'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('agent-detail-panel')).toBeInTheDocument();
+    });
+
+    expect(visualizationActions.getAgentInvocationDetailAction).not.toHaveBeenCalled();
+  });
+
+  it('shows fallback when execution detail fetch returns null', async () => {
+    (visualizationActions.getAgentInvocationDetailAction as jest.Mock).mockResolvedValue({
+      success: false,
+      data: null,
+    });
+
+    render(<TimelineTab runId="test-run-id" />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('timeline-tab')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId('agent-row-proximity'));
+
+    await waitFor(() => {
+      expect(screen.getByText('No execution detail available')).toBeInTheDocument();
     });
   });
 });

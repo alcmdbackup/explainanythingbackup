@@ -30,6 +30,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - `src/lib/evolution/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
 - `src/lib/evolution/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
+- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views. Linked to run via `run_id` FK.
+
 ### Migrations (in order)
 1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
 2. `20260207000002` — prompt_id FK on runs

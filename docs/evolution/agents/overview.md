@@ -123,6 +123,14 @@ Swiss-style tournament for **all pool variants**:
 
 Which ranking agent runs is controlled by `evolution_tournament_enabled` feature flag (default: `true`). See [Reference — Feature Flags](../reference.md#feature-flags).
 
+## Execution Detail Tracking
+
+All 12 agents emit structured `executionDetail` on their `AgentResult`. This captures per-invocation metrics that are more granular than the aggregate checkpoint data. Each agent has a dedicated `ExecutionDetail` interface (discriminated by `detailType` string literal) defined in `types.ts`.
+
+The pipeline persists these details to the `evolution_agent_invocations` table (JSONB column) via `persistAgentInvocation()` in `pipeline.ts`. Details are capped at 100KB and truncated with `_truncated: true` if exceeded.
+
+Frontend rendering uses `AgentExecutionDetailView` (`components/evolution/agentDetails/`) — a router component that delegates to 12 type-specific detail views via exhaustive switch on `detailType`. The TimelineTab lazy-loads execution details on expand click using `hasExecutionDetail` flag.
+
 ## Related Documentation
 
 - [Architecture](../architecture.md) — Pipeline orchestration and phases

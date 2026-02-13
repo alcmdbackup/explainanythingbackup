@@ -3,7 +3,7 @@
 
 import { GenerationAgent } from './generationAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, GenerationExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
 const VALID_GENERATED = `# Restructured Article
@@ -142,5 +142,75 @@ describe('GenerationAgent', () => {
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
     expect(cost).toBeGreaterThan(0);
+  });
+});
+
+describe('GenerationAgent executionDetail', () => {
+  const agent = new GenerationAgent();
+
+  it('captures per-strategy detail on success', async () => {
+    const ctx = makeCtx();
+    const result = await agent.execute(ctx);
+
+    expect(result.executionDetail).toBeDefined();
+    expect(result.executionDetail!.detailType).toBe('generation');
+    const detail = result.executionDetail as GenerationExecutionDetail;
+    expect(detail.strategies).toHaveLength(3);
+    expect(detail.feedbackUsed).toBe(false);
+    for (const s of detail.strategies) {
+      expect(s.status).toBe('success');
+      expect(s.promptLength).toBeGreaterThan(0);
+      expect(s.variantId).toBeDefined();
+      expect(s.textLength).toBeGreaterThan(0);
+    }
+    const names = detail.strategies.map(s => s.name);
+    expect(names).toContain('structural_transform');
+    expect(names).toContain('lexical_simplify');
+    expect(names).toContain('grounding_enhance');
+  });
+
+  it('captures format_rejected status', async () => {
+    const badResponse = 'No H1 title, no headings, just plain text';
+    const ctx = makeCtx({ llmClient: makeMockLLMClient(badResponse) });
+    const result = await agent.execute(ctx);
+
+    expect(result.executionDetail).toBeDefined();
+    const detail = result.executionDetail as GenerationExecutionDetail;
+    expect(detail.strategies.every(s => s.status === 'format_rejected')).toBe(true);
+    expect(detail.strategies[0].formatIssues).toBeDefined();
+    expect(detail.strategies[0].formatIssues!.length).toBeGreaterThan(0);
+  });
+
+  it('captures error status for rejected promises', async () => {
+    const mockClient = makeMockLLMClient();
+    let callCount = 0;
+    (mockClient.complete as jest.Mock).mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) throw new Error('API error');
+      return Promise.resolve(VALID_GENERATED);
+    });
+    const ctx = makeCtx({ llmClient: mockClient });
+    const result = await agent.execute(ctx);
+
+    const detail = result.executionDetail as GenerationExecutionDetail;
+    const errorStrategies = detail.strategies.filter(s => s.status === 'error');
+    expect(errorStrategies.length).toBe(1);
+    expect(errorStrategies[0].error).toContain('API error');
+    const successStrategies = detail.strategies.filter(s => s.status === 'success');
+    expect(successStrategies.length).toBe(2);
+  });
+
+  it('sets feedbackUsed to true when metaFeedback exists', async () => {
+    const ctx = makeCtx();
+    ctx.state.metaFeedback = {
+      successfulStrategies: [],
+      recurringWeaknesses: [],
+      patternsToAvoid: [],
+      priorityImprovements: ['improve clarity'],
+    };
+    const result = await agent.execute(ctx);
+
+    const detail = result.executionDetail as GenerationExecutionDetail;
+    expect(detail.feedbackUsed).toBe(true);
   });
 });

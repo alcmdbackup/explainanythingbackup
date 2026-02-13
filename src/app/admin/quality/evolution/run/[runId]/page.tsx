@@ -29,9 +29,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
-// ─── Add to Hall of Fame dialog ──────────────────────────────
-
-function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }) {
+function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }): JSX.Element {
   const [prompt, setPrompt] = useState('');
   const [includeBaseline, setIncludeBaseline] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -161,7 +159,7 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
   );
 }
 
-export default function EvolutionRunDetailPage() {
+export default function EvolutionRunDetailPage(): JSX.Element {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -210,14 +208,12 @@ export default function EvolutionRunDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
       <div className="text-xs text-[var(--text-muted)]">
         <Link href="/admin/quality/evolution" className="hover:text-[var(--accent-gold)]">Evolution</Link>
         <span className="mx-1">/</span>
         <span>Run {runId.substring(0, 8)}</span>
       </div>
 
-      {/* Header */}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
@@ -267,7 +263,6 @@ export default function EvolutionRunDetailPage() {
         </div>
       </div>
 
-      {/* Tab bar */}
       <div className="flex gap-1 border-b border-[var(--border-default)]" data-testid="tab-bar">
         {TABS.map(tab => (
           <button
@@ -285,9 +280,8 @@ export default function EvolutionRunDetailPage() {
         ))}
       </div>
 
-      {/* Tab content — only render the active tab */}
       <div data-testid="tab-content">
-        {activeTab === 'timeline' && <TimelineTab runId={runId} />}
+        {activeTab === 'timeline' && <TimelineTab runId={runId} initialAgent={agentParam} />}
         {activeTab === 'elo' && <EloTab runId={runId} />}
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'budget' && <BudgetTab runId={runId} />}
@@ -296,7 +290,7 @@ export default function EvolutionRunDetailPage() {
         {activeTab === 'logs' && (
           <LogsTab
             runId={runId}
-            runStatus={run?.status}
+            runStatus={run.status}
             initialAgent={agentParam}
             initialIteration={iterationParam ? Number(iterationParam) : undefined}
             initialVariant={variantParam}
@@ -304,7 +298,6 @@ export default function EvolutionRunDetailPage() {
         )}
       </div>
 
-      {/* Add to Hall of Fame dialog */}
       {showHallOfFameDialog && run && (
         <AddToHallOfFameDialog run={run} onClose={(topicId) => {
           setShowHallOfFameDialog(false);

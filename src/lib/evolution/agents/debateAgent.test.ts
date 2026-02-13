@@ -2,7 +2,7 @@
 
 import { DebateAgent } from './debateAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, DebateExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
@@ -274,6 +274,70 @@ describe('DebateAgent', () => {
     expect(newVariant!.parentIds).toHaveLength(2);
     expect(newVariant!.strategy).toBe('debate_synthesis');
     expect(newVariant!.version).toBeGreaterThan(1);
+  });
+
+  describe('executionDetail', () => {
+    it('captures full debate detail on success', async () => {
+      const ctx = makeCtx();
+      const result = await agent.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      const detail = result.executionDetail as DebateExecutionDetail;
+      expect(detail.detailType).toBe('debate');
+      expect(detail.variantA.id).toBe('v-2'); // highest rated
+      expect(detail.variantB.id).toBe('v-1');
+      expect(detail.variantA.ordinal).toBeGreaterThan(0);
+      expect(detail.transcript).toHaveLength(3);
+      expect(detail.judgeVerdict).toBeDefined();
+      expect(detail.judgeVerdict!.winner).toBe('A');
+      expect(detail.judgeVerdict!.strengthsFromA).toHaveLength(2);
+      expect(detail.synthesisVariantId).toBeDefined();
+      expect(detail.synthesisTextLength).toBeGreaterThan(0);
+      expect(detail.formatValid).toBe(true);
+      expect(detail.failurePoint).toBeUndefined();
+    });
+
+    it('records failurePoint on judge parse failure', async () => {
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([ADVOCATE_A_RESPONSE, ADVOCATE_B_RESPONSE, 'not json', VALID_ARTICLE]),
+      });
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as DebateExecutionDetail;
+      expect(detail.failurePoint).toBe('parse');
+      expect(detail.transcript).toHaveLength(3);
+      expect(detail.judgeVerdict).toBeUndefined();
+    });
+
+    it('records failurePoint on format rejection', async () => {
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([ADVOCATE_A_RESPONSE, ADVOCATE_B_RESPONSE, VALID_JUDGE_JSON, 'plain text no headings']),
+      });
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as DebateExecutionDetail;
+      expect(detail.failurePoint).toBe('format');
+      expect(detail.formatValid).toBe(false);
+      expect(detail.formatIssues).toBeDefined();
+      expect(detail.judgeVerdict).toBeDefined();
+    });
+
+    it('records failurePoint on advocate B error', async () => {
+      const mockClient = makeMockLLMClient();
+      let callNum = 0;
+      (mockClient.complete as jest.Mock).mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return Promise.resolve(ADVOCATE_A_RESPONSE);
+        if (callNum === 2) return Promise.reject(new Error('timeout'));
+        return Promise.resolve('');
+      });
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as DebateExecutionDetail;
+      expect(detail.failurePoint).toBe('advocate_b');
+      expect(detail.transcript).toHaveLength(1); // only advocate A
+    });
   });
 
   it('skips baseline variant', async () => {

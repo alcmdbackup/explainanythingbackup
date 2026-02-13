@@ -3,7 +3,7 @@
 
 import { createHash } from 'crypto';
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, ProximityExecutionDetail } from '../types';
 
 export class ProximityAgent extends AgentBase {
   readonly name = 'proximity';
@@ -26,26 +26,22 @@ export class ProximityAgent extends AgentBase {
     }
 
     if (newIds.size === 0) {
-      return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name) };
+      const detail: ProximityExecutionDetail = {
+        detailType: 'proximity', newEntrants: 0, existingVariants: existingIds.length,
+        diversityScore: state.diversityScore ?? 1.0, totalPairsComputed: 0, totalCost: 0,
+      };
+      return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
     }
 
-    const idToVar = new Map<string, TextVariation>(state.pool.map((v) => [v.id, v]));
-
-    // Compute embeddings for new entrants
-    for (const vid of newIds) {
-      if (!this.embeddingCache.has(vid) && idToVar.has(vid)) {
-        this.embeddingCache.set(vid, this._embed(idToVar.get(vid)!.text));
-      }
-    }
-
-    // Compute embeddings for existing pool members
-    for (const existId of existingIds) {
-      if (!this.embeddingCache.has(existId) && idToVar.has(existId)) {
-        this.embeddingCache.set(existId, this._embed(idToVar.get(existId)!.text));
+    // Compute embeddings for all pool members not yet cached
+    for (const v of state.pool) {
+      if (!this.embeddingCache.has(v.id)) {
+        this.embeddingCache.set(v.id, this._embed(v.text));
       }
     }
 
     // Compute similarity for new vs existing (sparse)
+    let pairsComputed = 0;
     for (const newId of newIds) {
       if (!state.similarityMatrix[newId]) {
         state.similarityMatrix[newId] = {};
@@ -59,6 +55,7 @@ export class ProximityAgent extends AgentBase {
         if (!existEmbed) continue;
 
         const sim = cosineSimilarity(newEmbed, existEmbed);
+        pairsComputed++;
         state.similarityMatrix[newId][existId] = sim;
         // Ensure symmetry
         if (!state.similarityMatrix[existId]) {
@@ -76,7 +73,15 @@ export class ProximityAgent extends AgentBase {
       diversityScore: state.diversityScore.toFixed(3),
     });
 
-    return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name) };
+    const detail: ProximityExecutionDetail = {
+      detailType: 'proximity',
+      newEntrants: newIds.size,
+      existingVariants: existingIds.length,
+      diversityScore: state.diversityScore ?? 1.0,
+      totalPairsComputed: pairsComputed,
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+    return { agentType: 'proximity', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
   }
 
   estimateCost(payload: AgentPayload): number {

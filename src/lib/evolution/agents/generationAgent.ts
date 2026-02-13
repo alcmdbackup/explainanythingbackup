@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 
 const STRATEGIES = ['structural_transform', 'lexical_simplify', 'grounding_enhance'] as const;
@@ -71,19 +71,24 @@ export class GenerationAgent extends AgentBase {
     const feedback = ctx.state.metaFeedback
       ? ctx.state.metaFeedback.priorityImprovements.join('\n')
       : null;
+    const feedbackUsed = feedback !== null;
+
+    // Track prompt lengths per strategy for execution detail
+    const promptLengths = new Map<Strategy, number>();
 
     // Run all strategy LLM calls in parallel, then mutate state sequentially
     const results = await Promise.allSettled(
       STRATEGIES.map(async (strategy) => {
         const prompt = buildPrompt(strategy, text, feedback);
+        promptLengths.set(strategy, prompt.length);
         logger.debug('Generation call', { strategy, promptLength: prompt.length });
         const generatedText = await llmClient.complete(prompt, this.name);
         const fmtResult = validateFormat(generatedText);
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy, issues: fmtResult.issues });
-          return null;
+          return { text: null, strategy, formatIssues: fmtResult.issues };
         }
-        return { text: generatedText.trim(), strategy };
+        return { text: generatedText.trim(), strategy, formatIssues: undefined };
       }),
     );
 
@@ -94,10 +99,16 @@ export class GenerationAgent extends AgentBase {
       }
     }
 
-    // Mutate state sequentially after all promises resolve
+    // Mutate state sequentially after all promises resolve, building detail alongside
     const variations: TextVariation[] = [];
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value) {
+    const strategyDetails: GenerationExecutionDetail['strategies'] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const strategy = STRATEGIES[i];
+      const promptLength = promptLengths.get(strategy) ?? 0;
+
+      if (result.status === 'fulfilled' && result.value.text) {
         const variation: TextVariation = {
           id: uuidv4(),
           text: result.value.text,
@@ -110,16 +121,27 @@ export class GenerationAgent extends AgentBase {
         variations.push(variation);
         state.addToPool(variation);
         logger.info('Generated variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
+        strategyDetails.push({ name: strategy, promptLength, status: 'success', variantId: variation.id, textLength: variation.text.length });
+      } else if (result.status === 'fulfilled' && result.value.formatIssues) {
+        strategyDetails.push({ name: strategy, promptLength, status: 'format_rejected', formatIssues: result.value.formatIssues });
       } else if (result.status === 'rejected') {
         logger.error('Generation error', { error: String(result.reason) });
+        strategyDetails.push({ name: strategy, promptLength, status: 'error', error: String(result.reason) });
       }
     }
 
+    const detail: GenerationExecutionDetail = {
+      detailType: 'generation',
+      strategies: strategyDetails,
+      feedbackUsed,
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+
     if (variations.length === 0) {
-      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All strategies failed' };
+      return { agentType: 'generation', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All strategies failed', executionDetail: detail };
     }
 
-    return { agentType: 'generation', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length };
+    return { agentType: 'generation', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
   }
 
   estimateCost(payload: AgentPayload): number {

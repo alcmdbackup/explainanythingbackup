@@ -2,7 +2,7 @@
 
 import { TreeSearchAgent } from './treeSearchAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, Critique, AgentPayload } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, Critique, AgentPayload, TreeSearchExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import { VALID_VARIANT_TEXT } from '@/testing/utils/evolution-test-helpers';
@@ -286,6 +286,76 @@ describe('TreeSearchAgent', () => {
       const result = await agent.execute(ctx);
       expect(result.success).toBe(false);
       expect(result.agentType).toBe('treeSearch');
+    });
+
+    it('captures executionDetail on success with addedToPool', async () => {
+      const ctx = makeCtx();
+      const bestLeafText = '# Improved\n\n## Better\n\nMuch improved text here. With more detail.';
+
+      mockBeamSearch.mockResolvedValue({
+        result: {
+          bestLeafNodeId: 'leaf-1',
+          bestVariantId: 'best-v',
+          revisionPath: [{ type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' }],
+          treeSize: 10,
+          maxDepth: 3,
+          prunedBranches: 5,
+        },
+        treeState: {
+          rootNodeId: 'root-1',
+          nodes: {
+            'root-1': {
+              id: 'root-1', variantId: 'top-variant', parentNodeId: null,
+              childNodeIds: ['leaf-1'], depth: 0,
+              revisionAction: { type: 'edit_dimension', description: 'root' },
+              value: 0, pruned: false,
+            },
+            'leaf-1': {
+              id: 'leaf-1', variantId: 'best-v', parentNodeId: 'root-1',
+              childNodeIds: [], depth: 1,
+              revisionAction: { type: 'edit_dimension', dimension: 'clarity', description: 'Improve clarity' },
+              value: 10, pruned: false,
+            },
+          },
+        },
+        bestLeafText,
+      });
+
+      const result = await agent.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      const detail = result.executionDetail as TreeSearchExecutionDetail;
+      expect(detail.detailType).toBe('treeSearch');
+      expect(detail.rootVariantId).toBe('top-variant');
+      expect(detail.config.beamWidth).toBeGreaterThan(0);
+      expect(detail.result.treeSize).toBe(10);
+      expect(detail.result.maxDepth).toBe(3);
+      expect(detail.result.prunedBranches).toBe(5);
+      expect(detail.result.revisionPath).toHaveLength(1);
+      expect(detail.result.revisionPath[0].dimension).toBe('clarity');
+      expect(detail.bestLeafVariantId).toBe('best-v');
+      expect(detail.addedToPool).toBe(true);
+    });
+
+    it('captures executionDetail with addedToPool=false when best is root', async () => {
+      const ctx = makeCtx();
+      mockBeamSearch.mockResolvedValue({
+        result: {
+          bestLeafNodeId: 'root-1', bestVariantId: 'top-variant',
+          revisionPath: [], treeSize: 1, maxDepth: 0, prunedBranches: 0,
+        },
+        treeState: {
+          rootNodeId: 'root-1',
+          nodes: { 'root-1': { id: 'root-1', variantId: 'top-variant', parentNodeId: null, childNodeIds: [], depth: 0, revisionAction: { type: 'edit_dimension', description: 'root' }, value: 0, pruned: false } },
+        },
+        bestLeafText: VALID_VARIANT_TEXT,
+      });
+
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as TreeSearchExecutionDetail;
+      expect(detail.addedToPool).toBe(false);
+      expect(detail.bestLeafVariantId).toBeUndefined();
     });
 
     it('skips when no suitable root found', async () => {

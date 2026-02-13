@@ -9,6 +9,7 @@ import type {
   PipelineState,
   AgentPayload,
   MetaFeedback,
+  MetaReviewExecutionDetail,
   TextVariation,
 } from '../types';
 
@@ -43,7 +44,42 @@ export class MetaReviewAgent extends AgentBase {
       priorities: priorityImprovements.length,
     });
 
-    return { agentType: 'meta_review', success: true, costUsd: ctx.costTracker.getAgentCost(this.name) };
+    // Build analysis snapshot for execution detail
+    const strategyOrdinals: Record<string, number> = {};
+    const strategyScores = this._getStrategyScores(state);
+    for (const [strat, scores] of strategyScores) {
+      strategyOrdinals[strat] = avg(scores);
+    }
+
+    const ordinals = [...state.ratings.values()].map(getOrdinal);
+    const ordinalRange = ordinals.length > 0 ? Math.max(...ordinals) - Math.min(...ordinals) : 0;
+    const sortedIds = [...state.ratings.entries()]
+      .sort((a, b) => getOrdinal(a[1]) - getOrdinal(b[1]))
+      .map(([id]) => id);
+    const bottomQuartileCount = Math.max(1, Math.floor(sortedIds.length / 4));
+    const top3 = state.getTopByRating(3);
+    const topVariantAge = top3.length > 0
+      ? state.iteration - Math.max(...top3.map(v => v.iterationBorn))
+      : 0;
+
+    const detail: MetaReviewExecutionDetail = {
+      detailType: 'metaReview',
+      successfulStrategies,
+      recurringWeaknesses,
+      patternsToAvoid,
+      priorityImprovements,
+      analysis: {
+        strategyOrdinals,
+        bottomQuartileCount,
+        poolDiversity: state.diversityScore ?? 1.0,
+        ordinalRange,
+        activeStrategies: strategyScores.size,
+        topVariantAge,
+      },
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+
+    return { agentType: 'meta_review', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), executionDetail: detail };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -55,10 +91,8 @@ export class MetaReviewAgent extends AgentBase {
     return state.pool.length >= 1 && state.ratings.size >= 1;
   }
 
-  /** Find strategies that produce above-average ordinal variants, sorted descending. */
-  _analyzeStrategies(state: PipelineState): string[] {
-    if (state.ratings.size === 0) return [];
-
+  /** Compute per-strategy ordinal scores from the pool. Shared by _analyzeStrategies and execute. */
+  _getStrategyScores(state: PipelineState): Map<string, number[]> {
     const strategyScores = new Map<string, number[]>();
     for (const v of state.pool) {
       const r = state.ratings.get(v.id);
@@ -67,26 +101,23 @@ export class MetaReviewAgent extends AgentBase {
       arr.push(ord);
       strategyScores.set(v.strategy, arr);
     }
+    return strategyScores;
+  }
 
+  /** Find strategies that produce above-average ordinal variants, sorted descending. */
+  _analyzeStrategies(state: PipelineState): string[] {
+    if (state.ratings.size === 0) return [];
+
+    const strategyScores = this._getStrategyScores(state);
     if (strategyScores.size === 0) return [];
 
     const allOrdinals = [...state.ratings.values()].map(getOrdinal);
-    const avgOrd = allOrdinals.reduce((a, b) => a + b, 0) / allOrdinals.length;
+    const avgOrd = avg(allOrdinals);
 
-    const successful: string[] = [];
-    for (const [strategy, scores] of strategyScores) {
-      const stratAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
-      if (stratAvg > avgOrd) successful.push(strategy);
-    }
-
-    // Sort by average ordinal descending
-    successful.sort((a, b) => {
-      const avgA = avg(strategyScores.get(a)!);
-      const avgB = avg(strategyScores.get(b)!);
-      return avgB - avgA;
-    });
-
-    return successful;
+    return [...strategyScores.entries()]
+      .filter(([, scores]) => avg(scores) > avgOrd)
+      .sort((a, b) => avg(b[1]) - avg(a[1]))
+      .map(([strategy]) => strategy);
   }
 
   /** Find patterns in bottom-quartile variants. */

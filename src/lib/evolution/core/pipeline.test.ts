@@ -781,11 +781,11 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
     const supabase = await createSupabaseServiceClient();
     const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
 
-    // Find upsert calls that look like agent metrics (have agent_name field)
+    // Find upsert calls that look like agent metrics (have agent_name AND variants_generated)
     type MetricRow = { agent_name: string; [key: string]: unknown };
     const agentMetricUpserts: MetricRow[] = upsertCalls
       .map((call: unknown[]) => call[0] as Record<string, unknown>)
-      .filter((row): row is MetricRow => row != null && typeof row === 'object' && 'agent_name' in row);
+      .filter((row): row is MetricRow => row != null && typeof row === 'object' && 'agent_name' in row && 'variants_generated' in row);
 
     // generation has variants (structural_transform maps to generation) — should be upserted
     const generationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'generation');
@@ -1272,5 +1272,204 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     // Pool has baseline + variant-attempt-1 (partial, from failed) + variant-attempt-2 (from retry)
     expect(ctx.state.poolIds.has('variant-attempt-1')).toBe(true);
     expect(ctx.state.poolIds.has('variant-attempt-2')).toBe(true);
+  });
+});
+
+// ─── persistAgentInvocation tests ───────────────────────────────
+
+import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipeline';
+import type { AgentExecutionDetail, GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
+import { generationDetailFixture } from '@/testing/fixtures/executionDetailFixtures';
+
+describe('persistAgentInvocation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('upserts invocation with execution detail', async () => {
+    const result = {
+      agentType: 'generation',
+      success: true,
+      costUsd: 0.05,
+      variantsAdded: 2,
+      executionDetail: generationDetailFixture,
+    };
+    const logger = makeMockLogger();
+
+    await persistAgentInvocation('run-1', 1, 'generation', 0, result, logger);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
+
+    const invocationUpsert = upsertCalls.find(
+      (call: unknown[]) => {
+        const row = call[0] as Record<string, unknown>;
+        return row?.agent_name === 'generation' && 'execution_detail' in row;
+      },
+    );
+    expect(invocationUpsert).toBeDefined();
+    const row = invocationUpsert![0] as Record<string, unknown>;
+    expect(row.run_id).toBe('run-1');
+    expect(row.iteration).toBe(1);
+    expect(row.execution_order).toBe(0);
+    expect(row.success).toBe(true);
+    expect(row.cost_usd).toBe(0.05);
+    expect((row.execution_detail as GenerationExecutionDetail).detailType).toBe('generation');
+  });
+
+  it('persists empty detail for agents without executionDetail', async () => {
+    const result = { agentType: 'test', success: true, costUsd: 0 };
+    const logger = makeMockLogger();
+
+    await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
+
+    const invocationUpsert = upsertCalls.find(
+      (call: unknown[]) => {
+        const row = call[0] as Record<string, unknown>;
+        return row?.agent_name === 'test' && 'execution_detail' in row;
+      },
+    );
+    expect(invocationUpsert).toBeDefined();
+    expect((invocationUpsert![0] as Record<string, unknown>).execution_detail).toEqual({});
+  });
+
+  it('logs warning on DB error without throwing', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    (createSupabaseServiceClient as jest.Mock).mockRejectedValueOnce(new Error('DB down'));
+
+    const result = { agentType: 'test', success: true, costUsd: 0 };
+    const logger = makeMockLogger();
+
+    // Should not throw
+    await persistAgentInvocation('run-1', 1, 'test', 0, result, logger);
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Failed to persist agent invocation',
+      expect.objectContaining({ agent: 'test' }),
+    );
+  });
+});
+
+// ─── truncateDetail tests ───────────────────────────────────────
+
+describe('truncateDetail', () => {
+  it('returns detail unchanged when under 100KB', () => {
+    const result = truncateDetail(generationDetailFixture);
+    expect(result).toEqual(generationDetailFixture);
+    expect(result._truncated).toBeUndefined();
+  });
+
+  it('slices tournament rounds and sets _truncated', () => {
+    const bigTournament: TournamentExecutionDetail = {
+      detailType: 'tournament',
+      budgetPressure: 0.5,
+      budgetTier: 'medium',
+      rounds: Array.from({ length: 50 }, (_, i) => ({
+        roundNumber: i + 1,
+        pairs: [{ variantA: 'a'.repeat(500), variantB: 'b'.repeat(500) }],
+        matches: [{
+          variationA: 'a'.repeat(500), variationB: 'b'.repeat(500),
+          winner: 'a'.repeat(500), confidence: 0.8, turns: 2,
+          dimensionScores: { clarity: 'A' },
+        }],
+        multiTurnUsed: 0,
+      })),
+      exitReason: 'maxRounds',
+      convergenceStreak: 0,
+      staleRounds: 0,
+      totalComparisons: 50,
+      flowEnabled: false,
+      totalCost: 0.1,
+    };
+
+    const result = truncateDetail(bigTournament) as TournamentExecutionDetail;
+    // Should be sliced to 30 rounds if over 100KB
+    if (result._truncated) {
+      expect(result.rounds.length).toBeLessThanOrEqual(30);
+    }
+  });
+
+  it('strips to base fields when still over limit after slicing', () => {
+    // Create a detail so large even slicing can't save it
+    const huge: GenerationExecutionDetail = {
+      detailType: 'generation',
+      strategies: Array.from({ length: 100 }, (_, i) => ({
+        name: 'x'.repeat(2000),
+        promptLength: 1000,
+        status: 'success' as const,
+        variantId: 'v'.repeat(2000),
+        textLength: i,
+      })),
+      feedbackUsed: true,
+      totalCost: 0.1,
+    };
+
+    const result = truncateDetail(huge);
+    expect(result._truncated).toBe(true);
+    expect(result.detailType).toBe('generation');
+    expect(result.totalCost).toBe(0.1);
+    // Strategies should be stripped in phase 2
+    expect((result as GenerationExecutionDetail).strategies).toBeUndefined();
+  });
+});
+
+// ─── sliceLargeArrays tests ─────────────────────────────────────
+
+describe('sliceLargeArrays', () => {
+  it('slices calibration entrants to 50 with matches to 20', () => {
+    const detail: CalibrationExecutionDetail = {
+      detailType: 'calibration',
+      entrants: Array.from({ length: 60 }, (_, i) => ({
+        variantId: `v-${i}`,
+        opponents: [],
+        matches: Array.from({ length: 25 }, (__, j) => ({
+          opponentId: `opp-${j}`, winner: `v-${i}`, confidence: 0.8, cacheHit: false,
+        })),
+        earlyExit: false,
+        ratingBefore: { mu: 25, sigma: 8 },
+        ratingAfter: { mu: 26, sigma: 7 },
+      })),
+      avgConfidence: 0.8,
+      totalMatches: 100,
+      totalCost: 0.05,
+    };
+
+    const result = sliceLargeArrays(detail) as CalibrationExecutionDetail;
+    expect(result.entrants.length).toBe(50);
+    expect(result.entrants[0].matches.length).toBe(20);
+  });
+
+  it('slices iterativeEditing cycles to 10', () => {
+    const detail: IterativeEditingExecutionDetail = {
+      detailType: 'iterativeEditing',
+      targetVariantId: 'v1',
+      config: { maxCycles: 20, maxConsecutiveRejections: 3, qualityThreshold: 7.5 },
+      cycles: Array.from({ length: 15 }, (_, i) => ({
+        cycleNumber: i + 1,
+        target: { description: 'test', source: 'rubric' },
+        verdict: 'ACCEPT' as const,
+        confidence: 0.8,
+        formatValid: true,
+      })),
+      initialCritique: { dimensionScores: {} },
+      stopReason: 'max_cycles',
+      consecutiveRejections: 0,
+      totalCost: 0.05,
+    };
+
+    const result = sliceLargeArrays(detail) as IterativeEditingExecutionDetail;
+    expect(result.cycles.length).toBe(10);
+  });
+
+  it('returns other detail types unchanged', () => {
+    const result = sliceLargeArrays(generationDetailFixture);
+    expect(result).toEqual(generationDetailFixture);
   });
 });

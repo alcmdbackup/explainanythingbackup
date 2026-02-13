@@ -6,7 +6,7 @@ import { serializeState } from './state';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState } from './supervisor';
-import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
+import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary, AgentExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
 import { isTransientError } from './errorClassification';
@@ -723,6 +723,7 @@ export async function executeMinimalPipeline(
 
   insertBaselineVariant(ctx.state, runId);
 
+  let minimalExecutionOrder = 0;
   for (const agent of agents) {
     if (!agent.canExecute(ctx.state)) {
       logger.info('Skipping agent (preconditions not met)', { agent: agent.name });
@@ -738,6 +739,7 @@ export async function executeMinimalPipeline(
         costUsd: result.costUsd,
         variantsAdded: result.variantsAdded,
       });
+      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, minimalExecutionOrder++, result, logger);
       await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger);
     } catch (error) {
       // Save partial progress before handling error
@@ -862,6 +864,7 @@ export async function executeFullPipeline(
 
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
       ctx.state.startNewIteration();
+      let executionOrder = 0;
 
       // Phase detection and config
       supervisor.beginIteration(ctx.state);
@@ -911,7 +914,7 @@ export async function executeFullPipeline(
 
         // === Generation ===
         if (config.runGeneration) {
-          await runAgent(runId, agents.generation, ctx, phase, logger);
+          await runAgent(runId, agents.generation, ctx, phase, logger, executionOrder++);
         }
 
         // Pre-edit agents: outline generation + quality critique (run before flow critique + editing)
@@ -930,7 +933,7 @@ export async function executeFullPipeline(
             logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
             continue;
           }
-          await runAgent(runId, agent, ctx, phase, logger);
+          await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
         }
 
         // === Flow Critique (step 3b) — runs after quality critique, before editing agents ===
@@ -972,24 +975,24 @@ export async function executeFullPipeline(
             logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
             continue;
           }
-          await runAgent(runId, agent, ctx, phase, logger);
+          await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
         }
 
         // === Calibration (EXPANSION) or Tournament (COMPETITION) ===
         if (config.runCalibration) {
           const useTournament = phase === 'COMPETITION' && options.featureFlags?.tournamentEnabled !== false;
           const rankingAgent = useTournament ? agents.tournament : agents.calibration;
-          await runAgent(runId, rankingAgent, ctx, phase, logger);
+          await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
         }
 
         // === Proximity / diversity tracking (optional) ===
         if (config.runProximity && agents.proximity) {
-          await runAgent(runId, agents.proximity, ctx, phase, logger);
+          await runAgent(runId, agents.proximity, ctx, phase, logger, executionOrder++);
         }
 
         // === Meta-review (Slice C — optional) ===
         if (config.runMetaReview && agents.metaReview) {
-          await runAgent(runId, agents.metaReview, ctx, phase, logger);
+          await runAgent(runId, agents.metaReview, ctx, phase, logger, executionOrder++);
         }
 
         // Report top performers
@@ -1047,6 +1050,81 @@ export async function executeFullPipeline(
   }
 }
 
+// ─── Agent invocation persistence ────────────────────────────────
+
+const MAX_DETAIL_BYTES = 100_000;
+
+/** Slice known large arrays per detail type to fit within JSONB byte cap. */
+export function sliceLargeArrays(detail: AgentExecutionDetail): AgentExecutionDetail {
+  switch (detail.detailType) {
+    case 'tournament':
+      return { ...detail, rounds: detail.rounds.slice(0, 30) };
+    case 'calibration':
+      return {
+        ...detail,
+        entrants: detail.entrants.slice(0, 50).map(e => ({
+          ...e, matches: e.matches.slice(0, 20),
+        })),
+      };
+    case 'iterativeEditing':
+      return { ...detail, cycles: detail.cycles.slice(0, 10) };
+    default:
+      return detail;
+  }
+}
+
+/** Cap execution detail JSONB to 100KB via 2-phase truncation. */
+export function truncateDetail(detail: AgentExecutionDetail): AgentExecutionDetail {
+  const encoded = new TextEncoder().encode(JSON.stringify(detail));
+  if (encoded.length <= MAX_DETAIL_BYTES) return detail;
+
+  // Phase 1: Slice known large arrays
+  const sliced = sliceLargeArrays(detail);
+  const recheck = new TextEncoder().encode(JSON.stringify(sliced));
+  if (recheck.length <= MAX_DETAIL_BYTES) {
+    return { ...sliced, _truncated: true } as AgentExecutionDetail;
+  }
+
+  // Phase 2: Strip to base fields only
+  return {
+    detailType: detail.detailType,
+    totalCost: detail.totalCost,
+    _truncated: true,
+  } as AgentExecutionDetail;
+}
+
+/** Persist a per-agent-per-iteration invocation record. Non-blocking — logs warning on failure. */
+export async function persistAgentInvocation(
+  runId: string,
+  iteration: number,
+  agentName: string,
+  executionOrder: number,
+  result: AgentResult,
+  logger: EvolutionLogger,
+): Promise<void> {
+  try {
+    const detail = result.executionDetail
+      ? truncateDetail(result.executionDetail)
+      : {};
+    const supabase = await createSupabaseServiceClient();
+    await supabase.from('evolution_agent_invocations').upsert({
+      run_id: runId,
+      iteration,
+      agent_name: agentName,
+      execution_order: executionOrder,
+      success: result.success,
+      cost_usd: result.costUsd,
+      skipped: result.skipped ?? false,
+      error_message: result.error ?? null,
+      execution_detail: detail,
+    }, { onConflict: 'run_id,iteration,agent_name' });
+  } catch (err) {
+    logger.warn('Failed to persist agent invocation', {
+      agent: agentName, iteration, error: String(err),
+    });
+  }
+}
+
 /** Run a single agent with error handling, checkpoint, retry for transient errors, and OTel span.
  *
  * Retry design: NO state rollback on retry. Partial mutations from the failed attempt
@@ -1062,6 +1140,7 @@ async function runAgent(
   ctx: ExecutionContext,
   phase: PipelinePhase,
   logger: EvolutionLogger,
+  executionOrder: number,
   maxRetries: number = 1,
 ): Promise<AgentResult | null> {
   if (!agent.canExecute(ctx.state)) {
@@ -1092,6 +1171,7 @@ async function runAgent(
         variantsAdded: result.variantsAdded,
         matchesPlayed: result.matchesPlayed,
       });
+      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger);
       await persistCheckpoint(runId, ctx.state, agent.name, phase, logger);
       return result;
     } catch (error) {

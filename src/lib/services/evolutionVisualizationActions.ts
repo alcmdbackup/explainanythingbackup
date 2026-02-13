@@ -14,6 +14,7 @@ import type {
   SerializedPipelineState,
   EvolutionRunStatus,
   GenerationStepName,
+  AgentExecutionDetail,
 } from '@/lib/evolution/types';
 import { isOutlineVariant } from '@/lib/evolution/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@/lib/services/evolutionActions';
@@ -66,6 +67,7 @@ export interface TimelineData {
       metaFeedbackPopulated?: boolean;
       skipped?: boolean;
       executionOrder?: number; // 0-based position within iteration
+      hasExecutionDetail?: boolean; // true if structured execution detail is available
     }[];
     // New iteration-level totals
     totalCostUsd?: number;
@@ -481,6 +483,23 @@ const _getEvolutionRunTimelineAction = withLogging(async (
           afterIteration: iterations[i - 1].iteration,
           reason: `Transition to ${iterations[i].phase}`,
         });
+      }
+    }
+
+    // Enrich agents with execution detail presence flag (lightweight — no JSONB loaded)
+    const { data: invocationKeys } = await supabase
+      .from('evolution_agent_invocations')
+      .select('iteration, agent_name')
+      .eq('run_id', runId);
+
+    if (invocationKeys && invocationKeys.length > 0) {
+      const invocationSet = new Set(
+        invocationKeys.map((r: { iteration: number; agent_name: string }) => `${r.iteration}-${r.agent_name}`),
+      );
+      for (const iter of iterations) {
+        for (const agent of iter.agents) {
+          agent.hasExecutionDetail = invocationSet.has(`${iter.iteration}-${agent.name}`);
+        }
       }
     }
 
@@ -1017,3 +1036,114 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
 
   return eloLookup;
 }
+
+// ─── Agent Invocation Detail ────────────────────────────────────
+
+/** Row shape returned by invocation queries (base fields + typed execution detail). */
+export interface AgentInvocationRow {
+  id: string;
+  run_id: string;
+  iteration: number;
+  agent_name: string;
+  execution_order: number;
+  success: boolean;
+  cost_usd: number;
+  skipped: boolean;
+  error_message: string | null;
+  execution_detail: AgentExecutionDetail | Record<string, never>;
+  created_at: string;
+}
+
+/** Fetch typed execution detail for a single agent invocation. */
+const _getAgentInvocationDetailAction = withLogging(async (
+  runId: string,
+  iteration: number,
+  agentName: string,
+): Promise<ActionResult<AgentExecutionDetail | null>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('evolution_agent_invocations')
+      .select('execution_detail')
+      .eq('run_id', runId)
+      .eq('iteration', iteration)
+      .eq('agent_name', agentName)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No row found — not an error, just no detail available
+        return { success: true, data: null, error: null };
+      }
+      throw error;
+    }
+
+    const detail = data?.execution_detail as AgentExecutionDetail | Record<string, never> | null;
+    if (!detail || !('detailType' in detail)) {
+      return { success: true, data: null, error: null };
+    }
+
+    return { success: true, data: detail as AgentExecutionDetail, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getAgentInvocationDetailAction', { runId, iteration, agentName }) };
+  }
+}, 'getAgentInvocationDetailAction');
+
+export const getAgentInvocationDetailAction = serverReadRequestId(_getAgentInvocationDetailAction);
+
+/** Fetch all agent invocations for a given iteration (batch load for timeline expand). */
+const _getIterationInvocationsAction = withLogging(async (
+  runId: string,
+  iteration: number,
+): Promise<ActionResult<AgentInvocationRow[]>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('evolution_agent_invocations')
+      .select('*')
+      .eq('run_id', runId)
+      .eq('iteration', iteration)
+      .order('execution_order', { ascending: true });
+
+    if (error) throw error;
+
+    return { success: true, data: (data ?? []) as AgentInvocationRow[], error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getIterationInvocationsAction', { runId, iteration }) };
+  }
+}, 'getIterationInvocationsAction');
+
+export const getIterationInvocationsAction = serverReadRequestId(_getIterationInvocationsAction);
+
+/** Fetch all invocations for a specific agent across all iterations (explorer drill-down). */
+const _getAgentInvocationsForRunAction = withLogging(async (
+  runId: string,
+  agentName: string,
+): Promise<ActionResult<AgentInvocationRow[]>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const { data, error } = await supabase
+      .from('evolution_agent_invocations')
+      .select('*')
+      .eq('run_id', runId)
+      .eq('agent_name', agentName)
+      .order('iteration', { ascending: true });
+
+    if (error) throw error;
+
+    return { success: true, data: (data ?? []) as AgentInvocationRow[], error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getAgentInvocationsForRunAction', { runId, agentName }) };
+  }
+}, 'getAgentInvocationsForRunAction');
+
+export const getAgentInvocationsForRunAction = serverReadRequestId(_getAgentInvocationsForRunAction);

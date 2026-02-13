@@ -3,7 +3,7 @@
 import { Tournament, swissPairing, budgetPressureConfig } from './tournament';
 import { PipelineStateImpl } from '../core/state';
 import { createRating, getOrdinal, type Rating } from '../core/rating';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TournamentExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
 function makeMockLLMClient(responses: string[]): EvolutionLLMClient {
@@ -463,5 +463,37 @@ FRICTION_B: Moving on abruptly.`;
     // The winner (v-0, always presented as A) should be in the top half
     const topHalf = ordinals.slice(0, Math.floor(poolSize / 2)).map((o) => o.id);
     expect(topHalf).toContain('v-0');
+  });
+
+  describe('executionDetail', () => {
+    it('captures rounds, budget tier, and exit reason', async () => {
+      const { ctx } = makeCtx(['A', 'B'], 4);
+      const result = await tournament.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      expect(result.executionDetail!.detailType).toBe('tournament');
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.rounds.length).toBeGreaterThan(0);
+      expect(detail.budgetTier).toBe('low'); // default available=5, cap=1 → pressure<0
+      expect(['budget', 'convergence', 'stale', 'maxRounds']).toContain(detail.exitReason);
+      expect(detail.totalComparisons).toBe(result.matchesPlayed);
+      expect(detail.flowEnabled).toBe(false);
+      // Each round should have pairs and matches
+      for (const r of detail.rounds) {
+        expect(r.pairs.length).toBeGreaterThan(0);
+        expect(r.matches.length).toBeGreaterThan(0);
+        expect(r.roundNumber).toBeGreaterThanOrEqual(0);
+      }
+    });
+
+    it('records stale exit reason when all pairs played', async () => {
+      // 2 variants → only 1 possible pair, so tournament goes stale after 1 round
+      const { ctx } = makeCtx(['A', 'B'], 2);
+      const result = await tournament.execute(ctx);
+
+      const detail = result.executionDetail as TournamentExecutionDetail;
+      expect(detail.exitReason).toBe('stale');
+      expect(detail.staleRounds).toBeGreaterThanOrEqual(1);
+    });
   });
 });

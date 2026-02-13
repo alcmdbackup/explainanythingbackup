@@ -2,7 +2,7 @@
 // Calls LLM per variant to produce scores, examples, and notes across quality dimensions.
 
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, ReflectionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { extractJSON } from '../core/jsonParser';
 import { QUALITY_DIMENSIONS } from '../flowRubric';
@@ -126,22 +126,38 @@ export class ReflectionAgent extends AgentBase {
       }
     }
 
-    // Parse and collect results sequentially
+    // Parse and collect results sequentially, tracking per-variant detail
     const critiques: Critique[] = [];
-    for (const result of results) {
+    const variantDetails: ReflectionExecutionDetail['variantsCritiqued'] = [];
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const variantId = topVariants[i].id;
+
       if (result.status === 'fulfilled') {
-        const { response, variantId } = result.value;
+        const { response } = result.value;
         const critique = parseCritiqueResponse(response, variantId);
         if (critique) {
           critiques.push(critique);
           const scores = Object.values(critique.dimensionScores);
           const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
           logger.info('Critique generated', { variantId: variantId.slice(0, 8), avgScore: avgScore.toFixed(1) });
+          variantDetails.push({
+            variantId,
+            status: 'success',
+            avgScore,
+            dimensionScores: { ...critique.dimensionScores },
+            goodExamples: critique.goodExamples,
+            badExamples: critique.badExamples,
+            notes: critique.notes,
+          });
         } else {
           logger.warn('Critique parse failed', { variantId: variantId.slice(0, 8) });
+          variantDetails.push({ variantId, status: 'parse_failed' });
         }
       } else {
         logger.error('Critique error', { error: String(result.reason) });
+        variantDetails.push({ variantId, status: 'error', error: String(result.reason) });
       }
     }
 
@@ -156,11 +172,19 @@ export class ReflectionAgent extends AgentBase {
 
     logger.info('Reflection complete', { numCritiques: critiques.length });
 
+    const detail: ReflectionExecutionDetail = {
+      detailType: 'reflection',
+      variantsCritiqued: variantDetails,
+      dimensions: [...this.dimensions],
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+
     return {
       agentType: 'reflection',
       success: critiques.length > 0,
-      costUsd: ctx.costTracker.getAgentCost(this.name), // actual cost tracked by llmClient
+      costUsd: ctx.costTracker.getAgentCost(this.name),
       error: critiques.length === 0 ? 'All critiques failed' : undefined,
+      executionDetail: detail,
     };
   }
 
