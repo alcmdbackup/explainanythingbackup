@@ -543,6 +543,66 @@ describe('IterativeEditingAgent', () => {
     });
   });
 
+  describe('transient error handling in edit loop', () => {
+    it('catches transient LLM error in edit generation and continues', async () => {
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)       // runOpenReview
+        .mockRejectedValueOnce(new Error('Socket timeout'))  // edit generation fails
+        .mockRejectedValueOnce(new Error('Socket timeout'))  // cycle 2 edit fails
+        .mockRejectedValueOnce(new Error('Socket timeout')); // cycle 3 edit fails
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent.execute(ctx);
+      expect(result.success).toBe(false);
+      expect(result.variantsAdded).toBe(0);
+      // Verify warning was logged
+      const logger = ctx.logger as unknown as { warn: jest.Mock };
+      const warnCalls = logger.warn.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'Edit cycle failed, treating as rejection',
+      );
+      expect(warnCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('catches transient error in compareWithDiff and continues', async () => {
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)   // runOpenReview
+        .mockResolvedValueOnce(VALID_ARTICLE);       // edit generation succeeds
+      mockCompareWithDiff.mockRejectedValueOnce(new Error('ECONNRESET'));
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent.execute(ctx);
+      expect(result.success).toBe(false);
+      expect(result.variantsAdded).toBe(0);
+    });
+
+    it('re-throws BudgetExceededError from edit generation', async () => {
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)
+        .mockRejectedValueOnce(new BudgetExceededError('iterativeEditing', 1.0, 0.5));
+      const ctx = makeCtx({ llmClient: mockClient });
+      await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
+    });
+
+    it('exhausts maxConsecutiveRejections on repeated transient errors', async () => {
+      const agent2Max = new IterativeEditingAgent({ maxConsecutiveRejections: 2, maxCycles: 5 });
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)
+        .mockRejectedValue(new Error('Socket timeout'));
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent2Max.execute(ctx);
+      expect(result.success).toBe(false);
+      expect(result.variantsAdded).toBe(0);
+      // Should stop after maxConsecutiveRejections (2), not run all 5 cycles
+      const logger = ctx.logger as unknown as { info: jest.Mock };
+      const stopCalls = logger.info.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'Max consecutive rejections reached, stopping',
+      );
+      expect(stopCalls.length).toBe(1);
+    });
+  });
+
   describe('step-targeted editing for OutlineVariants', () => {
     function makeOutlineCtx(): ExecutionContext {
       const state = new PipelineStateImpl('# Original\n\n## Section\n\nOriginal text content here. This is a second sentence.');

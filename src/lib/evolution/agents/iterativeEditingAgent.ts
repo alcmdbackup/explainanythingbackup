@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation } from '../types';
 import { BudgetExceededError, isOutlineVariant } from '../types';
+import { isTransientError } from '../core/errorClassification';
 import { compareWithDiff } from '../diffComparison';
 import { getCritiqueForVariant } from './reflectionAgent';
 import { buildQualityCritiquePrompt, getFlowCritiqueForVariant } from '../flowRubric';
@@ -83,47 +84,58 @@ export class IterativeEditingAgent extends AgentBase {
       const editTarget = this.pickEditTarget(currentCritique, openReview, current, state.allCritiques);
       if (!editTarget) break;
 
-      // EDIT: generate targeted fix
-      const editPrompt = buildEditPrompt(current.text, editTarget);
-      const editedText = await llmClient.complete(editPrompt, this.name);
+      try {
+        // EDIT: generate targeted fix
+        const editPrompt = buildEditPrompt(current.text, editTarget);
+        const editedText = await llmClient.complete(editPrompt, this.name);
 
-      // Validate format
-      const formatResult = validateFormat(editedText);
-      if (!formatResult.valid) {
-        logger.warn('Edit failed format validation', { cycle, issues: formatResult.issues });
+        // Validate format
+        const formatResult = validateFormat(editedText);
+        if (!formatResult.valid) {
+          logger.warn('Edit failed format validation', { cycle, issues: formatResult.issues });
+          consecutiveRejections++;
+          continue;
+        }
+
+        // JUDGE: blind holistic diff-based comparison (no info about edit target)
+        const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel });
+        const result = await compareWithDiff(current.text, editedText, callLLM);
+
+        const accepted = result.verdict === 'ACCEPT';
+        if (accepted) {
+          // Create new variant
+          const editedVariant = {
+            id: uuidv4(),
+            text: editedText,
+            version: current.version + 1,
+            parentIds: [current.id],
+            strategy: `critique_edit_${editTarget.dimension || 'open'}`,
+            createdAt: Date.now() / 1000,
+            iterationBorn: state.iteration,
+          };
+          state.addToPool(editedVariant);
+          variantsAdded++;
+          consecutiveRejections = 0;
+          current = editedVariant;
+
+          logger.info('Edit accepted', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
+
+          // RE-EVALUATE: fresh rubric + open review on the accepted text
+          currentCritique = await this.runInlineCritique(editedText, current.id, llmClient);
+          openReview = await this.runOpenReview(editedText, llmClient);
+        } else {
+          consecutiveRejections++;
+          logger.info('Edit rejected by judge', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
+        }
+      } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
+        logger.warn('Edit cycle failed, treating as rejection', {
+          cycle,
+          error: error instanceof Error ? error.message : String(error),
+          isTransient: isTransientError(error),
+        });
         consecutiveRejections++;
         continue;
-      }
-
-      // JUDGE: blind holistic diff-based comparison (no info about edit target)
-      const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel });
-      const result = await compareWithDiff(current.text, editedText, callLLM);
-
-      const accepted = result.verdict === 'ACCEPT';
-      if (accepted) {
-        // Create new variant
-        const editedVariant = {
-          id: uuidv4(),
-          text: editedText,
-          version: current.version + 1,
-          parentIds: [current.id],
-          strategy: `critique_edit_${editTarget.dimension || 'open'}`,
-          createdAt: Date.now() / 1000,
-          iterationBorn: state.iteration,
-        };
-        state.addToPool(editedVariant);
-        variantsAdded++;
-        consecutiveRejections = 0;
-        current = editedVariant;
-
-        logger.info('Edit accepted', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
-
-        // RE-EVALUATE: fresh rubric + open review on the accepted text
-        currentCritique = await this.runInlineCritique(editedText, current.id, llmClient);
-        openReview = await this.runOpenReview(editedText, llmClient);
-      } else {
-        consecutiveRejections++;
-        logger.info('Edit rejected by judge', { cycle, target: editTarget.dimension, verdict: result.verdict, confidence: result.confidence });
       }
     }
 
@@ -180,15 +192,11 @@ export class IterativeEditingAgent extends AgentBase {
       }>(response);
       if (!data || !data.scores || typeof data.scores !== 'object') return null;
 
-      const toArrayRecord = (
-        obj: Record<string, string | string[]> | undefined,
-      ): Record<string, string[]> => {
+      const toArrayRecord = (obj: Record<string, string | string[]> | undefined): Record<string, string[]> => {
         if (!obj) return {};
-        const result: Record<string, string[]> = {};
-        for (const [k, v] of Object.entries(obj)) {
-          result[k] = Array.isArray(v) ? v : [v];
-        }
-        return result;
+        return Object.fromEntries(
+          Object.entries(obj).map(([k, v]) => [k, Array.isArray(v) ? v : [v]])
+        );
       };
 
       return {
@@ -284,13 +292,17 @@ export class IterativeEditingAgent extends AgentBase {
 }
 
 function buildEditPrompt(text: string, target: EditTarget): string {
-  // Step-targeted prompt for OutlineVariants
   if (target.dimension?.startsWith('step:')) {
     const stepName = target.dimension.slice(5);
-    const stepInstructions =
-      stepName === 'outline' ? 'Create a better section outline with improved structure, coverage, and logical flow.' :
-      stepName === 'expand' ? 'Expand the outline sections into better prose with stronger examples, details, and grounding.' :
-      'Polish the text for better readability, transitions, flow, and coherence.';
+
+    let stepInstructions: string;
+    if (stepName === 'outline') {
+      stepInstructions = 'Create a better section outline with improved structure, coverage, and logical flow.';
+    } else if (stepName === 'expand') {
+      stepInstructions = 'Expand the outline sections into better prose with stronger examples, details, and grounding.';
+    } else {
+      stepInstructions = 'Polish the text for better readability, transitions, flow, and coherence.';
+    }
 
     return `You are a writing expert. The ${stepName} step of this article scored ${target.score}/1.
 

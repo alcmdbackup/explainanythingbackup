@@ -9,6 +9,7 @@ import type { SupervisorResumeState } from './supervisor';
 import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
+import { isTransientError } from './errorClassification';
 import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
 import { v4 as uuidv4 } from 'uuid';
@@ -169,9 +170,7 @@ async function linkStrategyConfig(
     return;
   }
 
-  // Extract and hash strategy config from run config
-  const defaultBudgetCaps = ctx.payload.config.budgetCaps ?? {};
-  const stratConfig = extractStrategyConfig(ctx.payload.config, defaultBudgetCaps);
+  const stratConfig = extractStrategyConfig(ctx.payload.config, ctx.payload.config.budgetCaps ?? {});
   const configHash = hashStrategyConfig(stratConfig);
 
   // Get or create strategy_configs entry
@@ -250,15 +249,12 @@ async function persistAgentMetrics(
   const agentCosts = ctx.costTracker.getAllAgentCosts();
 
   for (const [agentName, costUsd] of Object.entries(agentCosts)) {
-    // Find variants produced by this agent
     const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
-    if (variants.length === 0) continue; // Skip non-generation agents (flowCritique, calibration, etc.)
-    // Use mu (mean) from OpenSkill rating as the Elo equivalent
-    const avgElo =
-      variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0) / variants.length;
-    // OpenSkill default mu is 25 (not 1200 like traditional Elo)
-    const eloGain = avgElo ? avgElo - 25 : null;
-    const eloPerDollar = eloGain && costUsd > 0 ? eloGain / costUsd : null;
+    if (variants.length === 0) continue;
+
+    const avgElo = variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0) / variants.length;
+    const eloGain = avgElo - 25;
+    const eloPerDollar = costUsd > 0 ? eloGain / costUsd : null;
 
     const { error } = await supabase.from('evolution_run_agent_metrics').upsert({
       run_id: runId,
@@ -333,8 +329,9 @@ export function buildRunSummary(
     strategyEffectiveness[v.strategy].count++;
     strategyEffectiveness[v.strategy].avgOrdinal += ord;
   }
-  for (const s of Object.values(strategyEffectiveness)) {
-    s.avgOrdinal = s.avgOrdinal / s.count;
+
+  for (const strategy of Object.values(strategyEffectiveness)) {
+    strategy.avgOrdinal /= strategy.count;
   }
 
   return {
@@ -1047,59 +1044,89 @@ export async function executeFullPipeline(
   }
 }
 
-/** Run a single agent with error handling, checkpoint, and OTel span. */
+/** Run a single agent with error handling, checkpoint, retry for transient errors, and OTel span.
+ *
+ * Retry design: NO state rollback on retry. Partial mutations from the failed attempt
+ * are safe because the pool is append-only (addToPool dedup via poolIds.has), variants
+ * get unique uuid4() IDs, and partial ratings represent valid comparison results.
+ *
+ * Retry amplification: SDK retries 3× internally (maxRetries: 3 in llms.ts), then this
+ * function retries the entire agent once (maxRetries: 1 default). Total = up to 8 LLM
+ * call attempts for a persistent transient error. */
 async function runAgent(
   runId: string,
   agent: PipelineAgent,
   ctx: ExecutionContext,
   phase: PipelinePhase,
   logger: EvolutionLogger,
+  maxRetries: number = 1,
 ): Promise<AgentResult | null> {
   if (!agent.canExecute(ctx.state)) {
     logger.debug('Skipping agent (preconditions not met)', { agent: agent.name, phase });
     return null;
   }
 
-  const agentSpan = createAppSpan(`evolution.agent.${agent.name}`, {
-    agent: agent.name,
-    iteration: ctx.state.iteration,
-    phase,
-  });
-
-  try {
-    logger.debug('Executing agent', { agent: agent.name, iteration: ctx.state.iteration, phase });
-    const result = await agent.execute(ctx);
-    agentSpan.setAttributes({
-      success: result.success ? 1 : 0,
-      cost_usd: result.costUsd,
-      variants_added: result.variantsAdded ?? 0,
-    });
-    logger.info('Agent completed', {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const agentSpan = createAppSpan(`evolution.agent.${agent.name}`, {
       agent: agent.name,
-      success: result.success,
-      costUsd: result.costUsd,
-      variantsAdded: result.variantsAdded,
-      matchesPlayed: result.matchesPlayed,
+      iteration: ctx.state.iteration,
+      phase,
+      attempt,
     });
-    await persistCheckpoint(runId, ctx.state, agent.name, phase, logger);
-    return result;
-  } catch (error) {
-    agentSpan.recordException(error as Error);
-    agentSpan.setStatus({ code: 2, message: (error as Error).message });
-    await persistCheckpoint(runId, ctx.state, agent.name, phase, logger).catch(() => {});
 
-    if (error instanceof BudgetExceededError) {
-      logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
-      await markRunPaused(runId, error);
+    try {
+      logger.debug('Executing agent', { agent: agent.name, iteration: ctx.state.iteration, phase, attempt });
+      const result = await agent.execute(ctx);
+      agentSpan.setAttributes({
+        success: result.success ? 1 : 0,
+        cost_usd: result.costUsd,
+        variants_added: result.variantsAdded ?? 0,
+      });
+      logger.info('Agent completed', {
+        agent: agent.name,
+        success: result.success,
+        costUsd: result.costUsd,
+        variantsAdded: result.variantsAdded,
+        matchesPlayed: result.matchesPlayed,
+      });
+      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger);
+      return result;
+    } catch (error) {
+      agentSpan.recordException(error as Error);
+      agentSpan.setStatus({ code: 2, message: (error as Error).message });
+
+      if (error instanceof BudgetExceededError) {
+        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger).catch(() => {});
+        logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
+        await markRunPaused(runId, error);
+        throw error;
+      }
+
+      if (isTransientError(error) && attempt < maxRetries) {
+        const backoffMs = 1000 * Math.pow(2, attempt);
+        logger.warn('Agent failed with transient error, retrying', {
+          agent: agent.name,
+          attempt: attempt + 1,
+          maxRetries,
+          backoffMs,
+          error: (error as Error).message,
+        });
+        // No state rollback — partial mutations are safe (see JSDoc above)
+        await new Promise(resolve => setTimeout(resolve, backoffMs));
+        continue;
+      }
+
+      // Fatal error or retries exhausted
+      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger).catch(() => {});
+      logger.error('Agent failed', { agent: agent.name, error: String(error), attempts: attempt + 1 });
+      await markRunFailed(runId, agent.name, error);
       throw error;
+    } finally {
+      agentSpan.end();
     }
-
-    logger.error('Agent failed', { agent: agent.name, error: String(error) });
-    await markRunFailed(runId, agent.name, error);
-    throw error;
-  } finally {
-    agentSpan.end();
   }
+  // Unreachable — loop always returns or throws
+  throw new Error('Unreachable: runAgent loop exhausted without return or throw');
 }
 
 /** Persist checkpoint including supervisor resume state. */

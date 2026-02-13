@@ -5,7 +5,7 @@ import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFull
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
-import { BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
+import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
@@ -1099,5 +1099,178 @@ describe('executeFullPipeline — single-article mode', () => {
     const result = await executeFullPipeline('single-test-run', agents, ctx, ctx.logger, { startMs: Date.now() });
 
     expect(result.stopReason).toBe('quality_threshold');
+  });
+});
+
+// ─── runAgent retry on transient errors ──────────────────────────
+
+describe('executeFullPipeline — runAgent retry on transient errors', () => {
+  function makeSpyAgent(name: string, executionOrder: string[]): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { agentType: name, success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeRetryCtx(budgetCalls: number[]): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article text for retry tests.');
+    let budgetIdx = 0;
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+    };
+    return {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'retry-test', config },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'retry-test',
+    };
+  }
+
+  function makeAllAgentsWithOverride(
+    executionOrder: string[],
+    overrides: Partial<Record<keyof PipelineAgents, PipelineAgent>>,
+  ): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+      ...overrides,
+    };
+  }
+
+  // Factory: each test gets fresh arrays to avoid shared-mutation (supervisor pushes to ordinalHistory in-place)
+  function makePipelineOpts() {
+    return {
+      supervisorResume: { phase: 'COMPETITION' as const, strategyRotationIndex: 0, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, sectionDecompositionEnabled: false, tournamentEnabled: false },
+      startMs: Date.now(),
+    };
+  }
+
+  it('retries agent on transient error and succeeds on second attempt', async () => {
+    const executionOrder: string[] = [];
+    let callCount = 0;
+    const flakeyGeneration: PipelineAgent = {
+      name: 'generation',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => {
+        callCount++;
+        executionOrder.push('generation');
+        if (callCount === 1) throw new Error('Socket timeout');
+        return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 };
+      }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { generation: flakeyGeneration });
+    const ctx = makeRetryCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+
+    expect(flakeyGeneration.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries transient error and fails after retries exhausted', async () => {
+    const executionOrder: string[] = [];
+    const alwaysFailCalibration: PipelineAgent = {
+      name: 'calibration',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new Error('Socket timeout'); }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: alwaysFailCalibration });
+    const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
+
+    try {
+      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+    } catch {
+      // Expected — pipeline re-throws after retries exhausted
+    }
+    // 1 initial + 1 retry = 2 total calls
+    expect(alwaysFailCalibration.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry non-transient errors', async () => {
+    const executionOrder: string[] = [];
+    const fatalCalibration: PipelineAgent = {
+      name: 'calibration',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new Error('Invalid JSON response'); }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: fatalCalibration });
+    const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
+
+    try {
+      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+    } catch {
+      // Expected — fatal errors are not retried
+    }
+    // Non-transient: exactly 1 call, no retry
+    expect(fatalCalibration.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry BudgetExceededError (pauses instead)', async () => {
+    const executionOrder: string[] = [];
+    const budgetCalibration: PipelineAgent = {
+      name: 'calibration',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new BudgetExceededError('calibration', 5.0, 5.0); }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: budgetCalibration });
+    const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
+
+    try {
+      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+    } catch {
+      // Expected — BudgetExceededError pauses, not retried
+    }
+    // Budget errors: exactly 1 call, no retry
+    expect(budgetCalibration.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves partial state from failed attempt (no rollback)', async () => {
+    const executionOrder: string[] = [];
+    let callCount = 0;
+    const partialGeneration: PipelineAgent = {
+      name: 'generation',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async (ctx: ExecutionContext) => {
+        callCount++;
+        ctx.state.addToPool({
+          id: `variant-attempt-${callCount}`,
+          text: 'test', version: 1, parentIds: [],
+          strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
+        });
+        if (callCount === 1) throw new Error('Socket timeout');
+        return { agentType: 'generation', success: true, costUsd: 0, variantsAdded: 1, matchesPlayed: 0 };
+      }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { generation: partialGeneration });
+    const ctx = makeRetryCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+
+    // Pool has baseline + variant-attempt-1 (partial, from failed) + variant-attempt-2 (from retry)
+    expect(ctx.state.poolIds.has('variant-attempt-1')).toBe(true);
+    expect(ctx.state.poolIds.has('variant-attempt-2')).toBe(true);
   });
 });

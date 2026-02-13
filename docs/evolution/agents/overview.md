@@ -63,6 +63,26 @@ Each agent reads from and writes to the shared mutable `PipelineState`:
 - `debateTranscripts`: Appended by DebateAgent after each debate (including partial transcripts on failure). Serialized to checkpoints for debugging and observability.
 - All pool mutations go through `PipelineStateImpl.addToPool()`, which enforces deduplication via `poolIds` Set and initializes a default OpenSkill rating (`mu=25, sigma=8.333`).
 
+## Transient Error Handling
+
+Agents fall into two tiers for transient error resilience:
+
+**Tier 1 — Internal protection** (catch transient errors within their own loops):
+- `IterativeEditingAgent`: try-catch around each edit cycle; transient errors increment `consecutiveRejections` and `continue`. `BudgetExceededError` is re-thrown.
+- `CalibrationRanker`: `Promise.allSettled` batches scan for `BudgetExceededError` and re-throw; other failures degrade gracefully (reduced match count).
+- `TournamentAgent`: `Promise.allSettled` with `BudgetExceededError` scan (same pattern as CalibrationRanker).
+- `DebateAgent`: try-catch per debate round.
+- `GenerationAgent`: `Promise.allSettled` for parallel generation.
+
+**Tier 2 — Pipeline-level retry** (rely on `runAgent()` in `pipeline.ts`):
+- All other agents. If they throw a transient error, `runAgent` retries the agent once with exponential backoff. Non-transient errors and `BudgetExceededError` are not retried.
+
+**Helper caller contracts** (do NOT catch errors — callers must handle failures):
+- `compareWithDiff()` in `diffComparison.ts`: 2 sequential LLM calls, no catch.
+- `compareWithBiasMitigation()` in `comparison.ts`: 2 sequential LLM calls, no catch.
+
+Error classification uses `isTransientError()` in `core/errorClassification.ts`, which checks OpenAI SDK class hierarchy (`APIConnectionError`, `RateLimitError`, `InternalServerError`), message patterns (socket timeout, ECONNRESET, etc.), and `error.cause` chain walking.
+
 ## Format Validation
 
 All generated variants must pass format validation before entering the pool. See [Reference — Format Enforcement](../reference.md#format-enforcement) for full rules and `FORMAT_VALIDATION_MODE` env var.

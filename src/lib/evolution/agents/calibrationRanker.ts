@@ -18,12 +18,11 @@ export class CalibrationRanker extends AgentBase {
     idB: string,
     textB: string,
   ): Promise<Match> {
-    // Check ComparisonCache first (order-invariant key — safe because we cache the full bias-mitigated result)
     if (ctx.comparisonCache) {
       const cached = ctx.comparisonCache.get(textA, textB, false);
       if (cached) {
         ctx.logger.debug('Cache hit for calibration comparison', { idA, idB });
-        const winner = cached.isDraw ? idA : (cached.winnerId === null ? idA : cached.winnerId);
+        const winner = cached.isDraw || cached.winnerId === null ? idA : cached.winnerId;
         return {
           variationA: idA, variationB: idB,
           winner, confidence: cached.confidence,
@@ -50,11 +49,7 @@ export class CalibrationRanker extends AgentBase {
 
     ctx.logger.debug('Comparison results', { idA, idB, winner: result.winner, confidence: result.confidence });
 
-    // Map ComparisonResult to Match
-    let winnerId: string;
-    if (result.winner === 'A') winnerId = idA;
-    else if (result.winner === 'B') winnerId = idB;
-    else winnerId = idA; // TIE: default to first text (preserves existing Elo behavior)
+    const winnerId = result.winner === 'B' ? idB : idA;
 
     const match: Match = {
       variationA: idA, variationB: idB,
@@ -72,16 +67,17 @@ export class CalibrationRanker extends AgentBase {
     return match;
   }
 
-  /** Apply rating update for a single match result using OpenSkill. */
   private applyRatingUpdate(state: PipelineState, match: Match, entrantId: string): void {
     const winnerId = match.winner;
-    const loserId = winnerId === entrantId ? match.variationB : entrantId;
     const oppId = match.variationA === entrantId ? match.variationB : match.variationA;
+    const loserId = winnerId === entrantId ? oppId : entrantId;
 
     const entrantRating = state.ratings.get(entrantId) ?? createRating();
     const oppRating = state.ratings.get(oppId) ?? createRating();
 
-    if (match.confidence === 0 || (match.winner === entrantId && winnerId === loserId)) {
+    const isDraw = match.confidence === 0 || winnerId === loserId;
+
+    if (isDraw) {
       const [newE, newO] = updateDraw(entrantRating, oppRating);
       state.ratings.set(entrantId, newE);
       state.ratings.set(oppId, newO);
@@ -142,6 +138,13 @@ export class CalibrationRanker extends AgentBase {
         ),
       );
 
+      // Re-throw BudgetExceededError from rejected promises
+      for (const r of firstResults) {
+        if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
+          throw r.reason;
+        }
+      }
+
       // Apply Elo updates sequentially for first batch
       const firstMatches: Match[] = [];
       for (const r of firstResults) {
@@ -168,6 +171,13 @@ export class CalibrationRanker extends AgentBase {
             this.compareWithBiasMitigation(ctx, entrantId, entrantVar.text, opp.id, opp.var.text),
           ),
         );
+        // Re-throw BudgetExceededError from rejected promises
+        for (const r of moreResults) {
+          if (r.status === 'rejected' && r.reason instanceof BudgetExceededError) {
+            throw r.reason;
+          }
+        }
+
         // Apply Elo updates sequentially
         for (const r of moreResults) {
           if (r.status !== 'fulfilled') continue;

@@ -60,6 +60,9 @@ function makeCacheKey(textA: string, textB: string): string {
  * Runs the comparison twice with positions swapped to detect position bias.
  * Returns a ComparisonResult with winner relative to the original A/B order.
  *
+ * Makes 2 sequential LLM calls via the callLLM callback. Does NOT catch errors —
+ * callers must handle LLM failures.
+ *
  * The callLLM callback abstracts away the provider — callers pass their own
  * LLM function (hall of fame service uses callLLMModel, pipeline uses ctx.llmClient.complete).
  * The optional cache parameter uses order-invariant SHA-256 keys.
@@ -85,33 +88,26 @@ export async function compareWithBiasMitigation(
   const response2 = await callLLM(buildComparisonPrompt(textB, textA));
   const winner2Raw = parseWinner(response2);
 
-  // Normalize winner2 to original A/B frame
-  let winner2: string | null = winner2Raw;
-  if (winner2Raw === 'A') winner2 = 'B';
-  else if (winner2Raw === 'B') winner2 = 'A';
+  const winner2 = winner2Raw === 'A' ? 'B' : winner2Raw === 'B' ? 'A' : winner2Raw;
 
-  // Determine final result
   let result: ComparisonResult;
 
   if (winner1 === null || winner2 === null) {
-    // Partial failure — NOT cached (allow retry on next encounter)
     const partial = winner1 ?? winner2;
     if (partial === 'A') return { winner: 'A', confidence: 0.3, turns: 2 };
     if (partial === 'B') return { winner: 'B', confidence: 0.3, turns: 2 };
     return { winner: 'TIE', confidence: 0.0, turns: 2 };
-  } else if (winner1 === winner2) {
-    // Full agreement
+  }
+
+  if (winner1 === winner2) {
     result = { winner: winner1 as 'A' | 'B' | 'TIE', confidence: 1.0, turns: 2 };
   } else if (winner1 === 'TIE' || winner2 === 'TIE') {
-    // Partial disagreement with TIE
     const nonTie = winner1 === 'TIE' ? winner2 : winner1;
     result = { winner: nonTie as 'A' | 'B' | 'TIE', confidence: 0.7, turns: 2 };
   } else {
-    // Complete disagreement — inconclusive
     result = { winner: 'TIE', confidence: 0.5, turns: 2 };
   }
 
-  // Cache valid bias-mitigated results
   if (cache) {
     cache.set(makeCacheKey(textA, textB), result);
   }

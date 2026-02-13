@@ -29,6 +29,12 @@ export interface DiffComparisonResult {
 /**
  * Evaluates whether targeted edits improve an article by generating a CriticMarkup diff
  * and running 2-pass direction reversal (forward diff + reverse diff) for bias mitigation.
+ *
+ * Makes 2 sequential LLM calls via the callLLM callback. Does NOT catch errors —
+ * callers must handle LLM failures. Known callers:
+ * - IterativeEditingAgent (line ~100) — protected by try-catch
+ * - sectionEditRunner (line ~71) — protected by parent Promise.allSettled
+ * - beamSearch (line ~70) — protected by try-catch
  */
 export async function compareWithDiff(
   textBefore: string,
@@ -99,24 +105,22 @@ export function parseDiffVerdict(response: string): 'ACCEPT' | 'REJECT' | 'UNSUR
   return 'UNSURE';
 }
 
-/** Combine forward+reverse verdicts into a single bias-mitigated result. Exported for unit testing. */
 export function interpretDirectionReversal(
   forward: 'ACCEPT' | 'REJECT' | 'UNSURE',
   reverse: 'ACCEPT' | 'REJECT' | 'UNSURE',
   changesFound: number,
 ): DiffComparisonResult {
-  // Consistent: forward=ACCEPT, reverse=REJECT → edit improves article
   if (forward === 'ACCEPT' && reverse === 'REJECT') {
     return { verdict: 'ACCEPT', confidence: 1.0, changesFound };
   }
-  // Consistent: forward=REJECT, reverse=ACCEPT → edit harms article
+
   if (forward === 'REJECT' && reverse === 'ACCEPT') {
     return { verdict: 'REJECT', confidence: 1.0, changesFound };
   }
-  // Inconsistent: both ACCEPT or both REJECT → framing bias
+
   if (forward === reverse && forward !== 'UNSURE') {
     return { verdict: 'UNSURE', confidence: 0.5, changesFound };
   }
-  // One or both UNSURE
+
   return { verdict: 'UNSURE', confidence: 0.3, changesFound };
 }
