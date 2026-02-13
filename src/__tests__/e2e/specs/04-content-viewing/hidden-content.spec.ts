@@ -34,22 +34,20 @@ test.describe('Hidden Content Visibility', () => {
   test.describe.configure({ retries: 1 });
   test.setTimeout(30000);
 
-  // FIXME: RLS does not filter hidden content on direct ID access.
-  // These tests verify defense-in-depth that is not yet implemented.
-  // Re-enable once RLS policy filters delete_status='hidden' from user queries.
-  test.fixme();
-
   let hiddenExplanationId: number | null = null;
   let serviceClient: ReturnType<typeof createServiceClient>;
 
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Get or create a topic (required for explanations.primary_topic_id NOT NULL)
+    // Get or create a test topic (required NOT NULL field)
     const { data: topic, error: topicError } = await serviceClient
       .from('topics')
       .upsert(
-        { topic_title: 'test-e2e-hidden-content', topic_description: 'Topic for hidden content E2E test' },
+        {
+          topic_title: 'test-e2e-topic',
+          topic_description: 'Topic for E2E tests',
+        },
         { onConflict: 'topic_title' }
       )
       .select('id')
@@ -94,7 +92,8 @@ test.describe('Hidden Content Visibility', () => {
     }
   });
 
-  test('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line flakiness/no-test-skip -- getExplanationById doesn't filter by delete_status (pre-existing gap, tracked separately)
+  test.skip('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Try to access the hidden explanation directly
@@ -123,7 +122,8 @@ test.describe('Hidden Content Visibility', () => {
     expect(hasErrorIndicator).toBe(true);
   });
 
-  test('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
+  // eslint-disable-next-line flakiness/no-test-skip -- getExplanationById doesn't filter by delete_status (pre-existing gap, tracked separately)
+  test.skip('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Navigate to the hidden explanation

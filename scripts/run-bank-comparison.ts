@@ -1,4 +1,4 @@
-// CLI script to run pairwise comparisons across all article bank entries for a topic.
+// CLI script to run pairwise comparisons across all Hall of Fame entries for a topic.
 // Uses bias-mitigated 2-pass reversal and updates Elo ratings in the DB.
 
 import dotenv from 'dotenv';
@@ -134,7 +134,7 @@ async function main() {
 
   // Fetch topic
   const { data: topic } = await supabase
-    .from('article_bank_topics')
+    .from('hall_of_fame_topics')
     .select('id, prompt, title')
     .eq('id', args.topicId)
     .is('deleted_at', null)
@@ -151,7 +151,7 @@ async function main() {
 
   // Fetch entries
   const { data: entries } = await supabase
-    .from('article_bank_entries')
+    .from('hall_of_fame_entries')
     .select('id, content, generation_method, model, total_cost_usd')
     .eq('topic_id', args.topicId)
     .is('deleted_at', null);
@@ -167,7 +167,7 @@ async function main() {
 
   // Fetch current Elo
   const { data: eloRows } = await supabase
-    .from('article_bank_elo')
+    .from('hall_of_fame_elo')
     .select('entry_id, elo_rating, match_count')
     .eq('topic_id', args.topicId);
 
@@ -201,7 +201,7 @@ async function main() {
         else if (result.winner === 'B') winnerId = b.id;
 
         // Insert comparison record
-        await supabase.from('article_bank_comparisons').insert({
+        await supabase.from('hall_of_fame_comparisons').insert({
           topic_id: args.topicId,
           entry_a_id: a.id,
           entry_b_id: b.id,
@@ -240,7 +240,7 @@ async function main() {
   const costMap = new Map(entries.map((e) => [e.id, e.total_cost_usd]));
   for (const [entryId, elo] of eloMap) {
     const cost = costMap.get(entryId) ?? null;
-    await supabase.from('article_bank_elo').upsert({
+    await supabase.from('hall_of_fame_elo').upsert({
       topic_id: args.topicId,
       entry_id: entryId,
       elo_rating: Math.round(elo.rating * 100) / 100,

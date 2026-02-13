@@ -26,10 +26,19 @@ Periodically, we need to ensure key docs are up to date.
 
 ### feature_deep_dives/
 
-All 17 files should be updated when their corresponding features change:
+All 15 files should be updated when their corresponding features change (9 evolution docs moved to `docs/evolution/`):
 - Deep dive on specific relevant parts of the code
 - Update code examples if APIs change
 - Keep file counts and statistics current
+
+### evolution/
+
+13 files covering the evolution pipeline system:
+- `README.md` — Index and reading order
+- `architecture.md`, `data_model.md`, `rating_and_comparison.md` — Core pipeline docs
+- `agents/overview.md`, `agents/generation.md`, `agents/editing.md`, `agents/tree_search.md`, `agents/support.md` — Agent docs
+- `hall_of_fame.md`, `cost_optimization.md`, `visualization.md` — Infrastructure docs
+- `reference.md` — Cross-cutting concerns (config, flags, schema, files, CLI)
 
 ## Archive
 

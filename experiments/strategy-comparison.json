@@ -1,0 +1,22 @@
+{
+  "name": "strategy_comparison_v1",
+  "description": "Compare generation models and iteration counts for Elo/dollar optimization",
+  "totalBudgetUsd": 15.00,
+  "safetyMargin": 0.1,
+  "defaults": {
+    "budgetCapUsd": 3.00,
+    "mode": "full"
+  },
+  "matrix": {
+    "prompts": [
+      "Explain how the immune system fights off a viral infection",
+      "Explain how compound interest works and why it matters for savings"
+    ],
+    "generationModels": ["deepseek-chat", "gpt-4.1-mini"],
+    "judgeModels": ["gpt-4.1-nano"],
+    "iterations": [5, 10]
+  },
+  "optimization": {
+    "prioritySort": "cost_asc"
+  }
+}

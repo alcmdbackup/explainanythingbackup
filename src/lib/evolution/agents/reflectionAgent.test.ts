@@ -12,7 +12,7 @@ import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
 const VALID_CRITIQUE_JSON = JSON.stringify({
-  scores: { clarity: 8, structure: 7, engagement: 6, precision: 9, coherence: 7 },
+  scores: { clarity: 8, engagement: 6, precision: 9, voice_fidelity: 7, conciseness: 7 },
   good_examples: { clarity: 'The opening paragraph clearly states the thesis' },
   bad_examples: { engagement: 'The middle section lacks compelling examples' },
   notes: { precision: 'Technical terms used accurately throughout' },
@@ -166,12 +166,12 @@ describe('ReflectionAgent', () => {
     expect(cost).toBeGreaterThan(0);
   });
 
-  it('exports CRITIQUE_DIMENSIONS', () => {
+  it('exports CRITIQUE_DIMENSIONS (deprecated, from QUALITY_DIMENSIONS)', () => {
     expect(CRITIQUE_DIMENSIONS).toContain('clarity');
-    expect(CRITIQUE_DIMENSIONS).toContain('structure');
     expect(CRITIQUE_DIMENSIONS).toContain('engagement');
     expect(CRITIQUE_DIMENSIONS).toContain('precision');
-    expect(CRITIQUE_DIMENSIONS).toContain('coherence');
+    expect(CRITIQUE_DIMENSIONS).toContain('voice_fidelity');
+    expect(CRITIQUE_DIMENSIONS).toContain('conciseness');
     expect(CRITIQUE_DIMENSIONS).toHaveLength(5);
   });
 });

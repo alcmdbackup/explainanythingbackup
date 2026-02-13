@@ -3,31 +3,35 @@
 // Each tab is a separate component that lazily loads its own data on selection.
 
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionStatusBadge, PhaseIndicator } from '@/components/evolution';
 import { getEvolutionRunsAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
-import { addToBankAction } from '@/lib/services/articleBankActions';
+import { addToHallOfFameAction } from '@/lib/services/hallOfFameActions';
 import { TimelineTab } from '@/components/evolution/tabs/TimelineTab';
 import { BudgetTab } from '@/components/evolution/tabs/BudgetTab';
 import { EloTab } from '@/components/evolution/tabs/EloTab';
 import { LineageTab } from '@/components/evolution/tabs/LineageTab';
 import { VariantsTab } from '@/components/evolution/tabs/VariantsTab';
+import { TreeTab } from '@/components/evolution/tabs/TreeTab';
+import { LogsTab } from '@/components/evolution/tabs/LogsTab';
 
-type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants';
+type TabId = 'timeline' | 'elo' | 'lineage' | 'budget' | 'variants' | 'tree' | 'logs';
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'timeline', label: 'Timeline' },
   { id: 'elo', label: 'Elo' },
   { id: 'lineage', label: 'Lineage' },
+  { id: 'tree', label: 'Tree' },
   { id: 'budget', label: 'Budget' },
   { id: 'variants', label: 'Variants' },
+  { id: 'logs', label: 'Logs' },
 ];
 
-// ─── Add to Bank dialog ──────────────────────────────────────
+// ─── Add to Hall of Fame dialog ──────────────────────────────
 
-function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }) {
+function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }) {
   const [prompt, setPrompt] = useState('');
   const [includeBaseline, setIncludeBaseline] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -54,7 +58,7 @@ function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicI
       explanation_id: run.explanation_id,
     };
 
-    const result = await addToBankAction({
+    const result = await addToHallOfFameAction({
       prompt: prompt.trim(),
       content: winner.variant_content,
       generation_method: 'evolution_winner',
@@ -66,14 +70,14 @@ function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicI
     });
 
     if (!result.success) {
-      toast.error(result.error?.message || 'Failed to add to bank');
+      toast.error(result.error?.message || 'Failed to add to Hall of Fame');
       setSubmitting(false);
       return;
     }
 
     // Add baseline if requested
     if (includeBaseline && baseline) {
-      await addToBankAction({
+      await addToHallOfFameAction({
         prompt: prompt.trim(),
         content: baseline.variant_content,
         generation_method: 'evolution_baseline',
@@ -85,7 +89,7 @@ function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicI
       });
     }
 
-    toast.success('Added to article bank', {
+    toast.success('Added to Hall of Fame', {
       action: {
         label: 'View Topic',
         onClick: () => onClose(result.data!.topic_id),
@@ -99,13 +103,13 @@ function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicI
       <div
         className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-6 w-[450px] space-y-4"
         role="dialog"
-        aria-label="Add to article bank"
+        aria-label="Add to Hall of Fame"
       >
         <h2 className="text-2xl font-display font-semibold text-[var(--text-primary)]">
-          Add to Article Bank
+          Add to Hall of Fame
         </h2>
         <p className="text-sm text-[var(--text-muted)]">
-          Add the winner{includeBaseline ? ' and baseline' : ''} to the article bank for cross-method comparison.
+          Add the winner{includeBaseline ? ' and baseline' : ''} to the Hall of Fame for cross-method comparison.
         </p>
 
         {winner && (
@@ -149,7 +153,7 @@ function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicI
             data-testid="bank-submit"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90 disabled:opacity-50"
           >
-            {submitting ? 'Adding...' : 'Add to Bank'}
+            {submitting ? 'Adding...' : 'Add to Hall of Fame'}
           </button>
         </div>
       </div>
@@ -160,11 +164,19 @@ function AddToBankDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicI
 export default function EvolutionRunDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const runId = params.runId as string;
   const [run, setRun] = useState<EvolutionRun | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>('timeline');
+
+  // URL params for cross-linking: ?tab=logs&agent=pairwise&iteration=2&variant=abc
+  const tabParam = searchParams.get('tab') as TabId | null;
+  const agentParam = searchParams.get('agent') ?? undefined;
+  const iterationParam = searchParams.get('iteration');
+  const variantParam = searchParams.get('variant') ?? undefined;
+
+  const [activeTab, setActiveTab] = useState<TabId>(tabParam ?? 'timeline');
   const [loading, setLoading] = useState(true);
-  const [showBankDialog, setShowBankDialog] = useState(false);
+  const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -238,11 +250,11 @@ export default function EvolutionRunDetailPage() {
         <div className="flex gap-2">
           {run.status === 'completed' && (
             <button
-              onClick={() => setShowBankDialog(true)}
+              onClick={() => setShowHallOfFameDialog(true)}
               className="px-4 py-2 border border-[var(--border-default)] rounded-page text-sm text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)]"
-              data-testid="add-to-bank-btn"
+              data-testid="add-to-hall-of-fame-btn"
             >
-              Add to Bank
+              Add to Hall of Fame
             </button>
           )}
           <Link
@@ -280,13 +292,23 @@ export default function EvolutionRunDetailPage() {
         {activeTab === 'lineage' && <LineageTab runId={runId} />}
         {activeTab === 'budget' && <BudgetTab runId={runId} />}
         {activeTab === 'variants' && <VariantsTab runId={runId} />}
+        {activeTab === 'tree' && <TreeTab runId={runId} />}
+        {activeTab === 'logs' && (
+          <LogsTab
+            runId={runId}
+            runStatus={run?.status}
+            initialAgent={agentParam}
+            initialIteration={iterationParam ? Number(iterationParam) : undefined}
+            initialVariant={variantParam}
+          />
+        )}
       </div>
 
-      {/* Add to Bank dialog */}
-      {showBankDialog && run && (
-        <AddToBankDialog run={run} onClose={(topicId) => {
-          setShowBankDialog(false);
-          if (topicId) router.push(`/admin/quality/article-bank/${topicId}`);
+      {/* Add to Hall of Fame dialog */}
+      {showHallOfFameDialog && run && (
+        <AddToHallOfFameDialog run={run} onClose={(topicId) => {
+          setShowHallOfFameDialog(false);
+          if (topicId) router.push(`/admin/quality/hall-of-fame/${topicId}`);
         }} />
       )}
     </div>

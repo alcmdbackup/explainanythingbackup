@@ -20,37 +20,22 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 
 // Clean imports — these modules have no Next.js/Sentry/Supabase transitive deps
 import { calculateLLMCost } from '../src/config/llmPricing';
-import { addEntryToBank } from './lib/bankUtils';
-import { createTitlePrompt, createExplanationPrompt } from '../src/lib/prompts';
-import { titleQuerySchema } from '../src/lib/schemas/schemas';
+import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
+// createTitlePrompt, createExplanationPrompt, titleQuerySchema moved to shared seedArticle.ts
 import { PipelineStateImpl, serializeState } from '../src/lib/evolution/core/state';
 import { createCostTracker } from '../src/lib/evolution/core/costTracker';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../src/lib/evolution/config';
 import type {
-  EvolutionLLMClient, EvolutionLogger, ExecutionContext, AgentResult,
-  PipelinePhase, PipelineState,
+  EvolutionLLMClient, EvolutionLogger, ExecutionContext,
 } from '../src/lib/evolution/types';
-import { BudgetExceededError, LLMRefusalError } from '../src/lib/evolution/types';
-import { PoolSupervisor, supervisorConfigFromRunConfig } from '../src/lib/evolution/core/supervisor';
-import { getOrdinal, ordinalToEloScale, createRating } from '../src/lib/evolution/core/rating';
-import { GenerationAgent } from '../src/lib/evolution/agents/generationAgent';
-import { CalibrationRanker } from '../src/lib/evolution/agents/calibrationRanker';
-import { EvolutionAgent } from '../src/lib/evolution/agents/evolvePool';
-import { Tournament } from '../src/lib/evolution/agents/tournament';
-import { ReflectionAgent } from '../src/lib/evolution/agents/reflectionAgent';
+import { LLMRefusalError } from '../src/lib/evolution/types';
+import { getOrdinal, ordinalToEloScale } from '../src/lib/evolution/core/rating';
+import { isOutlineVariant } from '../src/lib/evolution/types';
+import { createDefaultAgents } from '../src/lib/evolution/index';
+import { executeFullPipeline, executeMinimalPipeline } from '../src/lib/evolution/core/pipeline';
 import { ProximityAgent } from '../src/lib/evolution/agents/proximityAgent';
-import { MetaReviewAgent } from '../src/lib/evolution/agents/metaReviewAgent';
-import { DebateAgent } from '../src/lib/evolution/agents/debateAgent';
-import { IterativeEditingAgent } from '../src/lib/evolution/agents/iterativeEditingAgent';
 
 // ─── Types ────────────────────────────────────────────────────────
-
-/** Agent interface matching pipeline.ts PipelineAgent (defined inline to avoid importing pipeline.ts). */
-interface PipelineAgent {
-  readonly name: string;
-  execute(ctx: ExecutionContext): Promise<AgentResult>;
-  canExecute(state: PipelineState): boolean;
-}
 
 interface CLIArgs {
   file: string | null;
@@ -58,6 +43,8 @@ interface CLIArgs {
   seedModel: string | null;
   mock: boolean;
   full: boolean;
+  single: boolean;
+  outline: boolean;
   iterations: number;
   budget: number;
   output: string;
@@ -90,12 +77,14 @@ Options:
   --seed-model <name>      Model for seed article generation (default: same as --model)
   --mock                   Use mock LLM (no API keys needed)
   --full                   Run full agent suite (default: minimal)
-  --iterations <n>         Number of iterations (default: 3)
+  --single                 Run single-article mode: sequential improvement, no population search
+  --iterations <n>         Number of iterations (default: 3, or 3 for --single)
   --budget <n>             Budget cap in USD (default: 5.00)
   --output <path>          Output JSON path (default: auto-generated)
   --explanation-id <n>     Optional: link run to an explanation in DB
   --model <name>           LLM model (default: deepseek-chat)
-  --bank                   Add winner (+ baseline) to article bank after completion
+  --outline                Enable outline-based generation agent (decomposed step pipeline)
+  --bank                   Add winner (+ baseline) to Hall of Fame after completion
   --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
                              Requires --bank and --prompt. Runs to max checkpoint iteration.
   --help                   Show this help message`);
@@ -112,6 +101,13 @@ Options:
 
   if (file && prompt) {
     console.error('Error: --file and --prompt are mutually exclusive');
+    process.exit(1);
+  }
+
+  const single = getFlag('single');
+  const full = getFlag('full');
+  if (single && full) {
+    console.error('Error: --single and --full are mutually exclusive');
     process.exit(1);
   }
 
@@ -146,7 +142,9 @@ Options:
     prompt: prompt ?? null,
     seedModel: getValue('seed-model') ?? null,
     mock: getFlag('mock'),
-    full: getFlag('full'),
+    full,
+    single,
+    outline: getFlag('outline'),
     iterations,
     budget: parseFloat(getValue('budget') ?? '5.00'),
     output: getValue('output') ?? defaultOutput,
@@ -499,283 +497,19 @@ async function createRunRecord(
   }
 }
 
-async function updateRunStatus(
-  supabase: SupabaseClient | null,
-  runId: string,
-  updates: Record<string, unknown>,
-): Promise<void> {
-  if (!supabase) return;
-  try {
-    await supabase.from('content_evolution_runs').update(updates).eq('id', runId);
-  } catch {
-    // Best effort — don't crash the pipeline for DB write failures
-  }
-}
-
-async function persistCheckpoint(
-  supabase: SupabaseClient | null,
-  runId: string,
-  state: PipelineState,
-  agentName: string,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-): Promise<void> {
-  if (!supabase) return;
-  try {
-    await supabase.from('evolution_checkpoints').upsert(
-      {
-        run_id: runId,
-        iteration: state.iteration,
-        phase,
-        last_agent: agentName,
-        state_snapshot: serializeState(state),
-      },
-      { onConflict: 'run_id,iteration,last_agent' },
-    );
-    await supabase
-      .from('content_evolution_runs')
-      .update({
-        current_iteration: state.iteration,
-        phase,
-        last_heartbeat: new Date().toISOString(),
-        runner_agents_completed: state.pool.length,
-      })
-      .eq('id', runId);
-  } catch (e) {
-    logger.warn('Checkpoint write failed', { error: String(e) });
-  }
-}
-
 // ─── Agent Construction ──────────────────────────────────────────
 
-interface NamedAgents {
-  generation: PipelineAgent;
-  calibration: PipelineAgent;
-  tournament: PipelineAgent;
-  evolution: PipelineAgent;
-  reflection: PipelineAgent;
-  iterativeEditing: PipelineAgent;
-  debate: PipelineAgent;
-  proximity: PipelineAgent;
-  metaReview: PipelineAgent;
-}
+type NamedAgents = ReturnType<typeof createDefaultAgents>;
 
-function buildAgents(): NamedAgents {
-  return {
-    generation: new GenerationAgent(),
-    calibration: new CalibrationRanker(),
-    tournament: new Tournament(),
-    evolution: new EvolutionAgent(),
-    reflection: new ReflectionAgent(),
-    iterativeEditing: new IterativeEditingAgent(),
-    debate: new DebateAgent(),
-    proximity: new ProximityAgent({ testMode: true }),
-    metaReview: new MetaReviewAgent(),
-  };
-}
-
-// ─── Bank Checkpoint Snapshot ────────────────────────────────────
-
-/** Snapshot the current best variant to the article bank at a checkpoint iteration. */
-async function snapshotCheckpointToBank(
-  args: CLIArgs,
-  ctx: ExecutionContext,
-  supabase: SupabaseClient,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const iteration = ctx.state.iteration;
-  if (!args.bankCheckpoints.includes(iteration)) return;
-  if (!args.prompt) return;
-
-  const topVariants = ctx.state.getTopByRating(1);
-  const winner = topVariants[0];
-  if (!winner) return;
-
-  // Duplicate check: query for existing checkpoint entry with same prompt + iteration
-  const { data: existing } = await supabase
-    .from('article_bank_entries')
-    .select('id, topic:article_bank_topics!inner(prompt)')
-    .eq('generation_method', 'evolution_winner')
-    .contains('metadata', { iterations: iteration })
-    .is('deleted_at', null)
-    .limit(100);
-
-  // Check if any existing entry matches this prompt (case-insensitive)
-  const normalizedPrompt = args.prompt.trim().toLowerCase();
-  // Supabase returns joined data — topic can be array or object depending on relation
-  const alreadyExists = existing?.some((e) => {
-    const topic = e.topic;
-    if (Array.isArray(topic)) {
-      return topic.some((t: { prompt?: string }) => t.prompt?.trim().toLowerCase() === normalizedPrompt);
-    }
-    return (topic as { prompt?: string })?.prompt?.trim().toLowerCase() === normalizedPrompt;
-  });
-
-  if (alreadyExists) {
-    logger.info('Checkpoint already exists, skipping', { iteration });
-    return;
+function buildAgents(outline: boolean): NamedAgents {
+  const agents = createDefaultAgents();
+  // Override proximity with testMode for local CLI (skips embedding API calls)
+  agents.proximity = new ProximityAgent({ testMode: true });
+  // Remove outlineGeneration if not requested
+  if (!outline) {
+    delete agents.outlineGeneration;
   }
-
-  const bankResult = await addEntryToBank(supabase, {
-    prompt: args.prompt,
-    content: winner.text,
-    generation_method: 'evolution_winner',
-    model: args.model,
-    total_cost_usd: ctx.costTracker.getTotalSpent(),
-    metadata: {
-      iterations: iteration,
-      seed_model: args.seedModel ?? args.model,
-      winning_strategy: winner.strategy,
-      checkpoint: true,
-    },
-  });
-  logger.info('Checkpoint snapshot saved to bank', {
-    iteration,
-    entry_id: bankResult.entry_id,
-    elo: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(winner.id) ?? createRating())),
-  });
-}
-
-// ─── Pipeline Orchestrator ───────────────────────────────────────
-
-async function runAgent(
-  agent: PipelineAgent,
-  ctx: ExecutionContext,
-  supabase: SupabaseClient | null,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-): Promise<AgentResult | null> {
-  if (!agent.canExecute(ctx.state)) {
-    logger.debug('Skipping agent (preconditions not met)', { agent: agent.name });
-    return null;
-  }
-
-  logger.info('Executing agent', { agent: agent.name, iteration: ctx.state.iteration });
-  const result = await agent.execute(ctx);
-  logger.info('Agent completed', {
-    agent: agent.name,
-    success: result.success,
-    costUsd: result.costUsd,
-    variantsAdded: result.variantsAdded,
-    matchesPlayed: result.matchesPlayed,
-  });
-  await persistCheckpoint(supabase, ctx.runId, ctx.state, agent.name, phase, logger);
-  return result;
-}
-
-async function runMinimalPipeline(
-  args: CLIArgs,
-  ctx: ExecutionContext,
-  agents: NamedAgents,
-  supabase: SupabaseClient | null,
-  logger: EvolutionLogger,
-): Promise<string> {
-  const sequence: PipelineAgent[] = [agents.generation, agents.calibration];
-
-  for (let i = 0; i < args.iterations; i++) {
-    ctx.state.startNewIteration();
-    logger.info('Iteration start', { iteration: ctx.state.iteration, poolSize: ctx.state.getPoolSize() });
-
-    for (const agent of sequence) {
-      try {
-        await runAgent(agent, ctx, supabase, 'EXPANSION', logger);
-      } catch (error) {
-        if (error instanceof BudgetExceededError) {
-          logger.warn('Budget exceeded', { agent: agent.name });
-          await updateRunStatus(supabase, ctx.runId, { status: 'paused', error_message: error.message });
-          // Snapshot checkpoint on early exit if this iteration matches
-          if (args.bank && supabase && args.bankCheckpoints.includes(ctx.state.iteration)) {
-            await snapshotCheckpointToBank(args, ctx, supabase, logger);
-          }
-          return 'budget_exceeded';
-        }
-        throw error;
-      }
-    }
-
-    // Snapshot to bank if this iteration is a checkpoint
-    if (args.bank && supabase && args.bankCheckpoints.length > 0) {
-      await snapshotCheckpointToBank(args, ctx, supabase, logger);
-    }
-  }
-
-  return 'completed';
-}
-
-async function runFullPipeline(
-  args: CLIArgs,
-  ctx: ExecutionContext,
-  agents: NamedAgents,
-  supabase: SupabaseClient | null,
-  logger: EvolutionLogger,
-): Promise<string> {
-  const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
-  const supervisor = new PoolSupervisor(supervisorCfg);
-  let previousPhase: PipelinePhase = 'EXPANSION';
-
-  for (let i = 0; i < args.iterations; i++) {
-    ctx.state.startNewIteration();
-    supervisor.beginIteration(ctx.state);
-    const phaseConfig = supervisor.getPhaseConfig(ctx.state);
-    const phase = phaseConfig.phase;
-
-    if (phase !== previousPhase) {
-      logger.info('Phase transition', { from: previousPhase, to: phase, poolSize: ctx.state.getPoolSize() });
-      previousPhase = phase;
-    }
-
-    logger.info('Iteration start', { iteration: ctx.state.iteration, phase, poolSize: ctx.state.getPoolSize() });
-
-    const [shouldStop, reason] = supervisor.shouldStop(ctx.state, ctx.costTracker.getAvailableBudget());
-    if (shouldStop) {
-      logger.info('Stopping pipeline', { reason });
-      return reason;
-    }
-
-    // Run agents in phase-defined order
-    const steps: Array<{ run: boolean; agent: PipelineAgent }> = [
-      { run: phaseConfig.runGeneration, agent: agents.generation },
-      { run: phaseConfig.runReflection, agent: agents.reflection },
-      { run: phaseConfig.runIterativeEditing, agent: agents.iterativeEditing },
-      { run: phaseConfig.runDebate, agent: agents.debate },
-      { run: phaseConfig.runEvolution, agent: agents.evolution },
-      { run: phaseConfig.runCalibration, agent: phase === 'COMPETITION' ? agents.tournament : agents.calibration },
-      { run: phaseConfig.runProximity, agent: agents.proximity },
-      { run: phaseConfig.runMetaReview, agent: agents.metaReview },
-    ];
-
-    for (const step of steps) {
-      if (!step.run) continue;
-      try {
-        await runAgent(step.agent, ctx, supabase, phase, logger);
-      } catch (error) {
-        if (error instanceof BudgetExceededError) {
-          logger.warn('Budget exceeded', { agent: step.agent.name });
-          await updateRunStatus(supabase, ctx.runId, { status: 'paused', error_message: error.message });
-          // Snapshot checkpoint on early exit if this iteration matches
-          if (args.bank && supabase && args.bankCheckpoints.includes(ctx.state.iteration)) {
-            await snapshotCheckpointToBank(args, ctx, supabase, logger);
-          }
-          return 'budget_exceeded';
-        }
-        throw error;
-      }
-    }
-
-    // Snapshot to bank if this iteration is a checkpoint
-    if (args.bank && supabase && args.bankCheckpoints.length > 0) {
-      await snapshotCheckpointToBank(args, ctx, supabase, logger);
-    }
-
-    // Report top performers
-    const top = ctx.state.getTopByRating(3);
-    for (const v of top) {
-      const ord = getOrdinal(ctx.state.ratings.get(v.id) ?? createRating());
-      logger.debug('Top variant', { id: v.id.slice(0, 8), ordinal: ord.toFixed(1), strategy: v.strategy });
-    }
-  }
-
-  return 'completed';
+  return agents;
 }
 
 // ─── Output Builder ──────────────────────────────────────────────
@@ -816,43 +550,9 @@ function buildOutput(
 }
 
 // ─── Seed Article Generation (for --prompt mode) ─────────────────
-
-interface SeedResult {
-  title: string;
-  content: string;
-}
-
-async function generateSeedArticle(
-  prompt: string,
-  seedModel: string,
-  llmClient: EvolutionLLMClient,
-  logger: EvolutionLogger,
-): Promise<SeedResult> {
-  // Generate title
-  logger.info('Generating seed title...', { model: seedModel });
-  const titlePromptText = createTitlePrompt(prompt);
-  const titleRaw = await llmClient.complete(titlePromptText, 'seed_title');
-
-  let title: string;
-  try {
-    const parsed = titleQuerySchema.parse(JSON.parse(titleRaw));
-    title = parsed.title1;
-  } catch {
-    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
-  }
-
-  logger.info('Seed title generated', { title });
-
-  // Generate article
-  logger.info('Generating seed article...', { title });
-  const articlePrompt = createExplanationPrompt(title, []);
-  const content = await llmClient.complete(articlePrompt, 'seed_article');
-
-  const fullContent = `# ${title}\n\n${content}`;
-  logger.info('Seed article generated', { words: fullContent.split(/\s+/).length });
-
-  return { title, content: fullContent };
-}
+// Re-exported from shared module for CLI usage
+import { generateSeedArticle } from '../src/lib/evolution/core/seedArticle';
+export type { SeedResult } from '../src/lib/evolution/core/seedArticle';
 
 // ─── Main ────────────────────────────────────────────────────────
 
@@ -872,7 +572,7 @@ async function main() {
   logger.info('Configuration', {
     input: inputLabel,
     mode: args.mock ? 'mock' : 'real',
-    pipeline: args.full ? 'full' : 'minimal',
+    pipeline: args.single ? 'single' : args.full ? 'full' : 'minimal',
     iterations: args.iterations,
     budget: args.budget,
     model: args.model,
@@ -880,12 +580,18 @@ async function main() {
     runId: runId.slice(0, 8),
   });
 
-  // Build config — adjust constraints for full mode with low iteration counts
+  // Build config — adjust constraints for full/single mode
   const configOverrides: Partial<ReturnType<typeof resolveConfig>> = {
     maxIterations: args.iterations,
     budgetCapUsd: args.budget,
   };
-  if (args.full) {
+  if (args.single) {
+    configOverrides.singleArticle = true;
+    configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
+    configOverrides.plateau = { window: 2, threshold: 0.02 };
+    configOverrides.maxIterations = args.iterations;
+    configOverrides.budgetCapUsd = args.budget;
+  } else if (args.full) {
     // Supervisor requires maxIterations > expansion.maxIterations + plateau.window + 1
     const expansionMax = Math.max(1, Math.floor(args.iterations * 0.4));
     const plateauWindow = DEFAULT_EVOLUTION_CONFIG.plateau.window;
@@ -938,7 +644,7 @@ async function main() {
       ? llmClient
       : createDirectLLMClient(seedModel, costTracker, logger, supabase);
 
-    const seed = await generateSeedArticle(args.prompt, seedModel, seedClient, logger);
+    const seed = await generateSeedArticle(args.prompt, seedClient, logger);
     originalText = seed.content;
     title = seed.title;
   } else {
@@ -966,59 +672,25 @@ async function main() {
     runId,
   };
 
-  const agents = buildAgents();
-  const agentNames = args.full
-    ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview']
+  const agents = buildAgents(args.outline);
+  const agentNames = (args.single || args.full)
+    ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(args.outline ? ['outlineGeneration'] : [])]
     : ['generation', 'calibration'];
-  logger.info('Agent suite', { agents: agentNames, mode: args.full ? 'full' : 'minimal' });
+  logger.info('Agent suite', { agents: agentNames, mode: args.single ? 'single' : args.full ? 'full' : 'minimal', outline: args.outline });
 
-  // Run pipeline
-  await updateRunStatus(dbTracking ? supabase : null, runId, {
-    status: 'running',
-    started_at: new Date().toISOString(),
-  });
-
+  // Run pipeline — canonical functions handle status updates, checkpoints, and variant persistence
   const startMs = Date.now();
   try {
-    const stopReason = args.full
-      ? await runFullPipeline(args, ctx, agents, dbTracking ? supabase : null, logger)
-      : await runMinimalPipeline(args, ctx, agents, dbTracking ? supabase : null, logger);
+    let stopReason: string;
+    if (args.single || args.full) {
+      const result = await executeFullPipeline(runId, agents, ctx, logger, { startMs });
+      stopReason = result.stopReason;
+    } else {
+      await executeMinimalPipeline(runId, [agents.generation, agents.calibration], ctx, logger, { startMs });
+      stopReason = 'completed';
+    }
 
     const durationMs = Date.now() - startMs;
-
-    // Mark completed
-    await updateRunStatus(dbTracking ? supabase : null, runId, {
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      total_variants: ctx.state.getPoolSize(),
-      variants_generated: ctx.state.getPoolSize(),
-      total_cost_usd: ctx.costTracker.getTotalSpent(),
-    });
-
-    // Persist variants to content_evolution_variants so the admin UI can display them
-    if (dbTracking && supabase) {
-      const variantInserts = ctx.state.pool.map((v) => ({
-        id: v.id,
-        run_id: runId,
-        explanation_id: args.explanationId,
-        variant_content: v.text,
-        elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
-        generation: v.version,
-        parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
-        agent_name: v.strategy,
-        match_count: ctx.state.matchCounts.get(v.id) ?? 0,
-      }));
-      if (variantInserts.length > 0) {
-        const { error: insertError } = await supabase
-          .from('content_evolution_variants')
-          .insert(variantInserts);
-        if (insertError) {
-          logger.warn('Failed to persist variants', { error: insertError.message });
-        } else {
-          logger.info('Variants persisted to DB', { count: variantInserts.length });
-        }
-      }
-    }
 
     // Build and write output
     const output = buildOutput(ctx, stopReason, durationMs, dbTracking);
@@ -1035,20 +707,27 @@ async function main() {
         const topVariants = state.getTopByRating(5);
         const winner = topVariants[0];
         if (winner) {
-          logger.info('Adding winner to article bank...');
-          const bankResult = await addEntryToBank(supabase, {
-            prompt: args.prompt,
-            content: winner.text,
-            generation_method: 'evolution_winner',
-            model: args.model,
-            total_cost_usd: costTracker.getTotalSpent(),
-            metadata: {
+          logger.info('Adding winner to Hall of Fame...');
+          const winnerMeta: Record<string, unknown> = {
               iterations: state.iteration,
               duration_seconds: Math.round(durationMs / 1000),
               stop_reason: stopReason,
               seed_model: args.seedModel ?? args.model,
               winning_strategy: winner.strategy,
-            },
+          };
+          if (isOutlineVariant(winner)) {
+            winnerMeta.outline_mode = true;
+            winnerMeta.outline = winner.outline;
+            winnerMeta.weakest_step = winner.weakestStep;
+            winnerMeta.steps = winner.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd }));
+          }
+          const bankResult = await addEntryToHallOfFame(supabase, {
+            prompt: args.prompt,
+            content: winner.text,
+            generation_method: 'evolution_winner',
+            model: args.model,
+            total_cost_usd: costTracker.getTotalSpent(),
+            metadata: winnerMeta,
           });
           logger.info('Winner added to bank', { topic_id: bankResult.topic_id, entry_id: bankResult.entry_id });
         }
@@ -1060,7 +739,7 @@ async function main() {
       const baseline = state.pool.find((v) => v.strategy === 'original_baseline' || v.iterationBorn === 0);
       const topWinner = state.getTopByRating(1)[0];
       if (baseline && topWinner && baseline.id !== topWinner.id) {
-        const baselineResult = await addEntryToBank(supabase, {
+        const baselineResult = await addEntryToHallOfFame(supabase, {
           prompt: args.prompt,
           content: baseline.text,
           generation_method: 'evolution_baseline',
@@ -1098,10 +777,14 @@ async function main() {
   } catch (error) {
     const durationMs = Date.now() - startMs;
     logger.error('Pipeline failed', { error: String(error), durationMs });
-    await updateRunStatus(dbTracking ? supabase : null, runId, {
-      status: 'failed',
-      error_message: String(error),
-    });
+    if (dbTracking && supabase) {
+      try {
+        await supabase.from('content_evolution_runs').update({
+          status: 'failed',
+          error_message: String(error),
+        }).eq('id', runId);
+      } catch { /* best-effort status update */ }
+    }
     process.exit(1);
   }
 }

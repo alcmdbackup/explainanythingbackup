@@ -1,4 +1,4 @@
-// Batch generation script for the prompt bank — reads config, builds coverage matrix,
+// Batch generation script for the Hall of Fame prompt bank — reads config, builds coverage matrix,
 // generates all missing entries across prompts × methods. Sequential execution with resume support.
 
 import dotenv from 'dotenv';
@@ -11,7 +11,7 @@ dotenv.config({ path: path.resolve(__dirname, '..', '.env.local') });
 import { PROMPT_BANK, type MethodConfig, type EvolutionMethod } from '../src/config/promptBankConfig';
 import { formatCost } from '../src/config/llmPricing';
 import { generateOneshotArticle } from './lib/oneshotGenerator';
-import { addEntryToBank } from './lib/bankUtils';
+import { addEntryToHallOfFame } from './lib/hallOfFameUtils';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -133,7 +133,7 @@ async function buildCoverageMatrix(
 
     // Find topic by prompt (case-insensitive)
     const { data: topic } = await supabase
-      .from('article_bank_topics')
+      .from('hall_of_fame_topics')
       .select('id')
       .ilike('prompt', normalizedPrompt)
       .is('deleted_at', null)
@@ -147,7 +147,7 @@ async function buildCoverageMatrix(
     if (topic) {
       // Fetch all entries for this topic
       const { data: entries } = await supabase
-        .from('article_bank_entries')
+        .from('hall_of_fame_entries')
         .select('id, generation_method, model, metadata')
         .eq('topic_id', topic.id)
         .is('deleted_at', null);
@@ -159,7 +159,9 @@ async function buildCoverageMatrix(
           } else if (m.type === 'evolution' && entry.generation_method === 'evolution_winner') {
             const meta = entry.metadata as Record<string, unknown> | null;
             const iterations = meta?.iterations;
-            if (typeof iterations === 'number' && m.checkpoints.includes(iterations)) {
+            const entryIsOutline = meta?.outline_mode === true;
+            const methodIsOutline = m.outline === true;
+            if (typeof iterations === 'number' && m.checkpoints.includes(iterations) && entryIsOutline === methodIsOutline) {
               const label = `${m.label}_${iterations}iter`;
               methodCoverage[label] = { exists: true, entryId: entry.id };
             }
@@ -331,7 +333,7 @@ async function main() {
 
       try {
         const result = await generateOneshotArticle(task.prompt, task.method.model, supabase);
-        await addEntryToBank(supabase, {
+        await addEntryToHallOfFame(supabase, {
           prompt: task.prompt,
           title: result.title,
           content: result.content,
@@ -380,6 +382,7 @@ async function main() {
           '--bank',
           '--bank-checkpoints', missingCps.join(','),
           ...(evoMethod.mode === 'full' ? ['--full'] : []),
+          ...(evoMethod.outline ? ['--outline'] : []),
         ];
 
         const projectRoot = path.resolve(__dirname, '..');

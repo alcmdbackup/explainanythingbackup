@@ -5,18 +5,22 @@
 import { Fragment, useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { EloSparkline } from '@/components/evolution';
+import { StepScoreBar } from '@/components/evolution/StepScoreBar';
 import {
   getEvolutionVariantsAction,
   type EvolutionVariant,
 } from '@/lib/services/evolutionActions';
 import {
   getEvolutionRunEloHistoryAction,
+  getEvolutionRunStepScoresAction,
   type EloHistoryData,
+  type VariantStepData,
 } from '@/lib/services/evolutionVisualizationActions';
 
 export function VariantsTab({ runId }: { runId: string }) {
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [eloHistory, setEloHistory] = useState<EloHistoryData | null>(null);
+  const [stepScores, setStepScores] = useState<Map<string, VariantStepData>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -25,9 +29,10 @@ export function VariantsTab({ runId }: { runId: string }) {
   useEffect(() => {
     async function load() {
       setLoading(true);
-      const [varResult, eloResult] = await Promise.all([
+      const [varResult, eloResult, stepResult] = await Promise.all([
         getEvolutionVariantsAction(runId),
         getEvolutionRunEloHistoryAction(runId),
+        getEvolutionRunStepScoresAction(runId),
       ]);
       if (varResult.success && varResult.data) {
         setVariants(varResult.data);
@@ -36,6 +41,11 @@ export function VariantsTab({ runId }: { runId: string }) {
       }
       if (eloResult.success && eloResult.data) {
         setEloHistory(eloResult.data);
+      }
+      if (stepResult.success && stepResult.data) {
+        const map = new Map<string, VariantStepData>();
+        for (const sd of stepResult.data) map.set(sd.variantId, sd);
+        setStepScores(map);
       }
       setLoading(false);
     }
@@ -85,7 +95,7 @@ export function VariantsTab({ runId }: { runId: string }) {
   return (
     <div className="space-y-4" data-testid="variants-tab">
       {/* Filters */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between relative z-10">
         <select
           value={strategyFilter}
           onChange={e => setStrategyFilter(e.target.value)}
@@ -147,6 +157,15 @@ export function VariantsTab({ runId }: { runId: string }) {
                 {expandedId === v.id && (
                   <tr key={`${v.id}-text`}>
                     <td colSpan={8} className="p-4 bg-[var(--surface-secondary)]">
+                      {stepScores.has(v.id) && (
+                        <div className="mb-3 p-3 border border-[var(--border-default)] rounded-page bg-[var(--surface-primary)]">
+                          <p className="text-xs font-semibold text-[var(--text-muted)] mb-2">Step Scores</p>
+                          <StepScoreBar
+                            steps={stepScores.get(v.id)!.steps}
+                            weakestStep={stepScores.get(v.id)!.weakestStep}
+                          />
+                        </div>
+                      )}
                       <pre className="whitespace-pre-wrap text-xs text-[var(--text-secondary)] max-h-64 overflow-y-auto">
                         {v.variant_content}
                       </pre>

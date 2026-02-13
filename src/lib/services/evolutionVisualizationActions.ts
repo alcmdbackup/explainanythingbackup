@@ -13,8 +13,10 @@ import type {
   PipelinePhase,
   SerializedPipelineState,
   EvolutionRunStatus,
+  GenerationStepName,
 } from '@/lib/evolution/types';
-import type { AgentCostBreakdown } from '@/lib/services/evolutionActions';
+import { isOutlineVariant } from '@/lib/evolution/types';
+import type { AgentCostBreakdown, EvolutionVariant } from '@/lib/services/evolutionActions';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -26,11 +28,14 @@ export interface DashboardData {
   runsPerDay: { date: string; completed: number; failed: number; paused: number }[];
   dailySpend: { date: string; amount: number }[];
   recentRuns: DashboardRun[];
+  previousMonthSpend: number;
+  articlesEvolvedCount: number;
+  hallOfFameSize: number;
 }
 
 export interface DashboardRun {
   id: string;
-  explanation_id: number;
+  explanation_id: number | null;
   status: EvolutionRunStatus;
   phase: PipelinePhase;
   current_iteration: number;
@@ -88,8 +93,14 @@ export interface LineageData {
     elo: number;
     iterationBorn: number;
     isWinner: boolean;
+    /** Tree depth if this variant was produced by tree search (null otherwise). */
+    treeDepth?: number | null;
+    /** Revision action label if this variant was produced by tree search. */
+    revisionAction?: string | null;
   }[];
   edges: { source: string; target: string }[];
+  /** Winning revision path node IDs from tree search (for path highlighting). */
+  treeSearchPath?: string[];
 }
 
 export interface BudgetData {
@@ -99,6 +110,44 @@ export interface BudgetData {
     agent: string;
     cumulativeCost: number;
     budgetCap: number;
+  }[];
+  /** Pre-run cost estimate (null if no estimate was stored at queue time) */
+  estimate: {
+    totalUsd: number;
+    perAgent: Record<string, number>;
+    perIteration: number;
+    confidence: 'high' | 'medium' | 'low';
+  } | null;
+  /** Estimated vs actual comparison (null if no prediction was computed) */
+  prediction: {
+    estimatedUsd: number;
+    actualUsd: number;
+    deltaUsd: number;
+    deltaPercent: number;
+    confidence: 'high' | 'medium' | 'low';
+    perAgent: Record<string, { estimated: number; actual: number }>;
+  } | null;
+}
+
+export interface TreeSearchData {
+  trees: {
+    rootNodeId: string;
+    nodes: {
+      id: string;
+      variantId: string;
+      parentNodeId: string | null;
+      depth: number;
+      revisionAction: { type: string; dimension?: string; description: string };
+      value: number;
+      pruned: boolean;
+    }[];
+    result: {
+      bestLeafNodeId: string;
+      treeSize: number;
+      maxDepth: number;
+      prunedBranches: number;
+      revisionPath: { type: string; dimension?: string; description: string }[];
+    };
   }[];
 }
 
@@ -140,13 +189,18 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes] = await Promise.all([
+    const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+
+    const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
       supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed']),
       supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('content_evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
       supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
       supabase.from('content_evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
       supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
+      supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed'),
+      supabase.from('hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
     ]);
 
     const activeRuns = activeRes.count ?? 0;
@@ -160,6 +214,15 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
 
     // Monthly spend
     const monthlySpend = (monthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
+
+    // Previous month spend (for trend comparison)
+    const previousMonthSpend = (prevMonthSpendRes.data ?? []).reduce((sum, r) => sum + (r.total_cost_usd ?? 0), 0);
+
+    // Articles with completed evolution runs (deduplicate explanation_ids)
+    const articlesEvolvedCount = new Set((evolvedRes.data ?? []).map(r => r.explanation_id)).size;
+
+    // Hall of Fame size
+    const hallOfFameSize = bankRes.count ?? 0;
 
     // Runs per day (last 30d)
     const dayMap = new Map<string, { completed: number; failed: number; paused: number }>();
@@ -195,6 +258,9 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
         runsPerDay,
         dailySpend,
         recentRuns: (recentRes.data ?? []) as DashboardRun[],
+        previousMonthSpend,
+        articlesEvolvedCount,
+        hallOfFameSize,
       },
       error: null,
     };
@@ -521,15 +587,54 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     const winnerText = dbWinner?.variant_content ?? null;
 
+    // Extract tree search metadata for path highlighting
+    const treeStates = state.treeSearchStates ?? [];
+    const treeResults = state.treeSearchResults ?? [];
+
+    // Map variantId → tree node info for augmenting lineage nodes
+    const treeNodeByVariant = new Map<string, { depth: number; action: string }>();
+    for (const ts of treeStates) {
+      for (const node of Object.values(ts.nodes)) {
+        treeNodeByVariant.set(node.variantId, {
+          depth: node.depth,
+          action: node.revisionAction.description,
+        });
+      }
+    }
+
+    // Collect winning path variant IDs from tree search results
+    const treeSearchPath: string[] = [];
+    for (let i = 0; i < treeResults.length; i++) {
+      const result = treeResults[i];
+      const ts = treeStates[i];
+      if (!result || !ts) continue;
+      // Walk from best leaf back to root
+      let nodeId: string | null = result.bestLeafNodeId;
+      while (nodeId) {
+        const treeNode: { variantId: string; parentNodeId: string | null } | undefined = ts.nodes[nodeId];
+        if (treeNode) {
+          treeSearchPath.push(treeNode.variantId);
+          nodeId = treeNode.parentNodeId;
+        } else {
+          break;
+        }
+      }
+    }
+
     // Build nodes and edges from in-memory pool
-    const nodes: LineageData['nodes'] = state.pool.map(v => ({
-      id: v.id,
-      shortId: v.id.substring(0, 8),
-      strategy: v.strategy,
-      elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
-      iterationBorn: v.iterationBorn,
-      isWinner: winnerText !== null && v.text === winnerText,
-    }));
+    const nodes: LineageData['nodes'] = state.pool.map(v => {
+      const treeInfo = treeNodeByVariant.get(v.id);
+      return {
+        id: v.id,
+        shortId: v.id.substring(0, 8),
+        strategy: v.strategy,
+        elo: ordinalToEloScale(getOrdinal(state.ratings.get(v.id) ?? createRating())),
+        iterationBorn: v.iterationBorn,
+        isWinner: winnerText !== null && v.text === winnerText,
+        treeDepth: treeInfo?.depth ?? null,
+        revisionAction: treeInfo?.action ?? null,
+      };
+    });
 
     const edges: LineageData['edges'] = [];
     for (const v of state.pool) {
@@ -538,7 +643,11 @@ const _getEvolutionRunLineageAction = withLogging(async (
       }
     }
 
-    return { success: true, data: { nodes, edges }, error: null };
+    return {
+      success: true,
+      data: { nodes, edges, treeSearchPath: treeSearchPath.length > 0 ? treeSearchPath : undefined },
+      error: null,
+    };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunLineageAction', { runId }) };
   }
@@ -556,10 +665,10 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Get run time window and budget
+    // Get run time window, budget, and cost estimate fields
     const { data: run, error: runError } = await supabase
       .from('content_evolution_runs')
-      .select('started_at, completed_at, budget_cap_usd')
+      .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction')
       .eq('id', runId)
       .single();
 
@@ -606,7 +715,10 @@ const _getEvolutionRunBudgetAction = withLogging(async (
       };
     });
 
-    return { success: true, data: { agentBreakdown, cumulativeBurn }, error: null };
+    const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
+    const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
+
+    return { success: true, data: { agentBreakdown, cumulativeBurn, estimate, prediction }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunBudgetAction', { runId }) };
   }
@@ -707,3 +819,201 @@ const _getEvolutionRunComparisonAction = withLogging(async (
 }, 'getEvolutionRunComparisonAction');
 
 export const getEvolutionRunComparisonAction = serverReadRequestId(_getEvolutionRunComparisonAction);
+
+// ─── 7. Variant Step Scores ─────────────────────────────────────
+
+/** Step score data for outline variants, keyed by variant ID. */
+export interface VariantStepData {
+  variantId: string;
+  steps: Array<{ name: GenerationStepName; score: number; costUsd: number }>;
+  outline: string;
+  weakestStep: GenerationStepName | null;
+}
+
+const _getEvolutionRunStepScoresAction = withLogging(async (
+  runId: string
+): Promise<ActionResult<VariantStepData[]>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: latestCp, error: cpError } = await supabase
+      .from('evolution_checkpoints')
+      .select('state_snapshot')
+      .eq('run_id', runId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (cpError) throw cpError;
+
+    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    const state = deserializeState(snapshot);
+
+    const stepDataList: VariantStepData[] = [];
+    for (const v of state.pool) {
+      if (isOutlineVariant(v)) {
+        stepDataList.push({
+          variantId: v.id,
+          steps: v.steps.map(s => ({ name: s.name, score: s.score, costUsd: s.costUsd })),
+          outline: v.outline,
+          weakestStep: v.weakestStep,
+        });
+      }
+    }
+
+    return { success: true, data: stepDataList, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunStepScoresAction', { runId }) };
+  }
+}, 'getEvolutionRunStepScoresAction');
+
+export const getEvolutionRunStepScoresAction = serverReadRequestId(_getEvolutionRunStepScoresAction);
+
+// ─── 8. Tree Search ─────────────────────────────────────────────
+
+const _getEvolutionRunTreeSearchAction = withLogging(async (
+  runId: string
+): Promise<ActionResult<TreeSearchData>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    // Load latest checkpoint for tree search state
+    const { data: latestCp, error: cpError } = await supabase
+      .from('evolution_checkpoints')
+      .select('state_snapshot')
+      .eq('run_id', runId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+
+    if (cpError) throw cpError;
+
+    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    const treeStates = snapshot.treeSearchStates ?? [];
+    const treeResults = snapshot.treeSearchResults ?? [];
+
+    if (treeStates.length === 0) {
+      return { success: true, data: { trees: [] }, error: null };
+    }
+
+    const trees: TreeSearchData['trees'] = [];
+    for (let i = 0; i < treeStates.length; i++) {
+      const ts = treeStates[i];
+      const result = treeResults[i];
+      if (!ts || !result) continue;
+
+      const nodesList = Object.values(ts.nodes).map((n) => ({
+        id: n.id,
+        variantId: n.variantId,
+        parentNodeId: n.parentNodeId,
+        depth: n.depth,
+        revisionAction: { type: n.revisionAction.type, dimension: n.revisionAction.dimension, description: n.revisionAction.description },
+        value: n.value,
+        pruned: n.pruned,
+      }));
+
+      trees.push({
+        rootNodeId: ts.rootNodeId,
+        nodes: nodesList,
+        result: {
+          bestLeafNodeId: result.bestLeafNodeId,
+          treeSize: result.treeSize,
+          maxDepth: result.maxDepth,
+          prunedBranches: result.prunedBranches,
+          revisionPath: result.revisionPath,
+        },
+      });
+    }
+
+    return { success: true, data: { trees }, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunTreeSearchAction', { runId }) };
+  }
+}, 'getEvolutionRunTreeSearchAction');
+
+export const getEvolutionRunTreeSearchAction = serverReadRequestId(_getEvolutionRunTreeSearchAction);
+
+// ─── 9. Checkpoint-based variant fallback ────────────────────────
+
+/**
+ * Reconstruct EvolutionVariant[] from the latest checkpoint when the DB table
+ * (content_evolution_variants) has no rows — e.g. for running, failed, or paused runs.
+ * Not a server action (no withLogging/serverReadRequestId) since it's called from
+ * getEvolutionVariantsAction which already handles auth/logging.
+ */
+export async function buildVariantsFromCheckpoint(
+  runId: string
+): Promise<ActionResult<EvolutionVariant[]>> {
+  try {
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const [cpResult, runResult] = await Promise.all([
+      supabase
+        .from('evolution_checkpoints')
+        .select('state_snapshot')
+        .eq('run_id', runId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabase
+        .from('content_evolution_runs')
+        .select('explanation_id')
+        .eq('id', runId)
+        .single(),
+    ]);
+
+    if (cpResult.error) throw cpResult.error;
+    if (runResult.error) throw runResult.error;
+    if (!cpResult.data) {
+      return { success: true, data: [], error: null };
+    }
+
+    const snapshot = cpResult.data.state_snapshot as SerializedPipelineState;
+    const explanationId = runResult.data?.explanation_id ?? null;
+    const pool = snapshot.pool ?? [];
+    const matchCounts = snapshot.matchCounts ?? {};
+
+    const eloLookup = buildEloLookup(snapshot);
+
+    const variants: EvolutionVariant[] = pool.map(v => ({
+      id: v.id,
+      run_id: runId,
+      explanation_id: explanationId,
+      variant_content: v.text,
+      elo_score: eloLookup[v.id] ?? 1200,
+      generation: v.version,
+      agent_name: v.strategy,
+      match_count: matchCounts[v.id] ?? 0,
+      is_winner: false,
+      created_at: new Date(v.createdAt).toISOString(),
+    }));
+
+    variants.sort((a, b) => b.elo_score - a.elo_score);
+
+    return { success: true, data: variants, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'buildVariantsFromCheckpoint', { runId }) };
+  }
+}
+
+function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
+  const eloLookup: Record<string, number> = {};
+
+  if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
+    for (const [id, r] of Object.entries(snapshot.ratings)) {
+      eloLookup[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
+    }
+    return eloLookup;
+  }
+
+  if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
+    return snapshot.eloRatings;
+  }
+
+  return eloLookup;
+}

@@ -46,8 +46,10 @@ test.describe('User Library Management', () => {
     await waitForPageReady(libraryPage);
 
     // Should show either content cards, empty state, OR error message
-    // Use .count() for feed-card to avoid strict mode violation (multiple elements)
-    const hasCards = await authenticatedPage.locator('[data-testid="feed-card"]').count() > 0;
+    const hasCards = await safeIsVisible(
+      authenticatedPage.locator('[data-testid="feed-card"]'),
+      'library.spec (cards)'
+    );
     const hasEmptyState = await safeIsVisible(
       authenticatedPage.locator('[data-testid="library-empty-state"]'),
       'library.spec (empty state)'
@@ -71,23 +73,20 @@ test.describe('User Library Management', () => {
     expect(pageTitle).toContain('My Library');
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  test('should display FeedCard components for saved explanations', async ({ authenticatedPage: _page }) => {
+  test('should display FeedCard components for saved explanations', async () => {
     await libraryPage.navigate();
-    // Wait specifically for feed cards (not generic waitForPageReady which resolves
-    // on the initial empty state before the API call completes)
+    // Wait specifically for cards to load (test data created in beforeAll)
     await libraryPage.waitForCards(30000);
 
-    // Verify at least one card is present (use count to avoid strict mode violation
-    // since multiple feed-card elements exist)
+    // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
   });
 
   test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
+    // Wait specifically for cards (test data created in beforeAll)
     await libraryPage.waitForCards(30000);
-
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -102,8 +101,8 @@ test.describe('User Library Management', () => {
 
   test('should show saved date on cards', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
+    // Wait specifically for cards (test data created in beforeAll)
     await libraryPage.waitForCards(30000);
-
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -113,9 +112,9 @@ test.describe('User Library Management', () => {
     expect(savedDateCount).toBeGreaterThan(0);
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  test('should have search bar in navigation', async ({ authenticatedPage: _page }) => {
+  test('should have search bar in navigation', async () => {
     await libraryPage.navigate();
+    // Wait for cards to confirm page is fully loaded
     await libraryPage.waitForCards(30000);
 
     const hasSearchBar = await libraryPage.hasSearchBar();
@@ -124,11 +123,8 @@ test.describe('User Library Management', () => {
 
   test('should handle search from library page', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // Search bar should always be present in navigation
-    const hasSearchBar = await libraryPage.hasSearchBar();
-    expect(hasSearchBar).toBe(true);
+    // Wait for cards to confirm page is fully loaded
+    await libraryPage.waitForCards(30000);
 
     // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');

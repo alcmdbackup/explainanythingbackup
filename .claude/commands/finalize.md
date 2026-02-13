@@ -1,5 +1,5 @@
 ---
-description: Rebase off remote main, run all checks (lint/tsc/build/unit/integration), update docs, fix issues, commit, and create PR
+description: Rebase off remote main, simplify code, run code review, run all checks (lint/tsc/build/unit/integration), update docs, fix issues, commit, create PR, and monitor CI until all checks pass
 argument-hint: [--e2e]
 allowed-tools: Bash(git:*), Bash(npm:*), Bash(npx:*), Bash(gh:*), Read, Edit, Write, Grep, Glob, AskUserQuestion, Task
 ---
@@ -273,9 +273,216 @@ If rebase conflicts occur:
 - Run `git rebase --continue`
 - Repeat until rebase completes
 
+### 3.5. Code Simplification
+
+Simplify and refine changed code for clarity, consistency, and maintainability while preserving all functionality.
+
+**Step 3.5a: Identify changed source files**
+
+```bash
+git diff --name-only origin/main | grep -E '^src/.*\.(ts|tsx)$' | grep -v '\.test\.' | grep -v '\.spec\.' | grep -v '__tests__' | grep -v 'testing/'
+```
+
+If no source files changed, display "No source files to simplify — skipping." → proceed to Step 3.7.
+
+**Step 3.5b: Launch code simplification agents**
+
+Split changed files into batches of up to 10 files. Launch one `general-purpose` Task agent per batch, all in parallel in a SINGLE message. Each agent receives:
+
+```
+You are an expert code simplification specialist. Analyze and simplify the following recently modified files.
+
+FILES TO SIMPLIFY:
+$FILE_LIST
+
+RULES — follow all of these:
+
+1. **Preserve Functionality**: Never change what the code does — only how it does it.
+
+2. **Apply Project Standards**:
+   - ES modules with proper import sorting
+   - Explicit return type annotations for top-level functions
+   - React components with explicit Props types
+   - Use `logger.debug` (from server_utilities or client_utilities), never console.log
+   - Consistent naming conventions
+
+3. **Enhance Clarity**:
+   - Reduce unnecessary complexity and nesting
+   - Eliminate redundant code and abstractions
+   - Improve variable and function names
+   - Consolidate related logic
+   - Remove comments that describe obvious code
+   - Avoid nested ternaries — prefer switch/if-else
+   - Choose clarity over brevity
+
+4. **Do NOT**:
+   - Create overly clever solutions
+   - Combine too many concerns into single functions
+   - Remove helpful abstractions
+   - Prioritize fewer lines over readability
+   - Create new files
+
+For each file: read it, identify simplification opportunities, apply changes via Edit tool. Return a brief summary per file (or "No changes needed").
+```
+
+**Step 3.5c: Report and commit**
+
+After all agents complete, display:
+```
+Code Simplification — Complete
+──────────────────────────────────────
+[agent summaries]
+──────────────────────────────────────
+```
+
+If any files were modified:
+```bash
+git add -A
+git commit -m "refactor: code simplification pass"
+```
+
+### 3.7. Code Review
+
+Review changed code for bugs, logic errors, security vulnerabilities, and adherence to project conventions using confidence-based filtering.
+
+**Step 3.7a: Gather review context**
+
+```bash
+DIFF_FILES=$(git diff --name-only origin/main)
+```
+
+Read the root `CLAUDE.md` and any `CLAUDE.md` files in directories containing changed files.
+
+**Step 3.7b: Launch 5 parallel review agents**
+
+Launch 5 `feature-dev:code-reviewer` Task agents in a SINGLE message. Pass each agent the `$DIFF_FILES` list and the `$CLAUDE_MD_CONTENTS`.
+
+**Agent 1: CLAUDE.md Compliance**
+```
+Review code changes on this branch (vs origin/main) for compliance with CLAUDE.md instructions.
+
+CLAUDE.md contents: $CLAUDE_MD_CONTENTS
+Changed files: $DIFF_FILES
+
+Read each changed file and check adherence to CLAUDE.md rules. Only flag clear violations — CLAUDE.md is guidance, not all instructions apply during review.
+
+Return JSON: [{"file": "path", "line": N, "description": "...", "reason": "CLAUDE.md says: ..."}]
+If no issues: []
+```
+
+**Agent 2: Bug Scan**
+```
+Review code changes on this branch (vs origin/main) for bugs and logic errors.
+
+Changed files: $DIFF_FILES
+
+Shallow scan for obvious bugs in the changes. Focus on large bugs, avoid nitpicks. Ignore likely false positives.
+
+Return JSON: [{"file": "path", "line": N, "description": "...", "reason": "bug due to ..."}]
+If no issues: []
+```
+
+**Agent 3: Historical Context**
+```
+Review code changes on this branch (vs origin/main) in light of git history.
+
+Changed files: $DIFF_FILES
+
+For key changed files, read git blame and recent history. Identify bugs visible only with historical context.
+
+Return JSON: [{"file": "path", "line": N, "description": "...", "reason": "historical context: ..."}]
+If no issues: []
+```
+
+**Agent 4: Code Comment Compliance**
+```
+Review code changes on this branch (vs origin/main) for compliance with code comments.
+
+Changed files: $DIFF_FILES
+
+Read TODOs, warnings, and constraints in comments of modified files. Verify changes comply with that guidance.
+
+Return JSON: [{"file": "path", "line": N, "description": "...", "reason": "comment says: ..."}]
+If no issues: []
+```
+
+**Agent 5: Security Review**
+```
+Review code changes on this branch (vs origin/main) for security vulnerabilities.
+
+Changed files: $DIFF_FILES
+
+Check for OWASP top 10, injection risks, auth bypasses, sensitive data exposure, insecure patterns.
+
+Return JSON: [{"file": "path", "line": N, "description": "...", "reason": "security: ..."}]
+If no issues: []
+```
+
+**Step 3.7c: Confidence scoring**
+
+For each issue found across all agents, launch a parallel Haiku Task agent to score confidence (0–100):
+
+```
+Score this code review finding on a scale of 0-100:
+
+Issue: $ISSUE_DESCRIPTION
+File: $FILE_PATH  Line: $LINE
+Reason: $REASON
+
+Rubric:
+  0: False positive, doesn't stand up to scrutiny
+ 25: Might be real, may also be false positive
+ 50: Verified real but may be a nitpick, not very important relative to overall PR
+ 75: Verified, important, will directly impact functionality or explicitly called out in CLAUDE.md
+100: Definitely real, will happen frequently, evidence directly confirms
+
+Read the actual file to verify. Return ONLY: {"score": N, "rationale": "..."}
+```
+
+**Step 3.7d: Filter and report**
+
+Filter out issues with score < 80.
+
+**If no high-confidence issues**:
+```
+Code Review — PASSED
+──────────────────────────────────────
+No high-confidence issues found. Checked for bugs, CLAUDE.md compliance,
+security, code comments, and historical context.
+──────────────────────────────────────
+```
+→ Proceed to Step 4.
+
+**If issues found**:
+```
+Code Review — N Issue(s) Found
+──────────────────────────────────────
+1. [file:line] description (confidence: N/100)
+   Reason: ...
+──────────────────────────────────────
+```
+
+Use **AskUserQuestion**:
+- Question: "Code review found N high-confidence issue(s). How would you like to proceed?"
+- Options:
+  1. "Fix issues" — fix each issue, then re-run from Step 3.7 (max 2 total iterations)
+  2. "Proceed anyway" — continue to checks with noted issues
+  3. "Stop to review manually" — abort finalization
+
+**False positive guidance** (provided to all review agents in step 3.7b):
+
+Fix ALL bugs encountered regardless of whether they were introduced by this branch or pre-existed.
+
+Issues to IGNORE:
+- Issues a linter, typechecker, or compiler would catch
+- Pedantic nitpicks a senior engineer wouldn't call out
+- General quality issues unless explicitly required in CLAUDE.md
+- Issues silenced by lint-ignore comments
+- Intentional functionality changes related to the broader change
+
 ### 4. Run Checks (fix issues as they arise)
 
-Run each check. If it fails, fix the issues and re-run until it passes:
+Run each check. If it fails, fix the issues and re-run until it passes. Fix ALL bugs encountered regardless of whether they originated from this branch or pre-existed:
 
 1. **Lint**: `npm run lint`
 2. **TypeScript**: `npx tsc --noEmit`
@@ -289,15 +496,7 @@ If `$ARGUMENTS` contains `--e2e`:
 - Run: `npm run test:e2e -- --grep @critical`
 - Fix any failures before proceeding
 
-### 6. Commit Changes
-
-If there are uncommitted changes from fixes:
-```bash
-git add -A
-git commit -m "fix: address lint/type/test issues for PR"
-```
-
-### 6.5. Documentation Updates
+### 6. Documentation Updates
 
 Automatically update documentation based on code changes:
 
@@ -333,17 +532,20 @@ Automatically update documentation based on code changes:
    - Ask: "Add mapping rule for [file] → [doc] for future?"
    - If yes → append new mapping to `.claude/doc-mapping.json`
 
-8. **Commit doc updates:**
-   - If any doc updates were made, amend the previous commit or create new:
-   ```bash
-   git add docs/ .claude/doc-mapping.json
-   git commit --amend --no-edit
-   ```
-
-9. **Blocking behavior:**
+8. **Blocking behavior:**
    - If doc-worthy changes exist but updates failed → **STOP**
    - Display error and do not proceed to push/PR
    - Suggest manual intervention
+
+### 6.5. Commit Changes
+
+Commit all uncommitted changes (code fixes from checks + documentation updates) in one atomic commit:
+```bash
+git add -A
+git commit -m "fix: address lint/type/test issues and update docs for PR"
+```
+
+If there are no uncommitted changes, skip this step.
 
 ### 6.6. Verify Clean Working Tree
 
@@ -473,31 +675,193 @@ For EACH file in the git status output:
 git push -u origin HEAD
 ```
 
-Then create PR using:
+Then create a PR with a structured body summarizing the finalization results:
+
 ```bash
-gh pr create --base main --fill
+BRANCH=$(git branch --show-current)
+PROJECT_NAME="${BRANCH#*/}"
 ```
 
-Or if more context is needed, create with title and body describing the changes.
+```bash
+gh pr create --base main --title "[Project] ${PROJECT_NAME}" --body "$(cat <<'EOF'
+## Summary
+[1-3 sentence description of what this branch accomplishes, derived from the planning file]
+
+## Finalization Results
+
+### Plan Assessment
+[PASSED / N gaps noted — include agent summaries]
+
+### Code Simplification
+[N files simplified / No changes needed]
+
+### Code Review
+[PASSED / N issues found (confidence ≥80) — list any that were noted but proceeded with]
+
+### Checks
+- Lint: ✓
+- TypeScript: ✓
+- Build: ✓
+- Unit Tests: ✓
+- Integration Tests: ✓
+- E2E Tests: [✓ / skipped]
+
+### Documentation Updates
+[List of docs updated, or "No updates needed"]
+
+## Planning
+- Folder: `docs/planning/${PROJECT_NAME}/`
+- Research: `${PROJECT_NAME}_research.md`
+- Plan: `${PROJECT_NAME}_planning.md`
+- Progress: `${PROJECT_NAME}_progress.md`
+
+---
+🤖 Generated with [Claude Code](https://claude.ai/code)
+EOF
+)"
+```
+
+Replace all `[bracketed placeholders]` with actual results collected during the finalization steps. If a GitHub issue exists for this project, add `Closes #N` to the summary.
+
+### 8. Monitor PR Checks
+
+After PR creation, monitor CI checks until they all pass. If any fail, fix issues locally, push, and re-monitor.
+
+**Step 8a: Wait for CI to start**
+
+Wait 30 seconds for GitHub Actions to pick up the new PR:
+```bash
+sleep 30
+```
+
+**Step 8b: Watch checks until completion**
+
+```bash
+timeout 900 gh pr checks --watch --fail-fast
+```
+
+This blocks until all checks complete or 15 minutes elapse. Check the exit code:
+
+| Exit Code | Meaning | Action |
+|-----------|---------|--------|
+| 0 | All checks passed | Proceed to Step 8e (success) |
+| 1 | One or more checks failed | Proceed to Step 8c (diagnose) |
+| 124 | Timeout (15 min elapsed) | Ask user: "CI timed out. Wait longer or abort?" |
+| 8 | Checks still pending | Re-run `gh pr checks --watch` |
+
+**Step 8c: Diagnose failures**
+
+Get structured failure details:
+
+```bash
+gh pr checks --json name,bucket,link,state
+```
+
+Display a summary table:
+```
+PR Check Results
+──────────────────────────────────────
+✓ CI / Detect Changes
+✓ CI / TypeScript Check
+✗ CI / Unit Tests          ← FAILED
+✓ CI / Lint
+✗ CI / E2E Tests (Critical) ← FAILED
+──────────────────────────────────────
+```
+
+Then get failure logs. Try `gh run view --log-failed` first; fall back to `gh run list` if it fails:
+
+```bash
+# Get unique run IDs for failed checks
+FAILED_RUN_IDS=$(gh pr checks --json link,bucket \
+  --jq 'map(select(.bucket == "fail") | .link | capture("runs/(?<id>[0-9]+)") | .id) | unique | .[]')
+
+# Get failure logs for each run
+for run_id in $FAILED_RUN_IDS; do
+  gh run view "$run_id" --log-failed
+done
+```
+
+If `--log-failed` produces no useful output, try:
+```bash
+BRANCH=$(git branch --show-current)
+gh run list --branch "$BRANCH" --status failure --json databaseId,name,conclusion
+# Then for each: gh run view <id> --log
+```
+
+**Step 8d: Fix, commit, and push**
+
+Use **AskUserQuestion**:
+- Question: "PR checks failed: [list failed check names]. Failure logs retrieved. How would you like to proceed?"
+- Options:
+  1. "Fix and retry" — fix the issues, re-run local checks (Step 4), commit, push, and re-monitor
+  2. "Abort monitoring" — stop monitoring, leave PR as-is for manual intervention
+
+If "Fix and retry":
+1. Analyze the failure logs to identify root causes
+2. Fix ALL issues locally (regardless of origin — pre-existing bugs included)
+3. Re-run local checks from Step 4 (lint, tsc, build, unit, integration) to verify fixes
+4. Commit fixes:
+   ```bash
+   git add -A
+   git commit -m "fix: address CI failures (iteration N)"
+   ```
+5. Push:
+   ```bash
+   git push
+   ```
+6. Return to Step 8a (wait 30s, then re-watch)
+
+**Maximum iterations**: 5 fix-push-watch cycles. After 5 failures:
+
+Use **AskUserQuestion**:
+- Question: "PR checks have failed 5 times. How would you like to proceed?"
+- Options:
+  1. "Continue trying" — reset counter and keep going
+  2. "Abort monitoring" — stop and leave PR for manual review
+
+**Step 8e: Success**
+
+When all checks pass (exit code 0):
+
+```
+PR Checks — ALL PASSED
+──────────────────────────────────────
+✓ CI / Detect Changes
+✓ CI / TypeScript Check
+✓ CI / Lint
+✓ CI / Unit Tests
+✓ CI / Integration Tests (Critical)
+✓ CI / E2E Tests (Critical)
+
+Iterations: N (0 = first attempt passed)
+──────────────────────────────────────
+```
 
 ## Success Criteria
 
 - Plan assessment passed (or user chose to proceed with gaps)
 - Test coverage verification passed (or user chose to proceed)
+- Code simplification pass completed on changed source files
+- Code review passed with no high-confidence issues (or user chose to proceed)
 - All checks pass (lint, tsc, build, unit, integration)
 - E2E critical tests pass (if --e2e flag was provided)
 - Branch is rebased on latest origin/main
 - Documentation is updated for all doc-worthy changes
 - Working tree is clean (verified by `git status --porcelain` returning empty)
 - PR is created and URL is displayed
+- PR CI checks all pass (or user chose to abort monitoring)
 
 ## Output
 
 When complete, display:
 1. Plan assessment result (passed / gaps noted)
 2. Test coverage verification result (passed / missing types noted)
-3. Summary of fixes made (if any)
-4. All check results (pass/fail)
-5. Documentation updates made (list of docs updated)
-6. Working tree verification result (clean / N files handled)
-7. PR URL
+3. Code simplification summary (files simplified / no changes)
+4. Code review result (passed / N issues found)
+5. Summary of fixes made (if any)
+6. All check results (pass/fail)
+7. Documentation updates made (list of docs updated)
+8. Working tree verification result (clean / N files handled)
+9. PR URL
+10. PR CI check results (all passed / N iterations / aborted)

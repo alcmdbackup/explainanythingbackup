@@ -14,14 +14,14 @@ import {
   getEvolutionCostBreakdownAction,
   getEvolutionHistoryAction,
   rollbackEvolutionAction,
+  estimateRunCostAction,
   type EvolutionRun,
   type EvolutionVariant,
   type AgentCostBreakdown,
+  type CostEstimateResult,
 } from '@/lib/services/evolutionActions';
-import {
-  getEvolutionComparisonAction,
-  type EvolutionComparison,
-} from '@/lib/services/contentQualityActions';
+import { getPromptsAction } from '@/lib/services/promptRegistryActions';
+import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
@@ -30,9 +30,16 @@ import { EvolutionStatusBadge } from '@/components/evolution';
 
 type DateRange = '7d' | '30d' | '90d' | 'all';
 
+const DATE_RANGE_DAYS: Record<DateRange, number | null> = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+  all: null,
+};
+
 function getStartDate(range: DateRange): string | undefined {
-  if (range === 'all') return undefined;
-  const days = range === '7d' ? 7 : range === '30d' ? 30 : 90;
+  const days = DATE_RANGE_DAYS[range];
+  if (days === null) return undefined;
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString();
@@ -103,53 +110,199 @@ function AgentCostChart({ breakdown }: { breakdown: AgentCostBreakdown[] }) {
   );
 }
 
-// ─── Quality comparison bars (Phase E) ───────────────────────────
+// ─── Start Run card ──────────────────────────────────────────────
 
-function QualityComparison({ comparison }: { comparison: EvolutionComparison }) {
-  const dimensions = Array.from(
-    new Set([...Object.keys(comparison.before), ...Object.keys(comparison.after)]),
-  );
+function StartRunCard({ onQueued }: { onQueued: () => void }) {
+  const [promptId, setPromptId] = useState('');
+  const [strategyId, setStrategyId] = useState('');
+  const [budget, setBudget] = useState('5.00');
+  const [submitting, setSubmitting] = useState(false);
+  const [prompts, setPrompts] = useState<{ id: string; label: string }[]>([]);
+  const [strategies, setStrategies] = useState<{ id: string; label: string }[]>([]);
+  const [estimate, setEstimate] = useState<CostEstimateResult | null>(null);
+  const [estimateLoading, setEstimateLoading] = useState(false);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      const [pRes, sRes] = await Promise.all([
+        getPromptsAction({ status: 'active' }),
+        getStrategiesAction({ status: 'active' }),
+      ]);
+      if (pRes.success && pRes.data) {
+        setPrompts(pRes.data.map(p => ({ id: p.id, label: p.title })));
+      }
+      if (sRes.success && sRes.data) {
+        setStrategies(sRes.data.map(s => ({ id: s.id, label: s.name })));
+      }
+    })();
+  }, []);
+
+  // Debounced cost estimate on strategy change
+  useEffect(() => {
+    if (!strategyId) { setEstimate(null); return; }
+
+    const timer = setTimeout(async () => {
+      setEstimateLoading(true);
+      const result = await estimateRunCostAction({ strategyId });
+      if (result.success && result.data) {
+        setEstimate(result.data);
+      } else {
+        setEstimate(null);
+      }
+      setEstimateLoading(false);
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [strategyId]);
+
+  const handleStart = async () => {
+    if (!promptId) { toast.error('Select a prompt'); return; }
+    if (!strategyId) { toast.error('Select a strategy'); return; }
+    const cap = parseFloat(budget);
+    if (!cap || cap <= 0) { toast.error('Budget must be positive'); return; }
+
+    setSubmitting(true);
+    const result = await queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd: cap });
+    if (result.success && result.data) {
+      toast.success('Run queued — triggering pipeline...');
+      onQueued();
+      // Immediately trigger the queued run
+      const triggerResult = await triggerEvolutionRunAction(result.data.id);
+      if (triggerResult.success) {
+        toast.success('Pipeline completed');
+      } else {
+        toast.error(triggerResult.error?.message || 'Pipeline trigger failed');
+      }
+      setPromptId('');
+      setStrategyId('');
+      setEstimate(null);
+      onQueued();
+    } else {
+      toast.error(result.error?.message || 'Failed to queue run');
+    }
+    setSubmitting(false);
+  };
+
+  const budgetNum = parseFloat(budget) || 0;
+  const exceedsBudget = estimate && estimate.totalUsd > budgetNum;
+
+  const selectClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
 
   return (
-    <div className="space-y-3">
-      <h4 className="text-sm font-semibold text-[var(--text-secondary)]">
-        Quality Impact
-        <span className={`ml-2 text-xs ${comparison.improvement >= 0 ? 'text-[var(--status-success)]' : 'text-[var(--status-error)]'}`}>
-          {comparison.improvement >= 0 ? '+' : ''}{comparison.improvement.toFixed(1)}
-        </span>
-      </h4>
-      {dimensions.map((dim) => {
-        const before = comparison.before[dim] ?? 0;
-        const after = comparison.after[dim] ?? 0;
-        return (
-          <div key={dim} className="space-y-1">
-            <div className="flex justify-between text-xs">
-              <span className="text-[var(--text-muted)] capitalize">{dim.replace(/_/g, ' ')}</span>
-              <span className="text-[var(--text-secondary)]">{before.toFixed(1)} → {after.toFixed(1)}</span>
-            </div>
-            <div className="flex gap-1 h-3">
-              <div className="flex-1 bg-[var(--surface-secondary)] rounded overflow-hidden">
-                <div
-                  className="h-full bg-[var(--status-error)]/60 rounded"
-                  style={{ width: `${(before / 10) * 100}%` }}
-                  title={`Before: ${before.toFixed(1)}`}
-                />
-              </div>
-              <div className="flex-1 bg-[var(--surface-secondary)] rounded overflow-hidden">
-                <div
-                  className="h-full bg-[var(--status-success)]/60 rounded"
-                  style={{ width: `${(after / 10) * 100}%` }}
-                  title={`After: ${after.toFixed(1)}`}
-                />
-              </div>
-            </div>
-          </div>
-        );
-      })}
-      <div className="flex justify-between text-xs text-[var(--text-muted)] pt-1 border-t border-[var(--border-default)]">
-        <span>Avg before: {comparison.beforeAvg.toFixed(1)}</span>
-        <span>Avg after: {comparison.afterAvg.toFixed(1)}</span>
+    <div
+      className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
+      data-testid="start-run-card"
+    >
+      <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+        Start New Pipeline
+      </h3>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Prompt</span>
+          <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={selectClass}>
+            <option value="">Select prompt...</option>
+            {prompts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </label>
+        <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Strategy</span>
+          <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className={selectClass}>
+            <option value="">Select strategy...</option>
+            {strategies.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 w-28">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Budget ($)</span>
+          <input
+            type="number"
+            step="0.50"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            className={selectClass}
+          />
+        </label>
+        <button
+          onClick={handleStart}
+          disabled={submitting || !promptId || !strategyId}
+          data-testid="start-run-btn"
+          className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
+        >
+          {submitting ? 'Running...' : 'Start Pipeline'}
+        </button>
       </div>
+
+      {/* Cost estimate display */}
+      {estimateLoading && (
+        <div className="text-xs text-[var(--text-muted)]" data-testid="estimate-loading">
+          Estimating cost...
+        </div>
+      )}
+      {estimate && !estimateLoading && (
+        <div className="space-y-2" data-testid="cost-estimate">
+          <div className="flex items-center gap-2 text-sm">
+            <span className="text-[var(--text-secondary)]">
+              Estimated cost: <span className="font-semibold font-mono">${estimate.totalUsd.toFixed(2)}</span>
+            </span>
+            <span
+              className={`text-xs px-1.5 py-0.5 rounded ${
+                estimate.confidence === 'high'
+                  ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
+                  : estimate.confidence === 'medium'
+                    ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]'
+                    : 'bg-[var(--text-muted)]/10 text-[var(--text-muted)]'
+              }`}
+              title={estimate.confidence === 'low' ? 'No historical data yet — estimate is heuristic-based' : undefined}
+            >
+              {estimate.confidence}
+            </span>
+            <button
+              onClick={() => setShowBreakdown(!showBreakdown)}
+              className="text-xs text-[var(--accent-gold)] hover:underline"
+              data-testid="toggle-breakdown"
+            >
+              {showBreakdown ? 'Hide details' : 'Show details'}
+            </button>
+          </div>
+
+          {exceedsBudget && (
+            <div
+              className="text-xs text-[var(--status-error)] bg-[var(--status-error)]/10 px-2 py-1 rounded"
+              data-testid="budget-warning"
+            >
+              Estimate (${estimate.totalUsd.toFixed(2)}) exceeds budget (${budgetNum.toFixed(2)})
+            </div>
+          )}
+
+          {estimate.confidence === 'low' && (
+            <div className="text-xs text-[var(--text-muted)]">
+              No historical data yet — accuracy improves after first run.
+            </div>
+          )}
+
+          {showBreakdown && (
+            <div className="space-y-1 text-xs" data-testid="agent-breakdown">
+              {Object.entries(estimate.perAgent)
+                .sort(([, a], [, b]) => b - a)
+                .map(([agent, cost]) => (
+                  <div key={agent} className="flex items-center gap-2">
+                    <span className="w-28 text-[var(--text-muted)] font-mono truncate">{agent}</span>
+                    <div className="flex-1 h-3 bg-[var(--surface-secondary)] rounded overflow-hidden">
+                      <div
+                        className="h-full bg-[var(--accent-gold)]/60 rounded"
+                        style={{ width: `${estimate.totalUsd > 0 ? (cost / estimate.totalUsd) * 100 : 0}%` }}
+                      />
+                    </div>
+                    <span className="w-16 text-right text-[var(--text-secondary)] font-mono">${cost.toFixed(3)}</span>
+                  </div>
+                ))}
+              <div className="text-[var(--text-muted)] pt-1">
+                Per iteration: ${estimate.perIteration.toFixed(3)}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -242,20 +395,13 @@ function VariantPanel({
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [costBreakdown, setCostBreakdown] = useState<AgentCostBreakdown[] | null>(null);
-  const [comparison, setComparison] = useState<EvolutionComparison | null>(null);
 
-  // Load cost breakdown and quality comparison when panel opens
+  // Load cost breakdown when panel opens
   useEffect(() => {
     void getEvolutionCostBreakdownAction(run.id).then((res) => {
       if (res.success && res.data) setCostBreakdown(res.data);
     });
-    // Quality comparison only if run completed with a winner
-    if (run.status === 'completed') {
-      void getEvolutionComparisonAction(run.explanation_id).then((res) => {
-        if (res.success && res.data) setComparison(res.data);
-      });
-    }
-  }, [run.id, run.explanation_id, run.status]);
+  }, [run.id]);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -350,12 +496,6 @@ function VariantPanel({
           </div>
         )}
 
-        {/* Quality comparison (Phase E) */}
-        {comparison && (
-          <div className="border-t border-[var(--border-default)] pt-4">
-            <QualityComparison comparison={comparison} />
-          </div>
-        )}
       </div>
     </div>
   );
@@ -382,7 +522,7 @@ export default function EvolutionAdminPage() {
     setLoading(true);
     setError(null);
     const filters: { status?: EvolutionRunStatus; startDate?: string } = {};
-    if (statusFilter) filters.status = statusFilter as EvolutionRunStatus;
+    if (statusFilter) filters.status = statusFilter;
     const startDate = getStartDate(dateRange);
     if (startDate) filters.startDate = startDate;
 
@@ -399,7 +539,7 @@ export default function EvolutionAdminPage() {
 
   useEffect(() => { loadRuns(); }, [loadRuns]);
 
-  const handleQueue = async (explanationId: number, budgetCapUsd: number) => {
+  const handleQueue = async (explanationId: number, budgetCapUsd: number): Promise<void> => {
     setActionLoading(true);
     const result = await queueEvolutionRunAction({ explanationId, budgetCapUsd });
     if (result.success) {
@@ -412,7 +552,7 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleTrigger = async (runId: string) => {
+  const handleTrigger = async (runId: string): Promise<void> => {
     setActionLoading(true);
     const result = await triggerEvolutionRunAction(runId);
     if (result.success) {
@@ -424,7 +564,7 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleViewVariants = async (run: EvolutionRun) => {
+  const handleViewVariants = async (run: EvolutionRun): Promise<void> => {
     setSelectedRun(run);
     setVariantsLoading(true);
     const result = await getEvolutionVariantsAction(run.id);
@@ -436,8 +576,12 @@ export default function EvolutionAdminPage() {
     setVariantsLoading(false);
   };
 
-  const handleApplyWinner = async (variantId: string) => {
+  const handleApplyWinner = async (variantId: string): Promise<void> => {
     if (!selectedRun) return;
+    if (selectedRun.explanation_id === null) {
+      toast.error('Cannot apply winner: run has no explanation_id');
+      return;
+    }
     setActionLoading(true);
     const result = await applyWinnerAction({
       explanationId: selectedRun.explanation_id,
@@ -454,10 +598,14 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleRollback = async (run: EvolutionRun) => {
+  const handleRollback = async (run: EvolutionRun): Promise<void> => {
+    if (run.explanation_id === null) {
+      toast.error('Cannot rollback: run has no explanation_id');
+      return;
+    }
     setActionLoading(true);
-    // Get evolution history to find the entry to rollback
     const historyResult = await getEvolutionHistoryAction(run.explanation_id);
+
     if (!historyResult.success || !historyResult.data || historyResult.data.length === 0) {
       toast.error('No evolution history found to rollback');
       setActionLoading(false);
@@ -474,6 +622,7 @@ export default function EvolutionAdminPage() {
       explanationId: run.explanation_id,
       historyId: latestHistory.id,
     });
+
     if (result.success) {
       toast.success('Content rolled back successfully');
       loadRuns();
@@ -496,18 +645,11 @@ export default function EvolutionAdminPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link
-            href="/admin/quality/evolution/dashboard"
-            className="px-4 py-2 border border-[var(--border-default)] rounded-page text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] text-sm"
-            data-testid="dashboard-link"
-          >
-            Dashboard
-          </Link>
           <select
             value={dateRange}
             onChange={(e) => setDateRange(e.target.value as DateRange)}
             data-testid="evolution-date-filter"
-            className="px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+            className="relative z-10 px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
           >
             <option value="7d">Last 7 days</option>
             <option value="30d">Last 30 days</option>
@@ -518,7 +660,7 @@ export default function EvolutionAdminPage() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value as EvolutionRunStatus | '')}
             data-testid="evolution-status-filter"
-            className="px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+            className="relative z-10 px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
           >
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
@@ -540,6 +682,9 @@ export default function EvolutionAdminPage() {
       {/* Summary cards */}
       <SummaryCards runs={runs} />
 
+      {/* Start Run */}
+      <StartRunCard onQueued={loadRuns} />
+
       {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
@@ -558,6 +703,7 @@ export default function EvolutionAdminPage() {
               <th className="p-3 text-left">Phase</th>
               <th className="p-3 text-right">Variants</th>
               <th className="p-3 text-right">Cost</th>
+              <th className="p-3 text-right">Est.</th>
               <th className="p-3 text-right">Budget</th>
               <th className="p-3 text-left">Created</th>
               <th className="p-3 text-left">Actions</th>
@@ -566,11 +712,11 @@ export default function EvolutionAdminPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
+                <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
               </tr>
             ) : runs.length === 0 ? (
               <tr>
-                <td colSpan={9} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">
                   No evolution runs found
                 </td>
               </tr>
@@ -606,6 +752,23 @@ export default function EvolutionAdminPage() {
                   <td className="p-3 text-[var(--text-secondary)] text-xs">{run.phase}</td>
                   <td className="p-3 text-right">{run.variants_generated}</td>
                   <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
+                  <td className="p-3 text-right font-mono">
+                    {run.estimated_cost_usd != null ? (
+                      <span className={
+                        run.status === 'completed' && run.total_cost_usd > 0
+                          ? Math.abs(run.total_cost_usd - run.estimated_cost_usd) / Math.max(run.estimated_cost_usd, 0.001) <= 0.1
+                            ? 'text-[var(--status-success)]'
+                            : Math.abs(run.total_cost_usd - run.estimated_cost_usd) / Math.max(run.estimated_cost_usd, 0.001) <= 0.3
+                              ? 'text-[var(--accent-gold)]'
+                              : 'text-[var(--status-error)]'
+                          : 'text-[var(--text-muted)]'
+                      }>
+                        ${run.estimated_cost_usd.toFixed(2)}
+                      </span>
+                    ) : (
+                      <span className="text-[var(--text-muted)]">—</span>
+                    )}
+                  </td>
                   <td className="p-3 text-right text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</td>
                   <td className="p-3 text-[var(--text-muted)] text-xs">
                     {new Date(run.created_at).toLocaleDateString()}{' '}

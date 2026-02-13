@@ -1,3 +1,30 @@
+// Error classes matching the real OpenAI SDK hierarchy for instanceof checks.
+export class OpenAIError extends Error {}
+export class APIError extends OpenAIError {
+  readonly status: number | undefined;
+  readonly headers: unknown;
+  readonly error: unknown;
+  constructor(status: number | undefined, error: unknown, message: string | undefined, headers: unknown) {
+    super(message ?? 'Unknown error');
+    this.status = status;
+    this.headers = headers;
+    this.error = error;
+  }
+}
+export class APIConnectionError extends APIError {
+  constructor({ message, cause }: { message?: string; cause?: Error }) {
+    super(undefined, undefined, message ?? 'Connection error.', undefined);
+    if (cause) (this as any).cause = cause;
+  }
+}
+export class RateLimitError extends APIError {}
+export class InternalServerError extends APIError {}
+export class APIConnectionTimeoutError extends APIConnectionError {
+  constructor({ message }: { message?: string } = {}) {
+    super({ message: message ?? 'Request timed out' });
+  }
+}
+
 export const mockOpenAI = {
   chat: {
     completions: {

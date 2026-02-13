@@ -128,9 +128,23 @@ export class ResultsPage extends BasePage {
   }
 
   async getContent() {
-    const element = this.page.locator(this.explanationContent);
-    await element.waitFor({ state: 'visible' });
-    return await element.innerText();
+    // Use .lexical-editor class directly (same pattern as getEditorTextContent helper)
+    // because innerText() on the container doesn't traverse contenteditable children
+    const editor = this.page.locator('.lexical-editor');
+    await editor.waitFor({ state: 'visible', timeout: 30000 });
+    // Wait for Lexical async init by checking for non-empty text via evaluate
+    try {
+      await this.page.waitForFunction(
+        () => {
+          const el = document.querySelector('.lexical-editor');
+          return el && (el.textContent?.trim().length ?? 0) > 0;
+        },
+        { timeout: 10000 }
+      );
+    } catch {
+      // Lexical may still be initializing; textContent is read regardless below
+    }
+    return (await editor.textContent()) ?? '';
   }
 
   async getContentLength() {

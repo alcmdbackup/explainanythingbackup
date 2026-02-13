@@ -6,8 +6,8 @@ import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation } from '../types';
-import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep } from '../types';
+import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { getOrdinal, type Rating } from '../core/rating';
 
 // ─── Evolution strategies ───────────────────────────────────────
@@ -84,6 +84,39 @@ Be BOLD - this variant should stand out as notably different from typical refine
 The goal is to explore new territory, not polish the existing approach.
 ${FORMAT_RULES}
 Output ONLY the transformed text, no explanations.`;
+}
+
+function buildMutateOutlinePrompt(outline: string, originalText: string, feedback: string | null): string {
+  const feedbackSection = feedback ? `\n## Feedback to Address\n${feedback}\n` : '';
+
+  return `You are an expert writing architect. Improve this outline by restructuring sections, adding missing topics, or reordering for better flow.
+
+## Current Outline
+${outline}
+
+## Original Text (for context)
+${originalText}
+${feedbackSection}
+## Task
+Create an improved outline with better structure, coverage, and logical flow. Keep the same format: ## headings with brief summaries.
+
+Output ONLY the improved outline, no explanations.`;
+}
+
+function buildExpandFromOutlinePrompt(outline: string, originalText: string): string {
+  return `You are a writing expert who expands outlines into full, well-developed prose.
+
+## Task
+Expand this outline into complete article text. Each section should become full paragraphs.
+
+## Outline
+${outline}
+
+## Original Text (for reference)
+${originalText}
+
+${FORMAT_RULES}
+Output ONLY the article text, no explanations.`;
 }
 
 // ─── Helper functions ───────────────────────────────────────────
@@ -265,7 +298,55 @@ export class EvolutionAgent extends AgentBase {
           });
         }
       } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
         logger.error('Creative exploration error', { error: String(error) });
+      }
+    }
+
+    // Outline mutation: if any parent is an OutlineVariant, mutate its outline and re-expand
+    const outlineParent = parents.find(p => isOutlineVariant(p)) as OutlineVariant | undefined;
+    if (outlineParent) {
+      try {
+        logger.info('Outline mutation triggered', { parentId: outlineParent.id, weakestStep: outlineParent.weakestStep });
+
+        const mutatedOutline = await llmClient.complete(
+          buildMutateOutlinePrompt(outlineParent.outline, state.originalText, feedback),
+          this.name,
+        );
+        const expandedText = await llmClient.complete(
+          buildExpandFromOutlinePrompt(mutatedOutline, state.originalText),
+          this.name,
+        );
+
+        const fmtResult = validateFormat(expandedText);
+        if (!fmtResult.valid) {
+          logger.warn('Format rejected', { strategy: 'mutate_outline', issues: fmtResult.issues });
+        } else {
+          const steps: GenerationStep[] = [
+            { name: 'outline', input: state.originalText, output: mutatedOutline.trim(), score: 0.5, costUsd: 0 },
+            { name: 'expand', input: mutatedOutline.trim(), output: expandedText.trim(), score: 0.5, costUsd: 0 },
+          ];
+
+          const outlineVariation: OutlineVariant = {
+            id: uuidv4(),
+            text: expandedText.trim(),
+            version: outlineParent.version + 1,
+            parentIds: [outlineParent.id],
+            strategy: 'mutate_outline',
+            createdAt: Date.now() / 1000,
+            iterationBorn: state.iteration,
+            steps,
+            outline: mutatedOutline.trim(),
+            weakestStep: null,
+          };
+
+          variations.push(outlineVariation);
+          state.addToPool(outlineVariation);
+          logger.info('Outline mutation complete', { variationId: outlineVariation.id, textLength: expandedText.length });
+        }
+      } catch (error) {
+        if (error instanceof BudgetExceededError) throw error;
+        logger.error('Outline mutation error', { error: String(error) });
       }
     }
 

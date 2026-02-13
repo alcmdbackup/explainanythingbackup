@@ -121,7 +121,7 @@ test.describe('Add Sources Feature', () => {
       const loadingChip = authenticatedPage.locator('[data-testid="source-chip-loading"]');
       await expect(loadingChip).toBeVisible({ timeout: 5000 });
 
-      // Wait for failed chip (network error)
+      // Wait for failed chip (network error) - this is the error indicator on the home page
       const failedChip = authenticatedPage.locator('[data-testid="source-chip-failed"]');
       await expect(failedChip).toBeVisible({ timeout: 20000 });
     });

@@ -5,7 +5,7 @@
 
 import { redirect } from 'next/navigation';
 import { isUserAdmin } from '@/lib/services/adminAuth';
-import { AdminSidebar } from '@/components/admin/AdminSidebar';
+import { SidebarSwitcher } from '@/components/admin/SidebarSwitcher';
 import { AdminLayoutClient } from '@/components/admin/AdminLayoutClient';
 
 export default async function AdminLayout({
@@ -22,7 +22,7 @@ export default async function AdminLayout({
   return (
     <AdminLayoutClient>
       <div className="min-h-screen bg-background flex">
-        <AdminSidebar />
+        <SidebarSwitcher />
         <main className="flex-1 p-6 overflow-auto">
           {children}
         </main>

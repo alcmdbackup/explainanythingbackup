@@ -11,6 +11,9 @@ import { getModelPricing } from '@/config/llmPricing';
 /** Default model for evolution pipeline — DeepSeek v3 is significantly cheaper than gpt-4.1-mini. */
 export const EVOLUTION_DEFAULT_MODEL: AllowedLLMModelType = 'deepseek-chat';
 
+/** System UUID for evolution pipeline LLM calls (llmCallTracking.userid is uuid NOT NULL). */
+const EVOLUTION_SYSTEM_USERID = '00000000-0000-4000-8000-000000000001';
+
 /** Estimate token cost before making a call (rough heuristic: ~4 chars per token). */
 export function estimateTokenCost(prompt: string, model?: string): number {
   const estimatedInputTokens = Math.ceil(prompt.length / 4);
@@ -38,7 +41,7 @@ export function parseStructuredOutput<T>(raw: string, schema: z.ZodType<T>): T {
 
 /** Create an EvolutionLLMClient wrapping callLLM with budget enforcement. */
 export function createEvolutionLLMClient(
-  userid: string,
+  _clientId: string,
   costTracker: CostTracker,
   evolutionLogger: EvolutionLogger,
 ): EvolutionLLMClient {
@@ -51,7 +54,7 @@ export function createEvolutionLLMClient(
       const result = await callLLM(
         prompt,
         `evolution_${agentName}`,
-        userid,
+        EVOLUTION_SYSTEM_USERID,
         model,
         false,
         null,
@@ -87,7 +90,7 @@ export function createEvolutionLLMClient(
       const raw = await callLLM(
         prompt,
         `evolution_${agentName}`,
-        userid,
+        EVOLUTION_SYSTEM_USERID,
         model,
         false,
         null,

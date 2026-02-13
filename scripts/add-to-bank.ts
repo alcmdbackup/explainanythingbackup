@@ -1,4 +1,4 @@
-// CLI script to add an existing evolution run winner to the article bank.
+// CLI script to add an existing evolution run winner to the Hall of Fame.
 // Looks up the run, finds the winner variant, snapshots full metadata, and inserts the entry.
 
 import dotenv from 'dotenv';
@@ -70,7 +70,7 @@ async function main() {
   const supabase = createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 
   console.log('\n┌─────────────────────────────────────────┐');
-  console.log('│  Add Evolution Run to Article Bank       │');
+  console.log('│  Add Evolution Run to Hall of Fame        │');
   console.log('└─────────────────────────────────────────┘\n');
 
   // Fetch the run
@@ -140,7 +140,7 @@ async function main() {
     metadata,
   });
 
-  console.log(`\n  ✓ Winner added to bank`);
+  console.log(`\n  ✓ Winner added to Hall of Fame`);
   console.log(`    Topic: ${winnerResult.topic_id}`);
   console.log(`    Entry: ${winnerResult.entry_id}`);
 
@@ -159,7 +159,7 @@ async function main() {
         metadata: { seed_model: run.model },
       });
 
-      console.log(`  ✓ Baseline added to bank`);
+      console.log(`  ✓ Baseline added to Hall of Fame`);
       console.log(`    Entry: ${baselineResult.entry_id}`);
     } else {
       console.warn('  ⚠ No baseline variant found in this run');

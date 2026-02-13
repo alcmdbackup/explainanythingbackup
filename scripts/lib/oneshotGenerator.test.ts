@@ -19,7 +19,7 @@ jest.mock('@anthropic-ai/sdk', () => {
   }));
 });
 
-import { callLLM, generateOneshotArticle, trackLLMCall } from './oneshotGenerator';
+import { callLLM, generateOneshotArticle, generateOutlineOneshotArticle, trackLLMCall } from './oneshotGenerator';
 
 describe('oneshotGenerator', () => {
   beforeEach(() => {
@@ -151,6 +151,67 @@ describe('oneshotGenerator', () => {
 
       const result = await generateOneshotArticle('Explain photosynthesis', 'gpt-4.1-mini', null);
       expect(result.title).toBe('Just a plain title');
+    });
+  });
+
+  describe('generateOutlineOneshotArticle', () => {
+    beforeEach(() => {
+      mockOpenAICreate.mockReset();
+      // Call 1: Title
+      mockOpenAICreate.mockResolvedValueOnce({
+        choices: [{ message: { content: JSON.stringify({ title1: 'Outline Title', title2: 'Alt', title3: 'Alt2' }) } }],
+        usage: { prompt_tokens: 50, completion_tokens: 10 },
+        model: 'gpt-4.1-mini',
+      });
+      // Call 2: Outline
+      mockOpenAICreate.mockResolvedValueOnce({
+        choices: [{ message: { content: '## Section 1\nIntro summary\n## Section 2\nDetails summary' } }],
+        usage: { prompt_tokens: 80, completion_tokens: 30 },
+        model: 'gpt-4.1-mini',
+      });
+      // Call 3: Expand
+      mockOpenAICreate.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Full expanded article with sections...' } }],
+        usage: { prompt_tokens: 150, completion_tokens: 400 },
+        model: 'gpt-4.1-mini',
+      });
+      // Call 4: Polish
+      mockOpenAICreate.mockResolvedValueOnce({
+        choices: [{ message: { content: 'Polished final article text.' } }],
+        usage: { prompt_tokens: 200, completion_tokens: 350 },
+        model: 'gpt-4.1-mini',
+      });
+    });
+
+    it('should generate title, outline, expand, and polish', async () => {
+      const result = await generateOutlineOneshotArticle('Explain something', 'gpt-4.1-mini', null);
+
+      expect(result.title).toBe('Outline Title');
+      expect(result.content).toContain('# Outline Title');
+      expect(result.content).toContain('Polished final article text.');
+      expect(result.outline).toContain('## Section 1');
+    });
+
+    it('should make 4 LLM calls (title + outline + expand + polish)', async () => {
+      await generateOutlineOneshotArticle('Explain something', 'gpt-4.1-mini', null);
+      expect(mockOpenAICreate).toHaveBeenCalledTimes(4);
+    });
+
+    it('should record 3 steps (outline, expand, polish)', async () => {
+      const result = await generateOutlineOneshotArticle('Explain something', 'gpt-4.1-mini', null);
+      expect(result.steps).toHaveLength(3);
+      expect(result.steps.map(s => s.name)).toEqual(['outline', 'expand', 'polish']);
+    });
+
+    it('should accumulate token counts from all calls', async () => {
+      const result = await generateOutlineOneshotArticle('Explain something', 'gpt-4.1-mini', null);
+      expect(result.promptTokens).toBe(50 + 80 + 150 + 200);
+      expect(result.completionTokens).toBe(10 + 30 + 400 + 350);
+    });
+
+    it('should accumulate costs from all calls', async () => {
+      const result = await generateOutlineOneshotArticle('Explain something', 'gpt-4.1-mini', null);
+      expect(result.totalCostUsd).toBeGreaterThan(0);
     });
   });
 

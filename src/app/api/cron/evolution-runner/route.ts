@@ -6,6 +6,8 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
 import { v4 as uuidv4 } from 'uuid';
 
+export const maxDuration = 300; // 5 minutes — seed generation + pipeline needs headroom
+
 const RUNNER_ID = `cron-runner-${uuidv4().slice(0, 8)}`;
 const HEARTBEAT_INTERVAL_MS = 30_000; // 30 seconds
 
@@ -24,7 +26,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     // 1. Find oldest pending run (FIFO)
     const { data: pendingRun, error: fetchError } = await supabase
       .from('content_evolution_runs')
-      .select('id, explanation_id, config, budget_cap_usd')
+      .select('id, explanation_id, config, budget_cap_usd, prompt_id')
       .eq('status', 'pending')
       .order('created_at', { ascending: true })
       .limit(1)
@@ -89,79 +91,119 @@ export async function GET(request: Request): Promise<NextResponse> {
       });
     }
 
-    // 4. Get article content
-    const { data: explanation, error: contentError } = await supabase
-      .from('explanations')
-      .select('id, explanation_title, content')
-      .eq('id', pendingRun.explanation_id)
-      .single();
+    // 4. Resolve content — branch on explanation_id vs prompt_id
+    let originalText: string;
+    let title: string;
+    let explanationId: number | null = pendingRun.explanation_id;
 
-    if (contentError || !explanation) {
-      await markRunFailed(supabase, runId, `Explanation ${pendingRun.explanation_id} not found`);
+    try {
+      if (pendingRun.explanation_id !== null) {
+        // Explanation-based run (existing path)
+        const { data: explanation, error: contentError } = await supabase
+          .from('explanations')
+          .select('id, explanation_title, content')
+          .eq('id', pendingRun.explanation_id)
+          .single();
+
+        if (contentError || !explanation) {
+          await markRunFailed(supabase, runId, `Explanation ${pendingRun.explanation_id} not found`);
+          return NextResponse.json({
+            status: 'error',
+            message: 'Explanation not found',
+            runId,
+            timestamp: new Date().toISOString(),
+          }, { status: 404 });
+        }
+
+        originalText = explanation.content;
+        title = explanation.explanation_title;
+        explanationId = explanation.id;
+      } else if (pendingRun.prompt_id) {
+        // Prompt-based run — check feature flag
+        if (featureFlags.promptBasedEvolutionEnabled === false) {
+          await markRunFailed(supabase, runId, 'Prompt-based evolution temporarily disabled');
+          return NextResponse.json({
+            status: 'error',
+            message: 'Prompt-based evolution disabled',
+            runId,
+            timestamp: new Date().toISOString(),
+          }, { status: 400 });
+        }
+
+        // Fetch prompt text
+        const { data: topic, error: topicError } = await supabase
+          .from('hall_of_fame_topics')
+          .select('prompt')
+          .eq('id', pendingRun.prompt_id)
+          .single();
+
+        if (topicError || !topic) {
+          await markRunFailed(supabase, runId, `Prompt ${pendingRun.prompt_id} not found`);
+          return NextResponse.json({
+            status: 'error',
+            message: 'Prompt not found',
+            runId,
+            timestamp: new Date().toISOString(),
+          }, { status: 404 });
+        }
+
+        // Generate seed article from prompt
+        const { generateSeedArticle } = await import('@/lib/evolution/core/seedArticle');
+        const { createEvolutionLLMClient } = await import('@/lib/evolution');
+        const { createCostTracker } = await import('@/lib/evolution/core/costTracker');
+        const { createEvolutionLogger } = await import('@/lib/evolution/core/logger');
+        const { resolveConfig } = await import('@/lib/evolution/config');
+
+        const seedConfig = resolveConfig(pendingRun.config ?? {});
+        const seedCostTracker = createCostTracker(seedConfig);
+        const seedLogger = createEvolutionLogger(runId);
+        const seedLlmClient = createEvolutionLLMClient('evolution-cron-seed', seedCostTracker, seedLogger);
+
+        const seed = await generateSeedArticle(topic.prompt, seedLlmClient, seedLogger);
+        originalText = seed.content;
+        title = seed.title;
+        explanationId = null;
+
+        logger.info('Generated seed article from prompt', { runId, title, promptId: pendingRun.prompt_id });
+      } else {
+        // No explanation_id and no prompt_id — invalid run
+        await markRunFailed(supabase, runId, 'Run has no explanation_id and no prompt_id');
+        return NextResponse.json({
+          status: 'error',
+          message: 'Run has no explanation_id and no prompt_id',
+          runId,
+          timestamp: new Date().toISOString(),
+        }, { status: 400 });
+      }
+    } catch (contentResolveError) {
+      // Seed generation or content fetch failed before status='running'
+      const errorMsg = contentResolveError instanceof Error ? contentResolveError.message : String(contentResolveError);
+      logger.error('Content resolution failed', { runId, error: errorMsg });
+      await markRunFailed(supabase, runId, errorMsg);
       return NextResponse.json({
         status: 'error',
-        message: 'Explanation not found',
+        message: 'Content resolution failed',
         runId,
+        error: errorMsg,
         timestamp: new Date().toISOString(),
-      }, { status: 404 });
+      }, { status: 500 });
     }
 
     // 5. Setup pipeline context
     const {
-      PipelineStateImpl,
-      createCostTracker,
-      createEvolutionLogger,
-      createEvolutionLLMClient,
       executeFullPipeline,
-      resolveConfig,
-      GenerationAgent,
-      CalibrationRanker,
-      Tournament,
-      EvolutionAgent,
-      ReflectionAgent,
-      IterativeEditingAgent,
-      DebateAgent,
-      ProximityAgent,
-      MetaReviewAgent,
+      preparePipelineRun,
     } = await import('@/lib/evolution');
-    type PipelineAgents = import('@/lib/evolution').PipelineAgents;
 
-    const config = resolveConfig(pendingRun.config ?? {});
-    const state = new PipelineStateImpl(explanation.content);
-    const costTracker = createCostTracker(config);
-    const evolutionLogger = createEvolutionLogger(runId);
-    const llmClient = createEvolutionLLMClient(
-      'evolution-cron',
-      costTracker,
-      evolutionLogger,
-    );
-
-    const ctx = {
-      payload: {
-        originalText: explanation.content,
-        title: explanation.explanation_title,
-        explanationId: explanation.id,
-        runId,
-        config,
-      },
-      state,
-      llmClient,
-      logger: evolutionLogger,
-      costTracker,
+    const { ctx, agents } = preparePipelineRun({
       runId,
-    };
-
-    const agents: PipelineAgents = {
-      generation: new GenerationAgent(),
-      calibration: new CalibrationRanker(),
-      tournament: new Tournament(),
-      evolution: new EvolutionAgent(),
-      reflection: new ReflectionAgent(),
-      iterativeEditing: new IterativeEditingAgent(),
-      debate: new DebateAgent(),
-      proximity: new ProximityAgent(),
-      metaReview: new MetaReviewAgent(),
-    };
+      originalText,
+      title,
+      explanationId,
+      configOverrides: pendingRun.config ?? {},
+      llmClientId: 'evolution-cron',
+    });
+    const evolutionLogger = ctx.logger;
 
     // 6. Start heartbeat interval (keeps watchdog happy)
     let heartbeatInterval: NodeJS.Timeout | null = null;

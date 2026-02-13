@@ -37,7 +37,7 @@ function log(level: string, message: string, ctx: Record<string, unknown> = {}) 
 
 interface ClaimedRun {
   id: string;
-  explanation_id: number;
+  explanation_id: number | null;
   config: Record<string, unknown>;
   budget_cap_usd: number;
 }
@@ -151,58 +151,29 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     return;
   }
 
+  // Batch runner does not support prompt-based runs (no explanation_id)
+  if (run.explanation_id === null) {
+    log('warn', 'Skipping run with null explanation_id (batch runner does not support prompt-based runs)', { runId: run.id });
+    await markRunFailed(run.id, 'Batch runner does not support prompt-based runs (null explanation_id). Use the cron runner instead.');
+    return;
+  }
+
   // Dynamic import to avoid loading heavy deps during dry-run
   const {
-    PipelineStateImpl,
     executeFullPipeline,
-    resolveConfig,
-    createCostTracker,
-    createEvolutionLogger,
-    createEvolutionLLMClient,
-    GenerationAgent,
-    CalibrationRanker,
-    Tournament,
-    EvolutionAgent,
-    ReflectionAgent,
-    DebateAgent,
-    IterativeEditingAgent,
-    ProximityAgent,
-    MetaReviewAgent,
+    preparePipelineRun,
   } = await import('../src/lib/evolution/index');
 
-  const config = resolveConfig(run.config as Record<string, unknown>);
-  const state = new PipelineStateImpl(await fetchOriginalText(run.explanation_id));
-
-  const logger = createEvolutionLogger(run.id);
-  const costTracker = createCostTracker(config);
-  const llmClient = createEvolutionLLMClient(RUNNER_ID, costTracker, logger);
-
-  const ctx = {
-    payload: {
-      originalText: state.originalText,
-      title: `Explanation #${run.explanation_id}`,
-      explanationId: run.explanation_id,
-      runId: run.id,
-      config,
-    },
-    state,
-    llmClient,
-    logger,
-    costTracker,
+  const originalText = await fetchOriginalText(run.explanation_id);
+  const { ctx, agents, costTracker } = preparePipelineRun({
     runId: run.id,
-  };
-
-  const agents = {
-    generation: new GenerationAgent(),
-    calibration: new CalibrationRanker(),
-    tournament: new Tournament(),
-    evolution: new EvolutionAgent(),
-    reflection: new ReflectionAgent(),
-    iterativeEditing: new IterativeEditingAgent(),
-    debate: new DebateAgent(),
-    proximity: new ProximityAgent(),
-    metaReview: new MetaReviewAgent(),
-  };
+    originalText,
+    title: `Explanation #${run.explanation_id}`,
+    explanationId: run.explanation_id,
+    configOverrides: run.config as Record<string, unknown>,
+    llmClientId: RUNNER_ID,
+  });
+  const logger = ctx.logger;
 
   const heartbeat = startHeartbeat(run.id);
 
@@ -213,7 +184,7 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     log('info', 'Run completed', {
       runId: run.id,
       stopReason: result.stopReason,
-      poolSize: state.getPoolSize(),
+      poolSize: ctx.state.getPoolSize(),
       totalCost: costTracker.getTotalSpent(),
       duration_seconds: durationSeconds,
       cost_usd: costTracker.getTotalSpent(),
@@ -221,8 +192,24 @@ async function executeRun(run: ClaimedRun): Promise<void> {
   } catch (error) {
     const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
     log('error', 'Run failed', { runId: run.id, error: String(error), duration_seconds: durationSeconds });
+    await markRunFailed(run.id, String(error));
   } finally {
     clearInterval(heartbeat);
+  }
+}
+
+// ─── Mark run failed ─────────────────────────────────────────────
+
+async function markRunFailed(runId: string, errorMessage: string): Promise<void> {
+  try {
+    const supabase = getSupabase();
+    await supabase.from('content_evolution_runs').update({
+      status: 'failed',
+      error_message: errorMessage.slice(0, 2000),
+      runner_id: null,
+    }).eq('id', runId);
+  } catch (err) {
+    log('error', 'Failed to mark run as failed', { runId, error: String(err) });
   }
 }
 

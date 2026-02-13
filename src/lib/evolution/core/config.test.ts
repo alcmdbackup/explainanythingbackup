@@ -49,7 +49,7 @@ describe('resolveConfig', () => {
     expect(config.plateau.window).toBe(5);
     expect(config.plateau.threshold).toBe(0.02);
     expect(config.budgetCaps.generation).toBe(0.50);
-    expect(config.budgetCaps.tournament).toBe(0.25);
+    expect(config.budgetCaps.tournament).toBe(0.20);
   });
 
   it('overrides top-level primitives', () => {

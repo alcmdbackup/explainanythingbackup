@@ -96,6 +96,10 @@ export async function getAgentROILeaderboard(
  * Compute adaptive budget caps based on historical ROI data.
  * Returns proportional allocation with floor/ceiling bounds.
  *
+ * TODO: Wire into pipeline — this function is exported but not yet called from
+ * production code. See docs/feature_deep_dives/elo_budget_optimization.md for
+ * the planned integration (call from supervisor or pipeline before each run).
+ *
  * @param lookbackDays - Number of days to look back for historical data
  * @param minFloor - Minimum allocation per agent (default 5%)
  * @param maxCeiling - Maximum allocation per agent (default 40%)
@@ -191,6 +195,10 @@ export async function computeAdaptiveBudgetCaps(
 /**
  * Generate budget configuration that accounts for remaining budget pressure.
  * Used to dynamically adjust agent aggressiveness based on budget consumption.
+ *
+ * TODO: Wire into pipeline — this function is exported but not yet called from
+ * production code. Note: tournament.ts has its own budgetPressureConfig() with
+ * a different signature that IS used in production.
  */
 export function budgetPressureConfig(
   remainingBudget: number,

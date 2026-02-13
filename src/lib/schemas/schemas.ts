@@ -118,7 +118,7 @@ export type TimePeriod = 'hour' | 'today' | 'week' | 'month' | 'all';
  */
 export const allowedLLMModelSchema = z.enum([
   "gpt-4o-mini", "gpt-4o", "gpt-4.1-nano", "gpt-4.1-mini", "gpt-4.1",
-  "gpt-5-mini", "gpt-5-nano",
+  "gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano",
   "o3-mini",
   "deepseek-chat",
   "claude-sonnet-4-20250514",
@@ -1169,35 +1169,35 @@ export const comparisonResultSchema = z.object({
 export type ComparisonResult = z.infer<typeof comparisonResultSchema>;
 
 // =============================================================================
-// ARTICLE BANK INPUT SCHEMAS
+// HALL OF FAME INPUT SCHEMAS
 // =============================================================================
 
 /**
- * Generation method enum for article bank entries.
+ * Generation method enum for Hall of Fame entries.
  * Tracks how an entry was produced: direct oneshot, evolution winner, or evolution baseline.
  */
-export const bankGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline']);
-export type BankGenerationMethod = z.infer<typeof bankGenerationMethodSchema>;
+export const hallOfFameGenerationMethodSchema = z.enum(['oneshot', 'evolution_winner', 'evolution_baseline']);
+export type HallOfFameGenerationMethod = z.infer<typeof hallOfFameGenerationMethodSchema>;
 
 /**
- * Schema for adding an article entry to the bank.
+ * Schema for adding an article entry to the Hall of Fame.
  * Validates server action input at the trust boundary.
  */
-export const addToBankInputSchema = z.object({
+export const addToHallOfFameInputSchema = z.object({
   prompt: z.string().min(1),
   title: z.string().optional(),
   content: z.string().min(1),
-  generation_method: bankGenerationMethodSchema,
+  generation_method: hallOfFameGenerationMethodSchema,
   model: z.string().min(1),
   total_cost_usd: z.number().nonnegative().nullable().optional(),
   evolution_run_id: z.string().uuid().nullable().optional(),
   evolution_variant_id: z.string().uuid().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
-export type AddToBankInputType = z.infer<typeof addToBankInputSchema>;
+export type AddToHallOfFameInputType = z.infer<typeof addToHallOfFameInputSchema>;
 
 /**
- * Schema for generating an article via LLM and adding it to the bank.
+ * Schema for generating an article via LLM and adding it to the Hall of Fame.
  */
 export const generateAndAddInputSchema = z.object({
   prompt: z.string().min(1),
@@ -1206,14 +1206,19 @@ export const generateAndAddInputSchema = z.object({
 export type GenerateAndAddInputType = z.infer<typeof generateAndAddInputSchema>;
 
 /**
- * Schema for run bank comparison action parameters.
+ * Schema for run Hall of Fame comparison action parameters.
  */
-export const runBankComparisonInputSchema = z.object({
+export const runHallOfFameComparisonInputSchema = z.object({
   topicId: z.string().uuid(),
   judgeModel: allowedLLMModelSchema.default('gpt-4.1-nano'),
   rounds: z.number().int().min(1).max(10).default(1),
 });
-export type RunBankComparisonInputType = z.infer<typeof runBankComparisonInputSchema>;
+export type RunHallOfFameComparisonInputType = z.infer<typeof runHallOfFameComparisonInputSchema>;
+
+// Article Bank aliases (articleBankActions.ts uses these names)
+export const addToBankInputSchema = addToHallOfFameInputSchema;
+export const runBankComparisonInputSchema = runHallOfFameComparisonInputSchema;
+export type BankGenerationMethod = HallOfFameGenerationMethod;
 
 // =============================================================================
 // SOURCE MANAGEMENT SCHEMAS

@@ -1,0 +1,72 @@
+'use client';
+// Shared sidebar shell for admin dashboard variants. Renders nav items, active state, and back link.
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+
+export interface NavItem {
+  href: string;
+  label: string;
+  icon: string;
+  testId: string;
+}
+
+export interface BaseSidebarProps {
+  title: string;
+  navItems: NavItem[];
+  backLink: { label: string; href: string; testId: string };
+  activeOverrides?: Record<string, (pathname: string) => boolean>;
+}
+
+export function BaseSidebar({ title, navItems, backLink, activeOverrides }: BaseSidebarProps) {
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    if (activeOverrides?.[href]) {
+      return activeOverrides[href](pathname);
+    }
+    return pathname.startsWith(href);
+  };
+
+  return (
+    <aside className="w-64 bg-[var(--surface-secondary)] border-r border-[var(--border-default)] min-h-screen">
+      <div className="p-4 border-b border-[var(--border-default)]">
+        <h1 className="text-lg font-semibold text-[var(--text-primary)]">
+          {title}
+        </h1>
+      </div>
+      <nav className="p-2">
+        <ul className="space-y-1">
+          {navItems.map((item) => (
+            <li key={item.href}>
+              <Link
+                href={item.href}
+                data-testid={item.testId}
+                className={`
+                  flex items-center gap-3 px-3 py-2 rounded-md text-sm
+                  transition-colors duration-150
+                  ${isActive(item.href)
+                    ? 'bg-[var(--accent-gold)] text-[var(--surface-primary)]'
+                    : 'text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] hover:text-[var(--text-primary)]'
+                  }
+                `}
+              >
+                <span className="text-base">{item.icon}</span>
+                <span>{item.label}</span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </nav>
+      <div className="absolute bottom-4 left-4 right-4">
+        <Link
+          href={backLink.href}
+          data-testid={backLink.testId}
+          className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          {backLink.label}
+        </Link>
+      </div>
+    </aside>
+  );
+}

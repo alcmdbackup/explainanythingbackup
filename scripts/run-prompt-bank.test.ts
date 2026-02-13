@@ -116,9 +116,9 @@ describe('run-prompt-bank', () => {
       ]);
     });
 
-    it('should produce 6 labels from default config', () => {
-      // 3 oneshot + 3 evolution checkpoints = 6
-      expect(expandMethodLabels(PROMPT_BANK.methods)).toHaveLength(6);
+    it('should produce 9 labels from default config', () => {
+      // 3 oneshot + 3 evolution checkpoints + 3 outline evolution checkpoints + 3 tree-search evolution checkpoints = 12
+      expect(expandMethodLabels(PROMPT_BANK.methods)).toHaveLength(12);
     });
   });
 
@@ -148,7 +148,7 @@ describe('run-prompt-bank', () => {
 
   describe('filterMethods', () => {
     it('should return all methods when no filter', () => {
-      expect(filterMethods([], false)).toHaveLength(4);
+      expect(filterMethods([], false)).toHaveLength(6);
     });
 
     it('should skip evolution when flag set', () => {
@@ -161,6 +161,53 @@ describe('run-prompt-bank', () => {
       const result = filterMethods(['oneshot_gpt-4.1-mini'], false);
       expect(result).toHaveLength(1);
       expect(result[0].label).toBe('oneshot_gpt-4.1-mini');
+    });
+  });
+
+  describe('outline evolution method', () => {
+    it('should include outline evolution method in default config', () => {
+      const outlineMethods = PROMPT_BANK.methods.filter(
+        m => m.type === 'evolution' && 'outline' in m && (m as { outline?: boolean }).outline
+      );
+      expect(outlineMethods).toHaveLength(1);
+      expect(outlineMethods[0].label).toBe('evolution_deepseek_outline');
+    });
+
+    it('should filter outline method by label', () => {
+      const result = filterMethods(['evolution_deepseek_outline'], false);
+      expect(result).toHaveLength(1);
+      expect(result[0].label).toBe('evolution_deepseek_outline');
+    });
+
+    it('should skip outline evolution method when skipEvolution is true', () => {
+      const result = filterMethods([], true);
+      expect(result.every(m => m.type === 'oneshot')).toBe(true);
+    });
+
+    it('should differentiate outline vs non-outline entries by metadata', () => {
+      // Simulate matching logic: entry without outline_mode should NOT match outline method
+      const entry = { metadata: { iterations: 3 } as Record<string, unknown> };
+      const outlineMethod = { outline: true };
+      const regularMethod = { outline: undefined };
+
+      const entryIsOutline = entry.metadata?.outline_mode === true;
+      const outlineMethodMatch = outlineMethod.outline === true;
+      const regularMethodMatch = regularMethod.outline === true;
+
+      // Non-outline entry should match regular method
+      expect(entryIsOutline === regularMethodMatch).toBe(true); // false === false
+      // Non-outline entry should NOT match outline method
+      expect(entryIsOutline === outlineMethodMatch).toBe(false); // false !== true
+    });
+
+    it('should expand outline evolution to checkpoint labels', () => {
+      const outlineMethod = PROMPT_BANK.methods.find(m => m.label === 'evolution_deepseek_outline')!;
+      const labels = expandMethodLabels([outlineMethod]);
+      expect(labels).toEqual([
+        'evolution_deepseek_outline_3iter',
+        'evolution_deepseek_outline_5iter',
+        'evolution_deepseek_outline_10iter',
+      ]);
     });
   });
 

@@ -48,13 +48,12 @@ export class UserLibraryPage extends BasePage {
   }
 
   /** Wait for content or error state - legacy compatibility wrapper */
-  async waitForContentOrError(timeout: number = 30000): Promise<'cards' | 'error' | 'empty' | 'title' | 'timeout'> {
+  async waitForContentOrError(timeout: number = 30000): Promise<'cards' | 'error' | 'empty' | 'timeout'> {
     try {
       const result = await Promise.race([
         this.page.locator('[data-testid="feed-card"]').waitFor({ state: 'visible', timeout }).then(() => 'cards' as const),
         this.page.locator('[data-testid="library-error"]').waitFor({ state: 'visible', timeout }).then(() => 'error' as const),
         this.page.locator('[data-testid="library-empty-state"]').waitFor({ state: 'visible', timeout }).then(() => 'empty' as const),
-        this.page.locator('main h1').waitFor({ state: 'visible', timeout }).then(() => 'title' as const),
       ]);
       return result;
     } catch {

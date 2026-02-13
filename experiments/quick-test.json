@@ -1,0 +1,18 @@
+{
+  "name": "quick_strategy_test",
+  "description": "Minimal test to verify strategy config linking",
+  "totalBudgetUsd": 1.00,
+  "safetyMargin": 0.1,
+  "defaults": {
+    "budgetCapUsd": 0.50,
+    "judgeModel": "deepseek-chat",
+    "mode": "full"
+  },
+  "runs": [
+    {
+      "prompt": "Explain what gravity is in one paragraph",
+      "generationModel": "deepseek-chat",
+      "iterations": 12
+    }
+  ]
+}

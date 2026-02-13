@@ -1,9 +1,10 @@
 // Unit tests for IterativeEditingAgent — critique-driven editing with blind diff-based judging.
+// Includes step-targeted mutation tests for OutlineVariant support.
 
 import { IterativeEditingAgent } from './iterativeEditingAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique } from '../types';
-import { BudgetExceededError } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, OutlineVariant, GenerationStep } from '../types';
+import { BudgetExceededError, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { DiffComparisonResult } from '../diffComparison';
 
@@ -22,14 +23,14 @@ const VALID_OPEN_REVIEW = JSON.stringify({
 });
 
 const VALID_CRITIQUE_JSON = JSON.stringify({
-  scores: { clarity: 6, structure: 8, engagement: 5, precision: 7, coherence: 8 },
+  scores: { clarity: 6, engagement: 5, precision: 7, voice_fidelity: 8, conciseness: 8 },
   good_examples: { clarity: 'Clear thesis statement' },
   bad_examples: { clarity: 'The phrase "it was noted" is vague', engagement: 'Opening lacks a hook' },
   notes: { clarity: 'Some passive voice issues', engagement: 'Needs stronger opening' },
 });
 
 const HIGH_SCORE_CRITIQUE_JSON = JSON.stringify({
-  scores: { clarity: 9, structure: 9, engagement: 9, precision: 9, coherence: 9 },
+  scores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
   good_examples: { clarity: 'Excellent phrasing' },
   bad_examples: {},
   notes: {},
@@ -69,7 +70,7 @@ function makeMockCostTracker(): CostTracker {
 function makeCritique(variantId: string, overrides?: Partial<Critique>): Critique {
   return {
     variationId: variantId,
-    dimensionScores: { clarity: 6, structure: 8, engagement: 5, precision: 7, coherence: 8 },
+    dimensionScores: { clarity: 6, engagement: 5, precision: 7, voice_fidelity: 8, conciseness: 8 },
     goodExamples: { clarity: ['Clear thesis'] },
     badExamples: { clarity: ['Vague phrasing'], engagement: ['Weak opening'] },
     notes: { clarity: 'Passive voice', engagement: 'Needs hook' },
@@ -222,7 +223,7 @@ describe('IterativeEditingAgent', () => {
     const ctx = makeCtx();
     // Override critique to have all high scores
     ctx.state.allCritiques = [makeCritique('v-2', {
-      dimensionScores: { clarity: 9, structure: 9, engagement: 9, precision: 9, coherence: 9 },
+      dimensionScores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
     })];
     // Open review returns null (no suggestions)
     const llmClient = makeMockLLMClient(['{}']); // invalid suggestions → null
@@ -470,5 +471,225 @@ describe('IterativeEditingAgent', () => {
       config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
     });
     expect(cost).toBeGreaterThan(0);
+  });
+
+  describe('flow-aware edit targeting', () => {
+    it('includes flow dimension targets when flow critique exists in state', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_CRITIQUE_JSON,
+          VALID_OPEN_REVIEW,
+        ]),
+      });
+      // Add a flow critique for the top variant (v-2)
+      ctx.state.allCritiques!.push({
+        variationId: 'v-2',
+        dimensionScores: { local_cohesion: 2, global_coherence: 4, transition_quality: 1, rhythm_variety: 3, redundancy: 4 },
+        goodExamples: {},
+        badExamples: { transition_quality: ['Abrupt paragraph jump'] },
+        notes: { transition_quality: 'Missing connectives' },
+        reviewer: 'llm',
+        scale: '0-5' as const,
+      });
+
+      await agent.execute(ctx);
+
+      // The weakest quality dim is engagement (5), weakest flow dim is transition_quality (1/5 = 0.2 normalized)
+      // Flow dimension should be picked since 0.2 < (5-1)/9 ≈ 0.44
+      // But the edit target order is: rubric dims below threshold first, then flow dims
+      // Since engagement(5) < threshold(8), it gets targeted first
+      const newVariants = ctx.state.pool.filter((v) => v.strategy.startsWith('critique_edit_'));
+      expect(newVariants.length).toBe(1);
+      // First target is weakest quality dimension (engagement at 5)
+      expect(newVariants[0].strategy).toBe('critique_edit_engagement');
+    });
+
+    it('qualityThresholdMet only checks quality critique, not flow', async () => {
+      const ctx = makeCtx();
+      // Quality critique with all scores above threshold
+      ctx.state.allCritiques = [
+        {
+          variationId: 'v-2',
+          dimensionScores: { clarity: 9, engagement: 9, precision: 9, voice_fidelity: 9, conciseness: 9 },
+          goodExamples: {},
+          badExamples: {},
+          notes: {},
+          reviewer: 'llm',
+        },
+        // Flow critique with low scores — should NOT prevent quality threshold from being met
+        {
+          variationId: 'v-2',
+          dimensionScores: { local_cohesion: 1, global_coherence: 1, transition_quality: 1, rhythm_variety: 1, redundancy: 1 },
+          goodExamples: {},
+          badExamples: {},
+          notes: {},
+          reviewer: 'llm',
+          scale: '0-5' as const,
+        },
+      ];
+      // Open review returns no suggestions → combined with quality threshold met → should stop
+      const llmClient = makeMockLLMClient(['{}']);
+      const result = await new IterativeEditingAgent().execute({ ...ctx, llmClient });
+
+      // Quality threshold is met (all ≥ 8), so should stop even though flow scores are low
+      const logger = ctx.logger as unknown as { info: jest.Mock };
+      const stopCalls = logger.info.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'Quality threshold met, stopping',
+      );
+      expect(stopCalls.length).toBe(1);
+    });
+  });
+
+  describe('transient error handling in edit loop', () => {
+    it('catches transient LLM error in edit generation and continues', async () => {
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)       // runOpenReview
+        .mockRejectedValueOnce(new Error('Socket timeout'))  // edit generation fails
+        .mockRejectedValueOnce(new Error('Socket timeout'))  // cycle 2 edit fails
+        .mockRejectedValueOnce(new Error('Socket timeout')); // cycle 3 edit fails
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent.execute(ctx);
+      expect(result.success).toBe(false);
+      expect(result.variantsAdded).toBe(0);
+      // Verify warning was logged
+      const logger = ctx.logger as unknown as { warn: jest.Mock };
+      const warnCalls = logger.warn.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'Edit cycle failed, treating as rejection',
+      );
+      expect(warnCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('catches transient error in compareWithDiff and continues', async () => {
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)   // runOpenReview
+        .mockResolvedValueOnce(VALID_ARTICLE);       // edit generation succeeds
+      mockCompareWithDiff.mockRejectedValueOnce(new Error('ECONNRESET'));
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent.execute(ctx);
+      expect(result.success).toBe(false);
+      expect(result.variantsAdded).toBe(0);
+    });
+
+    it('re-throws BudgetExceededError from edit generation', async () => {
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)
+        .mockRejectedValueOnce(new BudgetExceededError('iterativeEditing', 1.0, 0.5));
+      const ctx = makeCtx({ llmClient: mockClient });
+      await expect(agent.execute(ctx)).rejects.toThrow(BudgetExceededError);
+    });
+
+    it('exhausts maxConsecutiveRejections on repeated transient errors', async () => {
+      const agent2Max = new IterativeEditingAgent({ maxConsecutiveRejections: 2, maxCycles: 5 });
+      const mockClient = makeMockLLMClient();
+      (mockClient.complete as jest.Mock)
+        .mockResolvedValueOnce(VALID_OPEN_REVIEW)
+        .mockRejectedValue(new Error('Socket timeout'));
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent2Max.execute(ctx);
+      expect(result.success).toBe(false);
+      expect(result.variantsAdded).toBe(0);
+      // Should stop after maxConsecutiveRejections (2), not run all 5 cycles
+      const logger = ctx.logger as unknown as { info: jest.Mock };
+      const stopCalls = logger.info.mock.calls.filter(
+        (c: unknown[]) => c[0] === 'Max consecutive rejections reached, stopping',
+      );
+      expect(stopCalls.length).toBe(1);
+    });
+  });
+
+  describe('step-targeted editing for OutlineVariants', () => {
+    function makeOutlineCtx(): ExecutionContext {
+      const state = new PipelineStateImpl('# Original\n\n## Section\n\nOriginal text content here. This is a second sentence.');
+      const steps: GenerationStep[] = [
+        { name: 'outline', input: 'original', output: '## Intro\nSummary', score: 0.85, costUsd: 0.001 },
+        { name: 'expand', input: '## Intro\nSummary', output: 'Expanded.', score: 0.4, costUsd: 0.002 },
+        { name: 'polish', input: 'Expanded.', output: VALID_ARTICLE, score: 0.9, costUsd: 0.001 },
+      ];
+      const outlineVariant: OutlineVariant = {
+        id: 'ov-top',
+        text: VALID_ARTICLE,
+        version: 1,
+        parentIds: [],
+        strategy: 'outline_generation',
+        createdAt: Date.now() / 1000,
+        iterationBorn: 0,
+        steps,
+        outline: '## Intro\nSummary',
+        weakestStep: 'expand',
+      };
+
+      state.addToPool(outlineVariant);
+      state.ratings.set('ov-top', { mu: 30, sigma: 4 });
+      state.allCritiques = [makeCritique('ov-top')];
+
+      return {
+        payload: {
+          originalText: state.originalText,
+          title: 'Test',
+          explanationId: 1,
+          runId: 'test-run',
+          config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+        },
+        state,
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,  // open review
+          VALID_ARTICLE,      // edit (step-targeted)
+          VALID_CRITIQUE_JSON, // inline critique after accept
+          VALID_OPEN_REVIEW,  // open review after accept
+        ]),
+        logger: makeMockLogger(),
+        costTracker: makeMockCostTracker(),
+        runId: 'test-run',
+      };
+    }
+
+    it('targets weakest step first when variant is OutlineVariant', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeOutlineCtx();
+
+      await agent.execute(ctx);
+
+      // First edit should target the expand step (weakest at 0.4)
+      const newVariants = ctx.state.pool.filter(v => v.strategy.startsWith('critique_edit_'));
+      expect(newVariants.length).toBe(1);
+      expect(newVariants[0].strategy).toBe('critique_edit_step:expand');
+    });
+
+    it('generates step-specific prompt for step:expand target', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeOutlineCtx();
+
+      await agent.execute(ctx);
+
+      // The edit call should contain step-specific instructions
+      const editCall = (ctx.llmClient.complete as jest.Mock).mock.calls[1];
+      expect(editCall[0]).toContain('expand');
+      expect(editCall[0]).toContain('0.4');
+    });
+
+    it('falls back to dimension-based targets for plain TextVariation (regression)', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_CRITIQUE_JSON,
+          VALID_OPEN_REVIEW,
+        ]),
+      });
+
+      await agent.execute(ctx);
+
+      const newVariants = ctx.state.pool.filter(v => v.strategy.startsWith('critique_edit_'));
+      expect(newVariants.length).toBe(1);
+      // Should target dimension, not step (plain TextVariation)
+      expect(newVariants[0].strategy).not.toContain('step:');
+    });
   });
 });

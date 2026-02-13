@@ -3,6 +3,8 @@
 
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { Rating } from './core/rating';
+import type { TreeSearchResult, TreeState } from './treeOfThought/types';
+import type { SectionEvolutionState } from './section/types';
 import { z } from 'zod';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
@@ -29,6 +31,42 @@ export interface TextVariation {
   costUsd?: number;
 }
 
+// ─── Outline generation types (step-level scoring) ──────────────
+
+export type GenerationStepName = 'outline' | 'expand' | 'polish' | 'verify';
+
+/** A single step in the outline generation pipeline with its score and cost. */
+export interface GenerationStep {
+  name: GenerationStepName;
+  input: string;
+  output: string;
+  /** Step quality score from LLM judge, 0-1. Defaults to 0.5 on parse failure. */
+  score: number;
+  /** LLM cost in USD for this step. */
+  costUsd: number;
+}
+
+/** Extends TextVariation with step-level scoring for outline-based generation. */
+export interface OutlineVariant extends TextVariation {
+  steps: GenerationStep[];
+  /** The intermediate outline text (section headings + summaries). */
+  outline: string;
+  /** Cached weakest step name for mutation targeting. Null if no steps scored. */
+  weakestStep: GenerationStepName | null;
+}
+
+/** Type guard: returns true if a TextVariation is an OutlineVariant with step data. */
+export function isOutlineVariant(v: TextVariation): v is OutlineVariant {
+  const candidate = v as OutlineVariant;
+  return Array.isArray(candidate.steps) && candidate.steps.length > 0 && 'name' in candidate.steps[0];
+}
+
+/** Parse a raw LLM score output to a number in [0, 1], defaulting to 0.5 on failure. */
+export function parseStepScore(rawOutput: string): number {
+  const parsed = parseFloat(rawOutput);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.5;
+}
+
 export interface Critique {
   variationId: string;
   dimensionScores: Record<string, number>;
@@ -36,6 +74,8 @@ export interface Critique {
   badExamples: Record<string, string[]>;
   notes: Record<string, string>;
   reviewer: string;
+  /** Score scale: '1-10' for quality critiques (default), '0-5' for flow critiques. */
+  scale?: '1-10' | '0-5';
 }
 
 export interface MetaFeedback {
@@ -60,6 +100,8 @@ export interface Match {
   confidence: number;
   turns: number;
   dimensionScores: Record<string, string>;
+  /** Friction sentences from flow comparison (optional, only present when flow is enabled). */
+  frictionSpots?: { a: string[]; b: string[] };
 }
 
 // ─── Agent types ─────────────────────────────────────────────────
@@ -67,7 +109,7 @@ export interface Match {
 export interface AgentPayload {
   originalText: string;
   title: string;
-  explanationId: number;
+  explanationId: number | null;
   runId: string;
   config: EvolutionRunConfig;
 }
@@ -95,6 +137,8 @@ export interface ExecutionContext {
   runId: string;
   /** Optional comparison cache shared across agents within a run. */
   comparisonCache?: import('./core/comparisonCache').ComparisonCache;
+  /** Optional feature flags for agent-level gating (e.g., flow critique). */
+  featureFlags?: import('./core/featureFlags').EvolutionFeatureFlags;
 }
 
 // ─── Pipeline state interface ────────────────────────────────────
@@ -125,6 +169,13 @@ export interface PipelineState {
 
   // Phase 6: Debate fields
   debateTranscripts: DebateTranscript[];
+
+  // Tree search fields (optional — populated when TreeSearchAgent runs)
+  treeSearchResults: TreeSearchResult[] | null;
+  treeSearchStates: TreeState[] | null;
+
+  // Section decomposition state (null when not used)
+  sectionState: SectionEvolutionState | null;
 
   // Pool management methods
   addToPool(variation: TextVariation): void;
@@ -163,6 +214,8 @@ export interface EvolutionLogger {
   warn(message: string, context?: Record<string, unknown>): void;
   error(message: string, context?: Record<string, unknown>): void;
   debug(message: string, context?: Record<string, unknown>): void;
+  /** Flush buffered DB log entries. No-op if DB logging is not enabled. */
+  flush?(): Promise<void>;
 }
 
 // ─── Cost tracker interface (Decision 6) ─────────────────────────
@@ -209,12 +262,16 @@ export interface EvolutionRunConfig {
   };
   generation: { strategies: number };
   calibration: { opponents: number; minOpponents?: number };
+  /** Tournament-phase settings. topK limits comparisons to the top K variants above baseline. */
+  tournament: { topK: number };
   budgetCaps: Record<string, number>;
   useEmbeddings: boolean;
   /** Model for comparison/judge calls (calibration, pairwise, tournament). */
   judgeModel?: AllowedLLMModelType;
   /** Model for text generation calls (generation, evolution). */
   generationModel?: AllowedLLMModelType;
+  /** When true, runs single-article mode: no generation/evolution, just sequential improvement. */
+  singleArticle?: boolean;
 }
 
 // ─── Checkpoint types ────────────────────────────────────────────
@@ -244,11 +301,30 @@ export interface SerializedPipelineState {
   diversityScore: number | null;
   metaFeedback: MetaFeedback | null;
   debateTranscripts: DebateTranscript[];
+  treeSearchResults?: TreeSearchResult[] | null;
+  treeSearchStates?: TreeState[] | null;
+  sectionState?: SectionEvolutionState | null;
 }
 
 // ─── Evolution run status ────────────────────────────────────────
 
 export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused';
+
+export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
+
+export const PIPELINE_TYPES = ['full', 'minimal', 'batch', 'single'] as const satisfies readonly PipelineType[];
+
+/** Metadata columns on hall_of_fame_topics (prompt registry). */
+export interface PromptMetadata {
+  id: string;
+  prompt: string;
+  title: string;
+  difficulty_tier: string | null;
+  domain_tags: string[];
+  status: 'active' | 'archived';
+  deleted_at: string | null;
+  created_at: string;
+}
 
 export const BASELINE_STRATEGY = 'original_baseline' as const;
 

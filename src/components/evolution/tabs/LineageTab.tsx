@@ -46,7 +46,7 @@ export function LineageTab({ runId }: { runId: string }) {
 
   return (
     <div data-testid="lineage-tab">
-      <LineageGraph nodes={data.nodes} edges={data.edges} />
+      <LineageGraph nodes={data.nodes} edges={data.edges} treeSearchPath={data.treeSearchPath} />
     </div>
   );
 }

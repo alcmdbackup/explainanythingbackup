@@ -77,8 +77,100 @@ export function BudgetTab({ runId }: { runId: string }) {
 
   if (error) return <div className="text-[var(--status-error)] text-sm p-4">{error}</div>;
 
+  const prediction = data?.prediction;
+  const estimate = data?.estimate;
+
   return (
     <div className="space-y-6" data-testid="budget-tab">
+      {/* Estimated vs Actual comparison (only shown when estimate data exists) */}
+      {prediction && (
+        <div
+          className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
+          data-testid="estimate-comparison"
+        >
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-[var(--text-secondary)]">Estimated vs Actual</h3>
+            {estimate && (
+              <span
+                className={`text-xs px-1.5 py-0.5 rounded ${
+                  estimate.confidence === 'high'
+                    ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
+                    : estimate.confidence === 'medium'
+                      ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]'
+                      : 'bg-[var(--text-muted)]/10 text-[var(--text-muted)]'
+                }`}
+              >
+                {estimate.confidence} confidence
+              </span>
+            )}
+          </div>
+
+          {/* Summary delta badge */}
+          <div className="flex items-center gap-4 text-sm">
+            <span className="text-[var(--text-muted)]">
+              Estimated: <span className="font-mono font-semibold text-[var(--text-secondary)]">${prediction.estimatedUsd.toFixed(2)}</span>
+            </span>
+            <span className="text-[var(--text-muted)]">
+              Actual: <span className="font-mono font-semibold text-[var(--text-secondary)]">${prediction.actualUsd.toFixed(2)}</span>
+            </span>
+            <span
+              className={`text-xs font-mono px-2 py-0.5 rounded ${
+                Math.abs(prediction.deltaPercent) <= 10
+                  ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
+                  : Math.abs(prediction.deltaPercent) <= 30
+                    ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]'
+                    : 'bg-[var(--status-error)]/10 text-[var(--status-error)]'
+              }`}
+              data-testid="delta-badge"
+            >
+              {prediction.deltaPercent >= 0 ? '+' : ''}{prediction.deltaPercent.toFixed(0)}%
+              {prediction.deltaPercent > 0 ? ' over' : prediction.deltaPercent < 0 ? ' under' : ''} estimate
+            </span>
+          </div>
+
+          {/* Per-agent comparison bars */}
+          <div className="space-y-1.5">
+            {Object.entries(prediction.perAgent)
+              .sort(([, a], [, b]) => Math.max(b.estimated, b.actual) - Math.max(a.estimated, a.actual))
+              .map(([agent, { estimated, actual }]) => {
+                const maxVal = Math.max(estimated, actual, 0.001);
+                return (
+                  <div key={agent} className="flex items-center gap-2 text-xs">
+                    <span className="w-28 text-[var(--text-muted)] font-mono truncate">{agent}</span>
+                    <div className="flex-1 space-y-0.5">
+                      <div className="h-2 bg-[var(--surface-secondary)] rounded overflow-hidden">
+                        <div
+                          className="h-full bg-[var(--accent-gold)]/40 rounded border border-[var(--accent-gold)]"
+                          style={{ width: `${(estimated / maxVal) * 100}%` }}
+                          title={`Estimated: $${estimated.toFixed(3)}`}
+                        />
+                      </div>
+                      <div className="h-2 bg-[var(--surface-secondary)] rounded overflow-hidden">
+                        <div
+                          className="h-full bg-[var(--accent-gold)] rounded"
+                          style={{ width: `${(actual / maxVal) * 100}%` }}
+                          title={`Actual: $${actual.toFixed(3)}`}
+                        />
+                      </div>
+                    </div>
+                    <span className="w-20 text-right text-[var(--text-muted)]">
+                      ${estimated.toFixed(3)} / ${actual.toFixed(3)}
+                    </span>
+                  </div>
+                );
+              })}
+            <div className="flex items-center gap-3 text-xs text-[var(--text-muted)] pt-1">
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-2 bg-[var(--accent-gold)]/40 border border-[var(--accent-gold)] rounded-sm" /> estimated
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-2 bg-[var(--accent-gold)] rounded-sm" /> actual
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
         <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Cumulative Burn</h3>
         <BurnChart data={data?.cumulativeBurn ?? []} />

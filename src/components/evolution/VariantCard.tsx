@@ -10,6 +10,12 @@ export const STRATEGY_PALETTE: Record<string, string> = {
   mutate_clarity: '#a855f7', // purple
   crossover: '#a855f7', // purple
   mutate_engagement: '#a855f7', // purple
+  // Tree search strategies (prefixed with tree_search_)
+  tree_search_edit_dimension: '#eab308', // gold
+  tree_search_structural_transform: '#3b82f6', // blue (matches parent strategy)
+  tree_search_lexical_simplify: '#22c55e', // green
+  tree_search_grounding_enhance: '#f97316', // orange
+  tree_search_creative: '#ec4899', // pink
 };
 
 export function VariantCard({
@@ -19,6 +25,8 @@ export function VariantCard({
   iterationBorn,
   isWinner = false,
   className = '',
+  treeDepth,
+  revisionAction,
 }: {
   shortId: string;
   elo: number;
@@ -26,6 +34,10 @@ export function VariantCard({
   iterationBorn: number;
   isWinner?: boolean;
   className?: string;
+  /** Tree search depth (null if not from tree search). */
+  treeDepth?: number | null;
+  /** Tree search revision action description. */
+  revisionAction?: string | null;
 }) {
   return (
     <div
@@ -48,6 +60,14 @@ export function VariantCard({
         <span className="font-mono">{strategy}</span>
         <span>iter {iterationBorn}</span>
       </div>
+      {treeDepth != null && (
+        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] border-t border-[var(--border-default)] pt-1 mt-1">
+          <span className="font-mono">depth {treeDepth}</span>
+          {revisionAction && (
+            <span className="truncate">{revisionAction}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,7 @@
  * Falls back to heuristic calculation when insufficient baseline data.
  */
 
+import { z } from 'zod';
 import { calculateLLMCost } from '@/config/llmPricing';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
@@ -25,6 +26,13 @@ export interface RunCostEstimate {
   perIteration: number;
   confidence: 'high' | 'medium' | 'low';
 }
+
+export const RunCostEstimateSchema = z.object({
+  totalUsd: z.number(),
+  perAgent: z.record(z.number()),
+  perIteration: z.number(),
+  confidence: z.enum(['high', 'medium', 'low']),
+});
 
 // Per-agent model configuration (matches batch config schema)
 interface AgentModels {
@@ -239,13 +247,31 @@ export async function estimateRunCost(
  * Refresh agent cost baselines from llmCallTracking data.
  * Should be run periodically (e.g., daily) to update baseline estimates.
  */
+// Advisory lock ID for refreshAgentCostBaselines (arbitrary stable int)
+const BASELINE_REFRESH_LOCK_ID = 8675309;
+
 export async function refreshAgentCostBaselines(
   lookbackDays: number = 30
-): Promise<{ updated: number; errors: string[] }> {
+): Promise<{ updated: number; errors: string[]; skipped?: boolean }> {
   const supabase = await createSupabaseServiceClient();
+
+  // Acquire advisory lock — skip if another call is already running
+  let lockAcquired = false;
+  try {
+    const { data: lockResult } = await supabase.rpc('pg_try_advisory_lock', { lock_id: BASELINE_REFRESH_LOCK_ID });
+    lockAcquired = !!lockResult;
+  } catch {
+    // RPC failed (e.g., connection issue) — skip gracefully
+    return { updated: 0, errors: ['Advisory lock acquisition failed'], skipped: true };
+  }
+  if (!lockAcquired) {
+    return { updated: 0, errors: [], skipped: true };
+  }
+
   const errors: string[] = [];
   let updated = 0;
 
+  try {
   // Aggregate from llmCallTracking
   const { data, error } = await supabase
     .from('llmCallTracking')
@@ -269,7 +295,7 @@ export async function refreshAgentCostBaselines(
   }>();
 
   for (const row of data) {
-    const agentName = row.call_source?.replace('evolution_', '') ?? 'unknown';
+    const agentName = row.call_source?.replace(/^evolution_/, '') ?? 'unknown';
     const key = `${agentName}:${row.model}`;
     const existing = aggregates.get(key) ?? { promptTokens: [], completionTokens: [], costs: [] };
     if (row.prompt_tokens) existing.promptTokens.push(row.prompt_tokens);
@@ -312,6 +338,14 @@ export async function refreshAgentCostBaselines(
   baselineCache.clear();
 
   return { updated, errors };
+  } finally {
+    // Release advisory lock (best-effort)
+    try {
+      await supabase.rpc('pg_advisory_unlock', { lock_id: BASELINE_REFRESH_LOCK_ID });
+    } catch {
+      // Ignore unlock failures — lock released on connection close anyway
+    }
+  }
 }
 
 // ─── Cost Prediction Tracking ───────────────────────────────────
@@ -324,6 +358,15 @@ export interface CostPrediction {
   confidence: 'high' | 'medium' | 'low';
   perAgent: Record<string, { estimated: number; actual: number }>;
 }
+
+export const CostPredictionSchema = z.object({
+  estimatedUsd: z.number(),
+  actualUsd: z.number(),
+  deltaUsd: z.number(),
+  deltaPercent: z.number(),
+  confidence: z.enum(['high', 'medium', 'low']),
+  perAgent: z.record(z.object({ estimated: z.number(), actual: z.number() })),
+});
 
 /**
  * Compute cost prediction delta after run completion.
