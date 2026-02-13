@@ -128,9 +128,12 @@ export class ResultsPage extends BasePage {
   }
 
   async getContent() {
-    const element = this.page.locator(this.explanationContent);
-    await element.waitFor({ state: 'visible' });
-    return await element.innerText();
+    // Target the Lexical editor's ContentEditable directly, since the
+    // container div's innerText() doesn't traverse into contenteditable children
+    const editor = this.page.locator(`${this.explanationContent} .lexical-editor`);
+    await editor.waitFor({ state: 'visible', timeout: 30000 });
+    // Use textContent() which works with contenteditable elements
+    return (await editor.textContent()) ?? '';
   }
 
   async getContentLength() {
