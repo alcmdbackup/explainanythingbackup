@@ -73,16 +73,10 @@ test.describe('User Library Management', () => {
     expect(pageTitle).toContain('My Library');
   });
 
-  test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
+  test('should display FeedCard components for saved explanations', async () => {
     await libraryPage.navigate();
-    await waitForPageReady(libraryPage);
-
-    // With test data created in beforeAll, cards should be visible
-    const hasCards = await safeIsVisible(
-      authenticatedPage.locator('[data-testid="feed-card"]'),
-      'library.spec (feed cards check)'
-    );
-    expect(hasCards).toBe(true);
+    // Wait specifically for cards to load (test data created in beforeAll)
+    await libraryPage.waitForCards(30000);
 
     // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
