@@ -51,29 +51,45 @@ function normalizePair(idA: string, idB: string): string {
   return idA < idB ? `${idA}|${idB}` : `${idB}|${idA}`;
 }
 
-/** Info-theoretic Swiss pairing using OpenSkill ordinal and real sigma. */
+/**
+ * Info-theoretic Swiss pairing using OpenSkill ordinal and real sigma.
+ * Excludes variants that are BOTH below baseline (ordinal < 0) AND outside the top K.
+ */
 export function swissPairing(
   variants: TextVariation[],
   ratings: Map<string, Rating>,
   completedPairs: Set<string>,
+  topK: number = 5,
 ): Array<[TextVariation, TextVariation]> {
   if (variants.length < 2) return [];
 
   const defaultRating = createRating();
 
-  // Determine top-K threshold (K = max(1, floor(pool/3)))
-  const k = Math.max(1, Math.floor(variants.length / 3));
-  const sortedOrdinals = [...variants]
-    .map((v) => getOrdinal(ratings.get(v.id) ?? defaultRating))
-    .sort((a, b) => b - a);
-  const topKThreshold = sortedOrdinals[Math.min(k, sortedOrdinals.length) - 1];
+  // Sort by ordinal to determine top-K membership
+  const withOrdinals = variants.map((v) => ({
+    variant: v,
+    ordinal: getOrdinal(ratings.get(v.id) ?? defaultRating),
+  }));
+  withOrdinals.sort((a, b) => b.ordinal - a.ordinal);
 
-  // Score all candidate pairs
+  const topKIds = new Set(withOrdinals.slice(0, topK).map((e) => e.variant.id));
+
+  // Exclude only if BOTH: ordinal < 0 (below baseline) AND outside top K
+  let eligible = withOrdinals
+    .filter((e) => e.ordinal >= 0 || topKIds.has(e.variant.id))
+    .map((e) => e.variant);
+
+  // Fallback: always need at least 2 variants for pairing
+  if (eligible.length < 2) {
+    eligible = withOrdinals.slice(0, 2).map((e) => e.variant);
+  }
+
+  // Score all candidate pairs among eligible variants
   const candidatePairs: Array<{ a: TextVariation; b: TextVariation; score: number }> = [];
-  for (let i = 0; i < variants.length; i++) {
-    for (let j = i + 1; j < variants.length; j++) {
-      const a = variants[i];
-      const b = variants[j];
+  for (let i = 0; i < eligible.length; i++) {
+    for (let j = i + 1; j < eligible.length; j++) {
+      const a = eligible[i];
+      const b = eligible[j];
       if (completedPairs.has(normalizePair(a.id, b.id))) continue;
 
       const rA = ratings.get(a.id) ?? defaultRating;
@@ -89,11 +105,7 @@ export function swissPairing(
       // Real sigma: preference for high-uncertainty variants
       const sigmaWeight = (rA.sigma + rB.sigma) / 2;
 
-      // Top-K boost: 1.5x if both in top K
-      const bothTopK = ordA >= topKThreshold && ordB >= topKThreshold;
-      const topKBoost = bothTopK ? 1.5 : 1.0;
-
-      candidatePairs.push({ a, b, score: outcomeUncertainty * sigmaWeight * topKBoost });
+      candidatePairs.push({ a, b, score: outcomeUncertainty * sigmaWeight });
     }
   }
 
@@ -205,7 +217,8 @@ export class Tournament extends AgentBase {
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
-    logger.info('Tournament start', { poolSize: pool.length, budgetPressure: budgetPressure.toFixed(2), maxComparisons });
+    const topKConfig = ctx.payload.config.tournament.topK;
+    logger.info('Tournament start', { poolSize: pool.length, topK: topKConfig, budgetPressure: budgetPressure.toFixed(2), maxComparisons });
 
     // Initialize rating for any variants not yet rated
     for (const v of pool) {
@@ -227,7 +240,7 @@ export class Tournament extends AgentBase {
         break;
       }
 
-      const pairs = swissPairing(pool, state.ratings, completedPairs);
+      const pairs = swissPairing(pool, state.ratings, completedPairs, topKConfig);
 
       if (pairs.length === 0) {
         staleRounds++;
@@ -336,10 +349,19 @@ export class Tournament extends AgentBase {
         }
       }
 
-      // Sigma-based convergence: all ratings converged for N consecutive checks
-      const allConverged = [...state.ratings.values()].every(
-        (r) => isConverged(r, this.cfg.convergenceSigmaThreshold),
-      );
+      // Sigma-based convergence: check eligible variants (in top K OR above baseline)
+      const topKForConvergence = topKConfig;
+      const ratingEntries = [...state.ratings.entries()];
+      const sortedByOrdinal = ratingEntries
+        .map(([, r]) => r)
+        .sort((a, b) => getOrdinal(b) - getOrdinal(a));
+      const topKSet = new Set(sortedByOrdinal.slice(0, topKForConvergence));
+      const eligibleForConvergence = sortedByOrdinal
+        .filter((r) => getOrdinal(r) >= 0 || topKSet.has(r));
+      const allConverged = eligibleForConvergence.length > 0 &&
+        eligibleForConvergence.every(
+          (r) => isConverged(r, this.cfg.convergenceSigmaThreshold),
+        );
       if (allConverged) {
         convergenceStreak++;
         if (convergenceStreak >= this.cfg.convergenceChecks) {

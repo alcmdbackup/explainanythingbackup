@@ -16,6 +16,7 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   },
   generation: { strategies: 3 },
   calibration: { opponents: 5, minOpponents: 2 },
+  tournament: { topK: 5 },
   // Budget caps sum to >1.0 intentionally: not all agents run every iteration.
   // Per-agent caps are checked individually by costTracker.reserveBudget().
   budgetCaps: {
@@ -45,6 +46,7 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
     expansion: { ...DEFAULT_EVOLUTION_CONFIG.expansion, ...overrides.expansion },
     generation: { ...DEFAULT_EVOLUTION_CONFIG.generation, ...overrides.generation },
     calibration: { ...DEFAULT_EVOLUTION_CONFIG.calibration, ...overrides.calibration },
+    tournament: { ...DEFAULT_EVOLUTION_CONFIG.tournament, ...overrides.tournament },
     budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...overrides.budgetCaps },
     judgeModel: overrides.judgeModel ?? DEFAULT_EVOLUTION_CONFIG.judgeModel,
     generationModel: overrides.generationModel ?? DEFAULT_EVOLUTION_CONFIG.generationModel,
