@@ -5,6 +5,7 @@
 
 import { createHash } from 'crypto';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
+import type { AgentName } from './pipeline';
 
 // ─── Types ──────────────────────────────────────────────────────
 
@@ -14,6 +15,10 @@ export interface StrategyConfig {
   agentModels?: Record<string, string>;
   iterations: number;
   budgetCaps: Record<string, number>;
+  /** Optional agents the user chose to enable. Undefined = all agents (backward compat). */
+  enabledAgents?: AgentName[];
+  /** When true, runs single-article pipeline mode. */
+  singleArticle?: boolean;
 }
 
 /**
@@ -58,6 +63,9 @@ export function hashStrategyConfig(config: StrategyConfig): string {
     agentModels: config.agentModels ? sortKeys(config.agentModels) : null,
     iterations: config.iterations,
     budgetCaps: sortKeys(config.budgetCaps),
+    // Only include when set — preserves hash for existing strategies without these fields
+    ...(config.enabledAgents ? { enabledAgents: config.enabledAgents.slice().sort() } : {}),
+    ...(config.singleArticle ? { singleArticle: true } : {}),
   };
   return createHash('sha256').update(JSON.stringify(normalized)).digest('hex').slice(0, 12);
 }
@@ -93,6 +101,17 @@ export function labelStrategyConfig(config: StrategyConfig): string {
     parts.push(`Overrides: ${overrides}`);
   }
 
+  // Agent count (only when custom agent selection is set)
+  if (config.enabledAgents) {
+    // +4 for required agents, -1 if singleArticle disables generation
+    const requiredCount = config.singleArticle ? 3 : 4;
+    parts.push(`${config.enabledAgents.length + requiredCount} agents`);
+  }
+
+  if (config.singleArticle) {
+    parts.push('single-article');
+  }
+
   return parts.join(' | ');
 }
 
@@ -112,6 +131,8 @@ export function extractStrategyConfig(
     maxIterations?: number;
     budgetCaps?: Record<string, number>;
     agentModels?: Record<string, AllowedLLMModelType>;
+    enabledAgents?: AgentName[];
+    singleArticle?: boolean;
   },
   defaultBudgetCaps: Record<string, number>
 ): StrategyConfig {
@@ -121,6 +142,8 @@ export function extractStrategyConfig(
     agentModels: runConfig.agentModels,
     iterations: runConfig.maxIterations ?? 15,
     budgetCaps: runConfig.budgetCaps ?? defaultBudgetCaps,
+    enabledAgents: runConfig.enabledAgents,
+    singleArticle: runConfig.singleArticle,
   };
 }
 
@@ -157,6 +180,18 @@ export function diffStrategyConfigs(
     if (valA !== valB) {
       diffs.push({ field: `agentModels.${agent}`, valueA: valA, valueB: valB });
     }
+  }
+
+  // Compare enabledAgents
+  const agentsA = (a.enabledAgents ?? []).slice().sort().join(',');
+  const agentsB = (b.enabledAgents ?? []).slice().sort().join(',');
+  if (agentsA !== agentsB) {
+    diffs.push({ field: 'enabledAgents', valueA: agentsA || '-', valueB: agentsB || '-' });
+  }
+
+  // Compare singleArticle
+  if ((a.singleArticle ?? false) !== (b.singleArticle ?? false)) {
+    diffs.push({ field: 'singleArticle', valueA: String(a.singleArticle ?? false), valueB: String(b.singleArticle ?? false) });
   }
 
   return diffs;

@@ -794,6 +794,9 @@ export interface PipelineAgents {
   outlineGeneration?: PipelineAgent;
 }
 
+/** Type-safe agent name union derived from PipelineAgents keys. */
+export type AgentName = keyof PipelineAgents;
+
 /** Options for full pipeline execution. */
 export interface FullPipelineOptions {
   /** Restore supervisor state from a previous checkpoint. */

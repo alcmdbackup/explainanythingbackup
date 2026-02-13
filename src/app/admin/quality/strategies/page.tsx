@@ -18,6 +18,15 @@ import {
 import type { StrategyConfigRow, StrategyConfig } from '@/lib/evolution/core/strategyConfig';
 import type { PipelineType } from '@/lib/evolution/types';
 import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@/lib/services/costAnalyticsActions';
+import {
+  REQUIRED_AGENTS,
+  OPTIONAL_AGENTS,
+  computeEffectiveBudgetCaps,
+  validateAgentSelection,
+} from '@/lib/evolution/core/budgetRedistribution';
+import { toggleAgent as toggleAgentUtil } from '@/lib/evolution/core/agentToggle';
+import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
+import type { AgentName } from '@/lib/evolution/core/pipeline';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -31,7 +40,12 @@ interface FormState {
   judgeModel: string;
   iterations: number;
   budgetCap: number;
+  enabledAgents: string[];
+  singleArticle: boolean;
 }
+
+/** Default: all optional agents enabled. */
+const DEFAULT_ENABLED_AGENTS = [...OPTIONAL_AGENTS] as string[];
 
 const EMPTY_FORM: FormState = {
   name: '',
@@ -41,6 +55,24 @@ const EMPTY_FORM: FormState = {
   judgeModel: 'gpt-4.1-nano',
   iterations: 3,
   budgetCap: 0.20,
+  enabledAgents: DEFAULT_ENABLED_AGENTS,
+  singleArticle: false,
+};
+
+/** Human-readable names for agents. */
+const AGENT_LABELS: Record<string, string> = {
+  generation: 'Generation',
+  calibration: 'Calibration',
+  tournament: 'Tournament',
+  proximity: 'Proximity',
+  reflection: 'Reflection',
+  iterativeEditing: 'Iterative Editing',
+  treeSearch: 'Tree Search',
+  sectionDecomposition: 'Section Decomposition',
+  debate: 'Debate',
+  evolution: 'Evolution',
+  outlineGeneration: 'Outline Generation',
+  metaReview: 'Meta Review',
 };
 
 const MODEL_OPTIONS = [
@@ -53,14 +85,22 @@ const MODEL_OPTIONS = [
   'claude-sonnet-4-20250514',
 ];
 
-const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch'];
+const PIPELINE_OPTIONS: PipelineType[] = ['full', 'minimal', 'batch', 'single'];
 
-/** Return a Tailwind color class based on Elo/$ efficiency tier */
+/** Return a Tailwind color class based on Elo/$ efficiency tier. */
 function eloPerDollarColor(value: number | null): string {
   const v = value ?? 0;
   if (v > 200) return 'text-[var(--status-success)]';
   if (v > 100) return 'text-[var(--accent-gold)]';
   return 'text-[var(--text-secondary)]';
+}
+
+/** Return a Tailwind color class based on cost estimation accuracy. */
+function accuracyColor(avgDeltaPercent: number): string {
+  const abs = Math.abs(avgDeltaPercent);
+  if (abs <= 10) return 'text-[var(--status-success)]';
+  if (abs <= 30) return 'text-[var(--accent-gold)]';
+  return 'text-[var(--status-error)]';
 }
 
 // ─── Status badge ────────────────────────────────────────────────
@@ -113,8 +153,34 @@ function StrategyDialog({
       judgeModel: preset.config.judgeModel,
       iterations: preset.config.iterations,
       budgetCap: preset.config.budgetCaps.generation ?? 0.20,
+      enabledAgents: preset.config.enabledAgents
+        ? [...preset.config.enabledAgents] as string[]
+        : DEFAULT_ENABLED_AGENTS,
+      singleArticle: preset.config.singleArticle ?? false,
     });
   };
+
+  /** Toggle an optional agent, enforcing dependencies and mutex rules. */
+  const toggleAgent = (agent: string) => {
+    setForm((prev) => ({
+      ...prev,
+      enabledAgents: toggleAgentUtil(prev.enabledAgents, agent),
+    }));
+  };
+
+  const agentErrors = useMemo(
+    () => validateAgentSelection(form.enabledAgents as AgentName[]),
+    [form.enabledAgents],
+  );
+
+  const budgetPreview = useMemo(
+    () => computeEffectiveBudgetCaps(
+      DEFAULT_EVOLUTION_CONFIG.budgetCaps,
+      form.enabledAgents as AgentName[],
+      form.singleArticle,
+    ),
+    [form.enabledAgents, form.singleArticle],
+  );
 
   const handleSubmit = async () => {
     if (!form.name.trim()) {
@@ -206,7 +272,10 @@ function StrategyDialog({
           <label className={labelClass}>Pipeline Type</label>
           <select
             value={form.pipelineType}
-            onChange={(e) => setForm({ ...form, pipelineType: e.target.value as PipelineType })}
+            onChange={(e) => {
+              const pt = e.target.value as PipelineType;
+              setForm({ ...form, pipelineType: pt, singleArticle: pt === 'single' });
+            }}
             className={inputClass}
             data-testid="strategy-pipeline-select"
           >
@@ -214,6 +283,92 @@ function StrategyDialog({
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
+        </div>
+
+        {/* Single article toggle */}
+        <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)] font-ui cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.singleArticle}
+            onChange={(e) => setForm({ ...form, singleArticle: e.target.checked })}
+            className="rounded-page"
+            data-testid="strategy-single-article"
+          />
+          Single-article mode
+          <span className="text-xs text-[var(--text-muted)]">(disables generation/outline/evolution)</span>
+        </label>
+
+        {/* Agent Selection */}
+        <div className="space-y-2">
+          <label className={labelClass}>Agent Selection</label>
+
+          {/* Required agents (locked) */}
+          <div>
+            <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Required (always enabled)</div>
+            <div className="flex flex-wrap gap-2">
+              {REQUIRED_AGENTS.map((agent) => (
+                <label key={agent} className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] font-ui opacity-60">
+                  <input type="checkbox" checked disabled className="rounded-page" />
+                  {AGENT_LABELS[agent] ?? agent}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Optional agents (toggleable) */}
+          <div>
+            <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Optional</div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+              {OPTIONAL_AGENTS.map((agent) => {
+                const isDisabledBySingleArticle =
+                  form.singleArticle &&
+                  ['generation', 'outlineGeneration', 'evolution'].includes(agent);
+                return (
+                  <label
+                    key={agent}
+                    className={`flex items-center gap-1.5 text-xs font-ui cursor-pointer ${
+                      isDisabledBySingleArticle
+                        ? 'text-[var(--text-muted)] opacity-50'
+                        : 'text-[var(--text-secondary)]'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={form.enabledAgents.includes(agent) && !isDisabledBySingleArticle}
+                      disabled={isDisabledBySingleArticle}
+                      onChange={() => toggleAgent(agent)}
+                      className="rounded-page"
+                      data-testid={`agent-toggle-${agent}`}
+                    />
+                    {AGENT_LABELS[agent] ?? agent}
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Validation errors */}
+          {agentErrors.length > 0 && (
+            <div className="text-xs text-[var(--status-error)] font-ui space-y-0.5" data-testid="agent-errors">
+              {agentErrors.map((err) => (
+                <div key={err}>{err}</div>
+              ))}
+            </div>
+          )}
+
+          {/* Budget preview */}
+          <div>
+            <div className="text-xs text-[var(--text-muted)] font-ui mb-1">Budget allocation preview</div>
+            <div className="grid grid-cols-3 gap-1 text-xs font-mono text-[var(--text-secondary)]">
+              {Object.entries(budgetPreview)
+                .sort(([, a], [, b]) => b - a)
+                .map(([agent, cap]) => (
+                  <div key={agent} className="truncate">
+                    {AGENT_LABELS[agent] ?? agent}: {(cap * 100).toFixed(0)}%
+                  </div>
+                ))}
+            </div>
+          </div>
         </div>
 
         {/* Model selectors side by side */}
@@ -417,11 +572,7 @@ function StrategyDetailRow({ strategy, accuracy }: { strategy: StrategyConfigRow
             </div>
             {accuracy ? (
               <div className="mt-2 text-xs text-[var(--text-muted)] font-ui" data-testid="accuracy-stats">
-                Avg estimation error: <span className={`font-mono font-semibold ${
-                  Math.abs(accuracy.avgDeltaPercent) <= 10 ? 'text-[var(--status-success)]'
-                    : Math.abs(accuracy.avgDeltaPercent) <= 30 ? 'text-[var(--accent-gold)]'
-                      : 'text-[var(--status-error)]'
-                }`}>{accuracy.avgDeltaPercent >= 0 ? '+' : ''}{accuracy.avgDeltaPercent}%</span>
+                Avg estimation error: <span className={`font-mono font-semibold ${accuracyColor(accuracy.avgDeltaPercent)}`}>{accuracy.avgDeltaPercent >= 0 ? '+' : ''}{accuracy.avgDeltaPercent}%</span>
                 {' '}(±{accuracy.stdDevPercent}%) across {accuracy.runCount} run{accuracy.runCount !== 1 ? 's' : ''}
               </div>
             ) : (
@@ -560,6 +711,8 @@ export default function StrategyRegistryPage() {
       calibration: 0.15,
       tournament: 0.20,
     },
+    enabledAgents: form.enabledAgents as AgentName[],
+    singleArticle: form.singleArticle || undefined,
   });
 
   const handleCreate = async (form: FormState) => {
@@ -653,6 +806,10 @@ export default function StrategyRegistryPage() {
     judgeModel: row.config.judgeModel,
     iterations: row.config.iterations,
     budgetCap: row.config.budgetCaps.generation ?? 0.20,
+    enabledAgents: row.config.enabledAgents
+      ? [...row.config.enabledAgents] as string[]
+      : DEFAULT_ENABLED_AGENTS,
+    singleArticle: row.config.singleArticle ?? false,
   });
 
   // ─── Sort header helper ──────────────────────────────────

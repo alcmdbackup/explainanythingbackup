@@ -349,6 +349,98 @@ describe('Evolution Actions', () => {
       expect(insertCall.cost_estimate_detail).toBeNull();
     });
 
+    it('passes enabledAgents and singleArticle from strategy config into run config', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: {
+              id: 'strat-1',
+              config: {
+                generationModel: 'gpt-4.1-mini',
+                judgeModel: 'gpt-4.1-nano',
+                iterations: 3,
+                enabledAgents: ['reflection', 'debate'],
+                singleArticle: true,
+              },
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({
+          data: { id: 'run-cfg', estimated_cost_usd: null },
+          error: null,
+        });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
+        totalUsd: 1.50,
+        perAgent: { generation: 0.5, calibration: 1.0 },
+        perIteration: 0.15,
+        confidence: 'medium',
+      });
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig).toBeDefined();
+      expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
+      expect(runConfig.singleArticle).toBe(true);
+    });
+
+    it('omits config field when strategy has no enabledAgents or singleArticle', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: {
+              id: 'strat-1',
+              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 3 },
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({
+          data: { id: 'run-no-cfg', estimated_cost_usd: null },
+          error: null,
+        });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
+        totalUsd: 2.0,
+        perAgent: { generation: 1.0, calibration: 1.0 },
+        perIteration: 0.20,
+        confidence: 'medium',
+      });
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      // No config field when strategy doesn't have agent selection
+      expect(insertCall.config).toBeUndefined();
+    });
+
     it('sets null when Zod validation fails on estimate result', async () => {
       const mock = createChainMock();
       let singleCallCount = 0;

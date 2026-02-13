@@ -163,7 +163,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     // Validate strategy reference and resolve budget cap if provided
     let budgetCap = input.budgetCapUsd ?? 5.00;
-    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number };
+    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number; enabledAgents?: string[]; singleArticle?: boolean };
     let strategyConfig: QueueStrategyConfig | null = null;
     if (input.strategyId) {
       const { data: strategy } = await supabase
@@ -220,11 +220,31 @@ const _queueEvolutionRunAction = withLogging(async (
     // Set source column based on run type
     const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
 
+    // Build run config from strategy's agent selection + pipeline mode
+    // Validate enabledAgents from DB to defend against corrupt JSONB data
+    const runConfig: Record<string, unknown> = {};
+    if (strategyConfig?.enabledAgents) {
+      const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
+      const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
+      if (parsed.success && parsed.data) {
+        runConfig.enabledAgents = parsed.data;
+      } else {
+        logger.warn('Invalid enabledAgents in strategy config (ignored)', {
+          strategyId: input.strategyId,
+          raw: strategyConfig.enabledAgents,
+        });
+      }
+    }
+    if (strategyConfig?.singleArticle) {
+      runConfig.singleArticle = true;
+    }
+
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
+      ...(Object.keys(runConfig).length > 0 ? { config: runConfig } : {}),
     };
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;

@@ -5,6 +5,7 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { Rating } from './core/rating';
 import type { TreeSearchResult, TreeState } from './treeOfThought/types';
 import type { SectionEvolutionState } from './section/types';
+import type { AgentName } from './core/pipeline';
 import { z } from 'zod';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
@@ -272,6 +273,8 @@ export interface EvolutionRunConfig {
   generationModel?: AllowedLLMModelType;
   /** When true, runs single-article mode: no generation/evolution, just sequential improvement. */
   singleArticle?: boolean;
+  /** Optional agents to enable for this run. Undefined = all agents (backward compat). */
+  enabledAgents?: AgentName[];
 }
 
 // ─── Checkpoint types ────────────────────────────────────────────
