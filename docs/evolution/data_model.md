@@ -76,6 +76,7 @@ Prompt + Strategy → queueEvolutionRunAction → Run
 - **Pre-linked strategy**: When `strategy_config_id` is already set on a run (pre-selected), `linkStrategyConfig` skips auto-creation and only updates aggregates via RPC.
 - **`enabledAgents`** (optional on `StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run (backward compat). Required agents (`generation`, `calibration`, `tournament`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
 - **`singleArticle`** (optional on `StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
+- **Config propagation**: At queue time, `queueEvolutionRunAction` snapshots key strategy fields into the run's `config` JSONB: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`, `enabledAgents`, `singleArticle`. This makes the run self-contained — execution reads from the run's own config, not the linked strategy. The `strategy_config_id` FK remains for audit/traceability.
 
 ## NOT NULL Enforcement
 

@@ -120,7 +120,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 1. **Quality threshold** (single-article mode only, checked first): If all critique dimension scores for the top variant's latest critique are >= 8, the article has reached sufficient quality. This is a success condition and is checked before plateau detection so it takes priority.
 2. **Quality plateau** (COMPETITION only): If the top variant's ordinal improves by less than `threshold x 6` ordinal points (default: 0.12) over the last `window` iterations (default: 3), the pool has converged and further iterations are unlikely to find improvements.
 3. **Budget exhausted**: If available budget drops below $0.01, stop immediately.
-4. **Max iterations**: Hard cap at `maxIterations` (default: 15).
+4. **Max iterations**: Hard cap at `maxIterations` (default: 15). `maxIterations=N` runs exactly N agent iterations — the `shouldStop()` check fires when `state.iteration > N`, acting as a safety net for checkpoint resume scenarios. The for-loop's own `i < maxIterations` condition exits naturally after N iterations.
 5. **Degenerate state**: If diversity score drops below 0.01 during a plateau check, the pool has collapsed to near-identical variants — continuing would waste budget.
 
 ## Data Flow

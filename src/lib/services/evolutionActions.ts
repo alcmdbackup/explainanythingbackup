@@ -79,21 +79,20 @@ const _estimateRunCostAction = withLogging(async (
   try {
     await requireAdmin();
 
-    // Input validation
     if (!UUID_RE.test(input.strategyId)) {
       throw new Error('Invalid strategyId: must be a valid UUID');
     }
-    if (input.budgetCapUsd !== undefined) {
-      if (typeof input.budgetCapUsd !== 'number' || !isFinite(input.budgetCapUsd) ||
-          input.budgetCapUsd < 0.01 || input.budgetCapUsd > 100) {
-        throw new Error('budgetCapUsd must be a number between 0.01 and 100');
-      }
+
+    if (input.budgetCapUsd !== undefined &&
+        (typeof input.budgetCapUsd !== 'number' || !isFinite(input.budgetCapUsd) ||
+         input.budgetCapUsd < 0.01 || input.budgetCapUsd > 100)) {
+      throw new Error('budgetCapUsd must be a number between 0.01 and 100');
     }
-    let textLength = input.textLength ?? 5000;
-    if (typeof textLength !== 'number' || !isFinite(textLength) || textLength < 100) {
-      textLength = 5000; // fallback to default
-    }
-    textLength = Math.min(textLength, 100000);
+
+    const isValidTextLength = typeof input.textLength === 'number' &&
+                              isFinite(input.textLength) &&
+                              input.textLength >= 100;
+    const textLength = Math.min(isValidTextLength ? input.textLength! : 5000, 100000);
 
     const supabase = await createSupabaseServiceClient();
 
@@ -161,9 +160,6 @@ const _queueEvolutionRunAction = withLogging(async (
       if (!prompt) throw new Error(`Prompt not found: ${input.promptId}`);
     }
 
-    // Validate strategy reference and resolve budget cap if provided
-    let budgetCap = input.budgetCapUsd ?? 5.00;
-    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number; enabledAgents?: string[]; singleArticle?: boolean };
     let strategyConfig: QueueStrategyConfig | null = null;
     if (input.strategyId) {
       const { data: strategy } = await supabase
@@ -173,18 +169,15 @@ const _queueEvolutionRunAction = withLogging(async (
         .single();
       if (!strategy) throw new Error(`Strategy not found: ${input.strategyId}`);
       strategyConfig = strategy.config as QueueStrategyConfig;
-      // Use strategy's budget cap if no explicit override
-      if (!input.budgetCapUsd) {
-        budgetCap = strategyConfig?.budgetCapUsd ?? 5.00;
-      }
     }
+
+    const budgetCap = input.budgetCapUsd ?? strategyConfig?.budgetCapUsd ?? 5.00;
 
     // Require at least explanationId or promptId
     if (!input.explanationId && !input.promptId) {
       throw new Error('Either explanationId or promptId is required');
     }
 
-    // Compute cost estimate (best-effort — queue succeeds even if estimation fails)
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
     if (strategyConfig) {
@@ -217,27 +210,9 @@ const _queueEvolutionRunAction = withLogging(async (
       }
     }
 
-    // Set source column based on run type
     const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
 
-    // Build run config from strategy's agent selection + pipeline mode
-    // Validate enabledAgents from DB to defend against corrupt JSONB data
-    const runConfig: Record<string, unknown> = {};
-    if (strategyConfig?.enabledAgents) {
-      const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
-      const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
-      if (parsed.success && parsed.data) {
-        runConfig.enabledAgents = parsed.data;
-      } else {
-        logger.warn('Invalid enabledAgents in strategy config (ignored)', {
-          strategyId: input.strategyId,
-          raw: strategyConfig.enabledAgents,
-        });
-      }
-    }
-    if (strategyConfig?.singleArticle) {
-      runConfig.singleArticle = true;
-    }
+    const runConfig = await buildRunConfig(strategyConfig, input.strategyId);
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
@@ -281,6 +256,67 @@ const _queueEvolutionRunAction = withLogging(async (
 }, 'queueEvolutionRunAction');
 
 export const queueEvolutionRunAction = serverReadRequestId(_queueEvolutionRunAction);
+
+// ─── Helper: Build run config from strategy ──────────────────────
+
+type QueueStrategyConfig = {
+  generationModel?: string;
+  judgeModel?: string;
+  iterations?: number;
+  agentModels?: Record<string, string>;
+  budgetCapUsd?: number;
+  enabledAgents?: string[];
+  singleArticle?: boolean;
+  budgetCaps?: Record<string, number>;
+};
+
+async function buildRunConfig(
+  strategyConfig: QueueStrategyConfig | null,
+  strategyId?: string
+): Promise<Record<string, unknown>> {
+  const runConfig: Record<string, unknown> = {};
+
+  if (!strategyConfig) return runConfig;
+
+  if (strategyConfig.enabledAgents) {
+    const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
+    const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
+    if (parsed.success && parsed.data) {
+      runConfig.enabledAgents = parsed.data;
+    } else {
+      logger.warn('Invalid enabledAgents in strategy config (ignored)', {
+        strategyId,
+        raw: strategyConfig.enabledAgents,
+      });
+    }
+  }
+
+  if (strategyConfig.singleArticle) {
+    runConfig.singleArticle = true;
+  }
+
+  if (strategyConfig.iterations != null) {
+    runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
+  }
+
+  if (strategyConfig.generationModel) {
+    runConfig.generationModel = strategyConfig.generationModel;
+  }
+
+  if (strategyConfig.judgeModel) {
+    runConfig.judgeModel = strategyConfig.judgeModel;
+  }
+
+  const hasBudgetCaps = strategyConfig.budgetCaps != null &&
+                        typeof strategyConfig.budgetCaps === 'object' &&
+                        !Array.isArray(strategyConfig.budgetCaps) &&
+                        Object.keys(strategyConfig.budgetCaps).length > 0;
+  if (hasBudgetCaps) {
+    runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
+  }
+
+  return runConfig;
+}
 
 // ─── List evolution runs ─────────────────────────────────────────
 

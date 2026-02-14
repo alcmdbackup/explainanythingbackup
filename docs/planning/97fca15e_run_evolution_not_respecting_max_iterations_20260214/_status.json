@@ -1,0 +1,16 @@
+{
+  "branch": "fix/97fca15e_run_evolution_not_respecting_max_iterations_20260214",
+  "created_at": "2026-02-14T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/evolution/reference.md",
+    "docs/evolution/architecture.md",
+    "docs/evolution/data_model.md",
+    "docs/evolution/strategy_experiments.md",
+    "docs/evolution/cost_optimization.md",
+    "docs/evolution/agents/tree_search.md",
+    "docs/evolution/agents/generation.md",
+    "docs/evolution/agents/overview.md",
+    "docs/evolution/rating_and_comparison.md"
+  ]
+}

@@ -397,9 +397,12 @@ describe('Evolution Actions', () => {
       expect(runConfig).toBeDefined();
       expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
       expect(runConfig.singleArticle).toBe(true);
+      expect(runConfig.maxIterations).toBe(3);
+      expect(runConfig.generationModel).toBe('gpt-4.1-mini');
+      expect(runConfig.judgeModel).toBe('gpt-4.1-nano');
     });
 
-    it('omits config field when strategy has no enabledAgents or singleArticle', async () => {
+    it('copies model and iteration fields even without enabledAgents or singleArticle', async () => {
       const mock = createChainMock();
       let singleCallCount = 0;
       mock.single.mockImplementation(() => {
@@ -437,8 +440,14 @@ describe('Evolution Actions', () => {
       expect(result.success).toBe(true);
 
       const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
-      // No config field when strategy doesn't have agent selection
-      expect(insertCall.config).toBeUndefined();
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig).toBeDefined();
+      expect(runConfig.maxIterations).toBe(3);
+      expect(runConfig.generationModel).toBe('gpt-4.1-mini');
+      expect(runConfig.judgeModel).toBe('gpt-4.1-nano');
+      // No enabledAgents or singleArticle since strategy doesn't have them
+      expect(runConfig.enabledAgents).toBeUndefined();
+      expect(runConfig.singleArticle).toBeUndefined();
     });
 
     it('sets null when Zod validation fails on estimate result', async () => {
@@ -474,6 +483,143 @@ describe('Evolution Actions', () => {
       const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
       expect(insertCall.estimated_cost_usd).toBeNull();
       expect(insertCall.cost_estimate_detail).toBeNull();
+    });
+  });
+
+  // ─── Config propagation edge cases ─────────────────────────────
+
+  describe('queueEvolutionRunAction config propagation edge cases', () => {
+    /** Helper: set up mock for queue with a given strategy config. Returns the mock for assertion. */
+    function setupQueueMock(strategyConfig: Record<string, unknown>) {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: { id: 'strat-1', config: strategyConfig },
+            error: null,
+          });
+        }
+        return Promise.resolve({
+          data: { id: 'run-edge', estimated_cost_usd: null },
+          error: null,
+        });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
+        totalUsd: 1.0, perAgent: {}, perIteration: 0.1, confidence: 'low',
+      });
+      return mock;
+    }
+
+    it('clamps iterations: 0 to maxIterations: 1', async () => {
+      const mock = setupQueueMock({ iterations: 0 });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.maxIterations).toBe(1);
+    });
+
+    it('clamps iterations: -5 to maxIterations: 1', async () => {
+      const mock = setupQueueMock({ iterations: -5 });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.maxIterations).toBe(1);
+    });
+
+    it('copies iterations: 1 as maxIterations: 1 (boundary)', async () => {
+      const mock = setupQueueMock({ iterations: 1 });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.maxIterations).toBe(1);
+    });
+
+    it('does not copy budgetCaps when null', async () => {
+      const mock = setupQueueMock({ budgetCaps: null });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      // No config field since budgetCaps: null is skipped
+      expect(insertCall.config).toBeUndefined();
+    });
+
+    it('does not copy budgetCaps when empty object', async () => {
+      const mock = setupQueueMock({ budgetCaps: {} });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(insertCall.config).toBeUndefined();
+    });
+
+    it('copies budgetCaps as a separate object (no reference sharing)', async () => {
+      const budgetCaps = { generation: 0.2, pairwise: 0.3 };
+      const mock = setupQueueMock({ budgetCaps });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.budgetCaps).toEqual({ generation: 0.2, pairwise: 0.3 });
+      expect(runConfig.budgetCaps).not.toBe(budgetCaps); // separate object
+    });
+
+    it('copies only present fields (partial config: generationModel but no judgeModel)', async () => {
+      const mock = setupQueueMock({ generationModel: 'deepseek-chat' });
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      const runConfig = insertCall.config as Record<string, unknown>;
+      expect(runConfig.generationModel).toBe('deepseek-chat');
+      expect(runConfig.judgeModel).toBeUndefined();
+      expect(runConfig.maxIterations).toBeUndefined();
+    });
+
+    it('omits config when strategy has no copyable fields', async () => {
+      const mock = setupQueueMock({});
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+      expect(result.success).toBe(true);
+      const insertCall = mock.insert.mock.calls[0]?.[0] as Record<string, unknown>;
+      expect(insertCall.config).toBeUndefined();
     });
   });
 

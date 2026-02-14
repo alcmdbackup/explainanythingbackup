@@ -195,14 +195,59 @@ describe('PoolSupervisor', () => {
       expect(reason).toContain('Budget');
     });
 
-    it('stops on max iterations', () => {
+    it('does not stop at maxIterations (agents should still run)', () => {
       const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5, plateauWindow: 3 });
       const supervisor = new PoolSupervisor(cfg);
       const state = makeState(3, 15);
       supervisor.beginIteration(state);
+      const [stop] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(false);
+    });
+
+    it('stops when iteration exceeds maxIterations', () => {
+      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5, plateauWindow: 3 });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(3, 16);
+      supervisor.beginIteration(state);
       const [stop, reason] = supervisor.shouldStop(state, 10);
       expect(stop).toBe(true);
       expect(reason).toContain('Max iterations');
+    });
+
+    it('maxIterations=1 with iteration=1 does not stop (single iteration runs)', () => {
+      const cfg = makeConfig({
+        maxIterations: 1, expansionMaxIterations: 0, expansionMinPool: 1,
+        plateauWindow: 3, singleArticle: true,
+      });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(0, 1);
+      supervisor.beginIteration(state);
+      const [stop] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(false);
+    });
+
+    it('maxIterations=1 with iteration=2 stops', () => {
+      const cfg = makeConfig({
+        maxIterations: 1, expansionMaxIterations: 0, expansionMinPool: 1,
+        plateauWindow: 3, singleArticle: true,
+      });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(0, 2);
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(true);
+      expect(reason).toContain('Max iterations');
+    });
+
+    it('maxIterations=3 with iteration=3 does not stop', () => {
+      const cfg = makeConfig({ maxIterations: 15, expansionMaxIterations: 5, plateauWindow: 3 });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(3, 3);
+      // Need iteration > expansionMaxIterations for COMPETITION detection to not interfere
+      // but with iteration=3 < expansionMaxIterations=5, we're in EXPANSION — shouldStop still checks maxIterations
+      supervisor.beginIteration(state);
+      const [stop] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(false);
     });
 
     it('detects quality plateau in COMPETITION', () => {

@@ -78,23 +78,29 @@ export class PoolSupervisor {
   diversityHistory: number[] = [];
 
   constructor(private readonly cfg: SupervisorConfig) {
+    this.validateConfig(cfg);
+  }
+
+  private validateConfig(cfg: SupervisorConfig): void {
     const { expansionMinPool, expansionMaxIterations, maxIterations, plateauWindow, expansionDiversityThreshold } = cfg;
 
     if (expansionDiversityThreshold < 0 || expansionDiversityThreshold > 1) {
       throw new Error(`expansionDiversityThreshold must be in [0,1], got ${expansionDiversityThreshold}`);
     }
-    // Skip pool/iteration guards when expansion is disabled (single-article mode)
-    if (expansionMaxIterations > 0) {
-      if (expansionMinPool < 5) {
-        throw new Error(`expansionMinPool must be >= 5, got ${expansionMinPool}`);
-      }
-      if (maxIterations <= expansionMaxIterations) {
-        throw new Error(`maxIterations (${maxIterations}) must be > expansionMaxIterations (${expansionMaxIterations})`);
-      }
-      const minViable = expansionMaxIterations + plateauWindow + 1;
-      if (maxIterations < minViable) {
-        throw new Error(`maxIterations (${maxIterations}) must be >= ${minViable}`);
-      }
+
+    if (expansionMaxIterations === 0) return;
+
+    if (expansionMinPool < 5) {
+      throw new Error(`expansionMinPool must be >= 5, got ${expansionMinPool}`);
+    }
+
+    if (maxIterations <= expansionMaxIterations) {
+      throw new Error(`maxIterations (${maxIterations}) must be > expansionMaxIterations (${expansionMaxIterations})`);
+    }
+
+    const minViable = expansionMaxIterations + plateauWindow + 1;
+    if (maxIterations < minViable) {
+      throw new Error(`maxIterations (${maxIterations}) must be >= ${minViable}`);
     }
   }
 
@@ -102,102 +108,95 @@ export class PoolSupervisor {
     return this._currentPhase;
   }
 
-  /** Detect phase from pool state (does not mutate). */
   detectPhase(state: PipelineState): PipelinePhase {
-    // Safety cap: unconditionally transition at expansionMaxIterations
     if (state.iteration >= this.cfg.expansionMaxIterations) {
       return 'COMPETITION';
     }
 
-    const poolGate = state.getPoolSize() >= this.cfg.expansionMinPool;
-    const diversity = state.diversityScore;
-    const diversityGate =
-      diversity !== null &&
-      !Number.isNaN(diversity) &&
-      diversity >= this.cfg.expansionDiversityThreshold;
+    const poolReady = state.getPoolSize() >= this.cfg.expansionMinPool;
+    const diversityReady = this.isDiversityReady(state.diversityScore);
 
-    if (poolGate && diversityGate) {
-      return 'COMPETITION';
-    }
-    return 'EXPANSION';
+    return (poolReady && diversityReady) ? 'COMPETITION' : 'EXPANSION';
   }
 
-  /** Called once per iteration at the top of the loop. Manages phase transitions. */
+  private isDiversityReady(diversity: number | null): boolean {
+    return diversity !== null &&
+           !Number.isNaN(diversity) &&
+           diversity >= this.cfg.expansionDiversityThreshold;
+  }
+
   beginIteration(state: PipelineState): void {
-    // Idempotency guard
-    if (this._currentIteration !== null) {
-      if (state.iteration === this._currentIteration) return;
-      if (state.iteration < this._currentIteration) {
-        throw new Error(`beginIteration called with stale iteration ${state.iteration} < ${this._currentIteration}`);
-      }
-    }
+    this.guardIterationIdempotency(state.iteration);
     this._currentIteration = state.iteration;
 
     const phase = this._phaseLocked ?? this.detectPhase(state);
-    const previousPhase = this._currentPhase;
+    const isPhaseTransition = phase === 'COMPETITION' && this._currentPhase === 'EXPANSION';
 
-    // Handle EXPANSION → COMPETITION transition
-    if (phase === 'COMPETITION' && previousPhase === 'EXPANSION') {
-      this._phaseLocked = 'COMPETITION';
-      this.ordinalHistory = [];
-      this.diversityHistory = [];
-      this._strategyRotationIndex = -1;
+    if (isPhaseTransition) {
+      this.transitionToCompetition();
     }
 
     this._currentPhase = phase;
 
-    // Advance rotation in COMPETITION
     if (this._currentPhase === 'COMPETITION') {
       this._strategyRotationIndex = (this._strategyRotationIndex + 1) % GENERATION_STRATEGIES.length;
     }
   }
 
-  /** Check if an agent is enabled by the strategy's enabledAgents config.
-   *  Required agents always return true (defense-in-depth against corrupt DB data). */
+  private guardIterationIdempotency(iteration: number): void {
+    if (this._currentIteration === null) return;
+
+    if (iteration === this._currentIteration) return;
+
+    if (iteration < this._currentIteration) {
+      throw new Error(`beginIteration called with stale iteration ${iteration} < ${this._currentIteration}`);
+    }
+  }
+
+  private transitionToCompetition(): void {
+    this._phaseLocked = 'COMPETITION';
+    this.ordinalHistory = [];
+    this.diversityHistory = [];
+    this._strategyRotationIndex = -1;
+  }
+
   private isEnabled(name: AgentName): boolean {
-    if (!this.cfg.enabledAgents) return true; // backward compat: all enabled
+    if (!this.cfg.enabledAgents) return true;
     if ((REQUIRED_AGENTS as readonly string[]).includes(name)) return true;
     return this.cfg.enabledAgents.includes(name);
   }
 
-  /** Return phase configuration (pure read, idempotent). */
   getPhaseConfig(state: PipelineState): PhaseConfig {
-    const phase = this._currentPhase;
-    const diversity = state.diversityScore;
+    return this._currentPhase === 'EXPANSION'
+      ? this.getExpansionConfig(state)
+      : this.getCompetitionConfig();
+  }
 
-    if (phase === 'EXPANSION') {
-      const diversityIsLow =
-        diversity === null ||
-        Number.isNaN(diversity) ||
-        diversity < this.cfg.expansionDiversityThreshold;
+  private getExpansionConfig(state: PipelineState): PhaseConfig {
+    const diversityIsLow = !this.isDiversityReady(state.diversityScore);
+    const strategies = diversityIsLow
+      ? [GENERATION_STRATEGIES[0], GENERATION_STRATEGIES[0], GENERATION_STRATEGIES[0]]
+      : [...GENERATION_STRATEGIES];
 
-      const strategies = diversityIsLow
-        ? [GENERATION_STRATEGIES[0], GENERATION_STRATEGIES[0], GENERATION_STRATEGIES[0]]
-        : [...GENERATION_STRATEGIES]
-      ;
+    return {
+      phase: 'EXPANSION',
+      runGeneration: this.isEnabled('generation'),
+      runOutlineGeneration: false,
+      runReflection: false,
+      runIterativeEditing: false,
+      runTreeSearch: false,
+      runSectionDecomposition: false,
+      runDebate: false,
+      runEvolution: false,
+      runCalibration: this.isEnabled('calibration'),
+      runProximity: this.isEnabled('proximity'),
+      runMetaReview: false,
+      generationPayload: { strategies },
+      calibrationPayload: { opponentsPerEntrant: 3 },
+    };
+  }
 
-      return {
-        phase: 'EXPANSION',
-        runGeneration: this.isEnabled('generation'),
-        runOutlineGeneration: false,
-        runReflection: false,
-        runIterativeEditing: false,
-        runTreeSearch: false,
-        runSectionDecomposition: false,
-        runDebate: false,
-        runEvolution: false,
-        runCalibration: this.isEnabled('calibration'),
-        runProximity: this.isEnabled('proximity'),
-        runMetaReview: false,
-        generationPayload: { strategies },
-        calibrationPayload: { opponentsPerEntrant: 3 },
-      };
-    }
-
-    // COMPETITION
-    // TODO: generationPayload.strategies is currently ignored by GenerationAgent,
-    // which always uses all 3 strategies. Wire this into GenerationAgent or remove
-    // the rotation logic to avoid dead code path.
+  private getCompetitionConfig(): PhaseConfig {
     const currentStrategy = GENERATION_STRATEGIES[this._strategyRotationIndex];
     return {
       phase: 'COMPETITION',
@@ -217,56 +216,55 @@ export class PoolSupervisor {
     };
   }
 
-  /** Determine if evolution should stop. Returns [shouldStop, reason]. */
   shouldStop(state: PipelineState, availableBudget: number): [boolean, string] {
-    // Track history only in COMPETITION
     if (this._currentPhase === 'COMPETITION') {
-      if (state.ratings.size > 0) {
-        const topOrdinal = Math.max(...[...state.ratings.values()].map(getOrdinal));
-        this.ordinalHistory.push(topOrdinal);
-      }
-      if (state.diversityScore !== null && !Number.isNaN(state.diversityScore)) {
-        this.diversityHistory.push(state.diversityScore);
+      this.trackCompetitionMetrics(state);
+
+      if (this._isPlateaued()) {
+        const isDegenerateState = this.isDiversityValid(state.diversityScore) && state.diversityScore! < 0.01;
+        return [true, isDegenerateState ? 'Degenerate state detected' : 'Quality plateau detected'];
       }
     }
 
-    // 1. Quality plateau (COMPETITION only)
-    if (this._currentPhase === 'COMPETITION' && this._isPlateaued()) {
-      if (
-        state.diversityScore !== null &&
-        !Number.isNaN(state.diversityScore) &&
-        state.diversityScore < 0.01
-      ) {
-        return [true, 'Degenerate state detected'];
-      }
-      return [true, 'Quality plateau detected'];
-    }
-
-    // 2. Budget exhausted
     if (availableBudget < this.cfg.minBudget) {
       return [true, 'Budget exhausted'];
     }
 
-    // 3. Max iterations
-    if (state.iteration >= this.cfg.maxIterations) {
+    if (state.iteration > this.cfg.maxIterations) {
       return [true, 'Max iterations reached'];
     }
 
     return [false, ''];
   }
 
-  /** Restore phase state from checkpoint resume. */
+  private trackCompetitionMetrics(state: PipelineState): void {
+    if (state.ratings.size > 0) {
+      const topOrdinal = Math.max(...[...state.ratings.values()].map(getOrdinal));
+      this.ordinalHistory.push(topOrdinal);
+    }
+
+    if (this.isDiversityValid(state.diversityScore)) {
+      this.diversityHistory.push(state.diversityScore!);
+    }
+  }
+
+  private isDiversityValid(diversity: number | null): boolean {
+    return diversity !== null && !Number.isNaN(diversity);
+  }
+
   setPhaseFromResume(phase: PipelinePhase, rotationIndex: number): void {
     if (phase !== 'EXPANSION' && phase !== 'COMPETITION') {
       throw new Error(`Invalid phase for resume: '${phase}'`);
     }
+
     this._currentPhase = phase;
+
     if (phase === 'COMPETITION') {
       this._phaseLocked = 'COMPETITION';
     }
-    this._strategyRotationIndex = Number.isInteger(rotationIndex) && rotationIndex >= 0
-      ? rotationIndex
-      : 0;
+
+    const isValidRotationIndex = Number.isInteger(rotationIndex) && rotationIndex >= 0;
+    this._strategyRotationIndex = isValidRotationIndex ? rotationIndex : 0;
   }
 
   /** Return serializable state for checkpoint persistence. */
@@ -279,7 +277,6 @@ export class PoolSupervisor {
     };
   }
 
-  /** Reset tracking history (does NOT clear phase lock). */
   resetIterationHistory(): void {
     this.ordinalHistory = [];
     this.diversityHistory = [];
@@ -287,9 +284,11 @@ export class PoolSupervisor {
 
   private _isPlateaued(): boolean {
     if (this.ordinalHistory.length < this.cfg.plateauWindow) return false;
+
     const recent = this.ordinalHistory.slice(-this.cfg.plateauWindow);
     const improvement = recent[recent.length - 1] - recent[0];
-    // Ordinal scale: 1 ordinal ≈ 16 Elo, so 100 Elo ≈ 6 ordinal
-    return improvement < this.cfg.plateauThreshold * 6;
+    const plateauThresholdOrdinal = this.cfg.plateauThreshold * 6;
+
+    return improvement < plateauThresholdOrdinal;
   }
 }

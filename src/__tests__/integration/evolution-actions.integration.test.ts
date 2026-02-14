@@ -341,6 +341,87 @@ describe('Evolution Server Actions Integration Tests', () => {
     });
   });
 
+  // ─── Config propagation (strategy → run) ────────────────────
+
+  describe('Config propagation', () => {
+    it('copies strategy config fields into run config JSONB', async () => {
+      if (!tablesReady) return;
+
+      // Create a prompt (required by prompt_id NOT NULL constraint on runs)
+      const promptText = `${TEST_PREFIX}_config_prop_${Date.now()}`;
+      const { data: prompt, error: promptErr } = await supabase
+        .from('hall_of_fame_topics')
+        .insert({ title: promptText, prompt: promptText })
+        .select('id')
+        .single();
+      if (promptErr || !prompt) throw new Error(`Prompt insert failed: ${promptErr?.message}`);
+
+      // Create a strategy config with all propagatable fields
+      const strategyConfig = {
+        iterations: 3,
+        generationModel: 'deepseek-chat',
+        judgeModel: 'deepseek-chat',
+        budgetCaps: { generation: 0.2, pairwise: 0.3 },
+        enabledAgents: ['reflection', 'debate'],
+        singleArticle: true,
+      };
+
+      const { data: strategy, error: stratErr } = await supabase
+        .from('strategy_configs')
+        .insert({
+          name: `${TEST_PREFIX}_config_propagation`,
+          label: 'Test config propagation',
+          config: strategyConfig,
+          config_hash: `test_${Date.now()}`,
+        })
+        .select('id')
+        .single();
+
+      if (stratErr || !strategy) throw new Error(`Strategy insert failed: ${stratErr?.message}`);
+
+      try {
+        const result = await queueEvolutionRunAction({
+          explanationId: testExplanationId,
+          promptId: prompt.id,
+          strategyId: strategy.id,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.data).toBeTruthy();
+
+        // Read back the run's config JSONB
+        const { data: run } = await supabase
+          .from('content_evolution_runs')
+          .select('config')
+          .eq('id', result.data!.id)
+          .single();
+
+        const runConfig = run?.config as Record<string, unknown>;
+        expect(runConfig).toBeTruthy();
+
+        // Strategy fields should be propagated
+        expect(runConfig.maxIterations).toBe(3);
+        expect(runConfig.generationModel).toBe('deepseek-chat');
+        expect(runConfig.judgeModel).toBe('deepseek-chat');
+        expect(runConfig.budgetCaps).toEqual({ generation: 0.2, pairwise: 0.3 });
+        expect(runConfig.enabledAgents).toEqual(['reflection', 'debate']);
+        expect(runConfig.singleArticle).toBe(true);
+
+        // Verify resolveConfig() produces strategy values, not defaults
+        const { resolveConfig } = await import('@/lib/evolution/config');
+        const resolved = resolveConfig(runConfig);
+        expect(resolved.maxIterations).toBe(3);
+        expect(resolved.generationModel).toBe('deepseek-chat');
+        expect(resolved.judgeModel).toBe('deepseek-chat');
+        expect(resolved.singleArticle).toBe(true);
+      } finally {
+        // Cleanup strategy config and prompt
+        await supabase.from('strategy_configs').delete().eq('id', strategy.id);
+        await supabase.from('hall_of_fame_topics').delete().eq('id', prompt.id);
+      }
+    });
+  });
+
   // ─── Comparison ───────────────────────────────────────────────
 
   describe('Comparison', () => {
