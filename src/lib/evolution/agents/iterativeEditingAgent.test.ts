@@ -3,7 +3,7 @@
 
 import { IterativeEditingAgent } from './iterativeEditingAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, OutlineVariant, GenerationStep } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, OutlineVariant, GenerationStep, IterativeEditingExecutionDetail } from '../types';
 import { BudgetExceededError, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { DiffComparisonResult } from '../diffComparison';
@@ -690,6 +690,69 @@ describe('IterativeEditingAgent', () => {
       expect(newVariants.length).toBe(1);
       // Should target dimension, not step (plain TextVariation)
       expect(newVariants[0].strategy).not.toContain('step:');
+    });
+  });
+
+  describe('executionDetail', () => {
+    it('captures cycle details and stop reason on accept', async () => {
+      mockCompareWithDiff.mockResolvedValueOnce(makeAcceptResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          HIGH_SCORE_CRITIQUE_JSON, // all scores ≥ 8
+          '{}', // no open suggestions → threshold met
+        ]),
+      });
+      const result = await agent.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      expect(result.executionDetail!.detailType).toBe('iterativeEditing');
+      const detail = result.executionDetail as IterativeEditingExecutionDetail;
+      expect(detail.targetVariantId).toBeTruthy();
+      expect(detail.config.maxCycles).toBe(3);
+      expect(detail.cycles).toHaveLength(1);
+      expect(detail.cycles[0].verdict).toBe('ACCEPT');
+      expect(detail.cycles[0].formatValid).toBe(true);
+      expect(detail.cycles[0].newVariantId).toBeDefined();
+      expect(detail.initialCritique.dimensionScores).toBeDefined();
+      expect(detail.stopReason).toBe('threshold_met');
+    });
+
+    it('captures reject cycles and max_rejections stop reason', async () => {
+      const agent2 = new IterativeEditingAgent({ maxConsecutiveRejections: 2, maxCycles: 5 });
+      mockCompareWithDiff.mockResolvedValue(makeRejectResult());
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          VALID_ARTICLE,
+          VALID_ARTICLE,
+          VALID_ARTICLE,
+        ]),
+      });
+      const result = await agent2.execute(ctx);
+
+      const detail = result.executionDetail as IterativeEditingExecutionDetail;
+      expect(detail.stopReason).toBe('max_rejections');
+      expect(detail.consecutiveRejections).toBe(2);
+      expect(detail.cycles.every(c => c.verdict === 'REJECT')).toBe(true);
+    });
+
+    it('captures format failure in cycle detail', async () => {
+      const badArticle = 'no heading, no structure';
+      const ctx = makeCtx({
+        llmClient: makeMockLLMClient([
+          VALID_OPEN_REVIEW,
+          badArticle, badArticle, badArticle,
+        ]),
+      });
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as IterativeEditingExecutionDetail;
+      expect(detail.cycles.length).toBeGreaterThan(0);
+      expect(detail.cycles[0].formatValid).toBe(false);
+      expect(detail.cycles[0].formatIssues).toBeDefined();
+      expect(detail.cycles[0].formatIssues!.length).toBeGreaterThan(0);
     });
   });
 });

@@ -211,3 +211,41 @@ describe('MetaReviewAgent', () => {
     expect(ctx.llmClient.completeStructured).not.toHaveBeenCalled();
   });
 });
+
+describe('MetaReviewAgent executionDetail', () => {
+  const agent = new MetaReviewAgent();
+
+  it('captures all 4 feedback arrays and analysis snapshot', async () => {
+    const variants = [
+      makeVariation({ id: 'v1', strategy: 'structural_transform' }),
+      makeVariation({ id: 'v2', strategy: 'lexical_simplify' }),
+      makeVariation({ id: 'v3', strategy: 'structural_transform' }),
+    ];
+    const ctx = makeCtx(variants, {
+      v1: { mu: 30, sigma: 4 },
+      v2: { mu: 18, sigma: 5 },
+      v3: { mu: 28, sigma: 4 },
+    });
+
+    const result = await agent.execute(ctx);
+
+    expect(result.executionDetail).toBeDefined();
+    expect(result.executionDetail!.detailType).toBe('metaReview');
+    const detail = result.executionDetail as import('../types').MetaReviewExecutionDetail;
+    expect(detail.successfulStrategies).toEqual(expect.any(Array));
+    expect(detail.recurringWeaknesses).toEqual(expect.any(Array));
+    expect(detail.patternsToAvoid).toEqual(expect.any(Array));
+    expect(detail.priorityImprovements).toEqual(expect.any(Array));
+    expect(detail.analysis.strategyOrdinals).toBeDefined();
+    expect(detail.analysis.activeStrategies).toBeGreaterThanOrEqual(1);
+    expect(detail.analysis.ordinalRange).toBeGreaterThanOrEqual(0);
+    expect(detail.totalCost).toBe(0);
+  });
+
+  it('returns no detail on empty pool failure', async () => {
+    const ctx = makeCtx([]);
+    const result = await agent.execute(ctx);
+    expect(result.success).toBe(false);
+    expect(result.executionDetail).toBeUndefined();
+  });
+});

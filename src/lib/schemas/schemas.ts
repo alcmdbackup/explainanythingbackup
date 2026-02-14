@@ -1215,7 +1215,7 @@ export const runHallOfFameComparisonInputSchema = z.object({
 });
 export type RunHallOfFameComparisonInputType = z.infer<typeof runHallOfFameComparisonInputSchema>;
 
-// Article Bank aliases (articleBankActions.ts uses these names)
+// Legacy aliases (used by articleBankActions)
 export const addToBankInputSchema = addToHallOfFameInputSchema;
 export const runBankComparisonInputSchema = runHallOfFameComparisonInputSchema;
 export type BankGenerationMethod = HallOfFameGenerationMethod;

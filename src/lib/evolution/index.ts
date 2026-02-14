@@ -7,6 +7,7 @@ import { createCostTracker as _createCostTracker } from './core/costTracker';
 import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logger';
 import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
 import { resolveConfig as _resolveConfig } from './config';
+import { computeEffectiveBudgetCaps as _computeEffectiveBudgetCaps } from './core/budgetRedistribution';
 import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext } from './types';
 import type { PipelineAgents } from './core/pipeline';
 import type { CostTrackerImpl } from './core/costTracker';
@@ -88,6 +89,8 @@ export type { DiversityStatus } from './core/diversityTracker';
 export { isTransientError } from './core/errorClassification';
 export { fetchEvolutionFeatureFlags, DEFAULT_EVOLUTION_FLAGS } from './core/featureFlags';
 export type { EvolutionFeatureFlags } from './core/featureFlags';
+export { computeEffectiveBudgetCaps, validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES, MUTEX_AGENTS } from './core/budgetRedistribution';
+export { toggleAgent } from './core/agentToggle';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
 export { parseArticleIntoSections } from './section/sectionParser';
 export { stitchSections, stitchWithReplacements } from './section/sectionStitcher';
@@ -146,6 +149,12 @@ export interface PreparedPipelineRun {
  */
 export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
   const config = _resolveConfig(inputs.configOverrides ?? {});
+  // Redistribute budget caps based on enabled agents (before CostTracker creation)
+  config.budgetCaps = _computeEffectiveBudgetCaps(
+    config.budgetCaps,
+    config.enabledAgents,
+    config.singleArticle ?? false,
+  );
   const state = new _PipelineStateImpl(inputs.originalText);
   const costTracker = _createCostTracker(config);
   const logger = _createDbEvolutionLogger(inputs.runId);

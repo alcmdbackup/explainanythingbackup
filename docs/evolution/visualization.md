@@ -10,7 +10,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 |-------|---------|
 | `/admin/evolution-dashboard` | Evolution overview: quick links, run/spend charts, recent runs table |
 | `/admin/quality/evolution` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
-| `/admin/quality/evolution/run/[runId]` | Run detail: 6-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants) + Add to Hall of Fame dialog |
+| `/admin/quality/evolution/run/[runId]` | Run detail: 7-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants, Logs) + Add to Hall of Fame dialog |
 | `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 
 ## Key Files
@@ -24,7 +24,10 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `EloSparkline.tsx` | Tiny inline Recharts sparkline for variant rating trajectory (displays ordinal mapped to Elo scale) |
 | `VariantCard.tsx` | Compact variant info card + strategy color palette |
 | `LineageGraph.tsx` | D3 DAG visualization with zoom/pan and click-to-inspect |
-| `tabs/TimelineTab.tsx` | Iteration-by-iteration execution timeline with expandable per-agent detail panels |
+| `tabs/TimelineTab.tsx` | Iteration-by-iteration execution timeline with expandable per-agent detail panels and lazy-loaded execution detail views |
+| `agentDetails/index.tsx` | `AgentExecutionDetailView` — discriminated union dispatcher that renders the correct detail component based on `detailType` |
+| `agentDetails/shared.tsx` | Shared UI primitives (`StatusBadge`, `DetailSection`, `Metric`, `CostDisplay`, `ShortId`) used across all detail views |
+| `agentDetails/*.tsx` | 12 agent-specific detail views (one per agent type) showing structured execution metrics |
 | `tabs/EloTab.tsx` | Rating trajectory line chart with top-N filtering (ordinal values mapped to Elo scale) |
 | `tabs/LineageTab.tsx` | Lineage DAG tab wrapper (dynamic import) |
 | `tabs/BudgetTab.tsx` | Cumulative burn curve + agent cost breakdown + estimated vs actual comparison panel |
@@ -34,7 +37,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 
 ### Server Actions (`src/lib/services/evolutionVisualizationActions.ts`)
 
-8 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
+9 read-only actions following the `withLogging + requireAdmin + serverReadRequestId` pattern:
 
 1. `getEvolutionDashboardDataAction` — System-wide stats, runs/spend trends
 2. `getEvolutionRunTimelineAction` — Per-iteration agent execution breakdown with checkpoint diffing for accurate per-agent metrics (variants added, matches played, rating changes) and timestamp-based cost attribution
@@ -44,6 +47,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 6. `getEvolutionRunComparisonAction` — Original vs winner text, Elo delta, `generationDepth` (max variant version in pool)
 7. `getEvolutionRunStepScoresAction` — Per-variant step scores for outline variants (returns `VariantStepData[]` with step names, scores, costs, and weakest step)
 8. `getEvolutionRunTreeSearchAction` — Tree search state: full tree nodes with depth/pruning/actions for the Tree tab
+9. `getAgentInvocationDetailAction` — Lazy-loaded per-agent execution detail from `evolution_agent_invocations`. Returns typed `AgentExecutionDetail` discriminated union keyed by `detailType`
 
 Additionally, the run detail page uses:
 - `getEvolutionRunSummaryAction(runId)` from `evolutionActions.ts` to display the validated `EvolutionRunSummary` (stop reason, Elo/diversity history, match stats, baseline rank)
@@ -80,6 +84,25 @@ The Timeline tab shows all agents that executed in each iteration.
 **Cost attribution**: Uses timestamp correlation between LLM calls and checkpoint boundaries. May be imprecise for concurrent runs (logged warning).
 
 **Expandable detail**: Click any agent row to see full metrics including new variant IDs, Elo changes, and error messages.
+
+**Execution detail views**: When `hasExecutionDetail` is true on an agent row, expanding it lazy-loads the structured `AgentExecutionDetail` from `evolution_agent_invocations` via `getAgentInvocationDetailAction`. The `AgentExecutionDetailView` component dispatches to 12 type-specific views based on `detailType`:
+
+| Detail Type | Agent | Key Metrics Shown |
+|-------------|-------|-------------------|
+| `generation` | GenerationAgent | Per-strategy status (ACCEPT/REJECT), variant IDs, strategy names |
+| `outlineGeneration` | OutlineGenerationAgent | Step scores (outline/expand/polish/verify), step costs, weakest step |
+| `calibration` | CalibrationRanker | Match results, rating changes per variant |
+| `tournament` | Tournament | Rounds, matches per round, rating deltas, ties |
+| `evolution` | EvolutionAgent | Children with mutation types (mutate/crossover/creative), parent IDs |
+| `reflection` | ReflectionAgent | Critiqued variant IDs, dimension scores, critique text |
+| `iterativeEditing` | IterativeEditingAgent | Edit rounds, accepted/rejected count, judge verdicts |
+| `sectionDecomposition` | SectionDecompositionAgent | Sections parsed, per-section edit status, stitch method |
+| `debate` | DebateAgent | Debate turns, synthesis variant ID, debated variant IDs |
+| `proximity` | ProximityAgent | Diversity score, similarity matrix stats, embedding count |
+| `metaReview` | MetaReviewAgent | Strategy performance rankings, recommendations |
+| `treeSearch` | TreeSearchAgent | Nodes explored, depth reached, beam width, pruned count |
+
+Detail data is persisted by `persistAgentInvocation()` in pipeline.ts after each agent executes. Data is truncated to 100KB max with non-blocking error handling.
 
 ### Budget Tab - Estimated vs Actual
 
@@ -120,13 +143,14 @@ The step score data is fetched in `Promise.all` alongside existing variant data 
 
 ## Testing
 
-Component unit tests (45 total):
+Component unit tests (61 total):
 - `EvolutionStatusBadge.test.tsx` — 7 tests (status style mapping)
 - `AutoRefreshProvider.test.tsx` — 6 tests (polling, visibility pause, manual refresh)
 - `EloSparkline.test.tsx` — 4 tests (sparkline rendering)
 - `LineageGraph.test.tsx` — 4 tests (DAG rendering, node selection)
 - `StepScoreBar.test.tsx` — 10 tests (step bar rendering, color coding, weakest step highlight, empty/missing data)
-- `TimelineTab.test.tsx` — 14 tests (expandable rows, agent detail panel, error states)
+- `TimelineTab.test.tsx` — 18 tests (expandable rows, agent detail panel, execution detail loading, error states)
+- `AgentExecutionDetailView.test.tsx` — 12 tests (discriminated union dispatch, all 12 detail types render correctly)
 
 Server action unit tests:
 - `evolutionVisualizationActions.test.ts` — 7 tests (checkpoint diffing, cost attribution, edge cases)

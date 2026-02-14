@@ -3,7 +3,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { parseArticleIntoSections } from '../section/sectionParser';
 import { stitchWithReplacements } from '../section/sectionStitcher';
@@ -87,6 +87,15 @@ export class SectionDecompositionAgent extends AgentBase {
       throw error;
     }
 
+    // Build section detail for all parsed sections
+    const sectionDetails: SectionDecompositionExecutionDetail['sections'] = parsed.sections.map((s, i) => ({
+      index: i,
+      heading: s.heading,
+      eligible: !s.isPreamble && s.markdown.length >= MIN_SECTION_LENGTH,
+      improved: false,
+      charCount: s.markdown.length,
+    }));
+
     // Run section edits in parallel
     const editPromises = eligible.map((section) =>
       runSectionEdit(
@@ -108,6 +117,9 @@ export class SectionDecompositionAgent extends AgentBase {
     for (const result of results) {
       if (result.status === 'fulfilled' && result.value.improved) {
         replacements.set(result.value.sectionIndex, result.value.markdown);
+        // Mark section as improved in detail
+        const sd = sectionDetails.find(s => s.index === result.value.sectionIndex);
+        if (sd) sd.improved = true;
       } else if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
         budgetError = result.reason;
       }
@@ -115,8 +127,14 @@ export class SectionDecompositionAgent extends AgentBase {
 
     if (replacements.size === 0) {
       logger.info('No section improvements accepted', { eligible: eligible.length });
+      const detail: SectionDecompositionExecutionDetail = {
+        detailType: 'sectionDecomposition', targetVariantId: top.id,
+        weakness: { dimension: weakness.dimension, description: weakness.description },
+        sections: sectionDetails, sectionsImproved: 0, totalEligible: eligible.length,
+        formatValid: true, totalCost: costTracker.getAgentCost(this.name),
+      };
       if (budgetError) throw budgetError;
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0 };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail };
     }
 
     // Stitch improved sections back into full article
@@ -126,7 +144,13 @@ export class SectionDecompositionAgent extends AgentBase {
     const formatResult = validateFormat(stitchedText);
     if (!formatResult.valid) {
       logger.warn('Stitched article failed format validation', { issues: formatResult.issues });
-      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0 };
+      const detail: SectionDecompositionExecutionDetail = {
+        detailType: 'sectionDecomposition', targetVariantId: top.id,
+        weakness: { dimension: weakness.dimension, description: weakness.description },
+        sections: sectionDetails, sectionsImproved: replacements.size, totalEligible: eligible.length,
+        formatValid: false, totalCost: costTracker.getAgentCost(this.name),
+      };
+      return { agentType: this.name, success: false, costUsd: costTracker.getAgentCost(this.name), variantsAdded: 0, executionDetail: detail };
     }
 
     // Add stitched variant to pool
@@ -147,6 +171,14 @@ export class SectionDecompositionAgent extends AgentBase {
       weakness: weakness.dimension,
     });
 
+    const detail: SectionDecompositionExecutionDetail = {
+      detailType: 'sectionDecomposition', targetVariantId: top.id,
+      weakness: { dimension: weakness.dimension, description: weakness.description },
+      sections: sectionDetails, sectionsImproved: replacements.size, totalEligible: eligible.length,
+      formatValid: true, newVariantId: variant.id,
+      totalCost: costTracker.getAgentCost(this.name),
+    };
+
     // Propagate budget error after partial success
     if (budgetError) throw budgetError;
 
@@ -155,6 +187,7 @@ export class SectionDecompositionAgent extends AgentBase {
       success: true,
       costUsd: costTracker.getAgentCost(this.name),
       variantsAdded: 1,
+      executionDetail: detail,
     };
   }
 

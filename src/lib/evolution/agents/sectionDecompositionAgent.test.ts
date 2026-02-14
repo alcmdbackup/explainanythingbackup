@@ -2,7 +2,7 @@
 
 import { SectionDecompositionAgent } from './sectionDecompositionAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, Critique } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, Critique, SectionDecompositionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
@@ -245,6 +245,37 @@ Content for section B. It covers the advanced topics well.
       // Cost reported from agent cost tracker
       expect(costTracker.getAgentCost).toHaveBeenCalledWith('sectionDecomposition');
       expect(typeof result.costUsd).toBe('number');
+    });
+
+    it('captures executionDetail with section breakdown', async () => {
+      const agent = new SectionDecompositionAgent();
+      const { ctx } = createContext(MULTI_SECTION_ARTICLE);
+      const result = await agent.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      expect(result.executionDetail!.detailType).toBe('sectionDecomposition');
+      const detail = result.executionDetail as SectionDecompositionExecutionDetail;
+      expect(detail.targetVariantId).toBe('top-variant');
+      expect(detail.weakness.dimension).toBeTruthy();
+      expect(detail.sections.length).toBeGreaterThan(0);
+      expect(detail.totalEligible).toBeGreaterThan(0);
+      // Each section should have heading and charCount
+      for (const s of detail.sections) {
+        expect(s.charCount).toBeGreaterThan(0);
+        expect(typeof s.eligible).toBe('boolean');
+        expect(typeof s.improved).toBe('boolean');
+      }
+    });
+
+    it('captures skipped result without executionDetail', async () => {
+      const agent = new SectionDecompositionAgent();
+      const { ctx, state } = createContext(MULTI_SECTION_ARTICLE);
+      state.allCritiques = [createMockCritique('other-variant')];
+      const result = await agent.execute(ctx);
+
+      // Skipped returns don't have execution detail (agent-level skip)
+      expect(result.success).toBe(false);
+      expect(result.skipped).toBe(true);
     });
   });
 });

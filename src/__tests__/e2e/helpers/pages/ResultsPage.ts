@@ -128,23 +128,34 @@ export class ResultsPage extends BasePage {
   }
 
   async getContent() {
-    // Use .lexical-editor class directly (same pattern as getEditorTextContent helper)
-    // because innerText() on the container doesn't traverse contenteditable children
+    // Try .lexical-editor first (markdown mode), fall back to explanation-content (plain text mode)
     const editor = this.page.locator('.lexical-editor');
-    await editor.waitFor({ state: 'visible', timeout: 30000 });
-    // Wait for Lexical async init by checking for non-empty text via evaluate
-    try {
-      await this.page.waitForFunction(
-        () => {
-          const el = document.querySelector('.lexical-editor');
-          return el && (el.textContent?.trim().length ?? 0) > 0;
-        },
-        { timeout: 10000 }
-      );
-    } catch {
-      // Lexical may still be initializing; textContent is read regardless below
+    const contentContainer = this.page.locator(this.explanationContent);
+
+    // Wait for either editor or content container to appear
+    const visible = await Promise.race([
+      editor.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'editor' as const),
+      contentContainer.waitFor({ state: 'visible', timeout: 10000 }).then(() => 'container' as const),
+    ]).catch(() => 'container' as const);
+
+    if (visible === 'editor') {
+      // Wait for Lexical async init by checking for non-empty text
+      try {
+        await this.page.waitForFunction(
+          () => {
+            const el = document.querySelector('.lexical-editor');
+            return el && (el.textContent?.trim().length ?? 0) > 0;
+          },
+          { timeout: 10000 }
+        );
+      } catch {
+        // Lexical may still be initializing; textContent is read regardless below
+      }
+      return (await editor.textContent()) ?? '';
     }
-    return (await editor.textContent()) ?? '';
+
+    // Plain text / fallback: read from content container
+    return (await contentContainer.textContent()) ?? '';
   }
 
   async getContentLength() {

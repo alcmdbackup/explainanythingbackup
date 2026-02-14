@@ -11,8 +11,6 @@ import { logger } from '@/lib/server_utilities';
 import { logAdminAction } from '@/lib/services/auditLog';
 import type { EvolutionRunStatus, PipelinePhase, PipelineType, EvolutionRunSummary } from '@/lib/evolution/types';
 import { EvolutionRunSummarySchema } from '@/lib/evolution/types';
-import { hashStrategyConfig, labelStrategyConfig, type StrategyConfig } from '@/lib/evolution/core/strategyConfig';
-import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -165,7 +163,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     // Validate strategy reference and resolve budget cap if provided
     let budgetCap = input.budgetCapUsd ?? 5.00;
-    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number };
+    type QueueStrategyConfig = { generationModel?: string; judgeModel?: string; iterations?: number; agentModels?: Record<string, string>; budgetCapUsd?: number; enabledAgents?: string[]; singleArticle?: boolean };
     let strategyConfig: QueueStrategyConfig | null = null;
     if (input.strategyId) {
       const { data: strategy } = await supabase
@@ -184,49 +182,6 @@ const _queueEvolutionRunAction = withLogging(async (
     // Require at least explanationId or promptId
     if (!input.explanationId && !input.promptId) {
       throw new Error('Either explanationId or promptId is required');
-    }
-
-    // Ensure prompt_id is always set (NOT NULL constraint)
-    // When only explanationId is provided, auto-create a hall_of_fame_topics entry
-    let resolvedPromptId = input.promptId;
-    if (!resolvedPromptId && input.explanationId) {
-      const { data: explanation } = await supabase
-        .from('explanations')
-        .select('title')
-        .eq('id', input.explanationId)
-        .single();
-      const prompt = explanation?.title ?? `Explanation #${input.explanationId}`;
-      // Try to find existing topic with same prompt
-      const { data: existingTopic } = await supabase
-        .from('hall_of_fame_topics')
-        .select('id')
-        .ilike('prompt', prompt.trim())
-        .is('deleted_at', null)
-        .single();
-      if (existingTopic) {
-        resolvedPromptId = existingTopic.id;
-      } else {
-        const { data: newTopic, error: topicErr } = await supabase
-          .from('hall_of_fame_topics')
-          .insert({ prompt: prompt.trim(), title: prompt.trim() })
-          .select('id')
-          .single();
-        if (topicErr) {
-          // Handle race condition: concurrent insert
-          if (topicErr.code === '23505') {
-            const { data: retry } = await supabase
-              .from('hall_of_fame_topics')
-              .select('id')
-              .ilike('prompt', prompt.trim())
-              .is('deleted_at', null)
-              .single();
-            if (retry) resolvedPromptId = retry.id;
-          }
-          if (!resolvedPromptId) throw new Error(`Failed to create prompt topic: ${topicErr.message}`);
-        } else {
-          resolvedPromptId = newTopic.id;
-        }
-      }
     }
 
     // Compute cost estimate (best-effort — queue succeeds even if estimation fails)
@@ -263,48 +218,88 @@ const _queueEvolutionRunAction = withLogging(async (
     }
 
     // Set source column based on run type
-    const source = input.explanationId ? 'explanation' : `prompt:${resolvedPromptId}`;
+    const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
+
+    // Build run config from strategy's agent selection + pipeline mode
+    // Validate enabledAgents from DB to defend against corrupt JSONB data
+    const runConfig: Record<string, unknown> = {};
+    if (strategyConfig?.enabledAgents) {
+      const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
+      const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
+      if (parsed.success && parsed.data) {
+        runConfig.enabledAgents = parsed.data;
+      } else {
+        logger.warn('Invalid enabledAgents in strategy config (ignored)', {
+          strategyId: input.strategyId,
+          raw: strategyConfig.enabledAgents,
+        });
+      }
+    }
+    if (strategyConfig?.singleArticle) {
+      runConfig.singleArticle = true;
+    }
+
+    // Ensure strategy_config_id (required NOT NULL column)
+    let resolvedStrategyId = input.strategyId;
+    if (!resolvedStrategyId) {
+      const defaultHash = 'default-legacy-queue';
+      const { data: existing } = await supabase
+        .from('strategy_configs')
+        .select('id')
+        .eq('config_hash', defaultHash)
+        .limit(1)
+        .maybeSingle();
+      if (existing) {
+        resolvedStrategyId = existing.id;
+      } else {
+        const { data: created, error: stratErr } = await supabase
+          .from('strategy_configs')
+          .insert({
+            config_hash: defaultHash,
+            name: 'Legacy queue default',
+            label: 'Gen: gpt-4o-mini | Judge: gpt-4.1-nano | 3 iters',
+            config: { generationModel: 'gpt-4o-mini', judgeModel: 'gpt-4.1-nano', iterations: 3, budgetCaps: { total: 5.0 } },
+          })
+          .select('id')
+          .single();
+        if (stratErr) throw new Error(`Failed to create default strategy: ${stratErr.message}`);
+        resolvedStrategyId = created.id;
+      }
+    }
+
+    // Ensure prompt_id (required NOT NULL column)
+    let resolvedPromptId = input.promptId;
+    if (!resolvedPromptId) {
+      const defaultPrompt = '[System] Legacy explanation-based run';
+      const { data: existing } = await supabase
+        .from('hall_of_fame_topics')
+        .select('id')
+        .eq('prompt', defaultPrompt)
+        .limit(1)
+        .maybeSingle();
+      if (existing) {
+        resolvedPromptId = existing.id;
+      } else {
+        const { data: created, error: topicErr } = await supabase
+          .from('hall_of_fame_topics')
+          .insert({ prompt: defaultPrompt, title: 'Legacy run' })
+          .select('id')
+          .single();
+        if (topicErr) throw new Error(`Failed to create default prompt: ${topicErr.message}`);
+        resolvedPromptId = created.id;
+      }
+    }
 
     const insertRow: Record<string, unknown> = {
       budget_cap_usd: budgetCap,
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
+      strategy_config_id: resolvedStrategyId,
+      prompt_id: resolvedPromptId,
+      ...(Object.keys(runConfig).length > 0 ? { config: runConfig } : {}),
     };
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
-    if (resolvedPromptId) insertRow.prompt_id = resolvedPromptId;
-
-    // Ensure strategy_config_id is always set (NOT NULL constraint)
-    if (input.strategyId) {
-      insertRow.strategy_config_id = input.strategyId;
-    } else {
-      // Create a default strategy config from pipeline defaults
-      const defaultConfig: StrategyConfig = {
-        generationModel: DEFAULT_EVOLUTION_CONFIG.generationModel ?? 'gpt-4.1-mini',
-        judgeModel: DEFAULT_EVOLUTION_CONFIG.judgeModel ?? 'gpt-4.1-nano',
-        iterations: DEFAULT_EVOLUTION_CONFIG.maxIterations,
-        budgetCaps: DEFAULT_EVOLUTION_CONFIG.budgetCaps,
-      };
-      const hash = hashStrategyConfig(defaultConfig);
-      const label = labelStrategyConfig(defaultConfig);
-      // Upsert: reuse existing config with same hash, or create new
-      const { data: existing } = await supabase
-        .from('strategy_configs')
-        .select('id')
-        .eq('config_hash', hash)
-        .single();
-      if (existing) {
-        insertRow.strategy_config_id = existing.id;
-      } else {
-        const { data: created, error: stratErr } = await supabase
-          .from('strategy_configs')
-          .insert({ config_hash: hash, name: `Default ${hash.slice(0, 6)}`, label, config: defaultConfig })
-          .select('id')
-          .single();
-        if (stratErr) throw new Error(`Failed to create default strategy config: ${stratErr.message}`);
-        insertRow.strategy_config_id = created.id;
-      }
-    }
 
     const { data, error } = await supabase
       .from('content_evolution_runs')

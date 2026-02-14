@@ -3,7 +3,7 @@
 
 import { CalibrationRanker } from './calibrationRanker';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, CalibrationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { createRating, type Rating } from '../core/rating';
@@ -225,6 +225,37 @@ describe('CalibrationRanker', () => {
       ctx.llmClient = mockClient;
 
       await expect(ranker.execute(ctx)).rejects.toThrow(BudgetExceededError);
+    });
+  });
+
+  describe('executionDetail', () => {
+    it('captures per-entrant detail with matches and ratings', async () => {
+      const ctx = makeCtx(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']);
+      const result = await ranker.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      expect(result.executionDetail!.detailType).toBe('calibration');
+      const detail = result.executionDetail as CalibrationExecutionDetail;
+      expect(detail.entrants).toHaveLength(1); // one new entrant (new-1)
+      expect(detail.entrants[0].variantId).toBe('new-1');
+      expect(detail.entrants[0].opponents.length).toBeGreaterThan(0);
+      expect(detail.entrants[0].matches.length).toBeGreaterThan(0);
+      expect(detail.entrants[0].ratingBefore).toBeDefined();
+      expect(detail.entrants[0].ratingAfter).toBeDefined();
+      expect(detail.totalMatches).toBe(result.matchesPlayed);
+      expect(detail.avgConfidence).toBeGreaterThanOrEqual(0);
+    });
+
+    it('marks earlyExit when first batch is decisive', async () => {
+      // A, B pattern: full agreement → confidence 1.0 → decisive
+      const responses = ['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B'];
+      const ctx = makeCtx(responses, { calibration: { opponents: 5, minOpponents: 2 } });
+      const result = await ranker.execute(ctx);
+
+      const detail = result.executionDetail as CalibrationExecutionDetail;
+      expect(detail.entrants[0].earlyExit).toBe(true);
+      // Should only have minOpponents matches
+      expect(detail.entrants[0].matches.length).toBe(2);
     });
   });
 });

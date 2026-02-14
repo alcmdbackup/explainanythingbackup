@@ -37,7 +37,7 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   generationModel: 'gpt-4.1-mini' as AllowedLLMModelType,
 };
 
-/** Merge per-run config overrides with defaults. */
+/** Merge per-run config overrides with defaults. Nested objects are shallow-merged individually. */
 export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
   return {
     ...DEFAULT_EVOLUTION_CONFIG,
@@ -48,8 +48,6 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
     calibration: { ...DEFAULT_EVOLUTION_CONFIG.calibration, ...overrides.calibration },
     tournament: { ...DEFAULT_EVOLUTION_CONFIG.tournament, ...overrides.tournament },
     budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...overrides.budgetCaps },
-    judgeModel: overrides.judgeModel ?? DEFAULT_EVOLUTION_CONFIG.judgeModel,
-    generationModel: overrides.generationModel ?? DEFAULT_EVOLUTION_CONFIG.generationModel,
   };
 }
 

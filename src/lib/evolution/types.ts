@@ -5,6 +5,7 @@ import type { AllowedLLMModelType } from '@/lib/schemas/schemas';
 import type { Rating } from './core/rating';
 import type { TreeSearchResult, TreeState } from './treeOfThought/types';
 import type { SectionEvolutionState } from './section/types';
+import type { AgentName } from './core/pipeline';
 import { z } from 'zod';
 
 // ─── Pipeline phases ─────────────────────────────────────────────
@@ -124,7 +125,221 @@ export interface AgentResult {
   convergence?: number;
   skipped?: boolean;
   reason?: string;
+  executionDetail?: AgentExecutionDetail;
 }
+
+// ─── Agent execution detail types ───────────────────────────────
+// Discriminated union for per-agent-invocation structured data.
+// Each agent populates its specific detail type during execute().
+
+/** Common fields shared by all execution detail types. */
+interface ExecutionDetailBase {
+  totalCost: number;
+  /** Set by truncateDetail() when JSONB exceeds 100KB cap. */
+  _truncated?: boolean;
+}
+
+export interface GenerationExecutionDetail extends ExecutionDetailBase {
+  detailType: 'generation';
+  strategies: Array<{
+    name: string;
+    promptLength: number;
+    status: 'success' | 'format_rejected' | 'error';
+    formatIssues?: string[];
+    variantId?: string;
+    textLength?: number;
+    error?: string;
+  }>;
+  feedbackUsed: boolean;
+}
+
+export interface CalibrationExecutionDetail extends ExecutionDetailBase {
+  detailType: 'calibration';
+  entrants: Array<{
+    variantId: string;
+    opponents: string[];
+    matches: Array<{
+      opponentId: string;
+      winner: string;
+      confidence: number;
+      cacheHit: boolean;
+    }>;
+    earlyExit: boolean;
+    ratingBefore: { mu: number; sigma: number };
+    ratingAfter: { mu: number; sigma: number };
+  }>;
+  avgConfidence: number;
+  totalMatches: number;
+}
+
+export interface TournamentExecutionDetail extends ExecutionDetailBase {
+  detailType: 'tournament';
+  budgetPressure: number;
+  budgetTier: 'low' | 'medium' | 'high';
+  rounds: Array<{
+    roundNumber: number;
+    pairs: Array<{ variantA: string; variantB: string }>;
+    matches: Array<Match>;
+    multiTurnUsed: number;
+  }>;
+  exitReason: 'budget' | 'convergence' | 'stale' | 'maxRounds';
+  convergenceStreak: number;
+  staleRounds: number;
+  totalComparisons: number;
+  flowEnabled: boolean;
+}
+
+export interface IterativeEditingExecutionDetail extends ExecutionDetailBase {
+  detailType: 'iterativeEditing';
+  targetVariantId: string;
+  config: { maxCycles: number; maxConsecutiveRejections: number; qualityThreshold: number };
+  cycles: Array<{
+    cycleNumber: number;
+    target: { dimension?: string; description: string; score?: number; source: string };
+    verdict: 'ACCEPT' | 'REJECT';
+    confidence: number;
+    formatValid: boolean;
+    formatIssues?: string[];
+    newVariantId?: string;
+  }>;
+  initialCritique: { dimensionScores: Record<string, number> };
+  finalCritique?: { dimensionScores: Record<string, number> };
+  stopReason: 'threshold_met' | 'max_rejections' | 'max_cycles' | 'no_targets';
+  consecutiveRejections: number;
+}
+
+export interface ReflectionExecutionDetail extends ExecutionDetailBase {
+  detailType: 'reflection';
+  variantsCritiqued: Array<{
+    variantId: string;
+    status: 'success' | 'parse_failed' | 'error';
+    avgScore?: number;
+    dimensionScores?: Record<string, number>;
+    goodExamples?: Record<string, string[]>;
+    badExamples?: Record<string, string[]>;
+    notes?: Record<string, string>;
+    error?: string;
+  }>;
+  dimensions: string[];
+}
+
+export interface DebateExecutionDetail extends ExecutionDetailBase {
+  detailType: 'debate';
+  variantA: { id: string; ordinal: number };
+  variantB: { id: string; ordinal: number };
+  transcript: Array<{ role: 'advocate_a' | 'advocate_b' | 'judge'; content: string }>;
+  judgeVerdict?: {
+    winner: 'A' | 'B' | 'tie';
+    reasoning: string;
+    strengthsFromA: string[];
+    strengthsFromB: string[];
+    improvements: string[];
+  };
+  synthesisVariantId?: string;
+  synthesisTextLength?: number;
+  formatValid?: boolean;
+  formatIssues?: string[];
+  failurePoint?: 'advocate_a' | 'advocate_b' | 'judge' | 'parse' | 'format' | 'synthesis';
+}
+
+export interface SectionDecompositionExecutionDetail extends ExecutionDetailBase {
+  detailType: 'sectionDecomposition';
+  targetVariantId: string;
+  weakness: { dimension: string; description: string };
+  sections: Array<{
+    index: number;
+    heading: string | null;
+    eligible: boolean;
+    improved: boolean;
+    charCount: number;
+  }>;
+  sectionsImproved: number;
+  totalEligible: number;
+  formatValid: boolean;
+  newVariantId?: string;
+}
+
+export interface EvolutionExecutionDetail extends ExecutionDetailBase {
+  detailType: 'evolution';
+  parents: Array<{ id: string; ordinal: number }>;
+  mutations: Array<{
+    strategy: string;
+    status: 'success' | 'format_rejected' | 'error';
+    variantId?: string;
+    textLength?: number;
+    error?: string;
+  }>;
+  creativeExploration: boolean;
+  creativeReason?: 'random' | 'low_diversity';
+  overrepresentedStrategies?: string[];
+  feedbackUsed: boolean;
+}
+
+export interface TreeSearchExecutionDetail extends ExecutionDetailBase {
+  detailType: 'treeSearch';
+  rootVariantId: string;
+  config: { beamWidth: number; branchingFactor: number; maxDepth: number };
+  result: {
+    treeSize: number;
+    maxDepth: number;
+    prunedBranches: number;
+    revisionPath: Array<{ type: string; dimension?: string; description: string }>;
+  };
+  bestLeafVariantId?: string;
+  addedToPool: boolean;
+}
+
+export interface OutlineGenerationExecutionDetail extends ExecutionDetailBase {
+  detailType: 'outlineGeneration';
+  steps: Array<{
+    name: 'outline' | 'expand' | 'polish' | 'verify';
+    score: number;
+    costUsd: number;
+    inputLength: number;
+    outputLength: number;
+  }>;
+  weakestStep: string | null;
+  variantId: string;
+}
+
+export interface ProximityExecutionDetail extends ExecutionDetailBase {
+  detailType: 'proximity';
+  newEntrants: number;
+  existingVariants: number;
+  diversityScore: number;
+  totalPairsComputed: number;
+}
+
+export interface MetaReviewExecutionDetail extends ExecutionDetailBase {
+  detailType: 'metaReview';
+  successfulStrategies: string[];
+  recurringWeaknesses: string[];
+  patternsToAvoid: string[];
+  priorityImprovements: string[];
+  analysis: {
+    strategyOrdinals: Record<string, number>;
+    bottomQuartileCount: number;
+    poolDiversity: number;
+    ordinalRange: number;
+    activeStrategies: number;
+    topVariantAge: number;
+  };
+}
+
+/** Discriminated union of all agent execution detail types. */
+export type AgentExecutionDetail =
+  | GenerationExecutionDetail
+  | CalibrationExecutionDetail
+  | TournamentExecutionDetail
+  | IterativeEditingExecutionDetail
+  | ReflectionExecutionDetail
+  | DebateExecutionDetail
+  | SectionDecompositionExecutionDetail
+  | EvolutionExecutionDetail
+  | TreeSearchExecutionDetail
+  | OutlineGenerationExecutionDetail
+  | ProximityExecutionDetail
+  | MetaReviewExecutionDetail;
 
 // ─── Execution context (Decision 4) ─────────────────────────────
 
@@ -272,6 +487,8 @@ export interface EvolutionRunConfig {
   generationModel?: AllowedLLMModelType;
   /** When true, runs single-article mode: no generation/evolution, just sequential improvement. */
   singleArticle?: boolean;
+  /** Optional agents to enable for this run. Undefined = all agents (backward compat). */
+  enabledAgents?: AgentName[];
 }
 
 // ─── Checkpoint types ────────────────────────────────────────────

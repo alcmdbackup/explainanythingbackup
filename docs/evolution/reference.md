@@ -159,6 +159,7 @@ Fields:
 | `hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
 | `hall_of_fame_elo` | Per-entry Elo ratings within a topic: elo_rating, elo_per_dollar, match_count |
 | `evolution_run_logs` | Per-run structured log entries with cross-linking columns: `run_id`, `level`, `agent_name`, `iteration`, `variant_id`, `message`, `context` (JSONB). Indexed by run_id+created_at, iteration, agent_name, and level (migration `20260208000003`) |
+| `evolution_agent_invocations` | Per-agent-per-iteration execution records with structured `execution_detail` (JSONB). Columns: `id`, `run_id` (FK), `iteration`, `agent_name`, `execution_order`, `success`, `cost_usd`, `skipped`, `execution_detail`. Unique on `(run_id, iteration, agent_name)`. GIN index on `execution_detail`. Used by Timeline and Explorer drill-down views (migration `20260212000001`) |
 
 ## Key Files
 
@@ -232,10 +233,19 @@ Fields:
 | `sectionFormatValidator.ts` | Relaxed format validator (no H1 requirement for individual sections) |
 | `types.ts` | Section-level types: `ParsedSection`, `SectionEditResult` |
 
+### Agent Detail Views (`src/components/evolution/agentDetails/`)
+| File | Purpose |
+|------|---------|
+| `AgentExecutionDetailView.tsx` | Router component — exhaustive switch on `detailType` delegates to 12 type-specific views |
+| `shared.tsx` | Shared UI primitives: StatusBadge, DetailSection, Metric, CostDisplay, ShortId |
+| `{Agent}Detail.tsx` | 12 type-specific detail views (GenerationDetail, CalibrationDetail, TournamentDetail, etc.) |
+| `index.ts` | Barrel export |
+
 ### Integration Points (outside `src/lib/evolution/`)
 | File | Purpose |
 |------|---------|
 | `src/lib/services/evolutionActions.ts` | 9 server actions: queue, trigger, get runs/variants/summary, apply winner, rollback, cost breakdown, history |
+| `src/lib/services/evolutionVisualizationActions.ts` | Timeline + invocation detail server actions: `getEvolutionRunTimelineAction`, `getAgentInvocationDetailAction`, `getIterationInvocationsAction`, `getAgentInvocationsForRunAction` |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
 | `scripts/run-evolution-local.ts` | Standalone CLI for running evolution on a local markdown file — bypasses Next.js imports, supports mock and real LLM modes, auto-persists to Supabase when env vars are available |

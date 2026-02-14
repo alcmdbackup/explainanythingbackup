@@ -227,3 +227,44 @@ describe('cosineSimilarity', () => {
     expect(cosineSimilarity([3], [4])).toBeCloseTo(1.0);
   });
 });
+
+describe('ProximityAgent executionDetail', () => {
+  it('captures detail with pairs and diversity score', async () => {
+    const agent = new ProximityAgent({ testMode: true });
+    const state = new PipelineStateImpl('Original');
+    const v1 = makeVariation('v1', 'First variant about science');
+    const v2 = makeVariation('v2', 'Second variant about math');
+    state.addToPool(v1);
+    state.addToPool(v2);
+    state.startNewIteration();
+    const v3 = makeVariation('v3', 'Third variant about history');
+    state.addToPool(v3);
+
+    const ctx = makeCtx(state);
+    const result = await agent.execute(ctx);
+
+    expect(result.executionDetail).toBeDefined();
+    expect(result.executionDetail!.detailType).toBe('proximity');
+    const detail = result.executionDetail as import('../types').ProximityExecutionDetail;
+    expect(detail.newEntrants).toBe(1);
+    expect(detail.existingVariants).toBe(2);
+    expect(detail.totalPairsComputed).toBe(2);
+    expect(detail.diversityScore).toBeGreaterThanOrEqual(0);
+    expect(detail.diversityScore).toBeLessThanOrEqual(1);
+  });
+
+  it('returns detail with zero pairs when no new entrants', async () => {
+    const agent = new ProximityAgent({ testMode: true });
+    const state = new PipelineStateImpl('Original');
+    state.addToPool(makeVariation('v1', 'Text A'));
+    state.addToPool(makeVariation('v2', 'Text B'));
+    state.startNewIteration(); // Clears newEntrantsThisIteration, no new variants added after
+    const ctx = makeCtx(state);
+    const result = await agent.execute(ctx);
+
+    expect(result.executionDetail).toBeDefined();
+    const detail = result.executionDetail as import('../types').ProximityExecutionDetail;
+    expect(detail.newEntrants).toBe(0);
+    expect(detail.totalPairsComputed).toBe(0);
+  });
+});

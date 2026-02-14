@@ -30,6 +30,8 @@ The evolution framework rearchitects the content evolution pipeline around core 
 - `src/lib/evolution/core/strategyConfig.ts` — `StrategyConfigRow` type, `hashStrategyConfig()`, `labelStrategyConfig()`
 - `src/lib/evolution/types.ts` — `PipelineType`, `PromptMetadata` types (`title` is required/NOT NULL)
 
+- **Agent Invocation** — Per-agent-per-iteration execution record in `evolution_agent_invocations`. Stores structured `execution_detail` (JSONB) with type-specific metrics for drill-down views. Linked to run via `run_id` FK.
+
 ### Migrations (in order)
 1. `20260207000001` — Prompt metadata (difficulty_tier, domain_tags, status)
 2. `20260207000002` — prompt_id FK on runs
@@ -72,6 +74,8 @@ Prompt + Strategy → queueEvolutionRunAction → Run
 - **Version-on-edit**: Updating config on a strategy with completed runs archives the old row and creates a new one, preserving historical references.
 - **3 presets**: Economy ($1, minimal), Balanced ($3, full), Quality ($5, full with premium models)
 - **Pre-linked strategy**: When `strategy_config_id` is already set on a run (pre-selected), `linkStrategyConfig` skips auto-creation and only updates aggregates via RPC.
+- **`enabledAgents`** (optional on `StrategyConfig`): Array of optional agent names the strategy permits. When undefined, all agents run (backward compat). Required agents (`generation`, `calibration`, `tournament`, `proximity`) always run regardless. Included in config hash for dedup. See [Architecture: Agent Selection](./architecture.md#agent-selection).
+- **`singleArticle`** (optional on `StrategyConfig`): When true, runs single-article pipeline mode — skips EXPANSION, disables generation/evolution agents, and focuses on iterative improvement of a single baseline variant. Included in config hash.
 
 ## NOT NULL Enforcement
 

@@ -40,21 +40,17 @@ test.describe('Hidden Content Visibility', () => {
   test.beforeAll(async () => {
     serviceClient = createServiceClient();
 
-    // Get or create a test topic (required NOT NULL field)
+    // Get or create a test topic (required FK for explanations.primary_topic_id)
     const { data: topic, error: topicError } = await serviceClient
       .from('topics')
       .upsert(
-        {
-          topic_title: 'test-e2e-topic',
-          topic_description: 'Topic for E2E tests',
-        },
+        { topic_title: 'test-e2e-hidden-content', topic_description: 'Topic for hidden content E2E tests' },
         { onConflict: 'topic_title' }
       )
       .select('id')
       .single();
-
     if (topicError || !topic?.id) {
-      throw new Error(`Failed to get or create test topic: ${topicError?.message}`);
+      throw new Error(`Failed to get or create test topic: ${topicError?.message ?? 'no id'}`);
     }
 
     // Create a hidden test explanation
@@ -92,8 +88,9 @@ test.describe('Hidden Content Visibility', () => {
     }
   });
 
-  // eslint-disable-next-line flakiness/no-test-skip -- getExplanationById doesn't filter by delete_status (pre-existing gap, tracked separately)
-  test.skip('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
+  // TODO: App fetches explanations server-side with service role, bypassing RLS.
+  // This test needs redesign to verify hidden content filtering at the application layer.
+  test.fixme('direct URL access to hidden explanation shows error or empty state', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Try to access the hidden explanation directly
@@ -122,8 +119,8 @@ test.describe('Hidden Content Visibility', () => {
     expect(hasErrorIndicator).toBe(true);
   });
 
-  // eslint-disable-next-line flakiness/no-test-skip -- getExplanationById doesn't filter by delete_status (pre-existing gap, tracked separately)
-  test.skip('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
+  // TODO: Same as above — server-side rendering bypasses RLS delete_status check.
+  test.fixme('hidden explanation content is not revealed in page source', async ({ authenticatedPage }) => {
     // Note: If hiddenExplanationId is null, beforeAll would have thrown
 
     // Navigate to the hidden explanation

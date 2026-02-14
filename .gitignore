@@ -60,3 +60,4 @@ client.log
 
 # Evolution pipeline output
 evolution-output-*.json
+docs/planning/feat/

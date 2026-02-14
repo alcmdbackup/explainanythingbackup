@@ -5,7 +5,7 @@ import { AgentBase } from './base';
 import { PairwiseRanker } from './pairwiseRanker';
 import { updateRating, updateDraw, getOrdinal, isConverged, createRating, type Rating } from '../core/rating';
 import { RATING_CONSTANTS } from '../config';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, TextVariation, TournamentExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 
 // ─── Budget pressure configuration ─────────────────────────────
@@ -213,7 +213,12 @@ export class Tournament extends AgentBase {
 
     const pool = state.pool;
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
-    const budgetCfg = budgetPressureConfig(Math.max(0, budgetPressure));
+    const clampedPressure = Math.max(0, budgetPressure);
+    const budgetCfg = budgetPressureConfig(clampedPressure);
+    let budgetTier: TournamentExecutionDetail['budgetTier'];
+    if (clampedPressure < 0.5) budgetTier = 'low';
+    else if (clampedPressure < 0.8) budgetTier = 'medium';
+    else budgetTier = 'high';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
@@ -233,10 +238,13 @@ export class Tournament extends AgentBase {
     let totalComparisons = 0;
     let convergenceStreak = 0;
     let staleRounds = 0;
+    let exitReason: TournamentExecutionDetail['exitReason'] = 'maxRounds';
+    const roundDetails: TournamentExecutionDetail['rounds'] = [];
 
     for (let round = 0; round < this.cfg.maxRounds; round++) {
       if (totalComparisons >= maxComparisons) {
         logger.debug('Tournament max comparisons reached', { total: totalComparisons });
+        exitReason = 'budget';
         break;
       }
 
@@ -246,6 +254,7 @@ export class Tournament extends AgentBase {
         staleRounds++;
         if (staleRounds >= this.cfg.maxStaleRounds) {
           logger.debug('Tournament no new pairings');
+          exitReason = 'stale';
           break;
         }
         continue;
@@ -257,11 +266,12 @@ export class Tournament extends AgentBase {
       const cappedPairs = pairs.slice(0, remainingBudget);
 
       // Pre-compute multi-turn flags before parallel execution
+      let roundMultiTurn = 0;
       const pairConfigs = cappedPairs.map(([varA, varB]) => {
         const useMultiTurn = this.needsMultiTurn(
           varA.id, varB.id, state.ratings, budgetCfg, multiTurnCount,
         );
-        if (useMultiTurn) multiTurnCount++;
+        if (useMultiTurn) { multiTurnCount++; roundMultiTurn++; }
         return { varA, varB, useMultiTurn };
       });
 
@@ -272,6 +282,9 @@ export class Tournament extends AgentBase {
         ),
       );
 
+      // Track round matches for detail
+      const roundMatches: Match[] = [];
+
       // Apply rating updates sequentially after all round promises resolve
       for (let pi = 0; pi < roundResults.length; pi++) {
         const result = roundResults[pi];
@@ -280,6 +293,7 @@ export class Tournament extends AgentBase {
         const match = result.value;
         const { varA, varB } = pairConfigs[pi];
         matches.push(match);
+        roundMatches.push(match);
         state.matchHistory.push(match);
 
         const winnerId = match.winner;
@@ -304,6 +318,13 @@ export class Tournament extends AgentBase {
         completedPairs.add(normalizePair(varA.id, varB.id));
         totalComparisons++;
       }
+
+      roundDetails.push({
+        roundNumber: round,
+        pairs: pairConfigs.map(({ varA, varB }) => ({ variantA: varA.id, variantB: varB.id })),
+        matches: roundMatches,
+        multiTurnUsed: roundMultiTurn,
+      });
 
       // Re-throw BudgetExceededError from rejected promises (after processing fulfilled results)
       for (const r of roundResults) {
@@ -366,6 +387,7 @@ export class Tournament extends AgentBase {
         convergenceStreak++;
         if (convergenceStreak >= this.cfg.convergenceChecks) {
           logger.info('Tournament converged (sigma-based)', { round, comparisons: totalComparisons });
+          exitReason = 'convergence';
           break;
         }
       } else {
@@ -384,12 +406,26 @@ export class Tournament extends AgentBase {
 
     logger.info('Tournament complete', { matchesPlayed: matches.length, convergenceMetric: convergenceMetric.toFixed(3) });
 
+    const detail: TournamentExecutionDetail = {
+      detailType: 'tournament',
+      budgetPressure: clampedPressure,
+      budgetTier,
+      rounds: roundDetails,
+      exitReason,
+      convergenceStreak,
+      staleRounds,
+      totalComparisons,
+      flowEnabled: ctx.featureFlags?.flowCritiqueEnabled === true,
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+
     return {
       agentType: 'tournament',
       success: true,
       costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: convergenceMetric,
+      executionDetail: detail,
     };
   }
 

@@ -172,11 +172,11 @@ function computeDatePreset(preset: DatePreset): { from: string; to: string } | n
 
 // ─── Skeletons and helpers ───────────────────────────────────────
 
-function ChartSkeleton() {
+function ChartSkeleton(): JSX.Element {
   return <div className="h-[300px] bg-[var(--surface-secondary)] rounded-book animate-pulse" />;
 }
 
-function TableSkeleton() {
+function TableSkeleton(): JSX.Element {
   return (
     <div className="space-y-2">
       {Array.from({ length: 5 }).map((_, i) => (
@@ -186,7 +186,7 @@ function TableSkeleton() {
   );
 }
 
-function StatCard({ label, value, loading }: { label: string; value: string; loading: boolean }) {
+function StatCard({ label, value, loading }: { label: string; value: string; loading: boolean }): JSX.Element {
   return (
     <Card className="bg-[var(--surface-secondary)] paper-texture">
       <CardHeader className="pb-2">
@@ -213,7 +213,7 @@ function SelectControl({ label, value, onChange, options, className }: {
   onChange: (v: string) => void;
   options: { id: string; label: string }[];
   className?: string;
-}) {
+}): JSX.Element {
   return (
     <label className={`flex flex-col gap-1 ${className ?? ''}`}>
       <span className="text-xs font-ui text-[var(--text-muted)]">{label}</span>
@@ -237,12 +237,11 @@ function SearchableMultiSelect({ label, items, selected, onChange, placeholder }
   selected: string[];
   onChange: (ids: string[]) => void;
   placeholder: string;
-}) {
+}): JSX.Element {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -337,7 +336,7 @@ function ButtonGroup<T extends string>({ options, value, onChange }: {
   options: { id: T; label: string }[];
   value: T;
   onChange: (v: T) => void;
-}) {
+}): JSX.Element {
   return (
     <div className="inline-flex border border-[var(--border-default)] rounded-book overflow-hidden">
       {options.map((opt) => (
@@ -357,7 +356,7 @@ function ButtonGroup<T extends string>({ options, value, onChange }: {
   );
 }
 
-function Th({ children, className }: { children?: ReactNode; className?: string }) {
+function Th({ children, className }: { children?: ReactNode; className?: string }): JSX.Element {
   return (
     <th className={`px-3 py-2 text-left text-xs font-ui font-medium text-[var(--text-muted)] uppercase tracking-wide ${className ?? ''}`}>
       {children}
@@ -365,7 +364,7 @@ function Th({ children, className }: { children?: ReactNode; className?: string 
   );
 }
 
-function Td({ children, className }: { children: ReactNode; className?: string }) {
+function Td({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
   return (
     <td className={`px-3 py-2 text-sm font-body text-[var(--text-primary)] ${className ?? ''}`}>
       {children}
@@ -393,7 +392,7 @@ function truncate(s: string | null, max: number): string {
 
 // ─── Main Component ──────────────────────────────────────────────
 
-export default function ExplorerPage() {
+export default function ExplorerPage(): JSX.Element {
   // View state
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [unit, setUnit] = useState<UnitOfAnalysis>('run');
@@ -552,11 +551,8 @@ export default function ExplorerPage() {
     }
   }, [expandedArticle]);
 
-  // ─── Render ─────────────────────────────────────────────────────
-
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -575,7 +571,6 @@ export default function ExplorerPage() {
         </button>
       </div>
 
-      {/* View mode toggle */}
       <div className="flex flex-wrap items-center gap-4">
         <ButtonGroup options={VIEW_MODES} value={viewMode} onChange={setViewMode} />
 
@@ -584,7 +579,6 @@ export default function ExplorerPage() {
         )}
       </div>
 
-      {/* Filter bar */}
       <Card className="bg-[var(--surface-secondary)] paper-texture">
         <CardContent className="pt-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -641,7 +635,6 @@ export default function ExplorerPage() {
         </CardContent>
       </Card>
 
-      {/* Aggregation stat cards (table mode only) */}
       {viewMode === 'table' && tableData?.aggregation && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard
@@ -667,7 +660,6 @@ export default function ExplorerPage() {
         </div>
       )}
 
-      {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-book text-[var(--status-error)] font-body text-sm">
           {error}
@@ -682,12 +674,9 @@ export default function ExplorerPage() {
               <div className="p-6"><TableSkeleton /></div>
             ) : (
               <div className="overflow-x-auto">
-                {/* Run table */}
                 {unit === 'run' && (
                   <RunTable rows={tableData?.runs ?? []} />
                 )}
-
-                {/* Article table */}
                 {unit === 'article' && (
                   <ArticleTable
                     rows={tableData?.articles ?? []}
@@ -697,8 +686,6 @@ export default function ExplorerPage() {
                     onExpand={handleArticleExpand}
                   />
                 )}
-
-                {/* Task table */}
                 {unit === 'task' && (
                   <TaskTable rows={tableData?.tasks ?? []} />
                 )}
@@ -798,7 +785,7 @@ export default function ExplorerPage() {
 
 // ─── Sub-components: Tables ─────────────────────────────────────
 
-function RunTable({ rows }: { rows: ExplorerRunRow[] }) {
+function RunTable({ rows }: { rows: ExplorerRunRow[] }): JSX.Element {
   if (rows.length === 0) {
     return (
       <div className="p-12 text-center text-[var(--text-muted)] font-body text-sm">
@@ -857,7 +844,7 @@ function ArticleTable({ rows, expandedId, detail, detailLoading, onExpand }: {
   detail: ExplorerArticleDetail | null;
   detailLoading: boolean;
   onExpand: (row: ExplorerArticleRow) => void;
-}) {
+}): JSX.Element {
   if (rows.length === 0) {
     return (
       <div className="p-12 text-center text-[var(--text-muted)] font-body text-sm">
@@ -921,7 +908,7 @@ function ArticleTable({ rows, expandedId, detail, detailLoading, onExpand }: {
   );
 }
 
-function TaskTable({ rows }: { rows: ExplorerTaskRow[] }) {
+function TaskTable({ rows }: { rows: ExplorerTaskRow[] }): JSX.Element {
   if (rows.length === 0) {
     return (
       <div className="p-12 text-center text-[var(--text-muted)] font-body text-sm">
@@ -947,7 +934,14 @@ function TaskTable({ rows }: { rows: ExplorerTaskRow[] }) {
       <tbody className="divide-y divide-[var(--border-default)]">
         {rows.map((row) => (
           <tr key={row.id} className="hover:bg-[var(--surface-elevated)] transition-colors">
-            <Td>{row.agent_name}</Td>
+            <Td>
+              <Link
+                href={`/admin/quality/evolution/run/${row.run_id}?tab=timeline&agent=${row.agent_name}`}
+                className="text-[var(--accent-gold)] hover:underline"
+              >
+                {row.agent_name}
+              </Link>
+            </Td>
             <Td className="max-w-[200px]">
               <span title={row.prompt_text ?? undefined}>
                 {truncate(row.prompt_text, 40)}
@@ -976,7 +970,7 @@ function TaskTable({ rows }: { rows: ExplorerTaskRow[] }) {
 
 // ─── Sub-components: Matrix ─────────────────────────────────────
 
-function MatrixGrid({ data, metric }: { data: ExplorerMatrixResult; metric: ExplorerMetric }) {
+function MatrixGrid({ data, metric }: { data: ExplorerMatrixResult; metric: ExplorerMetric }): JSX.Element {
   // Build cell lookup
   const cellMap = new Map<string, number>();
   let minVal = Infinity;
@@ -1052,7 +1046,7 @@ function MatrixGrid({ data, metric }: { data: ExplorerMatrixResult; metric: Expl
 
 // ─── Sub-components: Article Detail ─────────────────────────────
 
-function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail | null; loading: boolean }) {
+function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail | null; loading: boolean }): JSX.Element {
   if (loading) {
     return (
       <div className="p-6 bg-[var(--surface-elevated)] border-t border-[var(--border-default)]">
@@ -1071,7 +1065,6 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
 
   return (
     <div className="p-6 bg-[var(--surface-elevated)] border-t border-[var(--border-default)] space-y-4">
-      {/* Metadata */}
       <div className="flex flex-wrap gap-4 text-xs font-ui">
         <span className="text-[var(--text-muted)]">
           Agent: <span className="text-[var(--text-primary)]">{detail.agentName}</span>
@@ -1084,7 +1077,6 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
         </span>
       </div>
 
-      {/* Content */}
       <div>
         <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Content</h4>
         <div className="p-4 bg-[var(--surface-secondary)] rounded-book border border-[var(--border-default)] text-sm font-body text-[var(--text-primary)] whitespace-pre-wrap max-h-64 overflow-y-auto">
@@ -1092,7 +1084,6 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
         </div>
       </div>
 
-      {/* Parent content */}
       {detail.parentContent && (
         <div>
           <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">Parent Content</h4>
@@ -1102,7 +1093,6 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
         </div>
       )}
 
-      {/* Lineage chain */}
       {detail.lineage.length > 0 && (
         <div>
           <h4 className="text-lg font-display font-medium text-[var(--text-secondary)] mb-2">
@@ -1129,7 +1119,7 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
   );
 }
 
-function EloGainLabel({ value }: { value: number }): ReactNode {
+function EloGainLabel({ value }: { value: number }): JSX.Element {
   let colorClass = '';
   if (value > 0) colorClass = 'text-[var(--status-success)]';
   else if (value < 0) colorClass = 'text-[var(--status-error)]';
@@ -1140,7 +1130,7 @@ function EloGainLabel({ value }: { value: number }): ReactNode {
 
 // ─── Status badge ────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { status: string }): JSX.Element {
   const colorMap: Record<string, string> = {
     completed: 'var(--status-success)',
     failed: 'var(--status-error)',

@@ -4,6 +4,9 @@ import {
   getEvolutionRunTimelineAction,
   getEvolutionRunBudgetAction,
   buildVariantsFromCheckpoint,
+  getAgentInvocationDetailAction,
+  getIterationInvocationsAction,
+  getAgentInvocationsForRunAction,
   type TimelineData,
   type BudgetData,
 } from './evolutionVisualizationActions';
@@ -683,5 +686,109 @@ describe('buildVariantsFromCheckpoint', () => {
     expect(result.success).toBe(true);
     expect(result.data![0].elo_score).toBe(1200);
     expect(result.data![0].match_count).toBe(0);
+  });
+});
+
+const VALID_RUN_ID = '550e8400-e29b-41d4-a716-446655440000';
+
+describe('getAgentInvocationDetailAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns execution detail when invocation exists', async () => {
+    const mock = createChainMock();
+    const detail = { detailType: 'proximity', totalCost: 0.002, newEntrants: 3, existingVariants: 5, diversityScore: 0.8, totalPairsComputed: 10 };
+    mock.single.mockResolvedValue({ data: { execution_detail: detail }, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getAgentInvocationDetailAction(VALID_RUN_ID, 0, 'proximity');
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(detail);
+  });
+
+  it('returns null when no invocation row exists (PGRST116)', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValue({ data: null, error: { code: 'PGRST116', message: 'No rows' } });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getAgentInvocationDetailAction(VALID_RUN_ID, 0, 'generation');
+    expect(result.success).toBe(true);
+    expect(result.data).toBeNull();
+  });
+
+  it('returns null when execution_detail has no detailType', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValue({ data: { execution_detail: {} }, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getAgentInvocationDetailAction(VALID_RUN_ID, 0, 'generation');
+    expect(result.success).toBe(true);
+    expect(result.data).toBeNull();
+  });
+
+  it('rejects invalid run ID', async () => {
+    const result = await getAgentInvocationDetailAction('not-a-uuid', 0, 'generation');
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('getIterationInvocationsAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns invocation rows for an iteration', async () => {
+    const mock = createChainMock();
+    const rows = [
+      { id: 'inv-1', run_id: VALID_RUN_ID, iteration: 0, agent_name: 'generation', execution_order: 0, success: true, cost_usd: 0.01, skipped: false, execution_detail: null },
+      { id: 'inv-2', run_id: VALID_RUN_ID, iteration: 0, agent_name: 'calibration', execution_order: 1, success: true, cost_usd: 0.005, skipped: false, execution_detail: null },
+    ];
+    mock.order.mockResolvedValue({ data: rows, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getIterationInvocationsAction(VALID_RUN_ID, 0);
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+    expect(result.data![0].agent_name).toBe('generation');
+  });
+
+  it('returns empty array when no invocations exist', async () => {
+    const mock = createChainMock();
+    mock.order.mockResolvedValue({ data: [], error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getIterationInvocationsAction(VALID_RUN_ID, 99);
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+  });
+});
+
+describe('getAgentInvocationsForRunAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns invocations for an agent across iterations', async () => {
+    const mock = createChainMock();
+    const rows = [
+      { id: 'inv-1', run_id: VALID_RUN_ID, iteration: 0, agent_name: 'generation', execution_order: 0, success: true, cost_usd: 0.01, skipped: false, execution_detail: null },
+      { id: 'inv-3', run_id: VALID_RUN_ID, iteration: 1, agent_name: 'generation', execution_order: 0, success: true, cost_usd: 0.012, skipped: false, execution_detail: null },
+    ];
+    mock.order.mockResolvedValue({ data: rows, error: null });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getAgentInvocationsForRunAction(VALID_RUN_ID, 'generation');
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+    expect(result.data![1].iteration).toBe(1);
+  });
+
+  it('rejects invalid run ID', async () => {
+    const result = await getAgentInvocationsForRunAction('bad-id', 'generation');
+    expect(result.success).toBe(false);
   });
 });

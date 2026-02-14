@@ -5,7 +5,7 @@ import { AgentBase } from './base';
 import { PoolManager } from '../core/pool';
 import { updateRating, updateDraw, createRating } from '../core/rating';
 import { compareWithBiasMitigation as compareStandalone } from '../comparison';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Match, CalibrationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 
 export class CalibrationRanker extends AgentBase {
@@ -107,6 +107,7 @@ export class CalibrationRanker extends AgentBase {
     logger.info('Calibration start', { numNewEntrants: newEntrants.length, poolSize: state.pool.length });
 
     const matches: Match[] = [];
+    const entrantDetails: CalibrationExecutionDetail['entrants'] = [];
 
     for (const entrantId of newEntrants) {
       const entrantVar = varLookup.get(entrantId);
@@ -114,6 +115,9 @@ export class CalibrationRanker extends AgentBase {
         logger.warn('Missing entrant', { id: entrantId });
         continue;
       }
+
+      const ratingBefore = state.ratings.get(entrantId) ?? createRating();
+      const ratingBeforeSnapshot = { mu: ratingBefore.mu, sigma: ratingBefore.sigma };
 
       const opponentIds = poolManager.getCalibrationOpponents(
         entrantId,
@@ -131,6 +135,8 @@ export class CalibrationRanker extends AgentBase {
       const firstBatch = validOpponents.slice(0, minOpp);
       const remainingBatch = validOpponents.slice(minOpp);
 
+      const entrantMatchDetails: CalibrationExecutionDetail['entrants'][0]['matches'] = [];
+
       // Run first batch in parallel
       const firstResults = await Promise.allSettled(
         firstBatch.map(async (opp) =>
@@ -147,13 +153,20 @@ export class CalibrationRanker extends AgentBase {
 
       // Apply Elo updates sequentially for first batch
       const firstMatches: Match[] = [];
-      for (const r of firstResults) {
+      for (let i = 0; i < firstResults.length; i++) {
+        const r = firstResults[i];
         if (r.status !== 'fulfilled') continue;
         const match = r.value;
         firstMatches.push(match);
         matches.push(match);
         state.matchHistory.push(match);
         this.applyRatingUpdate(state, match, entrantId);
+        entrantMatchDetails.push({
+          opponentId: firstBatch[i].id,
+          winner: match.winner,
+          confidence: match.confidence,
+          cacheHit: false, // cache hits are handled inside compareWithBiasMitigation
+        });
       }
 
       // Check for early exit: all first-batch results decisive?
@@ -179,14 +192,31 @@ export class CalibrationRanker extends AgentBase {
         }
 
         // Apply Elo updates sequentially
-        for (const r of moreResults) {
+        for (let i = 0; i < moreResults.length; i++) {
+          const r = moreResults[i];
           if (r.status !== 'fulfilled') continue;
           const match = r.value;
           matches.push(match);
           state.matchHistory.push(match);
           this.applyRatingUpdate(state, match, entrantId);
+          entrantMatchDetails.push({
+            opponentId: remainingBatch[i].id,
+            winner: match.winner,
+            confidence: match.confidence,
+            cacheHit: false,
+          });
         }
       }
+
+      const ratingAfter = state.ratings.get(entrantId) ?? createRating();
+      entrantDetails.push({
+        variantId: entrantId,
+        opponents: validOpponents.map(o => o.id),
+        matches: entrantMatchDetails,
+        earlyExit: allDecisive,
+        ratingBefore: ratingBeforeSnapshot,
+        ratingAfter: { mu: ratingAfter.mu, sigma: ratingAfter.sigma },
+      });
     }
 
     const avgConfidence = matches.length > 0
@@ -198,12 +228,21 @@ export class CalibrationRanker extends AgentBase {
       avgConfidence,
     });
 
+    const detail: CalibrationExecutionDetail = {
+      detailType: 'calibration',
+      entrants: entrantDetails,
+      avgConfidence,
+      totalMatches: matches.length,
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+
     return {
       agentType: 'calibration',
       success: true,
       costUsd: ctx.costTracker.getAgentCost(this.name),
       matchesPlayed: matches.length,
       convergence: avgConfidence,
+      executionDetail: detail,
     };
   }
 

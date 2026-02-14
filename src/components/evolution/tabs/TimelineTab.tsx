@@ -2,13 +2,16 @@
 // Timeline visualization showing iteration-by-iteration execution of an evolution run.
 // Displays all agents per iteration with expandable detail panels showing per-agent metrics.
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { PhaseIndicator } from '@/components/evolution';
 import {
   getEvolutionRunTimelineAction,
+  getAgentInvocationDetailAction,
   type TimelineData,
 } from '@/lib/services/evolutionVisualizationActions';
+import type { AgentExecutionDetail } from '@/lib/evolution/types';
+import { AgentExecutionDetailView } from '@/components/evolution/agentDetails';
 
 /** Agent colors for visual differentiation in timeline rows. */
 const AGENT_PALETTE: Record<string, string> = {
@@ -30,13 +33,12 @@ const AGENT_PALETTE: Record<string, string> = {
 type TimelineAgent = TimelineData['iterations'][number]['agents'][number];
 
 /** Detail panel showing expanded metrics for a single agent. */
-function AgentDetailPanel({ agent }: { agent: TimelineAgent }) {
+function AgentDetailPanel({ agent }: { agent: TimelineAgent }): JSX.Element {
   return (
     <div
       className="mt-1 p-3 bg-[var(--surface-secondary)] rounded-page border border-[var(--border-default)]"
       data-testid="agent-detail-panel"
     >
-      {/* Metrics grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs mb-3">
         <div>
           <div className="text-[var(--text-muted)]">Variants Added</div>
@@ -56,7 +58,6 @@ function AgentDetailPanel({ agent }: { agent: TimelineAgent }) {
         </div>
       </div>
 
-      {/* Additional metrics row */}
       {(agent.critiquesAdded || agent.debatesAdded || agent.metaFeedbackPopulated) && (
         <div className="grid grid-cols-3 gap-4 text-xs mb-3">
           {agent.critiquesAdded !== undefined && agent.critiquesAdded > 0 && (
@@ -80,7 +81,6 @@ function AgentDetailPanel({ agent }: { agent: TimelineAgent }) {
         </div>
       )}
 
-      {/* New variants list */}
       {agent.newVariantIds && agent.newVariantIds.length > 0 && (
         <div className="mt-2">
           <div className="text-xs text-[var(--text-muted)] mb-1">New Variants</div>
@@ -98,32 +98,35 @@ function AgentDetailPanel({ agent }: { agent: TimelineAgent }) {
       )}
 
       {/* Elo changes */}
-      {agent.eloChanges && Object.keys(agent.eloChanges).length > 0 && (
-        <div className="mt-2">
-          <div className="text-xs text-[var(--text-muted)] mb-1">Elo Changes</div>
-          <div className="flex flex-wrap gap-2">
-            {Object.entries(agent.eloChanges).slice(0, 10).map(([variantId, delta]) => (
-              <span
-                key={variantId}
-                className={`px-2 py-0.5 rounded text-xs font-mono ${
-                  delta > 0
-                    ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
-                    : 'bg-[var(--status-error)]/10 text-[var(--status-error)]'
-                }`}
-              >
-                {variantId.substring(0, 6)}: {delta > 0 ? '+' : ''}{Math.round(delta)}
-              </span>
-            ))}
-            {Object.keys(agent.eloChanges).length > 10 && (
-              <span className="text-xs text-[var(--text-muted)]">
-                +{Object.keys(agent.eloChanges).length - 10} more
-              </span>
-            )}
+      {agent.eloChanges && (() => {
+        const entries = Object.entries(agent.eloChanges);
+        if (entries.length === 0) return null;
+        return (
+          <div className="mt-2">
+            <div className="text-xs text-[var(--text-muted)] mb-1">Elo Changes</div>
+            <div className="flex flex-wrap gap-2">
+              {entries.slice(0, 10).map(([variantId, delta]) => (
+                <span
+                  key={variantId}
+                  className={`px-2 py-0.5 rounded text-xs font-mono ${
+                    delta > 0
+                      ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
+                      : 'bg-[var(--status-error)]/10 text-[var(--status-error)]'
+                  }`}
+                >
+                  {variantId.substring(0, 6)}: {delta > 0 ? '+' : ''}{Math.round(delta)}
+                </span>
+              ))}
+              {entries.length > 10 && (
+                <span className="text-xs text-[var(--text-muted)]">
+                  +{entries.length - 10} more
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
-      {/* Error message */}
       {agent.error && (
         <div className="mt-2 text-xs text-[var(--status-error)]">
           Error: {agent.error}
@@ -133,11 +136,27 @@ function AgentDetailPanel({ agent }: { agent: TimelineAgent }) {
   );
 }
 
-export function TimelineTab({ runId }: { runId: string }) {
+/** Renders the correct state for a lazily-loaded execution detail. */
+function ExecutionDetailContent({ detail }: { detail: AgentExecutionDetail | null | undefined }): JSX.Element {
+  if (detail === undefined) {
+    return <div className="text-xs text-[var(--text-muted)] animate-pulse">Loading execution detail...</div>;
+  }
+  if (detail === null) {
+    return <div className="text-xs text-[var(--text-muted)]">No execution detail available</div>;
+  }
+  return <AgentExecutionDetailView detail={detail} />;
+}
+
+interface TimelineTabProps { runId: string; initialAgent?: string; }
+
+export function TimelineTab({ runId, initialAgent }: TimelineTabProps): JSX.Element | null {
   const [data, setData] = useState<TimelineData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Set<string>>(new Set());
+  const [executionDetails, setExecutionDetails] = useState<Record<string, AgentExecutionDetail | null>>({});
+  const fetchingRef = useRef<Set<string>>(new Set());
+  const initialAgentApplied = useRef(false);
 
   useEffect(() => {
     async function load() {
@@ -153,7 +172,18 @@ export function TimelineTab({ runId }: { runId: string }) {
     load();
   }, [runId]);
 
-  const toggleExpand = useCallback((iteration: number, agentName: string) => {
+  const fetchExecutionDetail = useCallback(async (key: string, iteration: number, agentName: string) => {
+    if (fetchingRef.current.has(key)) return;
+    fetchingRef.current.add(key);
+    const result = await getAgentInvocationDetailAction(runId, iteration, agentName);
+    if (result.success && result.data) {
+      setExecutionDetails(prev => ({ ...prev, [key]: result.data! }));
+    } else {
+      setExecutionDetails(prev => ({ ...prev, [key]: null }));
+    }
+  }, [runId]);
+
+  const toggleExpand = useCallback((iteration: number, agentName: string, hasDetail?: boolean) => {
     const key = `${iteration}-${agentName}`;
     setExpandedAgents(prev => {
       const next = new Set(prev);
@@ -161,10 +191,35 @@ export function TimelineTab({ runId }: { runId: string }) {
         next.delete(key);
       } else {
         next.add(key);
+        if (hasDetail) fetchExecutionDetail(key, iteration, agentName);
       }
       return next;
     });
-  }, []);
+  }, [fetchExecutionDetail]);
+
+  // Auto-expand iterations containing the initialAgent and fetch detail for the first match.
+  useEffect(() => {
+    if (!initialAgent || !data || initialAgentApplied.current) return;
+    initialAgentApplied.current = true;
+    const matchingKeys: string[] = [];
+    for (const iter of data.iterations) {
+      for (const a of iter.agents) {
+        if (a.name === initialAgent) {
+          matchingKeys.push(`${iter.iteration}-${a.name}`);
+        }
+      }
+    }
+    if (matchingKeys.length > 0) {
+      setExpandedAgents(new Set(matchingKeys));
+      const [firstKey] = matchingKeys;
+      const [iterStr] = firstKey.split('-');
+      const firstAgent = data.iterations.find(i => i.iteration === Number(iterStr))
+        ?.agents.find(a => a.name === initialAgent);
+      if (firstAgent?.hasExecutionDetail) {
+        fetchExecutionDetail(firstKey, Number(iterStr), initialAgent);
+      }
+    }
+  }, [initialAgent, data, fetchExecutionDetail]);
 
   if (loading) return <TimelineSkeleton />;
   if (error) return <div className="text-[var(--status-error)] text-sm p-4">{error}</div>;
@@ -227,7 +282,7 @@ export function TimelineTab({ runId }: { runId: string }) {
                     <div key={expandKey}>
                       <div
                         className="flex items-center justify-between text-xs bg-[var(--surface-secondary)] rounded-page px-3 py-2 cursor-pointer hover:bg-[var(--surface-primary)]"
-                        onClick={() => toggleExpand(iter.iteration, agent.name)}
+                        onClick={() => toggleExpand(iter.iteration, agent.name, agent.hasExecutionDetail)}
                         data-testid={`agent-row-${agent.name}`}
                       >
                         <div className="flex items-center gap-2">
@@ -261,7 +316,16 @@ export function TimelineTab({ runId }: { runId: string }) {
                       </div>
 
                       {/* Expanded detail panel */}
-                      {isExpanded && <AgentDetailPanel agent={agent} />}
+                      {isExpanded && (
+                        <>
+                          <AgentDetailPanel agent={agent} />
+                          {agent.hasExecutionDetail && (
+                            <div className="mt-2 p-3 bg-[var(--surface-secondary)] rounded-page border border-[var(--border-default)]">
+                              <ExecutionDetailContent detail={executionDetails[expandKey]} />
+                            </div>
+                          )}
+                        </>
+                      )}
                     </div>
                   );
                 })}
@@ -274,7 +338,7 @@ export function TimelineTab({ runId }: { runId: string }) {
   );
 }
 
-function TimelineSkeleton() {
+function TimelineSkeleton(): JSX.Element {
   return (
     <div className="space-y-4">
       {[1, 2, 3].map(i => (

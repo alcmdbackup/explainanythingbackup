@@ -247,15 +247,12 @@ test.describe('Action Buttons', () => {
       await expect(editor).toBeVisible();
     });
 
-    // eslint-disable-next-line flakiness/no-test-skip -- Lexical editor doesn't mount reliably in CI production builds; other format toggle tests cover toggle behavior
-    test.skip('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
+    test('should preserve content when toggling between markdown and plaintext modes', async ({ authenticatedPage }) => {
       const resultsPage = new ResultsPage(authenticatedPage);
 
       // Navigate directly to test explanation
       await authenticatedPage.goto(`/results?explanation_id=${testExplanation.id}`);
       await resultsPage.waitForAnyContent(60000);
-      // Wait for lifecycle to reach 'viewing' to ensure content is fully rendered
-      await resultsPage.waitForViewingPhase();
 
       // Get initial content using ResultsPage.getContent()
       const initialContent = await resultsPage.getContent();

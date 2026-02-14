@@ -1,7 +1,6 @@
 // Reusable helpers for evolution pipeline integration tests.
 // Provides NOOP_SPAN, DB cleanup, test data factories, mock LLM client, and mock logger.
 
-import { createHash } from 'crypto';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { EvolutionLLMClient, EvolutionLogger, SerializedPipelineState } from '@/lib/evolution/types';
 
@@ -93,27 +92,9 @@ export async function cleanupEvolutionData(
       await supabase.from('content_history').delete().in('explanation_id', explanationIds);
     }
 
-    // Delete runs and their auto-created strategy configs
+    // Delete runs last (parent of variants/checkpoints)
     if (runIds.length > 0) {
-      // Collect strategy_config_ids before deleting runs
-      const { data: runRows } = await supabase
-        .from('content_evolution_runs')
-        .select('strategy_config_id')
-        .in('id', runIds);
-      const strategyIds = (runRows ?? []).map((r) => r.strategy_config_id).filter(Boolean);
-
       await supabase.from('content_evolution_runs').delete().in('id', runIds);
-
-      // Clean up test strategy configs (name starts with 'test_strategy_')
-      if (strategyIds.length > 0) {
-        await supabase.from('strategy_configs').delete()
-          .in('id', strategyIds)
-          .ilike('name', 'test_strategy_%');
-      }
-
-      // Clean up auto-created prompt topics
-      await supabase.from('hall_of_fame_topics').delete()
-        .eq('prompt', 'Test evolution prompt');
     }
   } catch (error) {
     // Don't throw on cleanup failure — log only
@@ -121,95 +102,84 @@ export async function cleanupEvolutionData(
   }
 }
 
-// ─── Test data factories ────────────────────────────────────────
+// ─── Test strategy config factory ───────────────────────────────
 
-/** Get or create a test strategy config and return its ID. Caller must clean up. */
-export async function createTestStrategyConfig(
+/**
+ * Insert a test strategy config and return its UUID.
+ * Re-uses an existing row if the hash already exists.
+ */
+export async function ensureTestStrategyConfig(
   supabase: SupabaseClient,
 ): Promise<string> {
-  const config = { generationModel: 'test-model', judgeModel: 'test-judge', iterations: 3, budgetCaps: { generation: 30 } };
-  const configHash = createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 12);
-
-  // Try to find existing config with same hash first
+  const configHash = 'test-helper-default-hash';
+  // Try to find existing
   const { data: existing } = await supabase
     .from('strategy_configs')
     .select('id')
     .eq('config_hash', configHash)
-    .single();
-
+    .limit(1)
+    .maybeSingle();
   if (existing) return existing.id;
 
-  const name = `test_strategy_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const { data, error } = await supabase
     .from('strategy_configs')
-    .insert({ config_hash: configHash, name, label: 'Test strategy', config })
+    .insert({
+      config_hash: configHash,
+      name: '[TEST] default strategy',
+      label: 'Gen: test | Judge: test | 3 iters',
+      config: {
+        generationModel: 'gpt-4o-mini',
+        judgeModel: 'gpt-4.1-nano',
+        iterations: 3,
+        budgetCaps: { total: 5.0 },
+      },
+    })
     .select('id')
     .single();
-
-  // Handle race condition: another test may have inserted between select and insert
-  if (error?.code === '23505') {
-    const { data: retry } = await supabase
-      .from('strategy_configs')
-      .select('id')
-      .eq('config_hash', configHash)
-      .single();
-    if (retry) return retry.id;
-  }
-
-  if (error) throw new Error(`createTestStrategyConfig failed: ${error.message ?? error.code}`);
+  if (error) throw new Error(`ensureTestStrategyConfig failed: ${error.message}`);
   return data.id;
 }
 
-/** Get or create a test prompt topic and return its ID. */
-export async function createTestPromptTopic(
+// ─── Test prompt (topic) factory ────────────────────────────────
+
+/**
+ * Insert a test hall_of_fame_topics row and return its UUID.
+ * Re-uses an existing row if the prompt already exists.
+ */
+export async function ensureTestPrompt(
   supabase: SupabaseClient,
-  prompt = 'Test evolution prompt',
 ): Promise<string> {
+  const prompt = '[TEST] default evolution prompt';
   const { data: existing } = await supabase
     .from('hall_of_fame_topics')
     .select('id')
-    .ilike('prompt', prompt)
-    .is('deleted_at', null)
-    .single();
+    .eq('prompt', prompt)
+    .limit(1)
+    .maybeSingle();
   if (existing) return existing.id;
 
   const { data, error } = await supabase
     .from('hall_of_fame_topics')
-    .insert({ prompt, title: prompt })
+    .insert({ prompt, title: '[TEST] default prompt' })
     .select('id')
     .single();
-  if (error?.code === '23505') {
-    const { data: retry } = await supabase
-      .from('hall_of_fame_topics')
-      .select('id')
-      .ilike('prompt', prompt)
-      .is('deleted_at', null)
-      .single();
-    if (retry) return retry.id;
-  }
-  if (error) throw new Error(`createTestPromptTopic failed: ${error.message ?? error.code}`);
+  if (error) throw new Error(`ensureTestPrompt failed: ${error.message}`);
   return data.id;
 }
 
+// ─── Test data factories ────────────────────────────────────────
+
 /**
  * Insert a test evolution run and return the full row.
- * Auto-creates a strategy config and prompt topic if not provided in overrides.
+ * Automatically creates a strategy_config if strategy_config_id is not provided.
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
   explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  let strategyConfigId = overrides?.strategy_config_id;
-  if (!strategyConfigId) {
-    strategyConfigId = await createTestStrategyConfig(supabase);
-  }
-
-  let promptId = overrides?.prompt_id;
-  if (!promptId) {
-    promptId = await createTestPromptTopic(supabase);
-  }
-
+  const strategyConfigId = overrides?.strategy_config_id ?? await ensureTestStrategyConfig(supabase);
+  const promptId = overrides?.prompt_id ?? await ensureTestPrompt(supabase);
   const row = {
     explanation_id: explanationId,
     status: 'pending',

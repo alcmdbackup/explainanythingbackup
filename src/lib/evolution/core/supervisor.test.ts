@@ -391,4 +391,113 @@ describe('PoolSupervisor', () => {
       expect(stop).toBe(true); // 2 data points, 0 improvement
     });
   });
+
+  describe('enabledAgents gating', () => {
+    it('all agents enabled when enabledAgents undefined (backward compat)', () => {
+      const cfg = makeConfig({ expansionMaxIterations: 1, enabledAgents: undefined });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      expect(config.runReflection).toBe(true);
+      expect(config.runIterativeEditing).toBe(true);
+      expect(config.runTreeSearch).toBe(true);
+      expect(config.runDebate).toBe(true);
+      expect(config.runEvolution).toBe(true);
+      expect(config.runMetaReview).toBe(true);
+      expect(config.runOutlineGeneration).toBe(true);
+      expect(config.runSectionDecomposition).toBe(true);
+    });
+
+    it('disables optional agents not in enabledAgents (COMPETITION)', () => {
+      const cfg = makeConfig({
+        expansionMaxIterations: 1,
+        enabledAgents: ['reflection', 'debate'],
+      });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      expect(config.runReflection).toBe(true);
+      expect(config.runDebate).toBe(true);
+      // Disabled optional agents
+      expect(config.runIterativeEditing).toBe(false);
+      expect(config.runTreeSearch).toBe(false);
+      expect(config.runEvolution).toBe(false);
+      expect(config.runMetaReview).toBe(false);
+      expect(config.runOutlineGeneration).toBe(false);
+      expect(config.runSectionDecomposition).toBe(false);
+    });
+
+    it('required agents always enabled even with empty enabledAgents', () => {
+      const cfg = makeConfig({
+        expansionMaxIterations: 1,
+        enabledAgents: [],
+      });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      // Required agents gated by isEnabled should still be true
+      expect(config.runCalibration).toBe(true);
+      // Generation still gated by singleArticle in COMPETITION, but isEnabled passes
+      expect(config.runGeneration).toBe(true);
+      expect(config.runProximity).toBe(true);
+    });
+
+    it('gates EXPANSION phase agents by enabledAgents', () => {
+      const cfg = makeConfig({ enabledAgents: ['reflection'] });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(3, 0);
+      state.diversityScore = 0.5;
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      expect(config.phase).toBe('EXPANSION');
+      // Required agents always on in EXPANSION
+      expect(config.runGeneration).toBe(true);
+      expect(config.runCalibration).toBe(true);
+      expect(config.runProximity).toBe(true);
+    });
+
+    it('combines enabledAgents with singleArticle mode', () => {
+      const cfg = makeConfig({
+        singleArticle: true,
+        expansionMaxIterations: 0,
+        expansionMinPool: 1,
+        maxIterations: 3,
+        plateauWindow: 2,
+        enabledAgents: ['reflection', 'generation'], // generation listed but overridden by singleArticle
+      });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(1, 0);
+      supervisor.beginIteration(state);
+      const config = supervisor.getPhaseConfig(state);
+
+      // singleArticle overrides generation even though it's in enabledAgents
+      expect(config.runGeneration).toBe(false);
+      expect(config.runOutlineGeneration).toBe(false);
+      expect(config.runEvolution).toBe(false);
+      // reflection is enabled and not blocked by singleArticle
+      expect(config.runReflection).toBe(true);
+    });
+
+    it('supervisorConfigFromRunConfig passes enabledAgents through', () => {
+      const runConfig: EvolutionRunConfig = {
+        ...DEFAULT_EVOLUTION_CONFIG,
+        enabledAgents: ['reflection', 'debate', 'metaReview'],
+      };
+      const supervisorCfg = supervisorConfigFromRunConfig(runConfig);
+      expect(supervisorCfg.enabledAgents).toEqual(['reflection', 'debate', 'metaReview']);
+    });
+
+    it('supervisorConfigFromRunConfig leaves enabledAgents undefined when not set', () => {
+      const runConfig: EvolutionRunConfig = { ...DEFAULT_EVOLUTION_CONFIG };
+      const supervisorCfg = supervisorConfigFromRunConfig(runConfig);
+      expect(supervisorCfg.enabledAgents).toBeUndefined();
+    });
+  });
 });

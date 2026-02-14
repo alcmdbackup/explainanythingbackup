@@ -7,7 +7,7 @@ import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import { QUALITY_DIMENSIONS } from '../flowRubric';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
 import { getOrdinal, createRating } from '../core/rating';
@@ -205,12 +205,26 @@ export class DebateAgent extends AgentBase {
 
     const variantA = topVariants[0];
     const variantB = topVariants[1];
+    const ordinalA = getOrdinal(state.ratings.get(variantA.id) ?? createRating());
+    const ordinalB = getOrdinal(state.ratings.get(variantB.id) ?? createRating());
 
     logger.info('Debate start', {
       variantAId: variantA.id.slice(0, 8),
       variantBId: variantB.id.slice(0, 8),
-      variantAOrdinal: getOrdinal(state.ratings.get(variantA.id) ?? createRating()),
-      variantBOrdinal: getOrdinal(state.ratings.get(variantB.id) ?? createRating()),
+      variantAOrdinal: ordinalA,
+      variantBOrdinal: ordinalB,
+    });
+
+    // Build detail progressively — transcript accumulates as turns succeed
+    const detailTranscript: DebateExecutionDetail['transcript'] = [];
+
+    const buildDetail = (overrides: Partial<DebateExecutionDetail>): DebateExecutionDetail => ({
+      detailType: 'debate',
+      variantA: { id: variantA.id, ordinal: ordinalA },
+      variantB: { id: variantB.id, ordinal: ordinalB },
+      transcript: detailTranscript,
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+      ...overrides,
     });
 
     const transcript: DebateTranscript = {
@@ -229,11 +243,12 @@ export class DebateAgent extends AgentBase {
       const promptA = buildAdvocateAPrompt(variantA, variantB, critiqueContext);
       advocateAResponse = await llmClient.complete(promptA, this.name);
       transcript.turns.push({ role: 'advocate_a', content: advocateAResponse });
+      detailTranscript.push({ role: 'advocate_a', content: advocateAResponse });
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Advocate A failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate A failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate A failed: ${error}`, executionDetail: buildDetail({ failurePoint: 'advocate_a' }) };
     }
 
     // Turn 2: Advocate B
@@ -242,11 +257,12 @@ export class DebateAgent extends AgentBase {
       const promptB = buildAdvocateBPrompt(variantA, variantB, advocateAResponse, critiqueContext);
       advocateBResponse = await llmClient.complete(promptB, this.name);
       transcript.turns.push({ role: 'advocate_b', content: advocateBResponse });
+      detailTranscript.push({ role: 'advocate_b', content: advocateBResponse });
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Advocate B failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate B failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Advocate B failed: ${error}`, executionDetail: buildDetail({ failurePoint: 'advocate_b' }) };
     }
 
     // Turn 3: Judge
@@ -255,19 +271,28 @@ export class DebateAgent extends AgentBase {
       const judgePrompt = buildJudgePrompt(variantA, variantB, advocateAResponse, advocateBResponse);
       const judgeResponse = await llmClient.complete(judgePrompt, this.name);
       transcript.turns.push({ role: 'judge', content: judgeResponse });
+      detailTranscript.push({ role: 'judge', content: judgeResponse });
       verdict = parseJudgeResponse(judgeResponse);
     } catch (error) {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Judge failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Judge failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Judge failed: ${error}`, executionDetail: buildDetail({ failurePoint: 'judge' }) };
     }
 
     if (!verdict) {
       state.debateTranscripts.push(transcript);
       logger.warn('Judge response parse failed');
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Judge response parse failed' };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'Judge response parse failed', executionDetail: buildDetail({ failurePoint: 'parse' }) };
     }
+
+    const judgeVerdict: DebateExecutionDetail['judgeVerdict'] = {
+      winner: verdict.winner,
+      reasoning: verdict.reasoning,
+      strengthsFromA: verdict.strengths_from_a,
+      strengthsFromB: verdict.strengths_from_b,
+      improvements: verdict.improvements,
+    };
 
     logger.info('Judge verdict', { winner: verdict.winner, reasoning: verdict.reasoning });
 
@@ -283,7 +308,7 @@ export class DebateAgent extends AgentBase {
       if (error instanceof BudgetExceededError) throw error;
       state.debateTranscripts.push(transcript);
       logger.error('Synthesis failed', { error: String(error) });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Synthesis failed: ${error}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Synthesis failed: ${error}`, executionDetail: buildDetail({ judgeVerdict, failurePoint: 'synthesis' }) };
     }
 
     // Validate format
@@ -291,7 +316,7 @@ export class DebateAgent extends AgentBase {
     if (!fmtResult.valid) {
       state.debateTranscripts.push(transcript);
       logger.warn('Synthesis format rejected', { issues: fmtResult.issues });
-      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Format invalid: ${fmtResult.issues.join(', ')}` };
+      return { agentType: 'debate', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: `Format invalid: ${fmtResult.issues.join(', ')}`, executionDetail: buildDetail({ judgeVerdict, formatValid: false, formatIssues: fmtResult.issues, failurePoint: 'format' }) };
     }
 
     // Add synthesized variant to pool
@@ -316,7 +341,10 @@ export class DebateAgent extends AgentBase {
       winner: verdict.winner,
     });
 
-    return { agentType: 'debate', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: 1 };
+    return {
+      agentType: 'debate', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: 1,
+      executionDetail: buildDetail({ judgeVerdict, synthesisVariantId: newVariant.id, synthesisTextLength: newVariant.text.length, formatValid: true }),
+    };
   }
 
   estimateCost(payload: AgentPayload): number {

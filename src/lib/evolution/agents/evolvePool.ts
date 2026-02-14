@@ -6,7 +6,7 @@ import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { PoolManager } from '../core/pool';
-import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep } from '../types';
+import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { getOrdinal, type Rating } from '../core/rating';
 
@@ -170,13 +170,8 @@ export function shouldTriggerCreativeExploration(
   state: PipelineState,
   randomValue: number,
 ): boolean {
-  // Condition 1: 30% random chance
   if (randomValue < CREATIVE_RANDOM_CHANCE) return true;
-
-  // Condition 2: Low diversity
-  if (state.diversityScore !== null && state.diversityScore < CREATIVE_DIVERSITY_THRESHOLD) return true;
-
-  return false;
+  return state.diversityScore !== null && state.diversityScore < CREATIVE_DIVERSITY_THRESHOLD;
 }
 
 // ─── EvolutionAgent ─────────────────────────────────────────────
@@ -198,11 +193,21 @@ export class EvolutionAgent extends AgentBase {
       return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'No parents available' };
     }
 
+    const feedbackUsed = state.metaFeedback !== null;
     const feedback = state.metaFeedback
       ? state.metaFeedback.priorityImprovements.join('\n')
       : null;
 
+    // Track parent ordinals for detail
+    const parentDetails: EvolutionExecutionDetail['parents'] = parents.map(p => ({
+      id: p.id,
+      ordinal: getOrdinal(state.ratings.get(p.id)!),
+    }));
+
     logger.info('Evolution start', { numParents: parents.length, parentIds: parents.map((p) => p.id) });
+
+    // Track per-mutation results for detail
+    const mutationDetails: EvolutionExecutionDetail['mutations'] = [];
 
     // Run all evolution strategy LLM calls in parallel
     const results = await Promise.allSettled(
@@ -224,7 +229,7 @@ export class EvolutionAgent extends AgentBase {
         const fmtResult = validateFormat(generatedText);
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy, issues: fmtResult.issues });
-          return null;
+          return { text: null as string | null, strategy, parentIds, version: 0 };
         }
 
         const maxParentVersion = Math.max(...parents.filter((p) => parentIds.includes(p.id)).map((p) => p.version));
@@ -241,12 +246,15 @@ export class EvolutionAgent extends AgentBase {
 
     // Mutate state sequentially after all promises resolve
     const variations: TextVariation[] = [];
-    for (const result of results) {
-      if (result.status === 'fulfilled' && result.value) {
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      const strategy = EVOLUTION_STRATEGIES[i];
+
+      if (result.status === 'fulfilled' && result.value.text !== null) {
         const v = result.value;
         const variation: TextVariation = {
           id: uuidv4(),
-          text: v.text,
+          text: v.text!,
           version: v.version,
           parentIds: v.parentIds,
           strategy: v.strategy,
@@ -256,17 +264,29 @@ export class EvolutionAgent extends AgentBase {
         variations.push(variation);
         state.addToPool(variation);
         logger.info('Evolution variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
+        mutationDetails.push({ strategy, status: 'success', variantId: variation.id, textLength: variation.text.length });
+      } else if (result.status === 'fulfilled' && result.value.text === null) {
+        mutationDetails.push({ strategy, status: 'format_rejected' });
       } else if (result.status === 'rejected') {
         logger.error('Evolution error', { error: String(result.reason) });
+        mutationDetails.push({ strategy, status: 'error', error: String(result.reason) });
       }
     }
 
     // Creative exploration operator
+    let creativeExploration = false;
+    let creativeReason: 'random' | 'low_diversity' | undefined;
+    let overrepresentedStrategies: string[] | undefined;
+
     const randomValue = Math.random();
     if (shouldTriggerCreativeExploration(state, randomValue)) {
+      creativeExploration = true;
+      creativeReason = randomValue < CREATIVE_RANDOM_CHANCE ? 'random' : 'low_diversity';
+
       try {
         const creativeParent = parents[Math.floor(Math.random() * parents.length)];
         const overrepresented = getDominantStrategies(state.pool);
+        overrepresentedStrategies = overrepresented.length > 0 ? overrepresented : undefined;
 
         logger.info('Creative exploration triggered', {
           parentId: creativeParent.id,
@@ -279,6 +299,7 @@ export class EvolutionAgent extends AgentBase {
 
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy: 'creative_exploration', issues: fmtResult.issues });
+          mutationDetails.push({ strategy: 'creative_exploration', status: 'format_rejected' });
         } else {
           const creativeVariation: TextVariation = {
             id: uuidv4(),
@@ -292,6 +313,7 @@ export class EvolutionAgent extends AgentBase {
 
           variations.push(creativeVariation);
           state.addToPool(creativeVariation);
+          mutationDetails.push({ strategy: 'creative_exploration', status: 'success', variantId: creativeVariation.id, textLength: creativeVariation.text.length });
           logger.info('Creative exploration complete', {
             variationId: creativeVariation.id,
             textLength: creativeVariation.text.length,
@@ -300,6 +322,7 @@ export class EvolutionAgent extends AgentBase {
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
         logger.error('Creative exploration error', { error: String(error) });
+        mutationDetails.push({ strategy: 'creative_exploration', status: 'error', error: String(error) });
       }
     }
 
@@ -321,6 +344,7 @@ export class EvolutionAgent extends AgentBase {
         const fmtResult = validateFormat(expandedText);
         if (!fmtResult.valid) {
           logger.warn('Format rejected', { strategy: 'mutate_outline', issues: fmtResult.issues });
+          mutationDetails.push({ strategy: 'mutate_outline', status: 'format_rejected' });
         } else {
           const steps: GenerationStep[] = [
             { name: 'outline', input: state.originalText, output: mutatedOutline.trim(), score: 0.5, costUsd: 0 },
@@ -342,19 +366,32 @@ export class EvolutionAgent extends AgentBase {
 
           variations.push(outlineVariation);
           state.addToPool(outlineVariation);
+          mutationDetails.push({ strategy: 'mutate_outline', status: 'success', variantId: outlineVariation.id, textLength: expandedText.trim().length });
           logger.info('Outline mutation complete', { variationId: outlineVariation.id, textLength: expandedText.length });
         }
       } catch (error) {
         if (error instanceof BudgetExceededError) throw error;
         logger.error('Outline mutation error', { error: String(error) });
+        mutationDetails.push({ strategy: 'mutate_outline', status: 'error', error: String(error) });
       }
     }
 
+    const detail: EvolutionExecutionDetail = {
+      detailType: 'evolution',
+      parents: parentDetails,
+      mutations: mutationDetails,
+      creativeExploration,
+      creativeReason,
+      overrepresentedStrategies,
+      feedbackUsed,
+      totalCost: ctx.costTracker.getAgentCost(this.name),
+    };
+
     if (variations.length === 0) {
-      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All evolution strategies failed' };
+      return { agentType: 'evolution', success: false, costUsd: ctx.costTracker.getAgentCost(this.name), error: 'All evolution strategies failed', executionDetail: detail };
     }
 
-    return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length };
+    return { agentType: 'evolution', success: true, costUsd: ctx.costTracker.getAgentCost(this.name), variantsAdded: variations.length, executionDetail: detail };
   }
 
   estimateCost(payload: AgentPayload): number {

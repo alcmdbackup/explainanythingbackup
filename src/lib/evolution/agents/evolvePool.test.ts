@@ -2,7 +2,7 @@
 
 import { EvolutionAgent, getDominantStrategies, shouldTriggerCreativeExploration, EVOLUTION_STRATEGIES } from './evolvePool';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation, OutlineVariant, GenerationStep } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, TextVariation, OutlineVariant, GenerationStep, EvolutionExecutionDetail } from '../types';
 import { BASELINE_STRATEGY, isOutlineVariant } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
@@ -260,6 +260,66 @@ describe('EvolutionAgent', () => {
     } finally {
       Math.random = () => originalRandom();
     }
+  });
+
+  describe('executionDetail', () => {
+    it('captures per-mutation detail on success', async () => {
+      const ctx = makeCtx([VALID_TEXT], 4);
+      Math.random = () => 0.9;
+      try {
+        const result = await agent.execute(ctx);
+
+        expect(result.executionDetail).toBeDefined();
+        const detail = result.executionDetail as EvolutionExecutionDetail;
+        expect(detail.detailType).toBe('evolution');
+        expect(detail.parents.length).toBeGreaterThanOrEqual(1);
+        expect(detail.parents[0].ordinal).toBeGreaterThan(0);
+        expect(detail.mutations.length).toBe(3); // 3 strategies
+        for (const m of detail.mutations) {
+          expect(m.status).toBe('success');
+          expect(m.variantId).toBeDefined();
+          expect(m.textLength).toBeGreaterThan(0);
+        }
+        expect(detail.creativeExploration).toBe(false);
+        expect(detail.feedbackUsed).toBe(false);
+      } finally {
+        Math.random = originalRandom;
+      }
+    });
+
+    it('tracks format_rejected mutations', async () => {
+      const ctx = makeCtx(['No heading here. Just bare text.'], 4);
+      Math.random = () => 0.9;
+      try {
+        const result = await agent.execute(ctx);
+
+        const detail = result.executionDetail as EvolutionExecutionDetail;
+        for (const m of detail.mutations) {
+          expect(m.status).toBe('format_rejected');
+        }
+      } finally {
+        Math.random = originalRandom;
+      }
+    });
+
+    it('captures creative exploration detail', async () => {
+      const ctx = makeCtx([VALID_TEXT], 4);
+      Math.random = () => 0.1; // triggers creative exploration (< 0.3)
+      try {
+        const result = await agent.execute(ctx);
+
+        const detail = result.executionDetail as EvolutionExecutionDetail;
+        expect(detail.creativeExploration).toBe(true);
+        expect(detail.creativeReason).toBe('random');
+        // Should have 3 strategies + 1 creative = 4 mutations
+        expect(detail.mutations.length).toBe(4);
+        const creative = detail.mutations.find(m => m.strategy === 'creative_exploration');
+        expect(creative).toBeDefined();
+        expect(creative!.status).toBe('success');
+      } finally {
+        Math.random = originalRandom;
+      }
+    });
   });
 
   it('estimateCost returns positive', () => {

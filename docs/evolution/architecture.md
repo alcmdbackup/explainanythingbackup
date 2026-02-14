@@ -53,6 +53,43 @@ The pipeline uses a **PoolSupervisor** (`core/supervisor.ts`) that manages a one
 - **`executeFullPipeline` (single-article mode)**: Same entry point as full pipeline but with `config.singleArticle: true`. Skips EXPANSION entirely (`expansion.maxIterations: 0`) and enters COMPETITION immediately. The supervisor gates out GenerationAgent, OutlineGenerationAgent, and EvolutionAgent — only improvement agents (ReflectionAgent, IterativeEditingAgent, SectionDecompositionAgent, DebateAgent) and ranking/monitoring agents run. Starts with a single baseline variant and iteratively refines it. Stops on quality threshold (all critique dimensions >= 8), plateau (window: 2), or budget/iteration cap. Used by local CLI `--single` mode.
 - **`executeMinimalPipeline`**: Simplified single-pass mode with no phase transitions. Runs a caller-provided list of agents once. Used for testing, custom agent sequences, and the local CLI runner (`run-evolution-local.ts`) default mode (generation + calibration only).
 
+## Agent Selection
+
+Strategies can specify which optional agents run via `enabledAgents`. This allows per-strategy control over which improvement agents participate in the pipeline.
+
+### Agent Classification
+
+- **Required agents** (always run, cannot be disabled): `generation`, `calibration`, `tournament`, `proximity`
+- **Optional agents** (toggled per strategy): `reflection`, `iterativeEditing`, `treeSearch`, `sectionDecomposition`, `debate`, `evolution`, `outlineGeneration`, `metaReview`
+
+### Constraints
+
+- **Dependencies**: `iterativeEditing`, `treeSearch`, and `sectionDecomposition` each require `reflection`. `evolution` and `metaReview` require `tournament` (always satisfied since tournament is required).
+- **Mutual exclusion**: `treeSearch` and `iterativeEditing` cannot both be enabled.
+- **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
+
+### Three-Tier Agent Gating
+
+An agent must pass all three tiers to execute:
+
+1. **PhaseConfig (supervisor)** — `getPhaseConfig()` returns per-phase `run*` booleans. EXPANSION disables all improvement agents; COMPETITION enables them. The supervisor calls `isEnabled()` internally, which checks `enabledAgents` and always returns true for required agents.
+2. **Feature flags (global DB)** — `EvolutionFeatureFlags` from the `feature_flags` table can globally disable specific agents (e.g., `evolution_outline_generation_enabled`). Checked by individual agents at execution time.
+3. **enabledAgents (per-strategy)** — The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled.
+
+### Budget Redistribution
+
+When agents are disabled, their budget share is redistributed proportionally to remaining active agents via `computeEffectiveBudgetCaps()`. This preserves the original total managed budget sum so that enabled agents can use the full allocation. Agents outside the managed set (e.g., `flowCritique`) are passed through unchanged.
+
+### UI Toggle
+
+The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Required agents show as locked. The `toggleAgent()` utility enforces dependency auto-enable, dependent auto-disable, and mutex constraints on each toggle. Validation via `validateAgentSelection()` runs before save.
+
+### Key Files
+
+- `src/lib/evolution/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
+- `src/lib/evolution/core/agentToggle.ts` — Pure toggle utility for UI state
+- `src/lib/evolution/core/supervisor.ts` — `isEnabled()` gating in `getPhaseConfig()`
+
 ## Append-Only Pool
 
 Variants are never removed from the pool during a run. Low-performing variants naturally sink in Elo and become less likely to be selected as parents for evolution. However, they remain available because they may contain novel structural or stylistic elements useful for future crossover operations.
@@ -122,6 +159,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    │   ├─ ProximityAgent → diversity score update
    │   └─ MetaReviewAgent → meta-feedback for next iteration
    │
+   ├─ persistAgentInvocation → execution detail to evolution_agent_invocations
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)

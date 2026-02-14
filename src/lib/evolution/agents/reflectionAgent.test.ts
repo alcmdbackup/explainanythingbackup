@@ -8,7 +8,7 @@ import {
   getImprovementSuggestions,
 } from './reflectionAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique } from '../types';
+import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, ReflectionExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
 
 const VALID_CRITIQUE_JSON = JSON.stringify({
@@ -153,6 +153,57 @@ describe('ReflectionAgent', () => {
   it('canExecute returns false for empty pool', () => {
     const state = new PipelineStateImpl('text');
     expect(agent.canExecute(state)).toBe(false);
+  });
+
+  describe('executionDetail', () => {
+    it('captures per-variant critique details on success', async () => {
+      const ctx = makeCtx();
+      const result = await agent.execute(ctx);
+
+      expect(result.executionDetail).toBeDefined();
+      const detail = result.executionDetail as ReflectionExecutionDetail;
+      expect(detail.detailType).toBe('reflection');
+      expect(detail.variantsCritiqued).toHaveLength(3);
+      expect(detail.dimensions).toContain('clarity');
+      for (const v of detail.variantsCritiqued) {
+        expect(v.status).toBe('success');
+        expect(v.avgScore).toBeGreaterThan(0);
+        expect(v.dimensionScores).toBeDefined();
+        expect(v.dimensionScores!.clarity).toBe(8);
+      }
+    });
+
+    it('records parse_failed status for malformed LLM response', async () => {
+      const ctx = makeCtx({ llmClient: makeMockLLMClient('not json') });
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as ReflectionExecutionDetail;
+      expect(detail.variantsCritiqued).toHaveLength(3);
+      for (const v of detail.variantsCritiqued) {
+        expect(v.status).toBe('parse_failed');
+        expect(v.avgScore).toBeUndefined();
+      }
+    });
+
+    it('records error status for failed LLM calls', async () => {
+      const mockClient = makeMockLLMClient();
+      let callCount = 0;
+      (mockClient.complete as jest.Mock).mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) throw new Error('API error');
+        return Promise.resolve(VALID_CRITIQUE_JSON);
+      });
+      const ctx = makeCtx({ llmClient: mockClient });
+      const result = await agent.execute(ctx);
+
+      const detail = result.executionDetail as ReflectionExecutionDetail;
+      expect(detail.variantsCritiqued).toHaveLength(3);
+      const errorVariant = detail.variantsCritiqued.find(v => v.status === 'error');
+      expect(errorVariant).toBeDefined();
+      expect(errorVariant!.error).toContain('API error');
+      const successVariants = detail.variantsCritiqued.filter(v => v.status === 'success');
+      expect(successVariants).toHaveLength(2);
+    });
   });
 
   it('estimateCost returns positive value', () => {

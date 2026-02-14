@@ -73,10 +73,13 @@ test.describe('User Library Management', () => {
     expect(pageTitle).toContain('My Library');
   });
 
-  test('should display FeedCard components for saved explanations', async () => {
+  test('should display FeedCard components for saved explanations', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait specifically for cards to load (test data created in beforeAll)
-    await libraryPage.waitForCards(30000);
+
+    // Wait for feed cards specifically (not empty state) — the page renders empty
+    // state immediately before the useEffect data fetch completes
+    const feedCard = authenticatedPage.locator('[data-testid="feed-card"]');
+    await expect(feedCard.first()).toBeVisible({ timeout: 15000 });
 
     // Should have at least one card
     const cardCount = await libraryPage.getCardCount();
@@ -85,8 +88,9 @@ test.describe('User Library Management', () => {
 
   test('should navigate to results page when clicking card', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait specifically for cards (test data created in beforeAll)
-    await libraryPage.waitForCards(30000);
+
+    // Wait for feed cards (page renders empty state before data fetch completes)
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 15000 });
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -101,8 +105,9 @@ test.describe('User Library Management', () => {
 
   test('should show saved date on cards', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait specifically for cards (test data created in beforeAll)
-    await libraryPage.waitForCards(30000);
+
+    // Wait for feed cards (page renders empty state before data fetch completes)
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 15000 });
     const cardCount = await libraryPage.getCardCount();
     expect(cardCount).toBeGreaterThan(0);
 
@@ -112,10 +117,11 @@ test.describe('User Library Management', () => {
     expect(savedDateCount).toBeGreaterThan(0);
   });
 
-  test('should have search bar in navigation', async () => {
+  test('should have search bar in navigation', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait for cards to confirm page is fully loaded
-    await libraryPage.waitForCards(30000);
+
+    // Wait for feed cards (page renders empty state before data fetch completes)
+    await expect(authenticatedPage.locator('[data-testid="feed-card"]').first()).toBeVisible({ timeout: 15000 });
 
     const hasSearchBar = await libraryPage.hasSearchBar();
     expect(hasSearchBar).toBe(true);
@@ -123,8 +129,11 @@ test.describe('User Library Management', () => {
 
   test('should handle search from library page', async ({ authenticatedPage }) => {
     await libraryPage.navigate();
-    // Wait for cards to confirm page is fully loaded
-    await libraryPage.waitForCards(30000);
+    await waitForPageReady(libraryPage);
+
+    // Search bar should always be present in navigation
+    const hasSearchBar = await libraryPage.hasSearchBar();
+    expect(hasSearchBar).toBe(true);
 
     // Use the search bar in the navigation (nav variant uses Enter key, no submit button)
     const searchInput = authenticatedPage.locator('[data-testid="search-input"]');

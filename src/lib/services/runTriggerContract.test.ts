@@ -94,16 +94,10 @@ const sampleRun = {
 
 describe('queueEvolutionRunAction — run trigger contract', () => {
   it('backward compat: succeeds with only explanationId (transition period)', async () => {
-    // Auto-resolve prompt_id: lookup explanation title
-    queueResult('explanations', { data: { title: 'Test Title' }, error: null });
-    // Auto-resolve prompt_id: check existing topic → not found
-    queueResult('hall_of_fame_topics', { data: null, error: null });
-    // Auto-resolve prompt_id: insert new topic
-    queueResult('hall_of_fame_topics', { data: { id: 'auto-prompt-1' }, error: null });
-    // Auto-resolve strategy_config_id: check existing → not found
-    queueResult('strategy_configs', { data: null, error: null });
-    // Auto-resolve strategy_config_id: insert new config
-    queueResult('strategy_configs', { data: { id: 'auto-strat-1' }, error: null });
+    // Default strategy lookup → returns existing
+    queueResult('strategy_configs', { data: { id: 'default-strat' }, error: null });
+    // Default prompt lookup → returns existing
+    queueResult('hall_of_fame_topics', { data: { id: 'default-prompt' }, error: null });
     // Insert → returns new run
     queueResult('content_evolution_runs', { data: sampleRun, error: null });
 
@@ -198,17 +192,13 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
   });
 
   it('explicit budgetCapUsd overrides strategy budget', async () => {
-    // Strategy validation with $3.00 budget
+    // Strategy with $3.00 budget
     queueResult('strategy_configs', {
       data: { id: 's1', config: { budgetCapUsd: 3.00 } },
       error: null,
     });
-    // Auto-resolve prompt_id: lookup explanation title
-    queueResult('explanations', { data: { title: 'Test Title' }, error: null });
-    // Auto-resolve prompt_id: check existing topic → not found
-    queueResult('hall_of_fame_topics', { data: null, error: null });
-    // Auto-resolve prompt_id: insert new topic
-    queueResult('hall_of_fame_topics', { data: { id: 'auto-prompt-1' }, error: null });
+    // Default prompt lookup → returns existing (no promptId provided)
+    queueResult('hall_of_fame_topics', { data: { id: 'default-prompt' }, error: null });
     // Insert
     queueResult('content_evolution_runs', {
       data: { ...sampleRun, budget_cap_usd: 10.00, strategy_config_id: 's1' },
@@ -227,10 +217,8 @@ describe('queueEvolutionRunAction — run trigger contract', () => {
   it('succeeds with promptId only (no explanationId) for prompt-based runs', async () => {
     // Prompt validation
     queueResult('hall_of_fame_topics', { data: { id: 'prompt-1' }, error: null });
-    // Auto-resolve strategy_config_id: check existing → not found
-    queueResult('strategy_configs', { data: null, error: null });
-    // Auto-resolve strategy_config_id: insert new config
-    queueResult('strategy_configs', { data: { id: 'auto-strat-1' }, error: null });
+    // Default strategy lookup → returns existing (no strategyId provided)
+    queueResult('strategy_configs', { data: { id: 'default-strat' }, error: null });
     // Insert → returns run with null explanation_id and source set
     queueResult('content_evolution_runs', {
       data: { ...sampleRun, explanation_id: null, prompt_id: 'prompt-1', source: 'prompt:prompt-1' },

@@ -2,6 +2,8 @@
 // Drives EXPANSION → COMPETITION phase transitions with one-way lock and plateau detection.
 
 import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
+import type { AgentName } from './pipeline';
+import { REQUIRED_AGENTS } from './budgetRedistribution';
 import { getOrdinal } from './rating';
 
 // Generation strategies used in both phases
@@ -48,6 +50,8 @@ export interface SupervisorConfig {
   expansionDiversityThreshold: number;
   expansionMaxIterations: number;
   singleArticle: boolean;
+  /** Optional agents to enable. Undefined = all agents (backward compat). */
+  enabledAgents?: AgentName[];
 }
 
 export function supervisorConfigFromRunConfig(cfg: EvolutionRunConfig): SupervisorConfig {
@@ -60,6 +64,7 @@ export function supervisorConfigFromRunConfig(cfg: EvolutionRunConfig): Supervis
     expansionDiversityThreshold: cfg.expansion.diversityThreshold,
     expansionMaxIterations: cfg.expansion.maxIterations,
     singleArticle: cfg.singleArticle ?? false,
+    enabledAgents: cfg.enabledAgents,
   };
 }
 
@@ -147,6 +152,14 @@ export class PoolSupervisor {
     }
   }
 
+  /** Check if an agent is enabled by the strategy's enabledAgents config.
+   *  Required agents always return true (defense-in-depth against corrupt DB data). */
+  private isEnabled(name: AgentName): boolean {
+    if (!this.cfg.enabledAgents) return true; // backward compat: all enabled
+    if ((REQUIRED_AGENTS as readonly string[]).includes(name)) return true;
+    return this.cfg.enabledAgents.includes(name);
+  }
+
   /** Return phase configuration (pure read, idempotent). */
   getPhaseConfig(state: PipelineState): PhaseConfig {
     const phase = this._currentPhase;
@@ -165,7 +178,7 @@ export class PoolSupervisor {
 
       return {
         phase: 'EXPANSION',
-        runGeneration: true,
+        runGeneration: this.isEnabled('generation'),
         runOutlineGeneration: false,
         runReflection: false,
         runIterativeEditing: false,
@@ -173,8 +186,8 @@ export class PoolSupervisor {
         runSectionDecomposition: false,
         runDebate: false,
         runEvolution: false,
-        runCalibration: true,
-        runProximity: true,
+        runCalibration: this.isEnabled('calibration'),
+        runProximity: this.isEnabled('proximity'),
         runMetaReview: false,
         generationPayload: { strategies },
         calibrationPayload: { opponentsPerEntrant: 3 },
@@ -188,17 +201,17 @@ export class PoolSupervisor {
     const currentStrategy = GENERATION_STRATEGIES[this._strategyRotationIndex];
     return {
       phase: 'COMPETITION',
-      runGeneration: !this.cfg.singleArticle,
-      runOutlineGeneration: !this.cfg.singleArticle,
-      runReflection: true,
-      runIterativeEditing: true,
-      runTreeSearch: true,
-      runSectionDecomposition: true,
-      runDebate: true,
-      runEvolution: !this.cfg.singleArticle,
+      runGeneration: !this.cfg.singleArticle && this.isEnabled('generation'),
+      runOutlineGeneration: !this.cfg.singleArticle && this.isEnabled('outlineGeneration'),
+      runReflection: this.isEnabled('reflection'),
+      runIterativeEditing: this.isEnabled('iterativeEditing'),
+      runTreeSearch: this.isEnabled('treeSearch'),
+      runSectionDecomposition: this.isEnabled('sectionDecomposition'),
+      runDebate: this.isEnabled('debate'),
+      runEvolution: !this.cfg.singleArticle && this.isEnabled('evolution'),
       runCalibration: true,
-      runProximity: true,
-      runMetaReview: true,
+      runProximity: this.isEnabled('proximity'),
+      runMetaReview: this.isEnabled('metaReview'),
       generationPayload: { strategies: [currentStrategy] },
       calibrationPayload: { opponentsPerEntrant: 5 },
     };
@@ -259,7 +272,7 @@ export class PoolSupervisor {
   /** Return serializable state for checkpoint persistence. */
   getResumeState(): SupervisorResumeState {
     return {
-      phase: this._currentPhase ?? 'EXPANSION',
+      phase: this._currentPhase,
       strategyRotationIndex: Math.max(0, this._strategyRotationIndex),
       ordinalHistory: [...this.ordinalHistory],
       diversityHistory: [...this.diversityHistory],

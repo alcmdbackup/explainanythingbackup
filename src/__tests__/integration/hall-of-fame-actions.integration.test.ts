@@ -102,7 +102,7 @@ async function cleanupAll() {
 async function insertTopic(prompt: string, title?: string) {
   const { data, error } = await supabase
     .from('hall_of_fame_topics')
-    .insert({ prompt, title: title ?? prompt })
+    .insert({ prompt, title: title ?? prompt.slice(0, 60) })
     .select('id, prompt, title, created_at')
     .single();
   if (error) throw new Error(`Failed to insert topic: ${error.message}`);
