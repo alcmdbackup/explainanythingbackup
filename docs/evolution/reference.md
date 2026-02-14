@@ -208,6 +208,17 @@ Fields:
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
 | `formatValidator.ts` | Validates generated text against format rules; controlled by `FORMAT_VALIDATION_MODE` env var |
 
+### Strategy Experiments (`src/lib/evolution/experiment/`)
+| File | Purpose |
+|------|---------|
+| `factorial.ts` | L8 orthogonal array generation, factor-to-config mapping, full factorial for Round 2+ |
+| `analysis.ts` | Main effects computation, interaction effects, factor ranking, recommendations |
+
+### Experiment CLI (`scripts/`)
+| File | Purpose |
+|------|---------|
+| `run-strategy-experiment.ts` | Experiment orchestrator: plan/run/analyze/status commands |
+
 ### Comparison (`src/lib/evolution/`)
 | File | Purpose |
 |------|---------|
@@ -365,6 +376,32 @@ How it works:
 4. When `--bank` is set, the pipeline winner and baseline are added to the Hall of Fame after completion
 5. `--bank-checkpoints "3,5,10"` snapshots intermediate winners to the Hall of Fame
 
+### Strategy Experiments
+```bash
+# Preview the L8 experiment plan for Round 1
+npx tsx scripts/run-strategy-experiment.ts plan --round 1
+
+# Execute all 8 screening runs
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
+  --prompt "Explain how blockchain technology works"
+
+# Re-analyze completed results
+npx tsx scripts/run-strategy-experiment.ts analyze --round 1
+
+# Check experiment status
+npx tsx scripts/run-strategy-experiment.ts status
+
+# Round 2 refinement with custom factor levels
+npx tsx scripts/run-strategy-experiment.ts plan --round 2 \
+  --vary "iterations=3,5,8" --lock "genModel=deepseek-chat"
+
+# Re-run failed rows
+npx tsx scripts/run-strategy-experiment.ts run --round 1 \
+  --prompt "Explain quantum computing" --retry-failed
+```
+
+Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 runs. State persisted to `experiments/strategy-experiment.json` for resume on failure. See [Strategy Experiments](./strategy_experiments.md).
+
 ## Production Deployment
 
 ### Database Setup
@@ -413,3 +450,4 @@ Unit tests exist for all agents and core modules:
 - [Hall of Fame](./hall_of_fame.md) — Cross-method comparison, Elo rating, prompt bank
 - [Cost Optimization](./cost_optimization.md) — Cost tracking, adaptive allocation, Pareto
 - [Visualization](./visualization.md) — Dashboard, components, server actions
+- [Strategy Experiments](./strategy_experiments.md) — Factorial design for finding Elo-optimal configurations

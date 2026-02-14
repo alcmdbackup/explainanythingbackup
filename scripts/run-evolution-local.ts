@@ -50,6 +50,8 @@ interface CLIArgs {
   output: string;
   explanationId: number | null;
   model: string;
+  judgeModel: string | null;
+  enabledAgents: string[] | null;
   bank: boolean;
   bankCheckpoints: number[];
 }
@@ -84,6 +86,9 @@ Options:
   --explanation-id <n>     Optional: link run to an explanation in DB
   --model <name>           LLM model (default: deepseek-chat)
   --outline                Enable outline-based generation agent (decomposed step pipeline)
+  --judge-model <name>     Override judge model for comparison/tournament (default: from config)
+  --enabled-agents <list>  Comma-separated optional agent names to enable (e.g., "iterativeEditing,reflection")
+                             Required agents (generation, calibration, tournament, proximity) always run.
   --bank                   Add winner (+ baseline) to Hall of Fame after completion
   --bank-checkpoints <list> Comma-separated iteration numbers to snapshot (e.g., "3,5,10")
                              Requires --bank and --prompt. Runs to max checkpoint iteration.
@@ -137,6 +142,12 @@ Options:
     }
   }
 
+  // Parse --enabled-agents: comma-separated list of optional agent names
+  const enabledAgentsRaw = getValue('enabled-agents');
+  const enabledAgents = enabledAgentsRaw
+    ? enabledAgentsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+    : null;
+
   return {
     file: resolvedFile,
     prompt: prompt ?? null,
@@ -150,6 +161,8 @@ Options:
     output: getValue('output') ?? defaultOutput,
     explanationId: getValue('explanation-id') ? parseInt(getValue('explanation-id')!, 10) : null,
     model: getValue('model') ?? 'deepseek-chat',
+    judgeModel: getValue('judge-model') ?? null,
+    enabledAgents,
     bank: getFlag('bank'),
     bankCheckpoints,
   };
@@ -585,13 +598,19 @@ async function main() {
     maxIterations: args.iterations,
     budgetCapUsd: args.budget,
   };
+  if (args.judgeModel) {
+    configOverrides.judgeModel = args.judgeModel as ReturnType<typeof resolveConfig>['judgeModel'];
+  }
+  if (args.enabledAgents) {
+    configOverrides.enabledAgents = args.enabledAgents as ReturnType<typeof resolveConfig>['enabledAgents'];
+  }
   if (args.single) {
     configOverrides.singleArticle = true;
     configOverrides.expansion = { maxIterations: 0, minPool: 1, minIterations: 0, diversityThreshold: 0 };
     configOverrides.plateau = { window: 2, threshold: 0.02 };
     configOverrides.maxIterations = args.iterations;
     configOverrides.budgetCapUsd = args.budget;
-  } else if (args.full) {
+  } else if (args.full || args.enabledAgents) {
     // Supervisor requires maxIterations > expansion.maxIterations + plateau.window + 1
     const expansionMax = Math.max(1, Math.floor(args.iterations * 0.4));
     const plateauWindow = DEFAULT_EVOLUTION_CONFIG.plateau.window;
@@ -673,16 +692,18 @@ async function main() {
   };
 
   const agents = buildAgents(args.outline);
-  const agentNames = (args.single || args.full)
-    ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(args.outline ? ['outlineGeneration'] : [])]
-    : ['generation', 'calibration'];
-  logger.info('Agent suite', { agents: agentNames, mode: args.single ? 'single' : args.full ? 'full' : 'minimal', outline: args.outline });
+  const agentNames = args.enabledAgents
+    ? ['generation', 'calibration', 'tournament', 'proximity', ...args.enabledAgents]
+    : (args.single || args.full)
+      ? ['generation', 'calibration', 'tournament', 'evolution', 'reflection', 'proximity', 'metaReview', ...(args.outline ? ['outlineGeneration'] : [])]
+      : ['generation', 'calibration'];
+  logger.info('Agent suite', { agents: agentNames, mode: args.single ? 'single' : args.full ? 'full' : 'minimal', outline: args.outline, judgeModel: args.judgeModel ?? config.judgeModel });
 
   // Run pipeline — canonical functions handle status updates, checkpoints, and variant persistence
   const startMs = Date.now();
   try {
     let stopReason: string;
-    if (args.single || args.full) {
+    if (args.single || args.full || args.enabledAgents) {
       const result = await executeFullPipeline(runId, agents, ctx, logger, { startMs });
       stopReason = result.stopReason;
     } else {
