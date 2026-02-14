@@ -9,24 +9,35 @@ import {
   RefreshIndicator,
   EvolutionStatusBadge,
 } from '@/components/evolution';
+import { ElapsedTime } from '@/components/evolution/ElapsedTime';
 import {
   getEvolutionDashboardDataAction,
   type DashboardData,
   type DashboardRun,
 } from '@/lib/services/evolutionVisualizationActions';
 
+// ─── Shared chart constants ─────────────────────────────────────
+
+const AXIS_TICK = { fontSize: 10, fill: 'var(--text-muted)' };
+const TOOLTIP_STYLE = {
+  background: 'var(--surface-elevated)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 6,
+  fontSize: 12,
+};
+
 // ─── Lazy-load Recharts ─────────────────────────────────────────
 
 const RunsChart = dynamic(() => import('recharts').then((mod) => {
   const { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } = mod;
-  function Chart({ data }: { data: DashboardData['runsPerDay'] }) {
+  function Chart({ data }: { data: DashboardData['runsPerDay'] }): JSX.Element {
     if (data.length === 0) return <EmptyChart label="No run data yet" />;
     return (
       <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={data}>
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v: string) => v.slice(5)} />
-          <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={30} />
-          <Tooltip contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 12 }} />
+          <XAxis dataKey="date" tick={AXIS_TICK} tickFormatter={(v: string) => v.slice(5)} />
+          <YAxis tick={AXIS_TICK} width={30} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} />
           <Area type="monotone" dataKey="completed" stackId="1" stroke="var(--status-success)" fill="var(--status-success)" fillOpacity={0.3} />
           <Area type="monotone" dataKey="failed" stackId="1" stroke="var(--status-error)" fill="var(--status-error)" fillOpacity={0.3} />
           <Area type="monotone" dataKey="paused" stackId="1" stroke="var(--text-muted)" fill="var(--text-muted)" fillOpacity={0.2} />
@@ -39,14 +50,14 @@ const RunsChart = dynamic(() => import('recharts').then((mod) => {
 
 const SpendChart = dynamic(() => import('recharts').then((mod) => {
   const { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } = mod;
-  function Chart({ data }: { data: DashboardData['dailySpend'] }) {
+  function Chart({ data }: { data: DashboardData['dailySpend'] }): JSX.Element {
     if (data.length === 0) return <EmptyChart label="No spend data yet" />;
     return (
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={data}>
-          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} tickFormatter={(v: string) => v.slice(5)} />
-          <YAxis tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={40} tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
-          <Tooltip contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 12 }} formatter={(v) => [`$${Number(v ?? 0).toFixed(2)}`, 'Spend']} />
+          <XAxis dataKey="date" tick={AXIS_TICK} tickFormatter={(v: string) => v.slice(5)} />
+          <YAxis tick={AXIS_TICK} width={40} tickFormatter={(v: number) => `$${v.toFixed(0)}`} />
+          <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(v) => [`$${Number(v ?? 0).toFixed(2)}`, 'Spend']} />
           <Bar dataKey="amount" fill="var(--accent-gold)" radius={[3, 3, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
@@ -55,11 +66,11 @@ const SpendChart = dynamic(() => import('recharts').then((mod) => {
   return Chart;
 }), { ssr: false, loading: () => <ChartSkeleton /> });
 
-function ChartSkeleton() {
+function ChartSkeleton(): JSX.Element {
   return <div className="h-[220px] bg-[var(--surface-secondary)] rounded-book animate-pulse" />;
 }
 
-function EmptyChart({ label }: { label: string }) {
+function EmptyChart({ label }: { label: string }): JSX.Element {
   return (
     <div className="h-[220px] flex items-center justify-center text-sm text-[var(--text-muted)]">
       {label}
@@ -69,7 +80,14 @@ function EmptyChart({ label }: { label: string }) {
 
 // ─── Quick link card ────────────────────────────────────────────
 
-function QuickLinkCard({ title, description, href, icon }: { title: string; description: string; href: string; icon: string }) {
+interface QuickLinkCardProps {
+  title: string;
+  description: string;
+  href: string;
+  icon: string;
+}
+
+function QuickLinkCard({ title, description, href, icon }: QuickLinkCardProps): JSX.Element {
   return (
     <Link
       href={href}
@@ -106,7 +124,6 @@ export default function EvolutionDashboardOverviewPage() {
   return (
     <AutoRefreshProvider onRefresh={handleRefresh}>
       <div className="space-y-6">
-        {/* Header */}
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -125,7 +142,6 @@ export default function EvolutionDashboardOverviewPage() {
           </div>
         )}
 
-        {/* Quick link cards */}
         <div>
           <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Quick Links</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -150,7 +166,6 @@ export default function EvolutionDashboardOverviewPage() {
           </div>
         </div>
 
-        {/* Charts */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">
             <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Runs Over Time (30d)</h3>
@@ -162,7 +177,6 @@ export default function EvolutionDashboardOverviewPage() {
           </div>
         </div>
 
-        {/* Recent runs table */}
         <div>
           <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Recent Runs</h3>
           <div className="overflow-x-auto border border-[var(--border-default)] rounded-book">
@@ -174,15 +188,18 @@ export default function EvolutionDashboardOverviewPage() {
                   <th className="p-3 text-left">Phase</th>
                   <th className="p-3 text-right">Iteration</th>
                   <th className="p-3 text-right">Cost</th>
+                  <th className="p-3 text-left">Duration</th>
                   <th className="p-3 text-left">Created</th>
                 </tr>
               </thead>
               <tbody>
-                {!dashboardData ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-[var(--text-muted)]">Loading...</td></tr>
-                ) : dashboardData.recentRuns.length === 0 ? (
-                  <tr><td colSpan={6} className="p-8 text-center text-[var(--text-muted)]">No runs found</td></tr>
-                ) : (
+                {!dashboardData && (
+                  <tr><td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">Loading...</td></tr>
+                )}
+                {dashboardData && dashboardData.recentRuns.length === 0 && (
+                  <tr><td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">No runs found</td></tr>
+                )}
+                {dashboardData && dashboardData.recentRuns.length > 0 &&
                   dashboardData.recentRuns.map((run: DashboardRun) => (
                     <tr key={run.id} className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]">
                       <td className="p-3">
@@ -197,10 +214,11 @@ export default function EvolutionDashboardOverviewPage() {
                       <td className="p-3 text-[var(--text-secondary)] text-xs">{run.phase}</td>
                       <td className="p-3 text-right text-[var(--text-muted)]">{run.current_iteration}</td>
                       <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
+                      <td className="p-3"><ElapsedTime startedAt={run.started_at} completedAt={run.completed_at} status={run.status} /></td>
                       <td className="p-3 text-[var(--text-muted)] text-xs">{new Date(run.created_at).toLocaleDateString()}</td>
                     </tr>
                   ))
-                )}
+                }
               </tbody>
             </table>
           </div>

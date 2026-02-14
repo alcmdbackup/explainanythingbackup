@@ -493,6 +493,101 @@ describe('getEvolutionRunBudgetAction', () => {
     expect(result.success).toBe(false);
     expect(result.error?.message).toContain('Invalid run ID');
   });
+
+  it('computes agentBudgetCaps from config budgetCaps and enabledAgents', async () => {
+    const mock = createChainMock();
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: '2026-01-01T01:00:00Z',
+        budget_cap_usd: 10,
+        cost_estimate_detail: null,
+        cost_prediction: null,
+        config: {
+          generationModel: 'gpt-4.1-mini',
+          judgeModel: 'gpt-4.1-nano',
+          iterations: 3,
+          budgetCaps: { generation: 0.35, calibration: 0.15, tournament: 0.20, evolution: 0.10, reflection: 0.05 },
+          enabledAgents: ['evolution', 'reflection'],
+        },
+        status: 'running',
+      },
+      error: null,
+    });
+
+    mock.lte.mockResolvedValue({ data: [], error: null });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    // agentBudgetCaps should contain dollar amounts (effective pct × budgetCapUsd)
+    const caps = result.data!.agentBudgetCaps;
+    expect(Object.keys(caps).length).toBeGreaterThan(0);
+    // generation is a required agent, so it should always be present
+    expect(caps['generation']).toBeDefined();
+    expect(typeof caps['generation']).toBe('number');
+    expect(caps['generation']).toBeGreaterThan(0);
+    // Effective caps are proportional to budgetCapUsd (10) — total may exceed
+    // budgetCapUsd due to DEFAULT_EVOLUTION_CONFIG.budgetCaps merging
+    // Verify required agents have nonzero caps and caps scale with budget
+    expect(caps['generation']).toBeGreaterThan(1); // 35% of $10 = $3.50 base, higher after redistribution
+  });
+
+  it('returns runStatus from the run row', async () => {
+    const mock = createChainMock();
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: null,
+        budget_cap_usd: 5,
+        cost_estimate_detail: null,
+        cost_prediction: null,
+        config: null,
+        status: 'running',
+      },
+      error: null,
+    });
+
+    mock.lte.mockResolvedValue({ data: [], error: null });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.runStatus).toBe('running');
+  });
+
+  it('returns empty agentBudgetCaps when config has no budgetCaps', async () => {
+    const mock = createChainMock();
+
+    mock.single.mockResolvedValue({
+      data: {
+        started_at: '2026-01-01T00:00:00Z',
+        completed_at: '2026-01-01T01:00:00Z',
+        budget_cap_usd: 5,
+        cost_estimate_detail: null,
+        cost_prediction: null,
+        config: null,
+        status: 'completed',
+      },
+      error: null,
+    });
+
+    mock.lte.mockResolvedValue({ data: [], error: null });
+
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunBudgetAction('550e8400-e29b-41d4-a716-446655440000');
+
+    expect(result.success).toBe(true);
+    expect(result.data!.agentBudgetCaps).toEqual({});
+    expect(result.data!.runStatus).toBe('completed');
+  });
 });
 
 // ─── buildVariantsFromCheckpoint ─────────────────────────────────

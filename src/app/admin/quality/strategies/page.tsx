@@ -15,9 +15,10 @@ import {
   deleteStrategyAction,
   type StrategyPreset,
 } from '@/lib/services/strategyRegistryActions';
-import type { StrategyConfigRow, StrategyConfig } from '@/lib/evolution/core/strategyConfig';
+import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
 import type { PipelineType } from '@/lib/evolution/types';
 import { getStrategyAccuracyAction, type StrategyAccuracyStats } from '@/lib/services/costAnalyticsActions';
+import { formToConfig, rowToForm, DEFAULT_BUDGET_CAPS, type FormState } from './strategyFormUtils';
 import {
   REQUIRED_AGENTS,
   OPTIONAL_AGENTS,
@@ -25,24 +26,11 @@ import {
   validateAgentSelection,
 } from '@/lib/evolution/core/budgetRedistribution';
 import { toggleAgent as toggleAgentUtil } from '@/lib/evolution/core/agentToggle';
-import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
 import type { AgentName } from '@/lib/evolution/core/pipeline';
 
 // ─── Types ───────────────────────────────────────────────────────
 
 type StatusFilter = 'all' | 'active' | 'archived';
-
-interface FormState {
-  name: string;
-  description: string;
-  pipelineType: PipelineType;
-  generationModel: string;
-  judgeModel: string;
-  iterations: number;
-  budgetCap: number;
-  enabledAgents: string[];
-  singleArticle: boolean;
-}
 
 /** Default: all optional agents enabled. */
 const DEFAULT_ENABLED_AGENTS = [...OPTIONAL_AGENTS] as string[];
@@ -54,7 +42,7 @@ const EMPTY_FORM: FormState = {
   generationModel: 'deepseek-chat',
   judgeModel: 'gpt-4.1-nano',
   iterations: 3,
-  budgetCap: 0.20,
+  budgetCaps: { ...DEFAULT_BUDGET_CAPS },
   enabledAgents: DEFAULT_ENABLED_AGENTS,
   singleArticle: false,
 };
@@ -152,7 +140,7 @@ function StrategyDialog({
       generationModel: preset.config.generationModel,
       judgeModel: preset.config.judgeModel,
       iterations: preset.config.iterations,
-      budgetCap: preset.config.budgetCaps.generation ?? 0.20,
+      budgetCaps: { ...DEFAULT_BUDGET_CAPS, ...preset.config.budgetCaps },
       enabledAgents: preset.config.enabledAgents
         ? [...preset.config.enabledAgents] as string[]
         : DEFAULT_ENABLED_AGENTS,
@@ -175,11 +163,11 @@ function StrategyDialog({
 
   const budgetPreview = useMemo(
     () => computeEffectiveBudgetCaps(
-      DEFAULT_EVOLUTION_CONFIG.budgetCaps,
+      form.budgetCaps,
       form.enabledAgents as AgentName[],
       form.singleArticle,
     ),
-    [form.enabledAgents, form.singleArticle],
+    [form.budgetCaps, form.enabledAgents, form.singleArticle],
   );
 
   const handleSubmit = async () => {
@@ -416,17 +404,35 @@ function StrategyDialog({
             />
           </div>
           <div>
-            <label className={labelClass}>Budget Cap (generation %)</label>
-            <input
-              type="number"
-              min={0.01}
-              max={1}
-              step={0.01}
-              value={form.budgetCap}
-              onChange={(e) => setForm({ ...form, budgetCap: Number(e.target.value) || 0.20 })}
-              className={inputClass}
-              data-testid="strategy-budget-input"
-            />
+            <label className={labelClass}>Per-Agent Budget Caps (%)</label>
+            <div className="grid grid-cols-2 gap-1.5" data-testid="strategy-budget-caps">
+              {Object.entries(form.budgetCaps)
+                .filter(([agent]) => {
+                  const isRequired = REQUIRED_AGENTS.includes(agent as AgentName);
+                  const isEnabled = form.enabledAgents.includes(agent);
+                  return isRequired || isEnabled;
+                })
+                .sort(([, a], [, b]) => b - a)
+                .map(([agent, cap]) => (
+                  <div key={agent} className="flex items-center gap-1">
+                    <span className="text-xs text-[var(--text-muted)] font-mono w-24 truncate" title={agent}>
+                      {AGENT_LABELS[agent] ?? agent}
+                    </span>
+                    <input
+                      type="number"
+                      min={0.01}
+                      max={1}
+                      step={0.01}
+                      value={cap}
+                      onChange={(e) => setForm({
+                        ...form,
+                        budgetCaps: { ...form.budgetCaps, [agent]: Number(e.target.value) || 0.05 },
+                      })}
+                      className="w-16 px-1.5 py-0.5 text-xs font-mono bg-[var(--surface-primary)] border border-[var(--border-default)] rounded text-[var(--text-secondary)]"
+                    />
+                  </div>
+                ))}
+            </div>
           </div>
         </div>
 
@@ -702,19 +708,6 @@ export default function StrategyRegistryPage() {
 
   // ─── Actions ─────────────────────────────────────────────
 
-  const formToConfig = (form: FormState): StrategyConfig => ({
-    generationModel: form.generationModel,
-    judgeModel: form.judgeModel,
-    iterations: form.iterations,
-    budgetCaps: {
-      generation: form.budgetCap,
-      calibration: 0.15,
-      tournament: 0.20,
-    },
-    enabledAgents: form.enabledAgents as AgentName[],
-    singleArticle: form.singleArticle || undefined,
-  });
-
   const handleCreate = async (form: FormState) => {
     const result = await createStrategyAction({
       name: form.name.trim(),
@@ -798,19 +791,7 @@ export default function StrategyRegistryPage() {
     setActionLoading(false);
   };
 
-  const rowToForm = (row: StrategyConfigRow): FormState => ({
-    name: row.name,
-    description: row.description ?? '',
-    pipelineType: row.pipeline_type ?? 'full',
-    generationModel: row.config.generationModel,
-    judgeModel: row.config.judgeModel,
-    iterations: row.config.iterations,
-    budgetCap: row.config.budgetCaps.generation ?? 0.20,
-    enabledAgents: row.config.enabledAgents
-      ? [...row.config.enabledAgents] as string[]
-      : DEFAULT_ENABLED_AGENTS,
-    singleArticle: row.config.singleArticle ?? false,
-  });
+  const toFormState = (row: StrategyConfigRow): FormState => rowToForm(row, DEFAULT_ENABLED_AGENTS);
 
   // ─── Sort header helper ──────────────────────────────────
 
@@ -838,7 +819,6 @@ export default function StrategyRegistryPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -866,7 +846,6 @@ export default function StrategyRegistryPage() {
         </div>
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3 items-center">
         <div className="flex items-center gap-2">
           <label className="text-sm text-[var(--text-secondary)] font-ui">Status:</label>
@@ -913,14 +892,12 @@ export default function StrategyRegistryPage() {
         </span>
       </div>
 
-      {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)] font-body text-sm">
           {error}
         </div>
       )}
 
-      {/* Strategies table */}
       <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="strategies-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-elevated)]">
@@ -1047,7 +1024,6 @@ export default function StrategyRegistryPage() {
         </table>
       </div>
 
-      {/* Dialogs */}
       {showCreateDialog && (
         <StrategyDialog
           mode="create"
@@ -1061,7 +1037,7 @@ export default function StrategyRegistryPage() {
       {editTarget && (
         <StrategyDialog
           mode="edit"
-          initial={rowToForm(editTarget)}
+          initial={toFormState(editTarget)}
           presets={[]}
           onSubmit={handleEdit}
           onClose={() => setEditTarget(null)}

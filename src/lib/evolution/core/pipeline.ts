@@ -32,6 +32,7 @@ async function persistCheckpoint(
   phase: PipelinePhase,
   logger: EvolutionLogger,
   maxRetries = 3,
+  totalCostUsd?: number,
 ): Promise<void> {
   const checkpoint = {
     run_id: runId,
@@ -53,6 +54,7 @@ async function persistCheckpoint(
           phase,
           last_heartbeat: new Date().toISOString(),
           runner_agents_completed: state.pool.length,
+          ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
         }).eq('id', runId),
       ]);
 
@@ -216,7 +218,7 @@ async function linkStrategyConfig(
   await updateStrategyAggregates(supabase, runId, strategyId, ctx, logger);
 }
 
-/** Strategy-to-agent mapping for cost attribution. */
+/** Map a strategy name to its owning agent for cost attribution. */
 const STRATEGY_TO_AGENT: Record<string, string> = {
   structural_transform: 'generation',
   lexical_simplify: 'generation',
@@ -231,9 +233,9 @@ const STRATEGY_TO_AGENT: Record<string, string> = {
   mutate_outline: 'outlineGeneration',
 };
 
-/** Map a strategy name to its agent, handling dynamic patterns. */
 function getAgentForStrategy(strategy: string): string | null {
-  if (STRATEGY_TO_AGENT[strategy]) return STRATEGY_TO_AGENT[strategy];
+  const direct = STRATEGY_TO_AGENT[strategy];
+  if (direct) return direct;
   if (strategy.startsWith('critique_edit_')) return 'iterativeEditing';
   if (strategy.startsWith('section_decomposition_')) return 'sectionDecomposition';
   return null;
@@ -740,10 +742,10 @@ export async function executeMinimalPipeline(
         variantsAdded: result.variantsAdded,
       });
       await persistAgentInvocation(runId, ctx.state.iteration, agent.name, minimalExecutionOrder++, result, logger);
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger);
+      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent());
     } catch (error) {
       // Save partial progress before handling error
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger).catch(() => {});
+      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent()).catch(() => {});
 
       if (error instanceof BudgetExceededError) {
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
@@ -945,7 +947,7 @@ export async function executeFullPipeline(
               costUsd: flowResult.costUsd,
               iteration: ctx.state.iteration,
             });
-            await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger);
+            await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent());
           } catch (error) {
             if (error instanceof BudgetExceededError) {
               logger.warn('Budget exceeded during flow critique', { error: error.message });
@@ -1003,7 +1005,7 @@ export async function executeFullPipeline(
         }
 
         // Persist iteration checkpoint with supervisor state
-        await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger);
+        await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent());
       } finally {
         iterSpan.end();
       }
@@ -1172,14 +1174,14 @@ async function runAgent(
         matchesPlayed: result.matchesPlayed,
       });
       await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger);
-      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger);
+      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent());
       return result;
     } catch (error) {
       agentSpan.recordException(error as Error);
       agentSpan.setStatus({ code: 2, message: (error as Error).message });
 
       if (error instanceof BudgetExceededError) {
-        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger).catch(() => {});
+        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent()).catch(() => {});
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
         await markRunPaused(runId, error);
         throw error;
@@ -1200,7 +1202,7 @@ async function runAgent(
       }
 
       // Fatal error or retries exhausted
-      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger).catch(() => {});
+      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent()).catch(() => {});
       logger.error('Agent failed', { agent: agent.name, error: String(error), attempts: attempt + 1 });
       await markRunFailed(runId, agent.name, error);
       throw error;
@@ -1219,6 +1221,7 @@ async function persistCheckpointWithSupervisor(
   supervisor: PoolSupervisor,
   phase: PipelinePhase,
   logger: EvolutionLogger,
+  totalCostUsd?: number,
 ): Promise<void> {
   const checkpoint = {
     run_id: runId,
@@ -1241,6 +1244,7 @@ async function persistCheckpointWithSupervisor(
       phase,
       last_heartbeat: new Date().toISOString(),
       runner_agents_completed: state.pool.length,
+      ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
     }).eq('id', runId);
   } catch (error) {
     logger.warn('Iteration checkpoint failed', { error: String(error) });

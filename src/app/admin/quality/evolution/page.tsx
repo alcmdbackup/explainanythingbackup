@@ -26,6 +26,7 @@ import { dispatchEvolutionBatchAction } from '@/lib/services/evolutionBatchActio
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
+import { ElapsedTime } from '@/components/evolution/ElapsedTime';
 
 // ─── Date range options ──────────────────────────────────────────
 
@@ -46,39 +47,37 @@ function getStartDate(range: DateRange): string | undefined {
   return d.toISOString();
 }
 
-function renderConfidenceBadge(confidence: string): JSX.Element {
-  let bgColor = 'bg-[var(--text-muted)]/10';
-  let textColor = 'text-[var(--text-muted)]';
-  let title = '';
-
-  if (confidence === 'high') {
-    bgColor = 'bg-[var(--status-success)]/10';
-    textColor = 'text-[var(--status-success)]';
-  } else if (confidence === 'medium') {
-    bgColor = 'bg-[var(--accent-gold)]/10';
-    textColor = 'text-[var(--accent-gold)]';
-  } else if (confidence === 'low') {
-    title = 'No historical data yet — estimate is heuristic-based';
+function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
+  switch (confidence) {
+    case 'high':
+      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
+    case 'medium':
+      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
+    case 'low':
+      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' };
+    default:
+      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
   }
+}
 
+function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
+  const style = getConfidenceStyle(confidence);
   return (
     <span
-      className={`text-xs px-1.5 py-0.5 rounded ${bgColor} ${textColor}`}
-      title={title || undefined}
+      className={`text-xs px-1.5 py-0.5 rounded ${style.bg} ${style.text}`}
+      title={style.title}
     >
       {confidence}
     </span>
   );
 }
 
+/** Color class based on how close estimate is to actual cost. */
 function getEstimateColorClass(run: EvolutionRun): string {
-  if (run.status !== 'completed' || run.total_cost_usd === 0) {
-    return 'text-[var(--text-muted)]';
-  }
+  if (run.status !== 'completed' || run.total_cost_usd === 0) return 'text-[var(--text-muted)]';
 
-  const estimatedCost = run.estimated_cost_usd ?? 0;
-  const actualCost = run.total_cost_usd;
-  const deviation = Math.abs(actualCost - estimatedCost) / Math.max(estimatedCost, 0.001);
+  const deviation = Math.abs(run.total_cost_usd - (run.estimated_cost_usd ?? 0))
+    / Math.max(run.estimated_cost_usd ?? 0, 0.001);
 
   if (deviation <= 0.1) return 'text-[var(--status-success)]';
   if (deviation <= 0.3) return 'text-[var(--accent-gold)]';
@@ -280,7 +279,6 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         </button>
       </div>
 
-      {/* Cost estimate display */}
       {estimateLoading && (
         <div className="text-xs text-[var(--text-muted)]" data-testid="estimate-loading">
           Estimating cost...
@@ -292,7 +290,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
             <span className="text-[var(--text-secondary)]">
               Estimated cost: <span className="font-semibold font-mono">${estimate.totalUsd.toFixed(2)}</span>
             </span>
-            {renderConfidenceBadge(estimate.confidence)}
+            <ConfidenceBadge confidence={estimate.confidence} />
             <button
               onClick={() => setShowBreakdown(!showBreakdown)}
               className="text-xs text-[var(--accent-gold)] hover:underline"
@@ -653,14 +651,15 @@ export default function EvolutionAdminPage() {
   const loadRuns = useCallback(async () => {
     setLoading(true);
     setError(null);
+
     const filters: { status?: EvolutionRunStatus; startDate?: string } = {};
     if (statusFilter) filters.status = statusFilter;
     const startDate = getStartDate(dateRange);
     if (startDate) filters.startDate = startDate;
 
-    const result = await getEvolutionRunsAction(
-      Object.keys(filters).length > 0 ? filters : undefined,
-    );
+    const hasFilters = Object.keys(filters).length > 0;
+    const result = await getEvolutionRunsAction(hasFilters ? filters : undefined);
+
     if (result.success && result.data) {
       setRuns(result.data);
     } else {
@@ -766,7 +765,6 @@ export default function EvolutionAdminPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -811,23 +809,16 @@ export default function EvolutionAdminPage() {
         </div>
       </div>
 
-      {/* Summary cards */}
       <SummaryCards runs={runs} />
-
-      {/* Start Run */}
       <StartRunCard onQueued={loadRuns} />
-
-      {/* Batch Dispatch */}
       <StartBatchCard pendingCount={runs.filter((r) => r.status === 'pending').length} />
 
-      {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
           {error}
         </div>
       )}
 
-      {/* Runs table */}
       <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="evolution-runs-table">
         <table className="w-full text-sm">
           <thead className="bg-[var(--surface-elevated)]">
@@ -840,6 +831,7 @@ export default function EvolutionAdminPage() {
               <th className="p-3 text-right">Cost</th>
               <th className="p-3 text-right">Est.</th>
               <th className="p-3 text-right">Budget</th>
+              <th className="p-3 text-left">Duration</th>
               <th className="p-3 text-left">Created</th>
               <th className="p-3 text-left">Actions</th>
             </tr>
@@ -847,11 +839,11 @@ export default function EvolutionAdminPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
+                <td colSpan={11} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
               </tr>
             ) : runs.length === 0 ? (
               <tr>
-                <td colSpan={10} className="p-8 text-center text-[var(--text-muted)]">
+                <td colSpan={11} className="p-8 text-center text-[var(--text-muted)]">
                   No evolution runs found
                 </td>
               </tr>
@@ -897,6 +889,7 @@ export default function EvolutionAdminPage() {
                     )}
                   </td>
                   <td className="p-3 text-right text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</td>
+                  <td className="p-3"><ElapsedTime startedAt={run.started_at} completedAt={run.completed_at} status={run.status} /></td>
                   <td className="p-3 text-[var(--text-muted)] text-xs">
                     {new Date(run.created_at).toLocaleDateString()}{' '}
                     <span className="text-[var(--text-muted)]/70">
@@ -946,7 +939,6 @@ export default function EvolutionAdminPage() {
         </table>
       </div>
 
-      {/* Dialogs */}
       {showQueueDialog && (
         <QueueDialog
           onQueue={handleQueue}

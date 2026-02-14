@@ -8,8 +8,9 @@ import {
   createTestEvolutionRun,
   createTestVariant,
   createTestAgentInvocation,
-  createTestStrategyConfig,
+  createTestLLMCallTracking,
   createTestPrompt,
+  createTestStrategyConfig,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
 } from '@/testing/utils/evolution-test-helpers';
@@ -54,6 +55,7 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   queueEvolutionRunAction,
   getEvolutionRunsAction,
+  getEvolutionRunByIdAction,
   applyWinnerAction,
   rollbackEvolutionAction,
   getEvolutionCostBreakdownAction,
@@ -111,6 +113,9 @@ describe('Evolution Server Actions Integration Tests', () => {
   describe('Queue', () => {
     it('creates pending run', async () => {
       if (!tablesReady) return;
+
+      const prompt = await createTestPrompt(supabase);
+      const strategy = await createTestStrategyConfig(supabase);
 
       const result = await queueEvolutionRunAction({
         explanationId: testExplanationId,
@@ -174,6 +179,35 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(0);
+    });
+  });
+
+  // ─── Get single run by ID ──────────────────────────────────────
+
+  describe('Get run by ID', () => {
+    it('returns a single run with all fields', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'running',
+        total_cost_usd: 1.23,
+      });
+      const runId = run.id as string;
+
+      const result = await getEvolutionRunByIdAction(runId);
+      expect(result.success).toBe(true);
+      expect(result.data).toBeTruthy();
+      expect(result.data!.id).toBe(runId);
+      expect(result.data!.status).toBe('running');
+      expect(result.data!.total_cost_usd).toBe(1.23);
+    });
+
+    it('returns error for non-existent run', async () => {
+      if (!tablesReady) return;
+
+      const result = await getEvolutionRunByIdAction('00000000-0000-0000-0000-000000000000');
+      expect(result.success).toBe(false);
+      expect(result.error).toBeTruthy();
     });
   });
 

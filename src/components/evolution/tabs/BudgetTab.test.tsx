@@ -23,6 +23,8 @@ const baseBudgetData: BudgetData = {
   cumulativeBurn: [{ step: 1, agent: 'generation', cumulativeCost: 0.5, budgetCap: 5 }],
   estimate: null,
   prediction: null,
+  agentBudgetCaps: {},
+  runStatus: 'completed',
 };
 
 describe('BudgetTab', () => {
@@ -90,6 +92,40 @@ describe('BudgetTab', () => {
     );
     render(<BudgetTab runId="test-run-id" />);
     expect(screen.queryByTestId('budget-tab')).not.toBeInTheDocument();
+  });
+
+  it('renders agent budget caps table when caps present', async () => {
+    const dataWithCaps: BudgetData = {
+      ...baseBudgetData,
+      agentBudgetCaps: { generation: 1.75, calibration: 0.75 },
+    };
+    (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
+      success: true, data: dataWithCaps, error: null,
+    });
+
+    render(<BudgetTab runId="test-run-id" />);
+    await waitFor(() => expect(screen.getByTestId('agent-budget-caps')).toBeInTheDocument());
+    expect(screen.getByText('Agent Budget Caps')).toBeInTheDocument();
+    expect(screen.getByText('generation')).toBeInTheDocument();
+    expect(screen.getByText('calibration')).toBeInTheDocument();
+  });
+
+  it('sets up auto-refresh interval for active runs', async () => {
+    jest.useFakeTimers();
+    const activeData: BudgetData = { ...baseBudgetData, runStatus: 'running' };
+    (visualizationActions.getEvolutionRunBudgetAction as jest.Mock).mockResolvedValue({
+      success: true, data: activeData, error: null,
+    });
+
+    render(<BudgetTab runId="test-run-id" />);
+    await waitFor(() => expect(screen.getByTestId('budget-tab')).toBeInTheDocument());
+
+    // Should have been called once for initial load, then again after interval
+    expect(visualizationActions.getEvolutionRunBudgetAction).toHaveBeenCalledTimes(1);
+    jest.advanceTimersByTime(5000);
+    expect(visualizationActions.getEvolutionRunBudgetAction).toHaveBeenCalledTimes(2);
+
+    jest.useRealTimers();
   });
 
   it('shows error message on failure', async () => {

@@ -106,6 +106,7 @@ const _estimateRunCostAction = withLogging(async (
       throw new Error(`Strategy not found: ${input.strategyId}`);
     }
 
+    type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
     const config = strategy.config as {
       generationModel?: string;
       judgeModel?: string;
@@ -117,10 +118,10 @@ const _estimateRunCostAction = withLogging(async (
 
     const estimate = await estimateRunCostWithAgentModels(
       {
-        generationModel: config.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
-        judgeModel: config.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+        generationModel: config.generationModel as ModelType | undefined,
+        judgeModel: config.judgeModel as ModelType | undefined,
         maxIterations: config.iterations,
-        agentModels: config.agentModels as Record<string, import('@/lib/schemas/schemas').AllowedLLMModelType> | undefined,
+        agentModels: config.agentModels as Record<string, ModelType> | undefined,
       },
       textLength,
     );
@@ -185,13 +186,14 @@ const _queueEvolutionRunAction = withLogging(async (
     let costEstimateDetail: Record<string, unknown> | null = null;
     if (strategyConfig) {
       try {
+        type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
         const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@/lib/evolution');
         const estimate = await estimateRunCostWithAgentModels(
           {
-            generationModel: strategyConfig.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
-            judgeModel: strategyConfig.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
+            generationModel: strategyConfig.generationModel as ModelType | undefined,
+            judgeModel: strategyConfig.judgeModel as ModelType | undefined,
             maxIterations: strategyConfig.iterations,
-            agentModels: strategyConfig.agentModels as Record<string, import('@/lib/schemas/schemas').AllowedLLMModelType> | undefined,
+            agentModels: strategyConfig.agentModels as Record<string, ModelType> | undefined,
           },
           5000,
         );
@@ -360,6 +362,28 @@ const _getEvolutionRunsAction = withLogging(async (
 }, 'getEvolutionRunsAction');
 
 export const getEvolutionRunsAction = serverReadRequestId(_getEvolutionRunsAction);
+
+// ─── Get single evolution run by ID (lightweight polling) ────────
+
+const _getEvolutionRunByIdAction = withLogging(async (
+  runId: string
+): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+    const { data, error } = await supabase
+      .from('content_evolution_runs')
+      .select('*')
+      .eq('id', runId)
+      .single();
+    if (error) throw error;
+    return { success: true, data: data as EvolutionRun, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getEvolutionRunByIdAction', { runId }) };
+  }
+}, 'getEvolutionRunByIdAction');
+
+export const getEvolutionRunByIdAction = serverReadRequestId(_getEvolutionRunByIdAction);
 
 // ─── Get variants for a run ──────────────────────────────────────
 
@@ -712,7 +736,7 @@ const _getEvolutionHistoryAction = withLogging(async (
       source: row.source,
       evolution_run_id: row.evolution_run_id,
       applied_by: row.applied_by,
-      applied_at: row.created_at,
+      applied_at: row.created_at, // DB uses created_at; interface uses applied_at
     }));
 
     return { success: true, data: rows, error: null };

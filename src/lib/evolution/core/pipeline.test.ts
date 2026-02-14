@@ -1275,6 +1275,88 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   });
 });
 
+// ─── persistCheckpoint includes total_cost_usd from CostTracker ──
+
+describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string, executionOrder: string[]): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  it('passes costTracker.getTotalSpent() to checkpoint update', async () => {
+    const executionOrder: string[] = [];
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article.');
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(2.75),
+      getAvailableBudget: jest.fn()
+        .mockReturnValueOnce(2.0)
+        .mockReturnValueOnce(2.0)
+        .mockReturnValue(0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+    };
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cost-test', config: config as EvolutionRunConfig },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'cost-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+
+    await executeFullPipeline('cost-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Verify that the Supabase update() was called with total_cost_usd
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+
+    // At least one checkpoint update should include total_cost_usd
+    const costUpdateCall = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg && typeof arg === 'object' && 'total_cost_usd' in arg;
+      },
+    );
+    expect(costUpdateCall).toBeDefined();
+    expect(costUpdateCall![0].total_cost_usd).toBe(2.75);
+  });
+});
+
 // ─── persistAgentInvocation tests ───────────────────────────────
 
 import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipeline';

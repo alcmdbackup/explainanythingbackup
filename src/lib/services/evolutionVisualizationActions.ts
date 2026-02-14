@@ -9,6 +9,9 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { deserializeState } from '@/lib/evolution/core/state';
 import { getOrdinal, ordinalToEloScale, createRating } from '@/lib/evolution/core/rating';
+import { computeEffectiveBudgetCaps } from '@/lib/evolution/core/budgetRedistribution';
+import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
+import type { StrategyConfig } from '@/lib/evolution/core/strategyConfig';
 import type {
   PipelinePhase,
   SerializedPipelineState,
@@ -129,6 +132,10 @@ export interface BudgetData {
     confidence: 'high' | 'medium' | 'low';
     perAgent: Record<string, { estimated: number; actual: number }>;
   } | null;
+  /** Per-agent budget caps in dollar amounts (effective, post-redistribution) */
+  agentBudgetCaps: Record<string, number>;
+  /** Run status for auto-refresh logic (avoids adding a prop to BudgetTab) */
+  runStatus: string;
 }
 
 export interface TreeSearchData {
@@ -600,9 +607,10 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
+    // Get run time window, budget, cost estimate, config, and status
     const { data: run, error: runError } = await supabase
       .from('content_evolution_runs')
-      .select('budget_cap_usd, cost_estimate_detail, cost_prediction')
+      .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction, config, status')
       .eq('id', runId)
       .single();
 
@@ -651,7 +659,24 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
     const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
 
-    return { success: true, data: { agentBreakdown, cumulativeBurn, estimate, prediction }, error: null };
+    // Compute per-agent budget caps in dollar amounts from strategy config
+    const config = run.config as StrategyConfig | null;
+    const budgetCapUsd = run.budget_cap_usd ?? 5;
+    let agentBudgetCaps: Record<string, number> = {};
+    if (config?.budgetCaps) {
+      const effectivePcts = computeEffectiveBudgetCaps(
+        { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...config.budgetCaps },
+        config.enabledAgents,
+        !!config.singleArticle,
+      );
+      agentBudgetCaps = Object.fromEntries(
+        Object.entries(effectivePcts).map(([agent, pct]) => [agent, pct * budgetCapUsd]),
+      );
+    }
+
+    const runStatus = (run.status as string) ?? 'unknown';
+
+    return { success: true, data: { agentBreakdown, cumulativeBurn, estimate, prediction, agentBudgetCaps, runStatus }, error: null };
   } catch (error) {
     return { success: false, data: null, error: handleError(error, 'getEvolutionRunBudgetAction', { runId }) };
   }
@@ -922,15 +947,19 @@ export async function buildVariantsFromCheckpoint(
   }
 }
 
+/** Build an Elo lookup from either new {mu,sigma} ratings or legacy eloRatings. */
 function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
+  // Prefer new format: convert {mu, sigma} → Elo scale
   if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
-    const eloLookup: Record<string, number> = {};
-    for (const [id, r] of Object.entries(snapshot.ratings)) {
-      eloLookup[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
-    }
-    return eloLookup;
+    return Object.fromEntries(
+      Object.entries(snapshot.ratings).map(([id, r]) => [
+        id,
+        ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number })),
+      ]),
+    );
   }
 
+  // Fallback: legacy raw Elo numbers
   if (snapshot.eloRatings && Object.keys(snapshot.eloRatings).length > 0) {
     return snapshot.eloRatings;
   }

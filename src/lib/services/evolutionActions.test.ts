@@ -7,6 +7,7 @@ import {
   getEvolutionRunsAction,
   estimateRunCostAction,
   getEvolutionVariantsAction,
+  getEvolutionRunByIdAction,
 } from './evolutionActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -719,6 +720,41 @@ describe('Evolution Actions', () => {
       expect(result.success).toBe(true);
       expect(result.data?.confidence).toBe('low');
     });
+  });
+});
+
+// ─── getEvolutionRunByIdAction ────────────────────────────────────
+
+describe('getEvolutionRunByIdAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('returns a single run by ID', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: { id: 'run-42', status: 'running', total_cost_usd: 1.23 },
+      error: null,
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunByIdAction('run-42');
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ id: 'run-42', status: 'running', total_cost_usd: 1.23 });
+    expect(mock.from).toHaveBeenCalledWith('content_evolution_runs');
+    expect(mock.eq).toHaveBeenCalledWith('id', 'run-42');
+    expect(mock.single).toHaveBeenCalled();
+  });
+
+  it('returns error when run not found', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await getEvolutionRunByIdAction('run-missing');
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
   });
 });
 

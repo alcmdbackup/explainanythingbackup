@@ -134,7 +134,6 @@ export async function createTestStrategyConfig(
 /**
  * Insert a test hall_of_fame_topics row and return its UUID.
  * Satisfies the NOT NULL prompt_id FK on content_evolution_runs.
- * (Table was renamed from article_bank_topics → hall_of_fame_topics.)
  */
 export async function createTestPrompt(
   supabase: SupabaseClient,
@@ -164,6 +163,7 @@ export async function createTestEvolutionRun(
 ): Promise<Record<string, unknown>> {
   const strategyConfigId = overrides?.strategy_config_id ?? await createTestStrategyConfig(supabase);
   const promptId = overrides?.prompt_id ?? await createTestPrompt(supabase);
+
   const row = {
     explanation_id: explanationId,
     status: 'pending',

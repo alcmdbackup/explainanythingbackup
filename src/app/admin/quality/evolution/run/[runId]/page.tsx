@@ -7,8 +7,10 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { EvolutionStatusBadge, PhaseIndicator } from '@/components/evolution';
-import { getEvolutionRunsAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
+import { getEvolutionRunByIdAction, getEvolutionVariantsAction, type EvolutionRun, type EvolutionVariant } from '@/lib/services/evolutionActions';
 import { addToHallOfFameAction } from '@/lib/services/hallOfFameActions';
+import { getStrategyDetailAction } from '@/lib/services/strategyRegistryActions';
+import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
 import { TimelineTab } from '@/components/evolution/tabs/TimelineTab';
 import { BudgetTab } from '@/components/evolution/tabs/BudgetTab';
 import { EloTab } from '@/components/evolution/tabs/EloTab';
@@ -165,6 +167,7 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const searchParams = useSearchParams();
   const runId = params.runId as string;
   const [run, setRun] = useState<EvolutionRun | null>(null);
+  const [strategy, setStrategy] = useState<StrategyConfigRow | null>(null);
 
   // URL params for cross-linking: ?tab=logs&agent=pairwise&iteration=2&variant=abc
   const tabParam = searchParams.get('tab') as TabId | null;
@@ -177,17 +180,35 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const [showHallOfFameDialog, setShowHallOfFameDialog] = useState(false);
 
   useEffect(() => {
-    async function load() {
+    async function load(): Promise<void> {
       setLoading(true);
-      const result = await getEvolutionRunsAction();
+      const result = await getEvolutionRunByIdAction(runId);
       if (result.success && result.data) {
-        const found = result.data.find(r => r.id === runId);
-        setRun(found ?? null);
+        setRun(result.data);
       }
       setLoading(false);
     }
     load();
   }, [runId]);
+
+  // Fetch strategy details when run has a strategy_config_id
+  useEffect(() => {
+    if (!run?.strategy_config_id) return;
+    getStrategyDetailAction(run.strategy_config_id).then((res) => {
+      if (res.success && res.data) setStrategy(res.data);
+    });
+  }, [run?.strategy_config_id]);
+
+  // Auto-refresh run data every 5s for active runs (cost, phase, status updates)
+  useEffect(() => {
+    const isActive = run?.status === 'running' || run?.status === 'claimed';
+    if (!isActive) return;
+    const interval = setInterval(async () => {
+      const result = await getEvolutionRunByIdAction(runId);
+      if (result.success && result.data) setRun(result.data);
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [run?.status, runId]);
 
   if (loading) {
     return (
@@ -238,6 +259,15 @@ export default function EvolutionRunDetailPage(): JSX.Element {
             <span className="text-xs text-[var(--text-muted)] font-mono">
               ${run.total_cost_usd.toFixed(2)} / ${run.budget_cap_usd.toFixed(2)}
             </span>
+            {strategy && (
+              <Link
+                href="/admin/quality/strategies"
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-[var(--surface-elevated)] text-[var(--accent-gold)] border border-[var(--border-default)] hover:bg-[var(--surface-secondary)] transition-colors"
+                title={`Strategy: ${strategy.label}`}
+              >
+                {strategy.label}
+              </Link>
+            )}
           </div>
           {run.error_message && (
             <div className="mt-2 text-xs text-[var(--status-error)]">{run.error_message}</div>

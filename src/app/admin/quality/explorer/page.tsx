@@ -579,7 +579,7 @@ export default function ExplorerPage(): JSX.Element {
         )}
       </div>
 
-      <Card className="bg-[var(--surface-secondary)] paper-texture">
+      <Card className="bg-[var(--surface-secondary)] paper-texture" style={{ zIndex: 100, position: 'relative' }}>
         <CardContent className="pt-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
             <SearchableMultiSelect
@@ -666,7 +666,6 @@ export default function ExplorerPage(): JSX.Element {
         </div>
       )}
 
-      {/* ─── Table Mode ──────────────────────────────────────────── */}
       {viewMode === 'table' && (
         <Card className="bg-[var(--surface-secondary)] paper-texture overflow-hidden">
           <CardContent className="p-0">
@@ -695,7 +694,6 @@ export default function ExplorerPage(): JSX.Element {
         </Card>
       )}
 
-      {/* ─── Matrix Mode ─────────────────────────────────────────── */}
       {viewMode === 'matrix' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -735,7 +733,6 @@ export default function ExplorerPage(): JSX.Element {
         </div>
       )}
 
-      {/* ─── Trend Mode ──────────────────────────────────────────── */}
       {viewMode === 'trend' && (
         <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
@@ -1120,10 +1117,8 @@ function ArticleDetailPanel({ detail, loading }: { detail: ExplorerArticleDetail
 }
 
 function EloGainLabel({ value }: { value: number }): JSX.Element {
-  let colorClass = '';
-  if (value > 0) colorClass = 'text-[var(--status-success)]';
-  else if (value < 0) colorClass = 'text-[var(--status-error)]';
-
+  const colorClass = value > 0 ? 'text-[var(--status-success)]'
+    : value < 0 ? 'text-[var(--status-error)]' : '';
   const prefix = value > 0 ? '+' : '';
   return <span className={colorClass}>{prefix}{value.toFixed(1)}</span>;
 }
