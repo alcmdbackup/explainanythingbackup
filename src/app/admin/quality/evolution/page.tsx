@@ -22,6 +22,7 @@ import {
 } from '@/lib/services/evolutionActions';
 import { getPromptsAction } from '@/lib/services/promptRegistryActions';
 import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
+import { dispatchEvolutionBatchAction } from '@/lib/services/evolutionBatchActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
@@ -43,6 +44,45 @@ function getStartDate(range: DateRange): string | undefined {
   const d = new Date();
   d.setDate(d.getDate() - days);
   return d.toISOString();
+}
+
+function renderConfidenceBadge(confidence: string): JSX.Element {
+  let bgColor = 'bg-[var(--text-muted)]/10';
+  let textColor = 'text-[var(--text-muted)]';
+  let title = '';
+
+  if (confidence === 'high') {
+    bgColor = 'bg-[var(--status-success)]/10';
+    textColor = 'text-[var(--status-success)]';
+  } else if (confidence === 'medium') {
+    bgColor = 'bg-[var(--accent-gold)]/10';
+    textColor = 'text-[var(--accent-gold)]';
+  } else if (confidence === 'low') {
+    title = 'No historical data yet — estimate is heuristic-based';
+  }
+
+  return (
+    <span
+      className={`text-xs px-1.5 py-0.5 rounded ${bgColor} ${textColor}`}
+      title={title || undefined}
+    >
+      {confidence}
+    </span>
+  );
+}
+
+function getEstimateColorClass(run: EvolutionRun): string {
+  if (run.status !== 'completed' || run.total_cost_usd === 0) {
+    return 'text-[var(--text-muted)]';
+  }
+
+  const estimatedCost = run.estimated_cost_usd ?? 0;
+  const actualCost = run.total_cost_usd;
+  const deviation = Math.abs(actualCost - estimatedCost) / Math.max(estimatedCost, 0.001);
+
+  if (deviation <= 0.1) return 'text-[var(--status-success)]';
+  if (deviation <= 0.3) return 'text-[var(--accent-gold)]';
+  return 'text-[var(--status-error)]';
 }
 
 // ─── Summary cards ───────────────────────────────────────────────
@@ -138,42 +178,50 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
     })();
   }, []);
 
-  // Debounced cost estimate on strategy change
   useEffect(() => {
-    if (!strategyId) { setEstimate(null); return; }
+    if (!strategyId) {
+      setEstimate(null);
+      return;
+    }
 
     const timer = setTimeout(async () => {
       setEstimateLoading(true);
       const result = await estimateRunCostAction({ strategyId });
-      if (result.success && result.data) {
-        setEstimate(result.data);
-      } else {
-        setEstimate(null);
-      }
+      setEstimate(result.success && result.data ? result.data : null);
       setEstimateLoading(false);
     }, 500);
 
     return () => clearTimeout(timer);
   }, [strategyId]);
 
-  const handleStart = async () => {
-    if (!promptId) { toast.error('Select a prompt'); return; }
-    if (!strategyId) { toast.error('Select a strategy'); return; }
+  const handleStart = async (): Promise<void> => {
+    if (!promptId) {
+      toast.error('Select a prompt');
+      return;
+    }
+    if (!strategyId) {
+      toast.error('Select a strategy');
+      return;
+    }
     const cap = parseFloat(budget);
-    if (!cap || cap <= 0) { toast.error('Budget must be positive'); return; }
+    if (!cap || cap <= 0) {
+      toast.error('Budget must be positive');
+      return;
+    }
 
     setSubmitting(true);
     const result = await queueEvolutionRunAction({ promptId, strategyId, budgetCapUsd: cap });
     if (result.success && result.data) {
       toast.success('Run queued — triggering pipeline...');
       onQueued();
-      // Immediately trigger the queued run
+
       const triggerResult = await triggerEvolutionRunAction(result.data.id);
       if (triggerResult.success) {
         toast.success('Pipeline completed');
       } else {
         toast.error(triggerResult.error?.message || 'Pipeline trigger failed');
       }
+
       setPromptId('');
       setStrategyId('');
       setEstimate(null);
@@ -244,18 +292,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
             <span className="text-[var(--text-secondary)]">
               Estimated cost: <span className="font-semibold font-mono">${estimate.totalUsd.toFixed(2)}</span>
             </span>
-            <span
-              className={`text-xs px-1.5 py-0.5 rounded ${
-                estimate.confidence === 'high'
-                  ? 'bg-[var(--status-success)]/10 text-[var(--status-success)]'
-                  : estimate.confidence === 'medium'
-                    ? 'bg-[var(--accent-gold)]/10 text-[var(--accent-gold)]'
-                    : 'bg-[var(--text-muted)]/10 text-[var(--text-muted)]'
-              }`}
-              title={estimate.confidence === 'low' ? 'No historical data yet — estimate is heuristic-based' : undefined}
-            >
-              {estimate.confidence}
-            </span>
+            {renderConfidenceBadge(estimate.confidence)}
             <button
               onClick={() => setShowBreakdown(!showBreakdown)}
               className="text-xs text-[var(--accent-gold)] hover:underline"
@@ -303,6 +340,95 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Start Batch card ────────────────────────────────────────────
+
+function StartBatchCard({ pendingCount }: { pendingCount: number }) {
+  const [parallel, setParallel] = useState('5');
+  const [maxRuns, setMaxRuns] = useState('10');
+  const [dryRun, setDryRun] = useState(false);
+  const [dispatching, setDispatching] = useState(false);
+
+  const handleDispatch = async (overrideMaxRuns?: number) => {
+    setDispatching(true);
+    const result = await dispatchEvolutionBatchAction({
+      parallel: parseInt(parallel, 10) || 5,
+      maxRuns: overrideMaxRuns ?? (parseInt(maxRuns, 10) || 10),
+      dryRun,
+    });
+    if (result.success) {
+      toast.success('Batch dispatched — runs will appear as they are claimed');
+    } else {
+      toast.error(result.error?.message || 'Failed to dispatch batch');
+    }
+    setDispatching(false);
+  };
+
+  const inputClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
+
+  return (
+    <div
+      className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
+      data-testid="start-batch-card"
+    >
+      <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
+        Batch Dispatch (GitHub Actions)
+      </h3>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 w-28">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Parallel</span>
+          <input
+            type="number"
+            min="1"
+            max="10"
+            value={parallel}
+            onChange={(e) => setParallel(e.target.value)}
+            className={inputClass}
+            data-testid="batch-parallel"
+          />
+        </label>
+        <label className="flex flex-col gap-1 w-28">
+          <span className="text-xs font-ui text-[var(--text-muted)]">Max Runs</span>
+          <input
+            type="number"
+            min="1"
+            max="100"
+            value={maxRuns}
+            onChange={(e) => setMaxRuns(e.target.value)}
+            className={inputClass}
+            data-testid="batch-max-runs"
+          />
+        </label>
+        <label className="flex items-center gap-2 self-center pt-4">
+          <input
+            type="checkbox"
+            checked={dryRun}
+            onChange={(e) => setDryRun(e.target.checked)}
+            className="accent-[var(--accent-gold)]"
+            data-testid="batch-dry-run"
+          />
+          <span className="text-xs font-ui text-[var(--text-muted)]">Dry run</span>
+        </label>
+        <button
+          onClick={() => handleDispatch()}
+          disabled={dispatching}
+          data-testid="dispatch-batch-btn"
+          className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
+        >
+          {dispatching ? 'Dispatching...' : 'Dispatch Batch'}
+        </button>
+        <button
+          onClick={() => handleDispatch(pendingCount)}
+          disabled={dispatching || pendingCount === 0}
+          data-testid="trigger-all-pending-btn"
+          className="px-4 py-2 border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded-page font-ui text-sm hover:bg-[var(--accent-gold)]/10 disabled:opacity-50"
+        >
+          {pendingCount > 0 ? `Trigger All Pending (${pendingCount})` : 'No Pending Runs'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -363,8 +489,14 @@ function QueueDialog({
             onClick={() => {
               const id = parseInt(explanationId, 10);
               const cap = parseFloat(budget);
-              if (!id || isNaN(id)) { toast.error('Valid explanation ID required'); return; }
-              if (!cap || cap <= 0) { toast.error('Budget must be positive'); return; }
+              if (!id || isNaN(id)) {
+                toast.error('Valid explanation ID required');
+                return;
+              }
+              if (!cap || cap <= 0) {
+                toast.error('Budget must be positive');
+                return;
+              }
               onQueue(id, cap);
             }}
             data-testid="queue-submit"
@@ -685,6 +817,9 @@ export default function EvolutionAdminPage() {
       {/* Start Run */}
       <StartRunCard onQueued={loadRuns} />
 
+      {/* Batch Dispatch */}
+      <StartBatchCard pendingCount={runs.filter((r) => r.status === 'pending').length} />
+
       {/* Error */}
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
@@ -754,15 +889,7 @@ export default function EvolutionAdminPage() {
                   <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
                   <td className="p-3 text-right font-mono">
                     {run.estimated_cost_usd != null ? (
-                      <span className={
-                        run.status === 'completed' && run.total_cost_usd > 0
-                          ? Math.abs(run.total_cost_usd - run.estimated_cost_usd) / Math.max(run.estimated_cost_usd, 0.001) <= 0.1
-                            ? 'text-[var(--status-success)]'
-                            : Math.abs(run.total_cost_usd - run.estimated_cost_usd) / Math.max(run.estimated_cost_usd, 0.001) <= 0.3
-                              ? 'text-[var(--accent-gold)]'
-                              : 'text-[var(--status-error)]'
-                          : 'text-[var(--text-muted)]'
-                      }>
+                      <span className={getEstimateColorClass(run)}>
                         ${run.estimated_cost_usd.toFixed(2)}
                       </span>
                     ) : (

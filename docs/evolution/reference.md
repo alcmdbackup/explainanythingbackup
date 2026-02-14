@@ -256,6 +256,8 @@ Fields:
 | File | Purpose |
 |------|---------|
 | `src/lib/services/evolutionActions.ts` | 9 server actions: queue, trigger, get runs/variants/summary, apply winner, rollback, cost breakdown, history |
+| `src/lib/services/evolutionBatchActions.ts` | Server action for dispatching parallel evolution batch runs via GitHub Actions workflow |
+| `src/lib/services/llmSemaphore.ts` | Counting semaphore for throttling concurrent LLM API calls during parallel evolution runs |
 | `src/lib/services/evolutionVisualizationActions.ts` | Timeline + invocation detail server actions: `getEvolutionRunTimelineAction`, `getAgentInvocationDetailAction`, `getIterationInvocationsAction`, `getAgentInvocationsForRunAction` |
 | `src/app/admin/quality/evolution/page.tsx` | Admin UI: run management, variant preview, apply/rollback, cost/quality charts |
 | `scripts/evolution-runner.ts` | Batch runner: claims pending runs, executes full pipeline, 60-second heartbeat, graceful SIGTERM/SIGINT shutdown |
@@ -271,7 +273,7 @@ Fields:
 | `scripts/lib/hallOfFameUtils.ts` | Shared Hall of Fame insertion logic: topic upsert, entry insert, Elo initialization, elo_per_dollar |
 | `scripts/lib/oneshotGenerator.ts` | Shared oneshot article generation with multi-provider support (DeepSeek, OpenAI, Anthropic) |
 | `src/config/promptBankConfig.ts` | Prompt bank configuration: 5 prompts (easy/medium/hard), 6 generation methods, comparison settings |
-| `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--max-runs` and `--dry-run` inputs |
+| `.github/workflows/evolution-batch.yml` | Weekly batch (Mondays 4am UTC), manual dispatch with `--parallel`, `--max-runs`, and `--dry-run` inputs |
 
 ## Usage
 
@@ -316,6 +318,7 @@ The evolution dashboard entry point is `/admin/evolution-dashboard` (overview wi
 - Filterable runs table (by status and date range)
 - Variant panel showing rating-ranked variants with text preview
 - Queue dialog for manually queuing runs
+- **Batch Dispatch card**: Dispatch parallel batch execution via GitHub Actions with configurable parallel count, max runs, and dry-run toggle. Includes "Trigger All Pending" button.
 - Apply Winner / Rollback buttons
 - Cost breakdown chart by agent
 - Quality comparison chart (before/after scores from Phase E evaluation)
@@ -324,17 +327,36 @@ The evolution dashboard entry point is `/admin/evolution-dashboard` (overview wi
 
 ### Batch Runner
 ```bash
-# Local execution
+# Local execution (sequential)
 npx tsx scripts/evolution-runner.ts --max-runs 5
 npx tsx scripts/evolution-runner.ts --dry-run  # Log-only mode
 
+# Parallel execution (5 runs at a time, max 20 concurrent LLM calls)
+npx tsx scripts/evolution-runner.ts --parallel 5 --max-runs 10
+npx tsx scripts/evolution-runner.ts --parallel 3 --max-concurrent-llm 15
+
 # GitHub Actions (automatic)
 # .github/workflows/evolution-batch.yml — runs Mondays 4am UTC
-# Manual dispatch available with max-runs and dry-run inputs
-# Timeout: 7 hours, concurrency group prevents parallel runs
+# Manual dispatch with parallel, max-runs, and dry-run inputs
+# Timeout: 7 hours, concurrency group prevents parallel workflow runs
 ```
 
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--max-runs N` | 10 | Maximum total runs to process |
+| `--parallel N` | 1 | Number of runs to execute concurrently per batch |
+| `--max-concurrent-llm N` | 20 | Maximum concurrent LLM API calls across all parallel runs |
+| `--dry-run` | false | Log-only mode — no LLM calls or DB writes |
+
 Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment variables.
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
+| `GITHUB_TOKEN` | — | Fine-grained PAT with `actions:write` scope (required for dashboard batch dispatch) |
+| `GITHUB_REPO` | `Minddojo/explainanything` | GitHub repository for workflow dispatch |
 
 ### Local CLI Runner
 ```bash
@@ -405,8 +427,8 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 ## Production Deployment
 
 ### Database Setup
-1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame)
-2. The `claim_evolution_run` RPC function is referenced but not yet created — the batch runner has a fallback using `UPDATE WHERE status='pending'` with optimistic locking
+1. Run evolution migrations (`20260131000001` through `20260131000010`, plus `20260201000001` for Hall of Fame, and `20260214000001` for `claim_evolution_run`)
+2. The `claim_evolution_run(p_runner_id TEXT)` RPC function uses `FOR UPDATE SKIP LOCKED` for safe concurrent claiming. The batch runner also has a fallback using `UPDATE WHERE status='pending'` with optimistic locking if the RPC is not yet deployed
 
 ### Monitoring
 - **Watchdog cron**: `/api/cron/evolution-watchdog` runs every 15 minutes, marks stale runs as failed

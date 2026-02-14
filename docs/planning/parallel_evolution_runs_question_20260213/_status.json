@@ -1,0 +1,21 @@
+{
+  "branch": "feat/parallel_evolution_runs_question_20260213",
+  "created_at": "2026-02-13T00:00:00Z",
+  "prerequisites": {
+    "project_workflow_read": "2026-02-14T03:08:08Z",
+    "testing_overview_read": "2026-02-14T03:08:12Z",
+    "design_style_guide_read": "2026-02-14T03:08:13Z",
+    "getting_started_read": "2026-02-14T03:09:05Z",
+    "todos_created": "2026-02-14T03:10:00Z"
+  },
+  "relevantDocs": [
+    "docs/evolution/architecture.md",
+    "docs/evolution/data_model.md",
+    "docs/evolution/reference.md",
+    "docs/evolution/visualization.md",
+    "docs/evolution/cost_optimization.md",
+    "docs/evolution/hall_of_fame.md",
+    "docs/feature_deep_dives/server_action_patterns.md",
+    "docs/feature_deep_dives/state_management.md"
+  ]
+}

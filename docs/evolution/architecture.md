@@ -193,6 +193,16 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
 1. **Supervisor strategy routing**: The supervisor prepares strategy payloads (single-strategy in COMPETITION, collapsed when diversity is low), but `GenerationAgent` always uses its own hardcoded `STRATEGIES` constant. The supervisor's intent is not consumed.
 2. **Title mismatch**: `applyWinnerAction` replaces `explanations.content` but does not update `explanation_title`. If the winning variant's H1 differs from the original, the database title and content title will diverge.
 
+## Parallel Execution
+
+The batch runner supports parallel execution of multiple evolution runs within a single process via `--parallel N`. Pipeline state is fully per-run isolated (separate `PipelineStateImpl`, `CostTracker`, `ComparisonCache`, `LogBuffer`, and agent instances), so concurrent runs do not interfere with each other.
+
+Rate limiting is enforced by an in-process `LLMSemaphore` (`src/lib/services/llmSemaphore.ts`) that caps the total number of concurrent LLM API calls across all parallel runs. The semaphore is integrated into `callLLMModelRaw()` for `evolution_*` call sources — non-evolution calls bypass the semaphore entirely. The default limit is 20 concurrent calls, configurable via `EVOLUTION_MAX_CONCURRENT_LLM` env var or `--max-concurrent-llm` CLI flag.
+
+Run claiming uses an atomic `claim_evolution_run` RPC (`FOR UPDATE SKIP LOCKED`) to prevent double-claiming when multiple runners or parallel batches compete for pending runs.
+
+The dashboard provides a "Batch Dispatch" card that triggers the GitHub Actions workflow with configurable parallelism via the GitHub REST API.
+
 ## Related Documentation
 
 - [Data Model](./data_model.md) — Core primitives (Prompt, Strategy, Run, Article)
