@@ -96,7 +96,6 @@ const _estimateRunCostAction = withLogging(async (
 
     const supabase = await createSupabaseServiceClient();
 
-    // Fetch strategy config
     const { data: strategy, error: stratError } = await supabase
       .from('strategy_configs')
       .select('config')
@@ -114,7 +113,6 @@ const _estimateRunCostAction = withLogging(async (
       agentModels?: Record<string, string>;
     };
 
-    // Dynamic import to avoid loading heavy evolution code at module level
     const { estimateRunCostWithAgentModels } = await import('@/lib/evolution');
 
     const estimate = await estimateRunCostWithAgentModels(
@@ -149,7 +147,10 @@ const _queueEvolutionRunAction = withLogging(async (
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Validate prompt reference if provided
+    if (!input.explanationId && !input.promptId) {
+      throw new Error('Either explanationId or promptId is required');
+    }
+
     if (input.promptId) {
       const { data: prompt } = await supabase
         .from('hall_of_fame_topics')
@@ -161,6 +162,7 @@ const _queueEvolutionRunAction = withLogging(async (
     }
 
     let strategyConfig: QueueStrategyConfig | null = null;
+
     if (input.strategyId) {
       const { data: strategy } = await supabase
         .from('strategy_configs')
@@ -178,12 +180,13 @@ const _queueEvolutionRunAction = withLogging(async (
       throw new Error('Either explanationId or promptId is required');
     }
 
+
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
     if (strategyConfig) {
       try {
         const { estimateRunCostWithAgentModels, RunCostEstimateSchema } = await import('@/lib/evolution');
-        const est = await estimateRunCostWithAgentModels(
+        const estimate = await estimateRunCostWithAgentModels(
           {
             generationModel: strategyConfig.generationModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
             judgeModel: strategyConfig.judgeModel as import('@/lib/schemas/schemas').AllowedLLMModelType | undefined,
@@ -192,7 +195,7 @@ const _queueEvolutionRunAction = withLogging(async (
           },
           5000,
         );
-        const parsed = RunCostEstimateSchema.safeParse(est);
+        const parsed = RunCostEstimateSchema.safeParse(estimate);
         if (parsed.success) {
           estimatedCostUsd = parsed.data.totalUsd;
           costEstimateDetail = parsed.data as unknown as Record<string, unknown>;
@@ -219,8 +222,8 @@ const _queueEvolutionRunAction = withLogging(async (
       estimated_cost_usd: estimatedCostUsd,
       cost_estimate_detail: costEstimateDetail,
       source,
-      ...(Object.keys(runConfig).length > 0 ? { config: runConfig } : {}),
     };
+    if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;
     if (input.strategyId) insertRow.strategy_config_id = input.strategyId;
@@ -522,13 +525,11 @@ const _triggerEvolutionRunAction = withLogging(async (
       return { success: true, error: null };
     }
 
-    // Resolve content — explanation-based or prompt-based
     let originalText: string;
     let title: string;
     let explanationId: number | null = run.explanation_id;
 
     if (run.explanation_id !== null) {
-      // Explanation-based run
       const { data: explanation, error: contentError } = await supabase
         .from('explanations')
         .select('id, explanation_title, content')
@@ -543,7 +544,6 @@ const _triggerEvolutionRunAction = withLogging(async (
       title = explanation.explanation_title;
       explanationId = explanation.id;
     } else if (run.prompt_id) {
-      // Prompt-based run — generate seed article
       if (featureFlags.promptBasedEvolutionEnabled === false) {
         throw new Error('Prompt-based evolution is temporarily disabled');
       }
@@ -579,11 +579,7 @@ const _triggerEvolutionRunAction = withLogging(async (
       throw new Error('Run has no explanation_id and no prompt_id');
     }
 
-    // Dynamic import to avoid loading heavy evolution code at module level
-    const {
-      executeFullPipeline,
-      preparePipelineRun,
-    } = await import('@/lib/evolution');
+    const { executeFullPipeline, preparePipelineRun } = await import('@/lib/evolution');
 
     const { ctx, agents } = preparePipelineRun({
       runId,
@@ -593,15 +589,11 @@ const _triggerEvolutionRunAction = withLogging(async (
       configOverrides: run.config ?? {},
       llmClientId: 'evolution-admin',
     });
-    const evolutionLogger = ctx.logger;
-    const startMs = Date.now();
 
-    await executeFullPipeline(runId, agents, ctx, evolutionLogger, {
-      startMs,
+    await executeFullPipeline(runId, agents, ctx, ctx.logger, {
+      startMs: Date.now(),
       featureFlags,
     });
-
-    // Variants are persisted inside executeFullPipeline via persistVariants() (upsert).
 
     return { success: true, error: null };
   } catch (error) {
@@ -659,49 +651,30 @@ const _getEvolutionCostBreakdownAction = withLogging(async (
     await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Get run time window
-    const { data: run, error: runError } = await supabase
-      .from('content_evolution_runs')
-      .select('started_at, completed_at')
-      .eq('id', runId)
-      .single();
+    // Query run-scoped invocation table (no time-window correlation needed)
+    const { data: invocations, error: invError } = await supabase
+      .from('evolution_agent_invocations')
+      .select('agent_name, cost_usd, iteration')
+      .eq('run_id', runId)
+      .order('iteration', { ascending: true });
 
-    if (runError || !run) {
-      throw new Error(`Run ${runId} not found`);
+    if (invError) {
+      logger.error('Error fetching cost breakdown', { error: invError.message });
+      throw invError;
     }
 
-    // Query LLM call tracking for evolution calls within the run window
-    let query = supabase
-      .from('llmCallTracking')
-      .select('call_source, estimated_cost_usd')
-      .like('call_source', 'evolution_%');
-
-    if (run.started_at) {
-      query = query.gte('created_at', run.started_at);
-    }
-    if (run.completed_at) {
-      query = query.lte('created_at', run.completed_at);
-    }
-
-    const { data: calls, error: callsError } = await query;
-
-    if (callsError) {
-      logger.error('Error fetching cost breakdown', { error: callsError.message });
-      throw callsError;
-    }
-
-    // Group by agent name (strip 'evolution_' prefix)
-    const agentMap = new Map<string, { calls: number; costUsd: number }>();
-    for (const call of calls ?? []) {
-      const agent = (call.call_source as string).replace(/^evolution_/, '');
-      const entry = agentMap.get(agent) ?? { calls: 0, costUsd: 0 };
-      entry.calls += 1;
-      entry.costUsd += (call.estimated_cost_usd as number) ?? 0;
+    const agentMap = new Map<string, { invocations: number; maxCost: number }>();
+    for (const inv of invocations ?? []) {
+      const agent = inv.agent_name as string;
+      const cost = Number(inv.cost_usd) || 0;
+      const entry = agentMap.get(agent) ?? { invocations: 0, maxCost: 0 };
+      entry.invocations += 1;
+      entry.maxCost = Math.max(entry.maxCost, cost);
       agentMap.set(agent, entry);
     }
 
     const breakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
-      .map(([agent, { calls: count, costUsd }]) => ({ agent, calls: count, costUsd }))
+      .map(([agent, { invocations: count, maxCost }]) => ({ agent, calls: count, costUsd: maxCost }))
       .sort((a, b) => b.costUsd - a.costUsd);
 
     return { success: true, data: breakdown, error: null };
@@ -733,7 +706,6 @@ const _getEvolutionHistoryAction = withLogging(async (
       throw error;
     }
 
-    // Map created_at → applied_at for the interface
     const rows: ContentHistoryRow[] = (data ?? []).map((row) => ({
       id: row.id,
       explanation_id: row.explanation_id,

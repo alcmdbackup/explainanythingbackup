@@ -26,6 +26,7 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     generation: 0.20,
     calibration: 0.15,
     tournament: 0.20,
+    pairwise: 0.20,      // PairwiseRanker (called by Tournament for all LLM comparisons)
     evolution: 0.10,
     reflection: 0.05,
     debate: 0.05,
@@ -443,7 +444,7 @@ Uses fractional factorial (Taguchi L8) design to test 5 pipeline factors in 8 ru
 - **OpenTelemetry spans** (distributed tracing segments viewable in Grafana/Honeycomb): `evolution.pipeline.full`, `evolution.iteration`, `evolution.agent.{name}` — each carries attributes for cost, variant count, phase, and timing
 - **Structured logging**: Every log entry includes `{subsystem: 'evolution', runId, agentName}` for filtering
 - **DB heartbeat**: `last_heartbeat` column updated after each agent execution, monitored by watchdog cron
-- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. CLI runs also write to `llmCallTracking` with `call_source = 'evolution_{agentName}'` so the budget tab's burn curve and agent breakdown charts work for local runs.
+- **Cost attribution**: Per-agent spend tracked in `CostTracker`, surfaced in admin UI cost breakdown chart via `getEvolutionCostBreakdownAction`. Dashboard queries use `evolution_agent_invocations` table (joined by `run_id`) with cumulative `cost_usd` per agent — deltas between consecutive iterations give per-iteration spend. Accurate even for concurrent/paused runs (no time-window correlation needed).
 - **Per-run DB logs**: `LogBuffer` writes structured log entries to `evolution_run_logs` table with cross-linking columns (agent_name, iteration, variant_id). Admin UI Logs tab (`LogsTab.tsx`) provides filterable, auto-refreshing log viewer with deep-link support via URL params (`?tab=logs&agent=X&iteration=N&variant=V`). Logs are flushed at pipeline end, on budget exceeded, and on agent failure.
 
 ## Testing

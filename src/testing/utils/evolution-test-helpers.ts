@@ -82,6 +82,7 @@ export async function cleanupEvolutionData(
 
     if (runIds.length > 0) {
       // Delete in FK-safe order: children first
+      await supabase.from('evolution_agent_invocations').delete().in('run_id', runIds);
       await supabase.from('evolution_checkpoints').delete().in('run_id', runIds);
       await supabase.from('content_evolution_variants').delete().in('run_id', runIds);
     }
@@ -92,7 +93,10 @@ export async function cleanupEvolutionData(
       await supabase.from('content_history').delete().in('explanation_id', explanationIds);
     }
 
-    // Delete runs last (parent of variants/checkpoints)
+    // Delete runs last (parent of variants/checkpoints).
+    // NOTE: strategy_configs and hall_of_fame_topics are NOT deleted here because
+    // they may be shared fixtures across multiple tests. Callers should clean them
+    // up explicitly in afterAll when appropriate.
     if (runIds.length > 0) {
       await supabase.from('content_evolution_runs').delete().in('id', runIds);
     }
@@ -105,17 +109,67 @@ export async function cleanupEvolutionData(
 // ─── Test data factories ────────────────────────────────────────
 
 /**
+ * Insert a test strategy_configs row and return its UUID.
+ * Uses a unique hash per call to avoid unique-constraint collisions.
+ */
+export async function createTestStrategyConfig(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const { data, error } = await supabase
+    .from('strategy_configs')
+    .insert({
+      config_hash: `test_hash_${uniqueSuffix}`,
+      name: `test_strategy_${uniqueSuffix}`,
+      label: 'Test strategy',
+      config: { generationModel: 'test', judgeModel: 'test', iterations: 1, budgetCaps: {} },
+    })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(`createTestStrategyConfig failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data.id;
+}
+
+/**
+ * Insert a test hall_of_fame_topics row and return its UUID.
+ * Satisfies the NOT NULL prompt_id FK on content_evolution_runs.
+ * (Table was renamed from article_bank_topics → hall_of_fame_topics.)
+ */
+export async function createTestPrompt(
+  supabase: SupabaseClient,
+): Promise<string> {
+  const uniqueSuffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const { data, error } = await supabase
+    .from('hall_of_fame_topics')
+    .insert({
+      prompt: `test_prompt_${uniqueSuffix}`,
+      title: `Test Prompt ${uniqueSuffix}`,
+    })
+    .select('id')
+    .single();
+
+  if (error) throw new Error(`createTestPrompt failed: ${error.message ?? error.code ?? JSON.stringify(error)}`);
+  return data.id;
+}
+
+/**
  * Insert a test evolution run and return the full row.
+ * Auto-creates a strategy_config and prompt if not provided via overrides.
  */
 export async function createTestEvolutionRun(
   supabase: SupabaseClient,
   explanationId: number | null,
   overrides?: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  const strategyConfigId = overrides?.strategy_config_id ?? await createTestStrategyConfig(supabase);
+  const promptId = overrides?.prompt_id ?? await createTestPrompt(supabase);
   const row = {
     explanation_id: explanationId,
     status: 'pending',
     budget_cap_usd: 5.0,
+    strategy_config_id: strategyConfigId,
+    prompt_id: promptId,
     ...overrides,
   };
 
@@ -263,6 +317,32 @@ export async function createTestLLMCallTracking(
       completion_tokens: 20,
       total_tokens: 30,
       finish_reason: 'stop',
+    });
+
+  if (error) throw error;
+}
+
+// ─── Agent invocation factory ────────────────────────────────────
+
+/** Creates a test evolution_agent_invocations row for cost testing. */
+export async function createTestAgentInvocation(
+  supabase: SupabaseClient,
+  runId: string,
+  iteration: number,
+  agentName: string,
+  opts: { costUsd?: number; executionOrder?: number; success?: boolean; skipped?: boolean } = {},
+): Promise<void> {
+  const { error } = await supabase
+    .from('evolution_agent_invocations')
+    .insert({
+      run_id: runId,
+      iteration,
+      agent_name: agentName,
+      execution_order: opts.executionOrder ?? 0,
+      success: opts.success ?? true,
+      cost_usd: opts.costUsd ?? 0,
+      skipped: opts.skipped ?? false,
+      execution_detail: {},
     });
 
   if (error) throw error;

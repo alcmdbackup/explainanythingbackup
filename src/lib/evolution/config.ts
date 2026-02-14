@@ -23,6 +23,7 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
     generation: 0.20,
     calibration: 0.15,
     tournament: 0.20,
+    pairwise: 0.20,
     evolution: 0.10,
     reflection: 0.05,
     debate: 0.05,

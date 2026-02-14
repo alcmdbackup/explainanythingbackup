@@ -105,11 +105,10 @@ describe('getEvolutionRunTimelineAction', () => {
     const variantB = createVariant('variant-b', 0);
     const variantC = createVariant('variant-c', 0);
 
-    // Mock checkpoint query (order returns the mock to chain)
+    // Mock queries: order calls 1-2 = checkpoints, calls 3-4 = invocations
     let queryCount = 0;
     mock.order.mockImplementation(() => {
       queryCount++;
-      // Second order call is terminal for checkpoints
       if (queryCount === 2) {
         return Promise.resolve({
           data: [
@@ -145,22 +144,11 @@ describe('getEvolutionRunTimelineAction', () => {
           error: null,
         });
       }
+      // Invocations query terminal
+      if (queryCount === 4) {
+        return Promise.resolve({ data: [], error: null });
+      }
       return mock;
-    });
-
-    // Mock run query
-    mock.single.mockResolvedValue({
-      data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-      error: null,
-    });
-
-    // Mock cost query (lte is terminal)
-    mock.lte.mockResolvedValue({
-      data: [
-        { call_source: 'evolution_generation', estimated_cost_usd: 0.01, created_at: '2026-01-01T00:00:30Z' },
-        { call_source: 'evolution_calibration', estimated_cost_usd: 0.005, created_at: '2026-01-01T00:01:30Z' },
-      ],
-      error: null,
     });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -203,15 +191,11 @@ describe('getEvolutionRunTimelineAction', () => {
           error: null,
         });
       }
+      if (queryCount === 4) {
+        return Promise.resolve({ data: [], error: null });
+      }
       return mock;
     });
-
-    mock.single.mockResolvedValue({
-      data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-      error: null,
-    });
-
-    mock.lte.mockResolvedValue({ data: [], error: null });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -258,15 +242,11 @@ describe('getEvolutionRunTimelineAction', () => {
           error: null,
         });
       }
+      if (queryCount === 4) {
+        return Promise.resolve({ data: [], error: null });
+      }
       return mock;
     });
-
-    mock.single.mockResolvedValue({
-      data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-      error: null,
-    });
-
-    mock.lte.mockResolvedValue({ data: [], error: null });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -309,15 +289,11 @@ describe('getEvolutionRunTimelineAction', () => {
           error: null,
         });
       }
+      if (queryCount === 4) {
+        return Promise.resolve({ data: [], error: null });
+      }
       return mock;
     });
-
-    mock.single.mockResolvedValue({
-      data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-      error: null,
-    });
-
-    mock.lte.mockResolvedValue({ data: [], error: null });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -359,20 +335,17 @@ describe('getEvolutionRunTimelineAction', () => {
           error: null,
         });
       }
+      // Invocations with cumulative cost_usd per agent (deltas: 0.01 + 0.02 = 0.03)
+      if (queryCount === 4) {
+        return Promise.resolve({
+          data: [
+            { iteration: 0, agent_name: 'generation', cost_usd: 0.01, execution_order: 0 },
+            { iteration: 0, agent_name: 'evolution', cost_usd: 0.02, execution_order: 1 },
+          ],
+          error: null,
+        });
+      }
       return mock;
-    });
-
-    mock.single.mockResolvedValue({
-      data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-      error: null,
-    });
-
-    mock.lte.mockResolvedValue({
-      data: [
-        { call_source: 'evolution_generation', estimated_cost_usd: 0.01, created_at: '2026-01-01T00:00:30Z' },
-        { call_source: 'evolution_evolution', estimated_cost_usd: 0.02, created_at: '2026-01-01T00:01:30Z' },
-      ],
-      error: null,
     });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -399,15 +372,15 @@ describe('getEvolutionRunTimelineAction', () => {
     let queryCount = 0;
     mock.order.mockImplementation(() => {
       queryCount++;
+      // Empty checkpoints
       if (queryCount === 2) {
         return Promise.resolve({ data: [], error: null });
       }
+      // Empty invocations
+      if (queryCount === 4) {
+        return Promise.resolve({ data: [], error: null });
+      }
       return mock;
-    });
-
-    mock.single.mockResolvedValue({
-      data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-      error: null,
     });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -448,8 +421,6 @@ describe('getEvolutionRunBudgetAction', () => {
 
     mock.single.mockResolvedValue({
       data: {
-        started_at: '2026-01-01T00:00:00Z',
-        completed_at: '2026-01-01T01:00:00Z',
         budget_cap_usd: 5,
         cost_estimate_detail: mockEstimate,
         cost_prediction: mockPrediction,
@@ -457,13 +428,20 @@ describe('getEvolutionRunBudgetAction', () => {
       error: null,
     });
 
-    // Terminal for LLM calls query (lte)
-    mock.lte.mockResolvedValue({
-      data: [
-        { call_source: 'evolution_generation', estimated_cost_usd: 0.7, created_at: '2026-01-01T00:01:00Z' },
-        { call_source: 'evolution_calibration', estimated_cost_usd: 0.35, created_at: '2026-01-01T00:02:00Z' },
-      ],
-      error: null,
+    // Invocations query (order is terminal on 2nd call)
+    let queryCount = 0;
+    mock.order.mockImplementation(() => {
+      queryCount++;
+      if (queryCount === 2) {
+        return Promise.resolve({
+          data: [
+            { agent_name: 'generation', cost_usd: 0.7, iteration: 0, execution_order: 0 },
+            { agent_name: 'calibration', cost_usd: 0.35, iteration: 0, execution_order: 1 },
+          ],
+          error: null,
+        });
+      }
+      return mock;
     });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -482,8 +460,6 @@ describe('getEvolutionRunBudgetAction', () => {
 
     mock.single.mockResolvedValue({
       data: {
-        started_at: '2026-01-01T00:00:00Z',
-        completed_at: '2026-01-01T01:00:00Z',
         budget_cap_usd: 5,
         cost_estimate_detail: null,
         cost_prediction: null,
@@ -491,7 +467,15 @@ describe('getEvolutionRunBudgetAction', () => {
       error: null,
     });
 
-    mock.lte.mockResolvedValue({ data: [], error: null });
+    // Empty invocations
+    let queryCount = 0;
+    mock.order.mockImplementation(() => {
+      queryCount++;
+      if (queryCount === 2) {
+        return Promise.resolve({ data: [], error: null });
+      }
+      return mock;
+    });
 
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 

@@ -81,32 +81,17 @@ describe('Evolution Actions', () => {
   // ─── Cost Breakdown ────────────────────────────────────────────
 
   describe('getEvolutionCostBreakdownAction', () => {
-    it('groups costs by agent and strips evolution_ prefix', async () => {
+    it('groups costs by agent using MAX(cost_usd) from invocations', async () => {
       const mock = createChainMock();
-      let callCount = 0;
 
-      // Override single for run lookup, and lte for LLM call query terminal
-      mock.single.mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) {
-          return Promise.resolve({
-            data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: null, error: null });
-      });
-
-      mock.lte.mockImplementation(() => {
-        // This is the terminal for the second query
-        return Promise.resolve({
-          data: [
-            { call_source: 'evolution_generation', estimated_cost_usd: 0.01 },
-            { call_source: 'evolution_generation', estimated_cost_usd: 0.02 },
-            { call_source: 'evolution_calibration', estimated_cost_usd: 0.005 },
-          ],
-          error: null,
-        });
+      // .order() is terminal for the invocations query; cost_usd is cumulative per agent
+      mock.order.mockResolvedValueOnce({
+        data: [
+          { agent_name: 'generation', cost_usd: 0.01, iteration: 1 },
+          { agent_name: 'calibration', cost_usd: 0.005, iteration: 1 },
+          { agent_name: 'generation', cost_usd: 0.03, iteration: 2 },
+        ],
+        error: null,
       });
 
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
@@ -114,17 +99,14 @@ describe('Evolution Actions', () => {
       const result = await getEvolutionCostBreakdownAction('run-1');
       expect(result.success).toBe(true);
       expect(result.data).toHaveLength(2);
+      // Sorted by costUsd desc; MAX(cost_usd) per agent
       expect(result.data![0]).toEqual({ agent: 'generation', calls: 2, costUsd: 0.03 });
       expect(result.data![1]).toEqual({ agent: 'calibration', calls: 1, costUsd: 0.005 });
     });
 
-    it('returns empty array when no calls found', async () => {
+    it('returns empty array when no invocations found', async () => {
       const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({
-        data: { started_at: '2026-01-01T00:00:00Z', completed_at: '2026-01-01T01:00:00Z' },
-        error: null,
-      });
-      mock.lte.mockResolvedValueOnce({ data: [], error: null });
+      mock.order.mockResolvedValueOnce({ data: [], error: null });
 
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
@@ -133,9 +115,9 @@ describe('Evolution Actions', () => {
       expect(result.data).toEqual([]);
     });
 
-    it('returns error when run not found', async () => {
+    it('returns error when invocations query fails', async () => {
       const mock = createChainMock();
-      mock.single.mockResolvedValueOnce({ data: null, error: { message: 'not found' } });
+      mock.order.mockResolvedValueOnce({ data: null, error: { message: 'db error' } });
       (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
 
       const result = await getEvolutionCostBreakdownAction('run-missing');

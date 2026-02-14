@@ -287,14 +287,13 @@ interface AgentDiffMetrics {
   metaFeedbackPopulated: boolean;
 }
 
-/** Compute Elo delta between two rating snapshots. */
 function computeEloDelta(
   before: Record<string, number>,
   after: Record<string, number>
 ): Record<string, number> {
   const delta: Record<string, number> = {};
   for (const [id, newElo] of Object.entries(after)) {
-    const oldElo = before[id] ?? 1200; // new variants start at 1200
+    const oldElo = before[id] ?? 1200;
     if (newElo !== oldElo) {
       delta[id] = newElo - oldElo;
     }
@@ -302,7 +301,6 @@ function computeEloDelta(
   return delta;
 }
 
-/** Diff sequential checkpoints to compute per-agent metrics. */
 function diffCheckpoints(
   before: SerializedPipelineState | null,
   after: SerializedPipelineState
@@ -359,78 +357,30 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       iterationGroups.set(cp.iteration, group);
     }
 
-    // Load run metadata for cost attribution time window
-    const { data: run } = await supabase
-      .from('content_evolution_runs')
-      .select('started_at, completed_at')
-      .eq('id', runId)
-      .single();
+    const { data: costInvocations } = await supabase
+      .from('evolution_agent_invocations')
+      .select('iteration, agent_name, cost_usd')
+      .eq('run_id', runId)
+      .order('iteration', { ascending: true })
+      .order('execution_order', { ascending: true });
 
-    // Build checkpoint time boundaries for cost attribution
-    type TimeBoundary = { iteration: number; agent: string; startTime: string; endTime: string };
-    const boundaries: TimeBoundary[] = [];
-    const allCheckpointsSorted = Array.from(iterationGroups.values())
-      .flat()
-      .sort((a, b) => a.created_at.localeCompare(b.created_at));
-
-    for (let i = 0; i < allCheckpointsSorted.length; i++) {
-      const cp = allCheckpointsSorted[i];
-      const nextCp = allCheckpointsSorted[i + 1];
-      boundaries.push({
-        iteration: cp.iteration,
-        agent: cp.last_agent,
-        startTime: i === 0 ? (run?.started_at ?? cp.created_at) : allCheckpointsSorted[i - 1].created_at,
-        endTime: nextCp?.created_at ?? run?.completed_at ?? cp.created_at,
-      });
+    const costMap = new Map<string, number>();
+    const prevCostByAgent = new Map<string, number>();
+    const invocationSet = new Set<string>();
+    for (const inv of costInvocations ?? []) {
+      const agent = inv.agent_name as string;
+      const cost = Number(inv.cost_usd) || 0;
+      const prev = prevCostByAgent.get(agent) ?? 0;
+      prevCostByAgent.set(agent, cost);
+      costMap.set(`${inv.iteration}-${agent}`, cost - prev);
+      invocationSet.add(`${inv.iteration}-${agent}`);
     }
 
-    // Load LLM calls for cost attribution
-    const costMap = new Map<string, number>(); // "iteration-agent" → cost
-    if (run?.started_at) {
-      let costQuery = supabase
-        .from('llmCallTracking')
-        .select('call_source, estimated_cost_usd, created_at')
-        .like('call_source', 'evolution_%')
-        .gte('created_at', run.started_at);
-      if (run.completed_at) {
-        costQuery = costQuery.lte('created_at', run.completed_at);
-      }
-      const { data: costData } = await costQuery;
-
-      for (const call of costData ?? []) {
-        const callTime = call.created_at as string;
-        const callAgent = (call.call_source as string).replace(/^evolution_/, '');
-        const callCost = (call.estimated_cost_usd as number) ?? 0;
-
-        // Find boundary by time and agent name match
-        const boundary = boundaries.find(b =>
-          callTime >= b.startTime &&
-          callTime <= b.endTime &&
-          callAgent.toLowerCase().includes(b.agent.toLowerCase().replace(/_/g, ''))
-        );
-        if (boundary) {
-          const key = `${boundary.iteration}-${boundary.agent}`;
-          costMap.set(key, (costMap.get(key) ?? 0) + callCost);
-        } else {
-          // Fallback: attribute to first boundary where agent name matches
-          const fallback = boundaries.find(b =>
-            callAgent.toLowerCase().includes(b.agent.toLowerCase().replace(/_/g, ''))
-          );
-          if (fallback) {
-            const key = `${fallback.iteration}-${fallback.agent}`;
-            costMap.set(key, (costMap.get(key) ?? 0) + callCost);
-          }
-        }
-      }
-    }
-
-    // Build timeline with per-agent metrics via checkpoint diffing
     const sortedIterations = Array.from(iterationGroups.entries()).sort((a, b) => a[0] - b[0]);
     const iterations: TimelineData['iterations'] = [];
     let prevIterationFinalSnapshot: SerializedPipelineState | null = null;
 
     for (const [iteration, checkpointGroup] of sortedIterations) {
-      // Use the phase from checkpoint (more reliable than pool size heuristic)
       const phase = checkpointGroup[0]?.phase ?? 'EXPANSION';
       const agents: TimelineData['iterations'][number]['agents'] = [];
       let prevSnapshotInIteration: SerializedPipelineState | null = prevIterationFinalSnapshot;
@@ -438,11 +388,10 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       for (let i = 0; i < checkpointGroup.length; i++) {
         const cp = checkpointGroup[i];
         const diff = diffCheckpoints(prevSnapshotInIteration, cp.state_snapshot);
-        const costKey = `${iteration}-${cp.last_agent}`;
 
         agents.push({
           name: cp.last_agent,
-          costUsd: costMap.get(costKey) ?? 0,
+          costUsd: costMap.get(`${iteration}-${cp.last_agent}`) ?? 0,
           variantsAdded: diff.variantsAdded,
           matchesPlayed: diff.matchesPlayed,
           newVariantIds: diff.newVariantIds,
@@ -457,25 +406,18 @@ const _getEvolutionRunTimelineAction = withLogging(async (
         prevSnapshotInIteration = cp.state_snapshot;
       }
 
-      // Compute iteration totals
-      const totalCostUsd = agents.reduce((sum, a) => sum + a.costUsd, 0);
-      const totalVariantsAdded = agents.reduce((sum, a) => sum + a.variantsAdded, 0);
-      const totalMatchesPlayed = agents.reduce((sum, a) => sum + a.matchesPlayed, 0);
-
       iterations.push({
         iteration,
         phase,
         agents,
-        totalCostUsd,
-        totalVariantsAdded,
-        totalMatchesPlayed,
+        totalCostUsd: agents.reduce((sum, a) => sum + a.costUsd, 0),
+        totalVariantsAdded: agents.reduce((sum, a) => sum + a.variantsAdded, 0),
+        totalMatchesPlayed: agents.reduce((sum, a) => sum + a.matchesPlayed, 0),
       });
 
-      // Track final snapshot of this iteration for next iteration's first diff
       prevIterationFinalSnapshot = checkpointGroup[checkpointGroup.length - 1]?.state_snapshot ?? null;
     }
 
-    // Detect phase transitions
     const phaseTransitions: TimelineData['phaseTransitions'] = [];
     for (let i = 1; i < iterations.length; i++) {
       if (iterations[i].phase !== iterations[i - 1].phase) {
@@ -486,20 +428,9 @@ const _getEvolutionRunTimelineAction = withLogging(async (
       }
     }
 
-    // Enrich agents with execution detail presence flag (lightweight — no JSONB loaded)
-    const { data: invocationKeys } = await supabase
-      .from('evolution_agent_invocations')
-      .select('iteration, agent_name')
-      .eq('run_id', runId);
-
-    if (invocationKeys && invocationKeys.length > 0) {
-      const invocationSet = new Set(
-        invocationKeys.map((r: { iteration: number; agent_name: string }) => `${r.iteration}-${r.agent_name}`),
-      );
-      for (const iter of iterations) {
-        for (const agent of iter.agents) {
-          agent.hasExecutionDetail = invocationSet.has(`${iter.iteration}-${agent.name}`);
-        }
+    for (const iter of iterations) {
+      for (const agent of iter.agents) {
+        agent.hasExecutionDetail = invocationSet.has(`${iter.iteration}-${agent.name}`);
       }
     }
 
@@ -521,7 +452,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Use JSONB extraction to avoid deserializing full snapshots
     const { data: checkpoints, error: cpError } = await supabase
       .from('evolution_checkpoints')
       .select('iteration, state_snapshot')
@@ -531,7 +461,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    // De-duplicate: keep only the last checkpoint per iteration
     const iterationMap = new Map<number, SerializedPipelineState>();
     for (const cp of (checkpoints ?? [])) {
       if (!iterationMap.has(cp.iteration)) {
@@ -539,10 +468,8 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
       }
     }
 
-    // Build history
     const history: EloHistoryData['history'] = [];
     for (const [iteration, snapshot] of Array.from(iterationMap.entries()).sort((a, b) => a[0] - b[0])) {
-      // Handle both new ratings format ({mu, sigma}) and legacy eloRatings (raw numbers)
       if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
         const converted: Record<string, number> = {};
         for (const [id, r] of Object.entries(snapshot.ratings)) {
@@ -554,7 +481,6 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
       }
     }
 
-    // Get variant metadata from latest checkpoint
     const latestSnapshot = Array.from(iterationMap.values()).pop();
     const variants: EloHistoryData['variants'] = (latestSnapshot?.pool ?? []).map(v => ({
       id: v.id,
@@ -581,7 +507,6 @@ const _getEvolutionRunLineageAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Load only the latest checkpoint for full pool data
     const { data: latestCp, error: cpError } = await supabase
       .from('evolution_checkpoints')
       .select('state_snapshot')
@@ -595,7 +520,6 @@ const _getEvolutionRunLineageAction = withLogging(async (
     const snapshot = latestCp.state_snapshot as SerializedPipelineState;
     const state = deserializeState(snapshot);
 
-    // Find winner by matching variant_content text equality with DB winner
     const { data: dbWinner } = await supabase
       .from('content_evolution_variants')
       .select('variant_content')
@@ -606,11 +530,9 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     const winnerText = dbWinner?.variant_content ?? null;
 
-    // Extract tree search metadata for path highlighting
     const treeStates = state.treeSearchStates ?? [];
     const treeResults = state.treeSearchResults ?? [];
 
-    // Map variantId → tree node info for augmenting lineage nodes
     const treeNodeByVariant = new Map<string, { depth: number; action: string }>();
     for (const ts of treeStates) {
       for (const node of Object.values(ts.nodes)) {
@@ -621,13 +543,11 @@ const _getEvolutionRunLineageAction = withLogging(async (
       }
     }
 
-    // Collect winning path variant IDs from tree search results
     const treeSearchPath: string[] = [];
     for (let i = 0; i < treeResults.length; i++) {
       const result = treeResults[i];
       const ts = treeStates[i];
       if (!result || !ts) continue;
-      // Walk from best leaf back to root
       let nodeId: string | null = result.bestLeafNodeId;
       while (nodeId) {
         const treeNode: { variantId: string; parentNodeId: string | null } | undefined = ts.nodes[nodeId];
@@ -640,7 +560,6 @@ const _getEvolutionRunLineageAction = withLogging(async (
       }
     }
 
-    // Build nodes and edges from in-memory pool
     const nodes: LineageData['nodes'] = state.pool.map(v => {
       const treeInfo = treeNodeByVariant.get(v.id);
       return {
@@ -655,12 +574,9 @@ const _getEvolutionRunLineageAction = withLogging(async (
       };
     });
 
-    const edges: LineageData['edges'] = [];
-    for (const v of state.pool) {
-      for (const parentId of v.parentIds) {
-        edges.push({ source: parentId, target: v.id });
-      }
-    }
+    const edges: LineageData['edges'] = state.pool.flatMap(v =>
+      v.parentIds.map(parentId => ({ source: parentId, target: v.id }))
+    );
 
     return {
       success: true,
@@ -684,55 +600,53 @@ const _getEvolutionRunBudgetAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Get run time window, budget, and cost estimate fields
     const { data: run, error: runError } = await supabase
       .from('content_evolution_runs')
-      .select('started_at, completed_at, budget_cap_usd, cost_estimate_detail, cost_prediction')
+      .select('budget_cap_usd, cost_estimate_detail, cost_prediction')
       .eq('id', runId)
       .single();
 
     if (runError || !run) throw new Error(`Run ${runId} not found`);
 
-    // Query LLM calls in chronological order
-    // Cost attributed via time-window correlation — concurrent runs may overlap
-    let query = supabase
-      .from('llmCallTracking')
-      .select('call_source, estimated_cost_usd, created_at')
-      .like('call_source', 'evolution_%')
-      .order('created_at', { ascending: true });
+    const { data: invocations, error: invError } = await supabase
+      .from('evolution_agent_invocations')
+      .select('agent_name, cost_usd, iteration, execution_order')
+      .eq('run_id', runId)
+      .order('iteration', { ascending: true })
+      .order('execution_order', { ascending: true });
 
-    if (run.started_at) query = query.gte('created_at', run.started_at);
-    if (run.completed_at) query = query.lte('created_at', run.completed_at);
+    if (invError) throw invError;
 
-    const { data: calls, error: callsError } = await query;
-    if (callsError) throw callsError;
-
-    // Agent breakdown
-    const agentMap = new Map<string, { calls: number; costUsd: number }>();
-    for (const call of calls ?? []) {
-      const agent = (call.call_source as string).replace(/^evolution_/, '');
-      const entry = agentMap.get(agent) ?? { calls: 0, costUsd: 0 };
-      entry.calls += 1;
-      entry.costUsd += (call.estimated_cost_usd as number) ?? 0;
-      agentMap.set(agent, entry);
-    }
-
-    const agentBreakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
-      .map(([agent, { calls: count, costUsd }]) => ({ agent, calls: count, costUsd }))
-      .sort((a, b) => b.costUsd - a.costUsd);
-
-    // Cumulative burn curve
+    const prevCost = new Map<string, number>();
+    const agentMap = new Map<string, { invocations: number; maxCost: number }>();
+    const cumulativeBurn: BudgetData['cumulativeBurn'] = [];
     let cumulative = 0;
-    const cumulativeBurn: BudgetData['cumulativeBurn'] = (calls ?? []).map((call, i) => {
-      const agent = (call.call_source as string).replace(/^evolution_/, '');
-      cumulative += (call.estimated_cost_usd as number) ?? 0;
-      return {
-        step: i + 1,
+
+    for (const inv of invocations ?? []) {
+      const agent = inv.agent_name as string;
+      const cost = Number(inv.cost_usd) || 0;
+
+      const entry = agentMap.get(agent) ?? { invocations: 0, maxCost: 0 };
+      entry.invocations += 1;
+      entry.maxCost = Math.max(entry.maxCost, cost);
+      agentMap.set(agent, entry);
+
+      const prev = prevCost.get(agent) ?? 0;
+      const delta = cost - prev;
+      prevCost.set(agent, cost);
+
+      cumulative += delta;
+      cumulativeBurn.push({
+        step: cumulativeBurn.length + 1,
         agent,
         cumulativeCost: cumulative,
         budgetCap: run.budget_cap_usd ?? 5,
-      };
-    });
+      });
+    }
+
+    const agentBreakdown: AgentCostBreakdown[] = Array.from(agentMap.entries())
+      .map(([agent, { invocations: count, maxCost }]) => ({ agent, calls: count, costUsd: maxCost }))
+      .sort((a, b) => b.costUsd - a.costUsd);
 
     const estimate = (run.cost_estimate_detail as BudgetData['estimate']) ?? null;
     const prediction = (run.cost_prediction as BudgetData['prediction']) ?? null;
@@ -755,7 +669,6 @@ const _getEvolutionRunComparisonAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Get run details
     const { data: run, error: runError } = await supabase
       .from('content_evolution_runs')
       .select('explanation_id, total_cost_usd, current_iteration, budget_cap_usd')
@@ -764,7 +677,6 @@ const _getEvolutionRunComparisonAction = withLogging(async (
 
     if (runError || !run) throw new Error(`Run ${runId} not found`);
 
-    // Load latest checkpoint for original text, pool, and quality scores
     const { data: latestCp } = await supabase
       .from('evolution_checkpoints')
       .select('state_snapshot')
@@ -778,7 +690,6 @@ const _getEvolutionRunComparisonAction = withLogging(async (
     const pool = snapshot?.pool ?? [];
     const allCritiques = snapshot?.allCritiques ?? null;
 
-    // Find winner variant
     const { data: dbWinner } = await supabase
       .from('content_evolution_variants')
       .select('variant_content, agent_name, elo_score')
@@ -787,14 +698,11 @@ const _getEvolutionRunComparisonAction = withLogging(async (
       .limit(1)
       .maybeSingle();
 
-    // Elo improvement: winner vs initial rating (1200)
     const winnerElo = dbWinner?.elo_score ?? null;
     const eloImprovement = winnerElo !== null ? winnerElo - 1200 : null;
 
-    // Quality scores from allCritiques (nullable — only populated by ReflectionAgent)
     let qualityScores: ComparisonData['qualityScores'] = null;
     if (allCritiques && allCritiques.length > 0) {
-      // Average critiques by dimension for first vs last variants
       const dimensions = new Set<string>();
       for (const c of allCritiques) {
         if (c.dimensionScores) {
@@ -806,14 +714,11 @@ const _getEvolutionRunComparisonAction = withLogging(async (
           const scores = allCritiques
             .filter(c => c.dimensionScores?.[dim] !== undefined)
             .map(c => c.dimensionScores[dim]);
-          const before = scores[0] ?? 0;
-          const after = scores[scores.length - 1] ?? 0;
-          return { dimension: dim, before, after };
+          return { dimension: dim, before: scores[0] ?? 0, after: scores[scores.length - 1] ?? 0 };
         });
       }
     }
 
-    // Generation depth = max version in pool
     const generationDepth = pool.reduce((max, v) => Math.max(max, v.version), 0);
 
     return {
@@ -900,7 +805,6 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
     validateRunId(runId);
     const supabase = await createSupabaseServiceClient();
 
-    // Load latest checkpoint for tree search state
     const { data: latestCp, error: cpError } = await supabase
       .from('evolution_checkpoints')
       .select('state_snapshot')
@@ -925,19 +829,17 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
       const result = treeResults[i];
       if (!ts || !result) continue;
 
-      const nodesList = Object.values(ts.nodes).map((n) => ({
-        id: n.id,
-        variantId: n.variantId,
-        parentNodeId: n.parentNodeId,
-        depth: n.depth,
-        revisionAction: { type: n.revisionAction.type, dimension: n.revisionAction.dimension, description: n.revisionAction.description },
-        value: n.value,
-        pruned: n.pruned,
-      }));
-
       trees.push({
         rootNodeId: ts.rootNodeId,
-        nodes: nodesList,
+        nodes: Object.values(ts.nodes).map((n) => ({
+          id: n.id,
+          variantId: n.variantId,
+          parentNodeId: n.parentNodeId,
+          depth: n.depth,
+          revisionAction: { type: n.revisionAction.type, dimension: n.revisionAction.dimension, description: n.revisionAction.description },
+          value: n.value,
+          pruned: n.pruned,
+        })),
         result: {
           bestLeafNodeId: result.bestLeafNodeId,
           treeSize: result.treeSize,
@@ -1021,9 +923,8 @@ export async function buildVariantsFromCheckpoint(
 }
 
 function buildEloLookup(snapshot: SerializedPipelineState): Record<string, number> {
-  const eloLookup: Record<string, number> = {};
-
   if (snapshot.ratings && Object.keys(snapshot.ratings).length > 0) {
+    const eloLookup: Record<string, number> = {};
     for (const [id, r] of Object.entries(snapshot.ratings)) {
       eloLookup[id] = ordinalToEloScale(getOrdinal(r as { mu: number; sigma: number }));
     }
@@ -1034,7 +935,7 @@ function buildEloLookup(snapshot: SerializedPipelineState): Record<string, numbe
     return snapshot.eloRatings;
   }
 
-  return eloLookup;
+  return {};
 }
 
 // ─── Agent Invocation Detail ────────────────────────────────────

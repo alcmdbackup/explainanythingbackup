@@ -74,14 +74,14 @@ The Timeline tab shows all agents that executed in each iteration.
 **Metrics shown per agent**:
 - Variants added (pool growth from checkpoint diff)
 - Matches played (for ranking agents only — Generation/Reflection/etc. show 0)
-- Cost in USD (timestamp-correlated from llmCallTracking)
+- Cost in USD (per-iteration deltas from cumulative `cost_usd` in `evolution_agent_invocations`)
 - Diversity score after execution
 - New variant IDs (expandable list)
 - Elo changes per variant (color-coded +/-)
 
 **Data computation**: Uses sequential checkpoint diffing within each iteration to compute accurate per-agent metrics. The first agent in an iteration diffs against the previous iteration's final checkpoint.
 
-**Cost attribution**: Uses timestamp correlation between LLM calls and checkpoint boundaries. May be imprecise for concurrent runs (logged warning).
+**Cost attribution**: Uses `evolution_agent_invocations` table with exact `run_id` join. Per-agent cost deltas computed from cumulative `cost_usd` between consecutive iterations. No time-window correlation needed — accurate even for concurrent/paused runs.
 
 **Expandable detail**: Click any agent row to see full metrics including new variant IDs, Elo changes, and error messages.
 

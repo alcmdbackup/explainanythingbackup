@@ -7,7 +7,9 @@ import {
   cleanupEvolutionData,
   createTestEvolutionRun,
   createTestVariant,
-  createTestLLMCallTracking,
+  createTestAgentInvocation,
+  createTestStrategyConfig,
+  createTestPrompt,
   evolutionTablesExist,
   VALID_VARIANT_TEXT,
 } from '@/testing/utils/evolution-test-helpers';
@@ -62,6 +64,8 @@ describe('Evolution Server Actions Integration Tests', () => {
   let supabase: SupabaseClient;
   let tablesReady = false;
   let testExplanationId: number;
+  let testStrategyConfigId: string;
+  let testPromptId: string;
   const trackedExplanationIds: number[] = [];
 
   beforeAll(async () => {
@@ -69,12 +73,19 @@ describe('Evolution Server Actions Integration Tests', () => {
     tablesReady = await evolutionTablesExist(supabase);
     if (!tablesReady) {
       console.warn('⏭️  Skipping evolution actions tests: tables not yet migrated');
+      return;
     }
+    // Create shared fixtures for strategy config and prompt
+    testStrategyConfigId = await createTestStrategyConfig(supabase);
+    testPromptId = await createTestPrompt(supabase);
   });
 
   afterAll(async () => {
     if (tablesReady) {
       await cleanupEvolutionData(supabase, trackedExplanationIds);
+      // Clean up shared fixtures
+      await supabase.from('strategy_configs').delete().eq('id', testStrategyConfigId);
+      await supabase.from('hall_of_fame_topics').delete().eq('id', testPromptId);
     }
     await teardownTestDatabase(supabase);
   });
@@ -103,6 +114,8 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       const result = await queueEvolutionRunAction({
         explanationId: testExplanationId,
+        promptId: testPromptId,
+        strategyId: testStrategyConfigId,
       });
 
       expect(result.success).toBe(true);
@@ -116,6 +129,8 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       const result = await queueEvolutionRunAction({
         explanationId: testExplanationId,
+        promptId: testPromptId,
+        strategyId: testStrategyConfigId,
         budgetCapUsd: 10.0,
       });
 
@@ -307,17 +322,15 @@ describe('Evolution Server Actions Integration Tests', () => {
     it('returns grouped costs by agent', async () => {
       if (!tablesReady) return;
 
-      const now = new Date();
       const run = await createTestEvolutionRun(supabase, testExplanationId, {
         status: 'completed',
-        started_at: new Date(now.getTime() - 60000).toISOString(),
-        completed_at: now.toISOString(),
       });
       const runId = run.id as string;
 
-      await createTestLLMCallTracking(supabase, 'evolution_generation', 0.005, new Date(now.getTime() - 30000).toISOString());
-      await createTestLLMCallTracking(supabase, 'evolution_generation', 0.004, new Date(now.getTime() - 20000).toISOString());
-      await createTestLLMCallTracking(supabase, 'evolution_calibration', 0.003, new Date(now.getTime() - 10000).toISOString());
+      // Seed agent invocations (cost_usd is cumulative per agent)
+      await createTestAgentInvocation(supabase, runId, 0, 'generation', { costUsd: 0.005, executionOrder: 0 });
+      await createTestAgentInvocation(supabase, runId, 1, 'generation', { costUsd: 0.009, executionOrder: 0 });
+      await createTestAgentInvocation(supabase, runId, 0, 'calibration', { costUsd: 0.003, executionOrder: 1 });
 
       const result = await getEvolutionCostBreakdownAction(runId);
 
@@ -330,14 +343,9 @@ describe('Evolution Server Actions Integration Tests', () => {
 
       const gen = result.data!.find((b) => b.agent === 'generation');
       expect(gen).toBeTruthy();
+      // 2 invocations (iteration 0 and 1), max cost = 0.009
       expect(gen!.calls).toBe(2);
-
-      // Cleanup tracking rows
-      await supabase
-        .from('llmCallTracking')
-        .delete()
-        .like('call_source', 'evolution_%')
-        .gte('created_at', new Date(now.getTime() - 60000).toISOString());
+      expect(gen!.costUsd).toBeCloseTo(0.009, 4);
     });
   });
 
