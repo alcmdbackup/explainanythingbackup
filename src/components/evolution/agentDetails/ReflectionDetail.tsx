@@ -1,8 +1,8 @@
 // Detail view for ReflectionAgent showing per-variant critique results with dimension scores.
 
 import type { ReflectionExecutionDetail } from '@/lib/evolution/types';
-import { formatScore, formatScore1 } from '@/lib/utils/formatters';
-import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
+import { formatScore } from '@/lib/utils/formatters';
+import { StatusBadge, DetailSection, CostDisplay, ShortId, DimensionScoresDisplay } from './shared';
 
 export function ReflectionDetail({ detail, runId }: { detail: ReflectionExecutionDetail; runId?: string }): JSX.Element {
   return (
@@ -21,13 +21,7 @@ export function ReflectionDetail({ detail, runId }: { detail: ReflectionExecutio
                 )}
               </div>
               {v.dimensionScores && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {Object.entries(v.dimensionScores).map(([dim, score]) => (
-                    <span key={dim} className="text-[var(--text-muted)] font-ui">
-                      {dim}: <span className="font-mono">{formatScore1(score)}</span>
-                    </span>
-                  ))}
-                </div>
+                <DimensionScoresDisplay scores={v.dimensionScores} className="mt-1" />
               )}
               {v.error && <div className="text-[var(--status-error)] mt-1">{v.error}</div>}
             </div>

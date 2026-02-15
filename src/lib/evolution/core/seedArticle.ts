@@ -10,6 +10,21 @@ export interface SeedResult {
   content: string;
 }
 
+/** Generate a title from a prompt using any LLM caller. Handles JSON parsing with plain-text fallback. */
+export async function generateTitle(
+  prompt: string,
+  callFn: (prompt: string) => Promise<string>,
+): Promise<string> {
+  const titlePrompt = createTitlePrompt(prompt);
+  const raw = await callFn(titlePrompt);
+  try {
+    const parsed = titleQuerySchema.parse(JSON.parse(raw));
+    return parsed.title1;
+  } catch {
+    return raw.replace(/["\n]/g, '').trim().slice(0, 200);
+  }
+}
+
 /**
  * Generate a seed article from a topic prompt.
  * Makes two LLM calls: one for title generation, one for article content.
@@ -21,22 +36,13 @@ export async function generateSeedArticle(
 ): Promise<SeedResult> {
   // Generate title
   logger.info('Generating seed title...', {});
-  const titlePromptText = createTitlePrompt(promptText);
-  let titleRaw: string;
+  let title: string;
   try {
-    titleRaw = await llmClient.complete(titlePromptText, 'seed_title');
+    title = await generateTitle(promptText, (p) => llmClient.complete(p, 'seed_title'));
   } catch (err) {
     throw new Error(
       `Seed title generation failed for prompt "${promptText.slice(0, 200)}": ${err instanceof Error ? err.message : String(err)}`,
     );
-  }
-
-  let title: string;
-  try {
-    const parsed = titleQuerySchema.parse(JSON.parse(titleRaw));
-    title = parsed.title1;
-  } catch {
-    title = titleRaw.replace(/["\n]/g, '').trim().slice(0, 200);
   }
 
   logger.info('Seed title generated', { title });

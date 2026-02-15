@@ -1,8 +1,8 @@
 // Section decomposition agent that edits article sections independently in parallel.
 // Decomposes the top variant into H2 sections, runs targeted edits on each, then stitches back.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, SectionDecompositionExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 import { parseArticleIntoSections } from '../section/sectionParser';
@@ -171,15 +171,13 @@ export class SectionDecompositionAgent extends AgentBase {
     }
 
     // Add stitched variant to pool
-    const variant = {
-      id: uuidv4(),
+    const variant = createTextVariation({
       text: stitchResult.text,
       version: top.version + 1,
       parentIds: [top.id],
       strategy: `section_decomposition_${weakness.dimension}`,
-      createdAt: Date.now() / 1000,
       iterationBorn: state.iteration,
-    };
+    });
     state.addToPool(variant);
 
     logger.info('Section decomposition variant added', {

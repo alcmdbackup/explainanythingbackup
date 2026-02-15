@@ -67,9 +67,15 @@ jest.mock('@/lib/evolution', () => {
 });
 
 jest.mock('@/lib/evolution/core/featureFlags', () => ({
-  fetchEvolutionFeatureFlags: jest.fn().mockResolvedValue({
-    dryRunOnly: false,
-    promptBasedEvolutionEnabled: true,
+  getFeatureFlags: jest.fn().mockReturnValue({
+    tournamentEnabled: true,
+    evolvePoolEnabled: true,
+    debateEnabled: true,
+    iterativeEditingEnabled: true,
+    sectionDecompositionEnabled: true,
+    outlineGenerationEnabled: false,
+    treeSearchEnabled: false,
+    flowCritiqueEnabled: false,
   }),
 }));
 

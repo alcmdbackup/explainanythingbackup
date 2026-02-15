@@ -70,13 +70,14 @@ Strategies can specify which optional agents run via `enabledAgents`. This allow
 - **Mutual exclusion**: `treeSearch` and `iterativeEditing` cannot both be enabled.
 - **Single-article mode**: Automatically disables `generation`, `outlineGeneration`, and `evolution` regardless of `enabledAgents`.
 
-### Three-Tier Agent Gating
+### Two-Tier Agent Gating
 
-An agent must pass all three tiers to execute:
+An agent must pass both tiers to execute:
 
 1. **PhaseConfig (supervisor)** — `getPhaseConfig()` returns per-phase `run*` booleans. EXPANSION disables all improvement agents; COMPETITION enables them. The supervisor calls `isEnabled()` internally, which checks `enabledAgents` and always returns true for required agents.
-2. **Feature flags (global DB)** — `EvolutionFeatureFlags` from the `feature_flags` table can globally disable specific agents (e.g., `evolution_outline_generation_enabled`). Checked by individual agents at execution time.
-3. **enabledAgents (per-strategy)** — The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled.
+2. **enabledAgents (per-strategy)** — The `enabledAgents` array on `EvolutionRunConfig` controls which optional agents the strategy permits. When undefined (backward compat), all agents are enabled.
+
+Feature flags for 5 core agents are now hardcoded as always-on. The 3 experimental toggles (`EVOLUTION_TREE_SEARCH`, `EVOLUTION_OUTLINE_GENERATION`, `EVOLUTION_FLOW_CRITIQUE`) are read from env vars at startup and folded into `enabledAgents`, eliminating the former DB-based feature flag tier. See [Reference -- Feature Flags](./reference.md#feature-flags).
 
 ### Budget Redistribution
 
@@ -92,6 +93,19 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 - `src/lib/evolution/core/agentToggle.ts` — Pure toggle utility for UI state
 - `src/lib/evolution/core/supervisor.ts` — `isEnabled()` gating in `getPhaseConfig()`
 - `src/lib/evolution/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
+
+## Pipeline Module Decomposition
+
+`pipeline.ts` (~751 LOC, reduced from ~1,363) delegates to four extracted modules:
+
+| Module | Responsibility |
+|--------|---------------|
+| `core/persistence.ts` | Checkpoint upsert with retry, variant persistence, run failure/pause marking |
+| `core/metricsWriter.ts` | Strategy config linking, cost prediction persistence, per-agent cost metrics |
+| `core/hallOfFameIntegration.ts` | Hall of Fame topic/entry linking and variant feeding |
+| `core/pipelineUtilities.ts` | Agent invocation persistence and execution detail truncation |
+
+The pipeline orchestrator retains iteration control, agent dispatch, stopping condition evaluation, and phase transitions. All DB persistence and post-run finalization logic now lives in the extracted modules.
 
 ## Append-Only Pool
 

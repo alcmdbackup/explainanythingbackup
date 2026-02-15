@@ -404,14 +404,12 @@ FRICTION_B: Moving on abruptly.`;
       featureFlags: {
         tournamentEnabled: true,
         evolvePoolEnabled: true,
-        dryRunOnly: false,
         debateEnabled: true,
         iterativeEditingEnabled: true,
         outlineGenerationEnabled: false,
         treeSearchEnabled: false,
         sectionDecompositionEnabled: true,
         flowCritiqueEnabled: true,
-        promptBasedEvolutionEnabled: true,
       },
     };
 

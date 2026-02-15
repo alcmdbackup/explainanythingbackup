@@ -69,24 +69,9 @@ export async function GET(request: Request): Promise<NextResponse> {
 
     logger.info('Claimed evolution run', { runId, runnerId: RUNNER_ID });
 
-    // 3. Check feature flags
-    const { fetchEvolutionFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
-    const featureFlags = await fetchEvolutionFeatureFlags(supabase);
-    if (featureFlags.dryRunOnly) {
-      logger.info('Evolution dry-run mode active via feature flag', { runId });
-      await supabase.from('content_evolution_runs').update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        error_message: 'dry-run: execution skipped (feature flag)',
-        runner_id: null,
-      }).eq('id', runId);
-      return NextResponse.json({
-        status: 'ok',
-        message: 'Dry-run mode - run skipped',
-        runId,
-        timestamp: new Date().toISOString(),
-      });
-    }
+    // 3. Read feature flags from env vars (sync, no DB)
+    const { getFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
+    const featureFlags = getFeatureFlags();
 
     let originalText: string;
     let title: string;
@@ -114,16 +99,6 @@ export async function GET(request: Request): Promise<NextResponse> {
         title = explanation.explanation_title;
         explanationId = explanation.id;
       } else if (pendingRun.prompt_id) {
-        if (featureFlags.promptBasedEvolutionEnabled === false) {
-          await markRunFailed(supabase, runId, 'Prompt-based evolution temporarily disabled');
-          return NextResponse.json({
-            status: 'error',
-            message: 'Prompt-based evolution disabled',
-            runId,
-            timestamp: new Date().toISOString(),
-          }, { status: 400 });
-        }
-
         const { data: topic, error: topicError } = await supabase
           .from('hall_of_fame_topics')
           .select('prompt')

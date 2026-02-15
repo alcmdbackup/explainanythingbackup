@@ -1,10 +1,10 @@
 // Outline generation agent producing variants via outline→expand→polish pipeline with per-step scoring.
 // Runs alongside existing GenerationAgent; outline variants compete via Elo in the shared pool.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
+import { createTextVariation } from '../core/textVariationFactory';
 import type {
   AgentResult,
   ExecutionContext,
@@ -307,14 +307,13 @@ export class OutlineGenerationAgent extends AgentBase {
     totalCost: number,
   ): OutlineVariant {
     return {
-      id: uuidv4(),
-      text: finalText,
-      version: state.iteration + 1,
-      parentIds: [],
-      strategy: 'outline_generation',
-      createdAt: Date.now() / 1000,
-      iterationBorn: state.iteration,
-      costUsd: totalCost,
+      ...createTextVariation({
+        text: finalText,
+        version: state.iteration + 1,
+        strategy: 'outline_generation',
+        iterationBorn: state.iteration,
+        costUsd: totalCost,
+      }),
       steps,
       outline: outlineText,
       weakestStep: computeWeakestStep(steps),

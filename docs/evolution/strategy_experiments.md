@@ -66,8 +66,8 @@ After runs complete, the analysis engine computes:
 | File | Purpose |
 |------|---------|
 | `scripts/run-strategy-experiment.ts` | CLI orchestrator (plan/run/analyze/status) |
-| `src/lib/evolution/experiment/factorial.ts` | L8 orthogonal array generation, factor mapping |
-| `src/lib/evolution/experiment/analysis.ts` | Main effects, interactions, ranking, recommendations |
+| `src/lib/experiments/evolution/factorial.ts` | L8 orthogonal array generation, factor mapping |
+| `src/lib/experiments/evolution/analysis.ts` | Main effects, interactions, ranking, recommendations |
 | `experiments/strategy-experiment.json` | Experiment state (gitignored) |
 
 ## State File

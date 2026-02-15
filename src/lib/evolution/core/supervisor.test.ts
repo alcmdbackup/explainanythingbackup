@@ -270,6 +270,67 @@ describe('PoolSupervisor', () => {
       expect(reason).toContain('plateau');
     });
 
+    it('fires degenerate stop when plateau AND diversity < 0.01', () => {
+      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
+      state.diversityScore = 0.005; // < 0.01 → degenerate
+
+      supervisor.beginIteration(state);
+
+      // Accumulate 3 plateau data points (ordinal stays at 21, no improvement)
+      supervisor.shouldStop(state, 10); // records 21
+      state.iteration = 2;
+      supervisor.beginIteration(state);
+      supervisor.shouldStop(state, 10); // records 21
+      state.iteration = 3;
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(true);
+      expect(reason).toBe('Degenerate state detected');
+    });
+
+    it('fires plateau stop (not degenerate) when diversity >= 0.01', () => {
+      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
+      state.diversityScore = 0.5; // >= 0.01 → normal plateau
+
+      supervisor.beginIteration(state);
+
+      supervisor.shouldStop(state, 10);
+      state.iteration = 2;
+      supervisor.beginIteration(state);
+      supervisor.shouldStop(state, 10);
+      state.iteration = 3;
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(true);
+      expect(reason).toBe('Quality plateau detected');
+    });
+
+    it('fires plateau (not degenerate) when diversity is null', () => {
+      const cfg = makeConfig({ expansionMaxIterations: 1, plateauWindow: 3, plateauThreshold: 0.02 });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      state.ratings.set('v-0', ratingWithOrdinal(21));
+      state.diversityScore = null; // null → isDiversityValid returns false → not degenerate
+
+      supervisor.beginIteration(state);
+
+      supervisor.shouldStop(state, 10);
+      state.iteration = 2;
+      supervisor.beginIteration(state);
+      supervisor.shouldStop(state, 10);
+      state.iteration = 3;
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(true);
+      expect(reason).toBe('Quality plateau detected');
+    });
+
     it('does not plateau in EXPANSION', () => {
       const supervisor = new PoolSupervisor(makeConfig());
       const state = makeState(3, 0);
@@ -447,6 +508,87 @@ describe('PoolSupervisor', () => {
       const [stop] = supervisor.shouldStop(state, 10); // 2nd data point — plateau check now has window
       // With 2 data points of same value, improvement = 0, but plateau needs window=2 to trigger
       expect(stop).toBe(true); // 2 data points, 0 improvement
+    });
+
+    it('shouldStop returns quality_threshold when all critique dimensions >= 8', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.allCritiques = [{
+        variationId: 'v-0',
+        dimensionScores: { clarity: 9, structure: 8, engagement: 8.5 },
+        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+      }];
+
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(true);
+      expect(reason).toBe('quality_threshold');
+    });
+
+    it('shouldStop does not trigger quality_threshold when a dimension is below 8', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.allCritiques = [{
+        variationId: 'v-0',
+        dimensionScores: { clarity: 9, structure: 7, engagement: 8 },
+        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+      }];
+
+      supervisor.beginIteration(state);
+      const [stop] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(false);
+    });
+
+    it('shouldStop does not trigger quality_threshold when singleArticle is false', () => {
+      const cfg = makeConfig({ expansionMaxIterations: 1, singleArticle: false });
+      const supervisor = new PoolSupervisor(cfg);
+      const state = makeState(20, 1);
+      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.allCritiques = [{
+        variationId: 'v-0',
+        dimensionScores: { clarity: 9, structure: 9, engagement: 9 },
+        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+      }];
+
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      // Should not trigger quality threshold — may stop for other reasons
+      expect(reason).not.toBe('quality_threshold');
+    });
+
+    it('shouldStop does not trigger quality_threshold with empty critiques', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      state.allCritiques = [];
+
+      supervisor.beginIteration(state);
+      const [stop] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(false);
+    });
+
+    it('shouldStop uses latest critique for quality_threshold (not first)', () => {
+      const supervisor = new PoolSupervisor(makeSingleConfig());
+      const state = makeState(1, 0);
+      state.ratings.set('v-0', ratingWithOrdinal(30));
+      state.allCritiques = [
+        {
+          variationId: 'v-0',
+          dimensionScores: { clarity: 5, structure: 5 },
+          goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+        },
+        {
+          variationId: 'v-0',
+          dimensionScores: { clarity: 9, structure: 9 },
+          goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
+        },
+      ];
+
+      supervisor.beginIteration(state);
+      const [stop, reason] = supervisor.shouldStop(state, 10);
+      expect(stop).toBe(true);
+      expect(reason).toBe('quality_threshold');
     });
   });
 

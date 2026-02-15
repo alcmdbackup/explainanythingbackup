@@ -2,6 +2,7 @@
 // Extracted from CalibrationRanker for reuse by hall of fame comparisons.
 
 import { createHash } from 'crypto';
+import { run2PassReversal } from './core/reversalComparison';
 
 export interface ComparisonResult {
   winner: 'A' | 'B' | 'TIE';
@@ -69,6 +70,38 @@ function makeCacheKey(textA: string, textB: string): string {
   return createHash('sha256').update(payload).digest('hex');
 }
 
+/** Flip reversed-pass winner back to original A/B frame, preserving null. */
+function flipWinner(winner: string | null): string | null {
+  if (winner === 'A') return 'B';
+  if (winner === 'B') return 'A';
+  return winner; // TIE or null
+}
+
+/** Aggregate two parsed winners (in original-frame) into a ComparisonResult. */
+export function aggregateWinners(
+  forward: string | null,
+  reverse: string | null,
+): ComparisonResult {
+  // Flip reverse-pass result back to original A/B frame
+  const reverseFlipped = flipWinner(reverse);
+
+  if (forward === null || reverseFlipped === null) {
+    const partial = forward ?? reverseFlipped;
+    if (partial === 'A') return { winner: 'A', confidence: 0.3, turns: 2 };
+    if (partial === 'B') return { winner: 'B', confidence: 0.3, turns: 2 };
+    return { winner: 'TIE', confidence: 0.0, turns: 2 };
+  }
+
+  if (forward === reverseFlipped) {
+    return { winner: forward as 'A' | 'B' | 'TIE', confidence: 1.0, turns: 2 };
+  }
+  if (forward === 'TIE' || reverseFlipped === 'TIE') {
+    const nonTie = forward === 'TIE' ? reverseFlipped : forward;
+    return { winner: nonTie as 'A' | 'B' | 'TIE', confidence: 0.7, turns: 2 };
+  }
+  return { winner: 'TIE', confidence: 0.5, turns: 2 };
+}
+
 /**
  * Bias-mitigated pairwise comparison using 2-pass A/B reversal.
  * Runs the comparison twice with positions swapped to detect position bias.
@@ -94,35 +127,18 @@ export async function compareWithBiasMitigation(
     if (cached) return cached;
   }
 
-  // First comparison: A vs B
-  const response1 = await callLLM(buildComparisonPrompt(textA, textB));
-  const winner1 = parseWinner(response1);
+  const result = await run2PassReversal<string | null, ComparisonResult>({
+    buildPrompts: () => ({
+      forward: buildComparisonPrompt(textA, textB),
+      reverse: buildComparisonPrompt(textB, textA),
+    }),
+    callLLM,
+    parseResponse: parseWinner,
+    aggregate: aggregateWinners,
+  });
 
-  // Second comparison: B vs A (reversed)
-  const response2 = await callLLM(buildComparisonPrompt(textB, textA));
-  const winner2Raw = parseWinner(response2);
-
-  const winner2 = winner2Raw === 'A' ? 'B' : winner2Raw === 'B' ? 'A' : winner2Raw;
-
-  let result: ComparisonResult;
-
-  if (winner1 === null || winner2 === null) {
-    const partial = winner1 ?? winner2;
-    if (partial === 'A') return { winner: 'A', confidence: 0.3, turns: 2 };
-    if (partial === 'B') return { winner: 'B', confidence: 0.3, turns: 2 };
-    return { winner: 'TIE', confidence: 0.0, turns: 2 };
-  }
-
-  if (winner1 === winner2) {
-    result = { winner: winner1 as 'A' | 'B' | 'TIE', confidence: 1.0, turns: 2 };
-  } else if (winner1 === 'TIE' || winner2 === 'TIE') {
-    const nonTie = winner1 === 'TIE' ? winner2 : winner1;
-    result = { winner: nonTie as 'A' | 'B' | 'TIE', confidence: 0.7, turns: 2 };
-  } else {
-    result = { winner: 'TIE', confidence: 0.5, turns: 2 };
-  }
-
-  if (cache) {
+  // Only cache high-confidence results (not partial/total failures)
+  if (cache && result.confidence > 0.3) {
     cache.set(makeCacheKey(textA, textB), result);
   }
   return result;

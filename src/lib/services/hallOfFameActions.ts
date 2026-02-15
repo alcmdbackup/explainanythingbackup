@@ -9,15 +9,15 @@ import { serverReadRequestId } from '@/lib/serverReadRequestId';
 import { handleError, type ErrorResponse } from '@/lib/errorHandling';
 import { compareWithBiasMitigation, type ComparisonResult } from '@/lib/evolution/comparison';
 import { callLLMModel, type LLMUsageMetadata } from '@/lib/services/llms';
-import { createTitlePrompt, createExplanationPrompt } from '@/lib/prompts';
+import { createExplanationPrompt } from '@/lib/prompts';
 import {
-  titleQuerySchema,
   addToHallOfFameInputSchema,
   generateAndAddInputSchema,
   runHallOfFameComparisonInputSchema,
   type AllowedLLMModelType,
   type HallOfFameGenerationMethod,
 } from '@/lib/schemas/schemas';
+import { generateTitle } from '@/lib/evolution/core/seedArticle';
 
 type ActionResult<T> = { success: boolean; data: T | null; error: ErrorResponse | null };
 
@@ -703,19 +703,12 @@ const _generateAndAddToHallOfFameAction = withLogging(async (
     const onUsage = (usage: LLMUsageMetadata) => { totalCostUsd += usage.estimatedCostUsd; };
 
     // Step 1: Generate title
-    const titlePrompt = createTitlePrompt(validated.prompt);
-    const titleResponse = await callLLMModel(
-      titlePrompt, 'bank_generate_title', adminUserId, validated.model, false, null,
-      null, null, true, onUsage,
-    );
-
-    let title: string;
-    try {
-      const parsed = titleQuerySchema.parse(JSON.parse(titleResponse));
-      title = parsed.title1;
-    } catch {
-      title = titleResponse.replace(/["\n]/g, '').trim().slice(0, 200);
-    }
+    const title = await generateTitle(validated.prompt, async (titlePrompt) => {
+      return await callLLMModel(
+        titlePrompt, 'bank_generate_title', adminUserId, validated.model, false, null,
+        null, null, true, onUsage,
+      );
+    });
 
     // Step 2: Generate article content
     const explanationPrompt = createExplanationPrompt(title, []);

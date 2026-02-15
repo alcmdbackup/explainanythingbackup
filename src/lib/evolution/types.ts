@@ -482,7 +482,6 @@ export interface EvolutionRunConfig {
   /** Tournament-phase settings. topK limits comparisons to the top K variants above baseline. */
   tournament: { topK: number };
   budgetCaps: Record<string, number>;
-  useEmbeddings: boolean;
   /** Model for comparison/judge calls (calibration, pairwise, tournament). */
   judgeModel?: AllowedLLMModelType;
   /** Model for text generation calls (generation, evolution). */

@@ -17,7 +17,7 @@ jest.mock('@/lib/server_utilities', () => ({
 }));
 
 jest.mock('@/lib/evolution/core/featureFlags', () => ({
-  fetchEvolutionFeatureFlags: jest.fn(),
+  getFeatureFlags: jest.fn(),
 }));
 
 const mockEvolutionLogger = {
@@ -99,12 +99,12 @@ jest.mock('@/lib/evolution', () => ({
 }));
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { fetchEvolutionFeatureFlags } from '@/lib/evolution/core/featureFlags';
+import { getFeatureFlags } from '@/lib/evolution/core/featureFlags';
 import { executeFullPipeline } from '@/lib/evolution';
 import { generateSeedArticle } from '@/lib/evolution/core/seedArticle';
 
 const mockCreateSupabaseServiceClient = createSupabaseServiceClient as jest.MockedFunction<typeof createSupabaseServiceClient>;
-const mockFetchFeatureFlags = fetchEvolutionFeatureFlags as jest.MockedFunction<typeof fetchEvolutionFeatureFlags>;
+const mockGetFeatureFlags = getFeatureFlags as jest.MockedFunction<typeof getFeatureFlags>;
 const mockExecuteFullPipeline = executeFullPipeline as jest.MockedFunction<typeof executeFullPipeline>;
 const mockGenerateSeedArticle = generateSeedArticle as jest.MockedFunction<typeof generateSeedArticle>;
 
@@ -234,32 +234,6 @@ describe('Evolution Runner Cron API', () => {
     });
   });
 
-  describe('Dry Run Mode', () => {
-    it('skips execution when dryRunOnly feature flag is true', async () => {
-      const mockSupabase = createMockSupabase();
-      // Find pending run
-      mockSupabase.from().maybeSingle
-        .mockResolvedValueOnce({
-          data: { id: 'run-123', explanation_id: 1, config: {}, budget_cap_usd: 5 },
-          error: null,
-        })
-        // Claim succeeds
-        .mockResolvedValueOnce({ data: { id: 'run-123' }, error: null });
-
-      mockSupabase.from().eq.mockReturnThis();
-      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: true } as never);
-
-      const request = createMockRequest('Bearer test-secret');
-      const response = await GET(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(200);
-      expect(data.message).toBe('Dry-run mode - run skipped');
-      expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
-    });
-  });
-
   describe('Pipeline Execution', () => {
     it('executes full pipeline on successful claim', async () => {
       const mockSupabase = createMockSupabase();
@@ -279,7 +253,7 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
 
       const request = createMockRequest('Bearer test-secret');
@@ -308,7 +282,7 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
 
       const request = createMockRequest('Bearer test-secret');
@@ -356,7 +330,7 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockRejectedValue(new Error('Pipeline crashed'));
 
       const request = createMockRequest('Bearer test-secret');
@@ -404,7 +378,7 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
 
       const request = createMockRequest('Bearer test-secret');
       const response = await GET(request);
@@ -434,7 +408,7 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: true } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
       mockExecuteFullPipeline.mockResolvedValue({ stopReason: 'completed', supervisorState: {} } as never);
 
       const request = createMockRequest('Bearer test-secret');
@@ -460,7 +434,7 @@ describe('Evolution Runner Cron API', () => {
         .mockResolvedValueOnce({ data: { id: 'run-bad' }, error: null });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: true } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
 
       const request = createMockRequest('Bearer test-secret');
       const response = await GET(request);
@@ -487,7 +461,7 @@ describe('Evolution Runner Cron API', () => {
       });
 
       mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: true } as never);
+      mockGetFeatureFlags.mockReturnValue({} as never);
       mockGenerateSeedArticle.mockRejectedValueOnce(new Error('LLM timeout'));
 
       const request = createMockRequest('Bearer test-secret');
@@ -502,25 +476,5 @@ describe('Evolution Runner Cron API', () => {
       expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
     });
 
-    it('marks run failed when prompt-based evolution is disabled via feature flag', async () => {
-      const mockSupabase = createMockSupabase();
-      mockSupabase.from().maybeSingle
-        .mockResolvedValueOnce({
-          data: { id: 'run-flag-off', explanation_id: null, config: {}, budget_cap_usd: 5, prompt_id: 'topic-1' },
-          error: null,
-        })
-        .mockResolvedValueOnce({ data: { id: 'run-flag-off' }, error: null });
-
-      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
-      mockFetchFeatureFlags.mockResolvedValue({ dryRunOnly: false, promptBasedEvolutionEnabled: false } as never);
-
-      const request = createMockRequest('Bearer test-secret');
-      const response = await GET(request);
-      const data = await response.json();
-
-      expect(response.status).toBe(400);
-      expect(data.message).toBe('Prompt-based evolution disabled');
-      expect(mockExecuteFullPipeline).not.toHaveBeenCalled();
-    });
   });
 });

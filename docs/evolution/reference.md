@@ -36,7 +36,6 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     sectionDecomposition: 0.10,
     flowCritique: 0.05,
   },
-  useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
   generationModel: 'gpt-4.1-mini', // Model for text generation tasks
 }
@@ -63,18 +62,25 @@ The pipeline routes LLM calls to different models based on task complexity. Triv
 
 ## Feature Flags
 
-Six flags are managed by the evolution feature flag system (`core/featureFlags.ts`) and stored in the `feature_flags` table:
+Feature flags (`core/featureFlags.ts`) are split into two categories: 5 core agent flags that are hardcoded as always-on, and 3 experimental toggles read from environment variables (no DB dependency).
 
-| Flag | Default | Effect |
-|------|---------|--------|
-| `evolution_tournament_enabled` | `true` | When `false`, CalibrationRanker used in COMPETITION instead of Tournament |
-| `evolution_evolve_pool_enabled` | `true` | When `false`, EvolutionAgent skipped entirely |
-| `evolution_dry_run_only` | `false` | When `true`, pipeline logs only — no LLM calls |
-| `evolution_debate_enabled` | `true` | When `false`, DebateAgent skipped in COMPETITION phase |
-| `evolution_iterative_editing_enabled` | `true` | When `false`, IterativeEditingAgent skipped in COMPETITION phase |
-| `evolution_outline_generation_enabled` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Generation Agents](./agents/generation.md) |
-| `evolution_tree_search_enabled` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
-| `evolution_section_decomposition_enabled` | `true` | When `false`, SectionDecompositionAgent skipped in COMPETITION phase |
+### Core Agent Flags (always-on)
+
+| Agent | Hardcoded Value |
+|-------|----------------|
+| Tournament | `true` |
+| EvolutionAgent (evolvePool) | `true` |
+| DebateAgent | `true` |
+| IterativeEditingAgent | `true` (unless TreeSearch is on — mutex) |
+| SectionDecompositionAgent | `true` |
+
+### Experimental Toggles (env vars)
+
+| Env Var | Default | Effect |
+|---------|---------|--------|
+| `EVOLUTION_TREE_SEARCH` | `false` | When `true`, TreeSearchAgent runs in COMPETITION phase (mutually exclusive with IterativeEditingAgent) |
+| `EVOLUTION_OUTLINE_GENERATION` | `false` | When `true`, OutlineGenerationAgent runs in COMPETITION phase. See [Generation Agents](./agents/generation.md) |
+| `EVOLUTION_FLOW_CRITIQUE` | `false` | When `true`, FlowCritiqueAgent runs a second-pass flow evaluation |
 
 Additionally, the quality eval cron (`src/app/api/cron/content-quality-eval/route.ts`) checks a separate `evolution_pipeline_enabled` flag directly from the `feature_flags` table to gate auto-queuing of low-scoring articles. This flag is **not** part of the `EvolutionFeatureFlags` interface — it is read independently by the cron endpoint.
 
@@ -177,7 +183,7 @@ Fields:
 | `content_evolution_runs` | Run lifecycle: status, phase, budget, iterations, heartbeat, timing, runner_id. `explanation_id` is nullable (allows CLI runs without an explanation, migration `20260131000008`). `source` column distinguishes origin: `'explanation'` for production runs, `'local:<filename>'` for CLI runs. `run_summary` JSONB column stores `EvolutionRunSummary` with GIN index (migration `20260131000010`) |
 | `content_evolution_variants` | Persisted variants with elo_score (mapped from ordinal via `ordinalToEloScale`), generation, parent lineage, is_winner flag. `explanation_id` is nullable (migration `20260131000009`) |
 | `evolution_checkpoints` | Full state snapshots (JSONB) keyed by run_id + iteration + last_agent |
-| `feature_flags` | Four evolution flags seeded by migration `20260131000007` |
+| `feature_flags` | Evolution pipeline enabled flag (checked by quality eval cron). Agent-level flags moved to env vars |
 | `hall_of_fame_topics` | Prompt bank topics with unique case-insensitive prompt matching (migration `20260201000001`) |
 | `hall_of_fame_entries` | Generated articles: content, generation_method (oneshot/evolution_winner/evolution_baseline), model, cost, optional evolution_run_id/variant_id |
 | `hall_of_fame_comparisons` | Pairwise comparison records: entry_a, entry_b, winner, confidence, judge_model, dimension_scores |
@@ -190,7 +196,7 @@ Fields:
 ### Core Infrastructure (`src/lib/evolution/core/`)
 | File | Purpose |
 |------|---------|
-| `pipeline.ts` | Pipeline orchestrator — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production) |
+| `pipeline.ts` | Pipeline orchestrator (~751 LOC) — `executeMinimalPipeline` (testing) and `executeFullPipeline` (production). Persistence, metrics, and utilities extracted to dedicated modules |
 | `supervisor.ts` | `PoolSupervisor` — EXPANSION→COMPETITION transitions, phase config, stopping conditions |
 | `state.ts` | `PipelineStateImpl` — mutable state with append-only pool, serialization/deserialization for checkpoints |
 | `rating.ts` | OpenSkill (Weng-Lin Bayesian) rating wrapper: `createRating`, `updateRating`, `updateDraw`, `getOrdinal`, `isConverged`, `eloToRating`, `ordinalToEloScale` |
@@ -202,7 +208,15 @@ Fields:
 | `validation.ts` | State contract guards: `validateStateContracts` checks phase prerequisites (ratings populated, matches exist, etc.) |
 | `llmClient.ts` | `createEvolutionLLMClient` — wraps `callLLM` with budget enforcement and structured JSON output parsing |
 | `logger.ts` | `createEvolutionLogger` (console-only) and `createDbEvolutionLogger` (console + DB buffer). `LogBuffer` batches writes to `evolution_run_logs` with auto-flush at 20 entries. Extracts `agent_name`, `iteration`, `variant_id` from freeform context |
-| `featureFlags.ts` | Reads `feature_flags` table for tournament/evolvePool/dryRun/debate/iterativeEditing toggles with safe defaults |
+| `featureFlags.ts` | 5 core agent flags hardcoded as always-on, 3 experimental toggles read from `EVOLUTION_*` env vars (no DB) |
+| `hallOfFameIntegration.ts` | Extracted from pipeline.ts: Hall of Fame topic/entry linking and variant feeding |
+| `metricsWriter.ts` | Extracted from pipeline.ts: strategy config linking, cost prediction, per-agent cost metrics |
+| `persistence.ts` | Extracted from pipeline.ts: checkpoint upsert, variant persistence, run status transitions |
+| `pipelineUtilities.ts` | Extracted from pipeline.ts: agent invocation persistence and execution detail truncation |
+| `textVariationFactory.ts` | Shared `createTextVariation()` factory eliminating duplication across 6 agents |
+| `critiqueBatch.ts` | Shared utility for running LLM critique call batches (ReflectionAgent, IterativeEditingAgent, FlowCritique) |
+| `reversalComparison.ts` | Generic 2-pass reversal runner shared by comparison.ts and diffComparison.ts |
+| `formatValidationRules.ts` | Shared format validation rules used by both formatValidator and sectionFormatValidator |
 
 ### Shared Modules (`src/lib/evolution/`)
 | File | Purpose |
@@ -232,7 +246,7 @@ Fields:
 | `formatRules.ts` | Shared prose-only format rules injected into all text-generation prompts |
 | `formatValidator.ts` | Validates generated text against format rules; controlled by `FORMAT_VALIDATION_MODE` env var |
 
-### Strategy Experiments (`src/lib/evolution/experiment/`)
+### Strategy Experiments (`src/lib/experiments/evolution/`)
 | File | Purpose |
 |------|---------|
 | `factorial.ts` | L8 orthogonal array generation, factor-to-config mapping, full factorial for Round 2+ |
@@ -379,6 +393,9 @@ Requires `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` environment 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `EVOLUTION_MAX_CONCURRENT_LLM` | 20 | Maximum concurrent LLM API calls for evolution pipelines (used by the in-process semaphore) |
+| `EVOLUTION_TREE_SEARCH` | `false` | Enable TreeSearchAgent (mutually exclusive with IterativeEditingAgent) |
+| `EVOLUTION_OUTLINE_GENERATION` | `false` | Enable OutlineGenerationAgent in COMPETITION phase |
+| `EVOLUTION_FLOW_CRITIQUE` | `false` | Enable FlowCritiqueAgent second-pass flow evaluation |
 | `GITHUB_TOKEN` | — | Fine-grained PAT with `actions:write` scope (required for dashboard batch dispatch) |
 | `GITHUB_REPO` | `Minddojo/explainanything` | GitHub repository for workflow dispatch |
 

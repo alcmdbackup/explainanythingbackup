@@ -1,17 +1,18 @@
 // Iterative editing agent that uses critique-driven edits with blind LLM-as-judge gating.
 // Takes the top variant, identifies weaknesses via rubric + open review, edits surgically, and gates via diff comparison.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, Critique, TextVariation, IterativeEditingExecutionDetail } from '../types';
 import { BudgetExceededError, isOutlineVariant } from '../types';
 import { isTransientError } from '../core/errorClassification';
 import { compareWithDiff } from '../diffComparison';
 import { getCritiqueForVariant } from './reflectionAgent';
-import { buildQualityCritiquePrompt, getFlowCritiqueForVariant } from '../flowRubric';
+import { buildQualityCritiquePrompt, parseQualityCritiqueResponse, getFlowCritiqueForVariant } from '../flowRubric';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { extractJSON } from '../core/jsonParser';
+import { runCritiqueBatch } from '../core/critiqueBatch';
 
 /** Config for the iterative editing agent. */
 export interface IterativeEditingConfig {
@@ -62,21 +63,18 @@ export class IterativeEditingAgent extends AgentBase {
     let consecutiveRejections = 0;
     this.attemptedTargets.clear();
 
-    // Get the top variant and its latest critique
     let current = state.getTopByRating(1)[0];
     let currentCritique = getCritiqueForVariant(current.id, state);
     const initialCritiqueSnapshot = currentCritique
       ? { dimensionScores: { ...currentCritique.dimensionScores } }
       : { dimensionScores: {} };
 
-    // Initial open-ended review (rubric critique already in state from ReflectionAgent)
     let openReview = await this.runOpenReview(current.text, llmClient);
 
     const cycleDetails: IterativeEditingExecutionDetail['cycles'] = [];
     let stopReason: IterativeEditingExecutionDetail['stopReason'] = 'max_cycles';
 
     for (let cycle = 0; cycle < this.config.maxCycles; cycle++) {
-      // Check stopping: all dimensions >= threshold AND open review found nothing
       if (this.qualityThresholdMet(currentCritique) && !openReview) {
         logger.info('Quality threshold met, stopping', { cycle });
         stopReason = 'threshold_met';
@@ -88,7 +86,6 @@ export class IterativeEditingAgent extends AgentBase {
         break;
       }
 
-      // Pick edit target from combined rubric + open review (passes variant for step-aware + flow-aware targeting)
       const editTarget = this.pickEditTarget(currentCritique, openReview, current, state.allCritiques);
       if (!editTarget) {
         stopReason = 'no_targets';
@@ -96,11 +93,8 @@ export class IterativeEditingAgent extends AgentBase {
       }
 
       try {
-        // EDIT: generate targeted fix
         const editPrompt = buildEditPrompt(current.text, editTarget);
         const editedText = await llmClient.complete(editPrompt, this.name);
-
-        // Validate format
         const formatResult = validateFormat(editedText);
         if (!formatResult.valid) {
           logger.warn('Edit failed format validation', { cycle, issues: formatResult.issues });
@@ -121,22 +115,17 @@ export class IterativeEditingAgent extends AgentBase {
           continue;
         }
 
-        // JUDGE: blind holistic diff-based comparison (no info about edit target)
         const callLLM = (prompt: string) => llmClient.complete(prompt, this.name, { model: ctx.payload.config.judgeModel });
         const result = await compareWithDiff(current.text, editedText, callLLM);
 
-        const accepted = result.verdict === 'ACCEPT';
-        if (accepted) {
-          // Create new variant
-          const editedVariant = {
-            id: uuidv4(),
+        if (result.verdict === 'ACCEPT') {
+          const editedVariant = createTextVariation({
             text: editedText,
             version: current.version + 1,
             parentIds: [current.id],
             strategy: `critique_edit_${editTarget.dimension || 'open'}`,
-            createdAt: Date.now() / 1000,
             iterationBorn: state.iteration,
-          };
+          });
           state.addToPool(editedVariant);
           variantsAdded++;
           consecutiveRejections = 0;
@@ -158,7 +147,6 @@ export class IterativeEditingAgent extends AgentBase {
             newVariantId: editedVariant.id,
           });
 
-          // RE-EVALUATE: fresh rubric + open review on the accepted text
           currentCritique = await this.runInlineCritique(editedText, current.id, llmClient);
           openReview = await this.runOpenReview(editedText, llmClient);
         } else {
@@ -254,36 +242,14 @@ export class IterativeEditingAgent extends AgentBase {
     variantId: string,
     llmClient: ExecutionContext['llmClient'],
   ): Promise<Critique | null> {
-    try {
-      const prompt = buildQualityCritiquePrompt(text);
-      const response = await llmClient.complete(prompt, this.name);
-      const data = extractJSON<{
-        scores?: Record<string, number>;
-        good_examples?: Record<string, string | string[]>;
-        bad_examples?: Record<string, string | string[]>;
-        notes?: Record<string, string>;
-      }>(response);
-      if (!data || !data.scores || typeof data.scores !== 'object') return null;
-
-      const toArrayRecord = (obj: Record<string, string | string[]> | undefined): Record<string, string[]> => {
-        if (!obj) return {};
-        return Object.fromEntries(
-          Object.entries(obj).map(([k, v]) => [k, Array.isArray(v) ? v : [v]])
-        );
-      };
-
-      return {
-        variationId: variantId,
-        dimensionScores: data.scores,
-        goodExamples: toArrayRecord(data.good_examples),
-        badExamples: toArrayRecord(data.bad_examples),
-        notes: data.notes ?? {},
-        reviewer: 'llm',
-      };
-    } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      return null;
-    }
+    const { critiques } = await runCritiqueBatch(llmClient, {
+      items: [{ id: variantId, text }],
+      buildPrompt: (item) => buildQualityCritiquePrompt(item.text),
+      agentName: this.name,
+      parseResponse: (raw, item) => parseQualityCritiqueResponse(raw, item.id),
+      parallel: false,
+    });
+    return critiques[0] ?? null;
   }
 
   /** Pick the highest-priority unattempted edit target from combined rubric + open review.

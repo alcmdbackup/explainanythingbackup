@@ -1,103 +1,75 @@
-// Tests for evolution feature flag fetching and pipeline integration.
+// Tests for evolution feature flags: env var reads, mutex behavior, and defaults.
 
-import { fetchEvolutionFeatureFlags, DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
+import { getFeatureFlags, DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
 
-function mockSupabase(rows: { name: string; enabled: boolean }[], error: unknown = null) {
-  return {
-    from: () => ({
-      select: () => ({
-        in: () => Promise.resolve({ data: error ? null : rows, error }),
-      }),
-    }),
-  } as never;
-}
+describe('getFeatureFlags', () => {
+  const originalEnv = process.env;
 
-describe('fetchEvolutionFeatureFlags', () => {
-  it('returns defaults when all flags present and enabled', async () => {
-    const flags = await fetchEvolutionFeatureFlags(
-      mockSupabase([
-        { name: 'evolution_tournament_enabled', enabled: true },
-        { name: 'evolution_evolve_pool_enabled', enabled: true },
-        { name: 'evolution_dry_run_only', enabled: false },
-      ]),
-    );
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    // Clear all evolution env vars
+    delete process.env.EVOLUTION_TREE_SEARCH;
+    delete process.env.EVOLUTION_OUTLINE_GENERATION;
+    delete process.env.EVOLUTION_FLOW_CRITIQUE;
+  });
+
+  afterAll(() => {
+    process.env = originalEnv;
+  });
+
+  it('returns all core flags as true and experimentals as false by default', () => {
+    const flags = getFeatureFlags();
     expect(flags).toEqual({
       tournamentEnabled: true,
       evolvePoolEnabled: true,
-      dryRunOnly: false,
       debateEnabled: true,
       iterativeEditingEnabled: true,
+      sectionDecompositionEnabled: true,
       outlineGenerationEnabled: false,
       treeSearchEnabled: false,
-      sectionDecompositionEnabled: true,
       flowCritiqueEnabled: false,
-      promptBasedEvolutionEnabled: true,
     });
   });
 
-  it('returns correct values when flags are toggled', async () => {
-    const flags = await fetchEvolutionFeatureFlags(
-      mockSupabase([
-        { name: 'evolution_tournament_enabled', enabled: false },
-        { name: 'evolution_evolve_pool_enabled', enabled: false },
-        { name: 'evolution_dry_run_only', enabled: true },
-      ]),
-    );
-    expect(flags).toEqual({
-      tournamentEnabled: false,
-      evolvePoolEnabled: false,
-      dryRunOnly: true,
-      debateEnabled: true,
-      iterativeEditingEnabled: true,
-      outlineGenerationEnabled: false,
-      treeSearchEnabled: false,
-      sectionDecompositionEnabled: true,
-      flowCritiqueEnabled: false,
-      promptBasedEvolutionEnabled: true,
-    });
-  });
-
-  it('uses defaults for missing flags', async () => {
-    const flags = await fetchEvolutionFeatureFlags(
-      mockSupabase([{ name: 'evolution_tournament_enabled', enabled: false }]),
-    );
-    expect(flags.tournamentEnabled).toBe(false);
-    expect(flags.evolvePoolEnabled).toBe(true); // default
-    expect(flags.dryRunOnly).toBe(false); // default
-  });
-
-  it('returns all defaults for empty table', async () => {
-    const flags = await fetchEvolutionFeatureFlags(mockSupabase([]));
+  it('matches DEFAULT_EVOLUTION_FLAGS when no env vars set', () => {
+    const flags = getFeatureFlags();
     expect(flags).toEqual(DEFAULT_EVOLUTION_FLAGS);
   });
 
-  it('returns safe defaults on query error', async () => {
-    const flags = await fetchEvolutionFeatureFlags(
-      mockSupabase([], { code: '42P01', message: 'table not found' }),
-    );
-    expect(flags).toEqual(DEFAULT_EVOLUTION_FLAGS);
-  });
-
-  // CORE-2: Bidirectional mutex — treeSearch takes priority
-  it('disables iterativeEditing when treeSearch enabled (treeSearch priority)', async () => {
-    const flags = await fetchEvolutionFeatureFlags(
-      mockSupabase([
-        { name: 'evolution_tree_search_enabled', enabled: true },
-        { name: 'evolution_iterative_editing_enabled', enabled: true },
-      ]),
-    );
+  it('enables treeSearch and disables iterativeEditing when EVOLUTION_TREE_SEARCH=true (mutex)', () => {
+    process.env.EVOLUTION_TREE_SEARCH = 'true';
+    const flags = getFeatureFlags();
     expect(flags.treeSearchEnabled).toBe(true);
     expect(flags.iterativeEditingEnabled).toBe(false);
   });
 
-  it('disables treeSearch when iterativeEditing enabled alone', async () => {
-    const flags = await fetchEvolutionFeatureFlags(
-      mockSupabase([
-        { name: 'evolution_iterative_editing_enabled', enabled: true },
-        { name: 'evolution_tree_search_enabled', enabled: false },
-      ]),
-    );
-    expect(flags.iterativeEditingEnabled).toBe(true);
+  it('enables outlineGeneration when EVOLUTION_OUTLINE_GENERATION=true', () => {
+    process.env.EVOLUTION_OUTLINE_GENERATION = 'true';
+    const flags = getFeatureFlags();
+    expect(flags.outlineGenerationEnabled).toBe(true);
+  });
+
+  it('enables flowCritique when EVOLUTION_FLOW_CRITIQUE=true', () => {
+    process.env.EVOLUTION_FLOW_CRITIQUE = 'true';
+    const flags = getFeatureFlags();
+    expect(flags.flowCritiqueEnabled).toBe(true);
+  });
+
+  it('ignores non-"true" values for EVOLUTION_TREE_SEARCH', () => {
+    process.env.EVOLUTION_TREE_SEARCH = '1';
+    const flags = getFeatureFlags();
     expect(flags.treeSearchEnabled).toBe(false);
+    expect(flags.iterativeEditingEnabled).toBe(true);
+  });
+
+  it('core flags are always true regardless of env vars', () => {
+    process.env.EVOLUTION_TREE_SEARCH = 'true';
+    process.env.EVOLUTION_OUTLINE_GENERATION = 'true';
+    process.env.EVOLUTION_FLOW_CRITIQUE = 'true';
+    const flags = getFeatureFlags();
+    expect(flags.tournamentEnabled).toBe(true);
+    expect(flags.evolvePoolEnabled).toBe(true);
+    expect(flags.debateEnabled).toBe(true);
+    expect(flags.sectionDecompositionEnabled).toBe(true);
   });
 });

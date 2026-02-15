@@ -1,6 +1,15 @@
 // Format validator checking article text against formatting rules.
 // Controlled by FORMAT_VALIDATION_MODE env var: "reject" (default), "warn", or "off".
 
+import {
+  stripCodeBlocks,
+  stripHorizontalRules,
+  hasBulletPoints,
+  hasNumberedLists,
+  hasTables,
+  checkParagraphSentenceCount,
+} from '../core/formatValidationRules';
+
 export interface FormatResult {
   valid: boolean;
   issues: string[];
@@ -50,54 +59,29 @@ export function validateFormat(text: string): FormatResult {
     issues.push('No section headings (## or ###)');
   }
 
-  // Strip fenced code blocks before checking bullets/lists/tables.
-  // PARSE-6: First strip matched pairs, then only strip a truly unclosed trailing fence.
-  let textNoCode = text.replace(/```[\s\S]*?```/g, '');
-  // Only strip from an unclosed fence to EOF if one actually exists after pair removal
-  const remainingFences = (textNoCode.match(/```/g) ?? []).length;
-  if (remainingFences > 0) {
-    textNoCode = textNoCode.replace(/```[\s\S]*$/, '');
-  }
+  // Strip fenced code blocks before checking bullets/lists/tables (PARSE-6).
+  const textNoCode = stripCodeBlocks(text);
 
   // Strip horizontal rules before bullet check
-  const textNoHr = textNoCode.replace(/^\s*[-*_](\s*[-*_]){2,}\s*$/gm, '');
+  const textNoHr = stripHorizontalRules(textNoCode);
 
   // Rule 3a: No bullet points or numbered lists
-  if (/^\s*[-*+]\s/m.test(textNoHr)) {
+  if (hasBulletPoints(textNoHr)) {
     issues.push('Contains bullet points');
   }
-  if (/^\s*\d+[.)]\s/m.test(textNoHr)) {
+  if (hasNumberedLists(textNoHr)) {
     issues.push('Contains numbered lists');
   }
 
   // Rule 3b: No tables
-  if (/^\|.+\|/m.test(textNoCode)) {
+  if (hasTables(textNoCode)) {
     issues.push('Contains tables');
   }
 
   // Rule 4: Paragraphs must have 2+ sentences (with 25% tolerance)
-  const blocks = textNoCode.split('\n\n').map((p) => p.trim()).filter((p) => p.length > 0);
-
-  const paragraphs: string[] = [];
-  for (const block of blocks) {
-    // Skip non-paragraph blocks: headings, rules, emphasis lines, labels
-    if (block.startsWith('#')) continue;
-    if (/^[-*_](\s*[-*_]){2,}\s*$/.test(block)) continue;
-    if (/^\*[^*\n]+\*$/.test(block)) continue;
-    if (block.trim().endsWith(':')) continue;
-    paragraphs.push(block);
-  }
-
-  // Count paragraphs with fewer than 2 sentences
-  let shortCount = 0;
-  for (const para of paragraphs) {
-    const sentencePattern = /[.!?][""\u201d\u2019]?(?:\s|$)/g;
-    const sentences = (para.match(sentencePattern) ?? []).length;
-    if (sentences < 2) shortCount++;
-  }
-
-  if (paragraphs.length > 0 && shortCount / paragraphs.length > 0.25) {
-    issues.push(`${shortCount}/${paragraphs.length} paragraphs with <2 sentences`);
+  const sentenceIssue = checkParagraphSentenceCount(textNoCode);
+  if (sentenceIssue) {
+    issues.push(sentenceIssue);
   }
 
   if (mode === 'warn') return { valid: true, issues };

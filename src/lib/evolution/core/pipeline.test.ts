@@ -1,7 +1,7 @@
 // Unit tests for pipeline helpers, iterativeEditing integration, and flow critique integration.
 // Tests baseline variant insertion, run summary, Zod validation, agent execution order, and flow critique pipeline behavior.
 
-import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun, qualityThresholdMet } from './pipeline';
+import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFullPipeline, finalizePipelineRun } from './pipeline';
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
@@ -444,6 +444,157 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
 
     expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
     expect(executionOrder).not.toContain('iterativeEditing');
+    expect(executionOrder).toContain('generation');
+  });
+});
+
+// ─── Two-tier gating integration tests ──────────────────────────
+
+describe('executeFullPipeline — two-tier gating integration', () => {
+  function makeSpyAgent(name: string, executionOrder: string[], canExec = true): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(canExec),
+      execute: jest.fn().mockImplementation(async () => {
+        executionOrder.push(name);
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  function makeGatingCtx(
+    budgetCalls: number[],
+    configOverrides: Partial<EvolutionRunConfig> = {},
+  ): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+      ...configOverrides,
+    });
+    const state = new PipelineStateImpl('Original article for gating test.');
+    let budgetIdx = 0;
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
+    };
+    return {
+      payload: {
+        originalText: state.originalText,
+        title: 'Test Article',
+        explanationId: 1,
+        runId: 'gating-test',
+        config,
+      },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker,
+      runId: 'gating-test',
+    };
+  }
+
+  it('agent disabled by PhaseConfig does not run (tier 1: EXPANSION disables evolution)', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    // Force EXPANSION phase for the single iteration (maxIterations: 5, expansionMaxIterations: 3 → stays in EXPANSION)
+    const ctx = makeGatingCtx([2.0, 2.0, 0.005], {
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 1, threshold: 0.02 },
+    });
+
+    await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // EXPANSION phase disables evolution, reflection, iterativeEditing, debate, metaReview
+    expect(executionOrder).not.toContain('evolution');
+    expect(executionOrder).not.toContain('reflection');
+    expect(executionOrder).not.toContain('debate');
+    expect(executionOrder).not.toContain('metaReview');
+    // generation and calibration should run in EXPANSION
+    expect(executionOrder).toContain('generation');
+  });
+
+  it('agent disabled by enabledAgents does not run (tier 2)', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    // In COMPETITION, all agents are normally enabled. Restrict via enabledAgents.
+    const ctx = makeGatingCtx([2.0, 2.0, 0.005], {
+      enabledAgents: ['reflection', 'debate'], // only these optional agents
+    });
+
+    await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // reflection and debate should run (in enabledAgents)
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('debate');
+    // iterativeEditing, evolution, metaReview NOT in enabledAgents → disabled
+    expect(executionOrder).not.toContain('iterativeEditing');
+    expect(executionOrder).not.toContain('evolution');
+    expect(executionOrder).not.toContain('metaReview');
+    // required agents (generation, calibration/tournament, proximity) always run
+    expect(executionOrder).toContain('generation');
+  });
+
+  it('agent with canExecute returning false does not run (precondition gate)', async () => {
+    const executionOrder: string[] = [];
+    const agents: PipelineAgents = {
+      generation: makeSpyAgent('generation', executionOrder),
+      calibration: makeSpyAgent('calibration', executionOrder),
+      tournament: makeSpyAgent('tournament', executionOrder),
+      evolution: makeSpyAgent('evolution', executionOrder),
+      reflection: makeSpyAgent('reflection', executionOrder),
+      // iterativeEditing has canExecute = false
+      iterativeEditing: makeSpyAgent('iterativeEditing', executionOrder, false),
+      debate: makeSpyAgent('debate', executionOrder),
+      proximity: makeSpyAgent('proximity', executionOrder),
+      metaReview: makeSpyAgent('metaReview', executionOrder),
+    };
+    const ctx = makeGatingCtx([2.0, 2.0, 0.005]);
+
+    await executeFullPipeline('gating-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // iterativeEditing's canExecute returns false → should not execute
+    expect(agents.iterativeEditing!.execute).not.toHaveBeenCalled();
+    expect(executionOrder).not.toContain('iterativeEditing');
+    // Other agents should still run normally
+    expect(executionOrder).toContain('reflection');
+    expect(executionOrder).toContain('debate');
     expect(executionOrder).toContain('generation');
   });
 });
@@ -897,103 +1048,6 @@ describe('preparePipelineRun', () => {
   });
 });
 
-// ─── qualityThresholdMet tests ──────────────────────────────────
-
-describe('qualityThresholdMet', () => {
-  it('returns false when allCritiques is null', () => {
-    const state = new PipelineStateImpl('text');
-    state.allCritiques = null;
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('returns false when allCritiques is empty', () => {
-    const state = new PipelineStateImpl('text');
-    state.allCritiques = [];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('returns false when top variant has no critique', () => {
-    const state = new PipelineStateImpl('text');
-    insertBaselineVariant(state, 'run-qt');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'structural_transform', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30)); // make v1 top
-    state.allCritiques = [{
-      variationId: 'nonexistent', dimensionScores: { clarity: 9 },
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('returns true when all dimensions >= threshold', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [{
-      variationId: 'v1',
-      dimensionScores: { clarity: 9, structure: 8, engagement: 8.5 },
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(true);
-  });
-
-  it('returns false when one dimension is below threshold', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [{
-      variationId: 'v1',
-      dimensionScores: { clarity: 9, structure: 7, engagement: 8 },
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-
-  it('uses latest critique for a variant (not first)', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [
-      {
-        variationId: 'v1',
-        dimensionScores: { clarity: 5, structure: 5 },
-        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-      },
-      {
-        variationId: 'v1',
-        dimensionScores: { clarity: 9, structure: 9 },
-        goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-      },
-    ];
-    expect(qualityThresholdMet(state, 8)).toBe(true);
-  });
-
-  it('returns false when dimensionScores is empty', () => {
-    const state = new PipelineStateImpl('text');
-    state.addToPool({
-      id: 'v1', text: 'V1', version: 1, parentIds: [],
-      strategy: 'test', createdAt: Date.now() / 1000, iterationBorn: 0,
-    });
-    state.ratings.set('v1', ratingWithOrdinal(30));
-    state.allCritiques = [{
-      variationId: 'v1', dimensionScores: {},
-      goodExamples: {}, badExamples: {}, notes: {}, reviewer: 'test',
-    }];
-    expect(qualityThresholdMet(state, 8)).toBe(false);
-  });
-});
-
 // ─── Single-article via executeFullPipeline tests ───────────────
 
 describe('executeFullPipeline — single-article mode', () => {
@@ -1175,7 +1229,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
   function makePipelineOpts() {
     return {
       supervisorResume: { phase: 'COMPETITION' as const, strategyRotationIndex: 0, ordinalHistory: [] as number[], diversityHistory: [] as number[] },
-      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS, sectionDecompositionEnabled: false, tournamentEnabled: false },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
       startMs: Date.now(),
     };
   }
@@ -1203,12 +1257,12 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
 
   it('retries transient error and fails after retries exhausted', async () => {
     const executionOrder: string[] = [];
-    const alwaysFailCalibration: PipelineAgent = {
-      name: 'calibration',
+    const alwaysFailTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new Error('Socket timeout'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: alwaysFailCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: alwaysFailTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1217,17 +1271,17 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — pipeline re-throws after retries exhausted
     }
     // 1 initial + 1 retry = 2 total calls
-    expect(alwaysFailCalibration.execute).toHaveBeenCalledTimes(2);
+    expect(alwaysFailTournament.execute).toHaveBeenCalledTimes(2);
   });
 
   it('does not retry non-transient errors', async () => {
     const executionOrder: string[] = [];
-    const fatalCalibration: PipelineAgent = {
-      name: 'calibration',
+    const fatalTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new Error('Invalid JSON response'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: fatalCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: fatalTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1236,17 +1290,17 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — fatal errors are not retried
     }
     // Non-transient: exactly 1 call, no retry
-    expect(fatalCalibration.execute).toHaveBeenCalledTimes(1);
+    expect(fatalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry BudgetExceededError (pauses instead)', async () => {
     const executionOrder: string[] = [];
-    const budgetCalibration: PipelineAgent = {
-      name: 'calibration',
+    const budgetTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
-      execute: jest.fn(async () => { throw new BudgetExceededError('calibration', 5.0, 5.0); }),
+      execute: jest.fn(async () => { throw new BudgetExceededError('tournament', 5.0, 5.0); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: budgetCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: budgetTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1255,17 +1309,17 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — BudgetExceededError pauses, not retried
     }
     // Budget errors: exactly 1 call, no retry
-    expect(budgetCalibration.execute).toHaveBeenCalledTimes(1);
+    expect(budgetTournament.execute).toHaveBeenCalledTimes(1);
   });
 
   it('does not retry LLMRefusalError (fails immediately)', async () => {
     const executionOrder: string[] = [];
-    const refusalCalibration: PipelineAgent = {
-      name: 'calibration',
+    const refusalTournament: PipelineAgent = {
+      name: 'tournament',
       canExecute: jest.fn().mockReturnValue(true),
       execute: jest.fn(async () => { throw new LLMRefusalError('Content violates policy'); }),
     };
-    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: refusalCalibration });
+    const agents = makeAllAgentsWithOverride(executionOrder, { tournament: refusalTournament });
     const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
 
     try {
@@ -1274,7 +1328,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       // Expected — LLM refusals are permanent, not retried
     }
     // Refusal errors: exactly 1 call, no retry
-    expect(refusalCalibration.execute).toHaveBeenCalledTimes(1);
+    expect(refusalTournament.execute).toHaveBeenCalledTimes(1);
   });
 
   it('preserves partial state from failed attempt (no rollback)', async () => {
@@ -1390,8 +1444,8 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
 
 // ─── persistAgentInvocation tests ───────────────────────────────
 
-import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipeline';
-import type { AgentExecutionDetail, GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
+import { persistAgentInvocation, truncateDetail, sliceLargeArrays } from './pipelineUtilities';
+import type { GenerationExecutionDetail, TournamentExecutionDetail, CalibrationExecutionDetail, IterativeEditingExecutionDetail } from '../types';
 import { generationDetailFixture } from '@/testing/fixtures/executionDetailFixtures';
 
 describe('persistAgentInvocation', () => {

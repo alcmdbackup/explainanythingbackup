@@ -287,54 +287,38 @@ async function buildRunConfig(
   strategyConfig: QueueStrategyConfig | null,
   strategyId?: string
 ): Promise<Record<string, unknown>> {
-  const runConfig: Record<string, unknown> = {};
+  if (!strategyConfig) return {};
 
-  if (!strategyConfig) return runConfig;
-
+  // Validate enabledAgents via Zod, warn and omit on failure
+  let enabledAgents: string[] | undefined;
   if (strategyConfig.enabledAgents) {
     const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
     const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
     if (parsed.success && parsed.data) {
-      runConfig.enabledAgents = parsed.data;
+      enabledAgents = parsed.data;
     } else {
       logger.warn('Invalid enabledAgents in strategy config (ignored)', {
-        strategyId,
-        raw: strategyConfig.enabledAgents,
+        strategyId, raw: strategyConfig.enabledAgents,
       });
     }
   }
 
-  if (strategyConfig.singleArticle) {
-    runConfig.singleArticle = true;
-  }
+  // Build overrides — only include fields that are explicitly set
+  const runConfig: Record<string, unknown> = {
+    ...(enabledAgents && { enabledAgents }),
+    ...(strategyConfig.singleArticle && { singleArticle: true }),
+    ...(strategyConfig.iterations != null && { maxIterations: Math.max(1, Math.floor(strategyConfig.iterations)) }),
+    ...(strategyConfig.generationModel && { generationModel: strategyConfig.generationModel }),
+    ...(strategyConfig.judgeModel && { judgeModel: strategyConfig.judgeModel }),
+    ...(strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0 && { budgetCaps: { ...strategyConfig.budgetCaps } }),
+  };
 
-  if (strategyConfig.iterations != null) {
-    runConfig.maxIterations = Math.max(1, Math.floor(strategyConfig.iterations));
-  }
-
-  if (strategyConfig.generationModel) {
-    runConfig.generationModel = strategyConfig.generationModel;
-  }
-
-  if (strategyConfig.judgeModel) {
-    runConfig.judgeModel = strategyConfig.judgeModel;
-  }
-
-  const hasBudgetCaps = strategyConfig.budgetCaps != null &&
-                        typeof strategyConfig.budgetCaps === 'object' &&
-                        !Array.isArray(strategyConfig.budgetCaps) &&
-                        Object.keys(strategyConfig.budgetCaps).length > 0;
-  if (hasBudgetCaps) {
-    runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
-  }
-
-  // validateStrategyConfig skips absent/falsy model names and null iterations.
+  // Validate before inserting — validateStrategyConfig skips absent/falsy fields
   const { validateStrategyConfig } = await import('@/lib/evolution/core/configValidation');
-  const iterations = runConfig.maxIterations as number | undefined;
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
     judgeModel: (runConfig.judgeModel as string) ?? '',
-    iterations: (iterations ?? null) as unknown as number,
+    iterations: ((runConfig.maxIterations as number) ?? null) as unknown as number,
     budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
     enabledAgents: runConfig.enabledAgents as import('@/lib/evolution/core/pipeline').AgentName[] | undefined,
     singleArticle: strategyConfig.singleArticle,
@@ -559,18 +543,9 @@ const _triggerEvolutionRunAction = withLogging(async (
       throw new Error(`Run ${runId} is not pending (status: ${run.status})`);
     }
 
-    // Check dry-run feature flag
-    const { fetchEvolutionFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
-    const featureFlags = await fetchEvolutionFeatureFlags(supabase);
-    if (featureFlags.dryRunOnly) {
-      logger.info('Evolution dry-run mode active via feature flag', { runId });
-      await supabase.from('content_evolution_runs').update({
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-        error_message: 'dry-run: execution skipped (feature flag)',
-      }).eq('id', runId);
-      return { success: true, error: null };
-    }
+    // Read feature flags from env vars (sync, no DB)
+    const { getFeatureFlags } = await import('@/lib/evolution/core/featureFlags');
+    const featureFlags = getFeatureFlags();
 
     let originalText: string;
     let title: string;
@@ -591,10 +566,6 @@ const _triggerEvolutionRunAction = withLogging(async (
       title = explanation.explanation_title;
       explanationId = explanation.id;
     } else if (run.prompt_id) {
-      if (featureFlags.promptBasedEvolutionEnabled === false) {
-        throw new Error('Prompt-based evolution is temporarily disabled');
-      }
-
       const { data: topic, error: topicError } = await supabase
         .from('hall_of_fame_topics')
         .select('prompt')

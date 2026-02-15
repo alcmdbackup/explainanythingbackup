@@ -1,12 +1,12 @@
 // Debate agent running a structured 3-turn debate (Advocate A / Advocate B / Judge) over top variants.
 // Synthesizes an improved variant from the judge's recommendations, inspired by AI Co-Scientist (2502.18864).
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
 import { getCritiqueForVariant, getImprovementSuggestions } from './reflectionAgent';
 import { QUALITY_DIMENSIONS } from '../flowRubric';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, DebateTranscript, DebateExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY } from '../types';
 import { extractJSON } from '../core/jsonParser';
@@ -357,15 +357,13 @@ export class DebateAgent extends AgentBase {
 
     // Add synthesized variant to pool
     const maxVersion = Math.max(variantA.version, variantB.version);
-    const newVariant: TextVariation = {
-      id: uuidv4(),
+    const newVariant: TextVariation = createTextVariation({
       text: synthesisText.trim(),
       version: maxVersion + 1,
       parentIds: [variantA.id, variantB.id],
       strategy: 'debate_synthesis',
-      createdAt: Date.now() / 1000,
       iterationBorn: state.iteration,
-    };
+    });
 
     state.addToPool(newVariant);
     transcript.synthesisVariantId = newVariant.id;

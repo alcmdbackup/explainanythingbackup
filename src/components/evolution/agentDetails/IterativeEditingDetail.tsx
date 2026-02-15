@@ -2,20 +2,8 @@
 
 import type { IterativeEditingExecutionDetail } from '@/lib/evolution/types';
 import { formatScore, formatScore1 } from '@/lib/utils/formatters';
-import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
+import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric, DimensionScoresDisplay } from './shared';
 import { AgentErrorBlock } from './AgentErrorBlock';
-
-function DimensionScores({ scores }: { scores: Record<string, number> }): JSX.Element {
-  return (
-    <div className="flex flex-wrap gap-2">
-      {Object.entries(scores).map(([dim, score]) => (
-        <span key={dim} className="text-[var(--text-muted)] font-ui text-xs">
-          {dim}: <span className="font-mono">{formatScore1(score)}</span>
-        </span>
-      ))}
-    </div>
-  );
-}
 
 export function IterativeEditingDetail({ detail, runId }: { detail: IterativeEditingExecutionDetail; runId?: string }): JSX.Element {
   return (
@@ -26,7 +14,7 @@ export function IterativeEditingDetail({ detail, runId }: { detail: IterativeEdi
         <StatusBadge status={detail.stopReason} />
       </div>
       <DetailSection title="Initial Critique">
-        <DimensionScores scores={detail.initialCritique.dimensionScores} />
+        <DimensionScoresDisplay scores={detail.initialCritique.dimensionScores} />
       </DetailSection>
       <DetailSection title={`Edit Cycles (${detail.cycles.length})`}>
         <div className="space-y-2">
@@ -57,7 +45,7 @@ export function IterativeEditingDetail({ detail, runId }: { detail: IterativeEdi
       </DetailSection>
       {detail.finalCritique && (
         <DetailSection title="Final Critique">
-          <DimensionScores scores={detail.finalCritique.dimensionScores} />
+          <DimensionScoresDisplay scores={detail.finalCritique.dimensionScores} />
         </DetailSection>
       )}
       <div className="grid grid-cols-3 gap-4">

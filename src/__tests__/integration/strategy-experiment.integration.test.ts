@@ -5,11 +5,11 @@ import {
   generateL8Design,
   mapFactorsToPipelineArgs,
   DEFAULT_ROUND1_FACTORS,
-} from '@/lib/evolution/experiment/factorial';
+} from '@/lib/experiments/evolution/factorial';
 import {
   analyzeExperiment,
   type ExperimentRun,
-} from '@/lib/evolution/experiment/analysis';
+} from '@/lib/experiments/evolution/analysis';
 
 // ─── L8 Design → Analysis Round-Trip ────────────────────────────
 

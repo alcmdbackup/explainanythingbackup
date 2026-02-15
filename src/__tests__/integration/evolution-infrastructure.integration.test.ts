@@ -24,7 +24,7 @@ jest.mock('../../../instrumentation', () => ({
 
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
-  fetchEvolutionFeatureFlags,
+  getFeatureFlags,
   DEFAULT_EVOLUTION_FLAGS,
 } from '@/lib/evolution/core/featureFlags';
 
@@ -269,45 +269,35 @@ describe('Evolution Infrastructure Integration Tests', () => {
     });
   });
 
-  // ─── Feature flags ────────────────────────────────────────────
+  // ─── Feature flags (env var based) ─────────────────────────────
 
   describe('Feature flags', () => {
-    it('reads flags from DB', async () => {
-      if (!tablesReady) return;
+    const originalEnv = process.env;
 
-      const flags = await fetchEvolutionFeatureFlags(supabase);
-
-      expect(flags).toBeTruthy();
-      expect(typeof flags.tournamentEnabled).toBe('boolean');
-      expect(typeof flags.evolvePoolEnabled).toBe('boolean');
-      expect(typeof flags.dryRunOnly).toBe('boolean');
+    afterEach(() => {
+      process.env = originalEnv;
     });
 
-    it('returns defaults when flags missing', async () => {
-      if (!tablesReady) return;
+    it('returns sync flags with core agents always-on', () => {
+      const flags = getFeatureFlags();
 
-      // Delete evolution flags
-      await supabase
-        .from('feature_flags')
-        .delete()
-        .in('name', [
-          'evolution_tournament_enabled',
-          'evolution_evolve_pool_enabled',
-          'evolution_dry_run_only',
-        ]);
+      expect(flags).toBeTruthy();
+      expect(flags.tournamentEnabled).toBe(true);
+      expect(flags.evolvePoolEnabled).toBe(true);
+      expect(flags.debateEnabled).toBe(true);
+      expect(flags.sectionDecompositionEnabled).toBe(true);
+    });
 
-      const flags = await fetchEvolutionFeatureFlags(supabase);
+    it('matches DEFAULT_EVOLUTION_FLAGS when no env vars set', () => {
+      process.env = { ...originalEnv };
+      delete process.env.EVOLUTION_TREE_SEARCH;
+      delete process.env.EVOLUTION_OUTLINE_GENERATION;
+      delete process.env.EVOLUTION_FLOW_CRITIQUE;
+
+      const flags = getFeatureFlags();
 
       expect(flags.tournamentEnabled).toBe(DEFAULT_EVOLUTION_FLAGS.tournamentEnabled);
       expect(flags.evolvePoolEnabled).toBe(DEFAULT_EVOLUTION_FLAGS.evolvePoolEnabled);
-      expect(flags.dryRunOnly).toBe(DEFAULT_EVOLUTION_FLAGS.dryRunOnly);
-
-      // Re-insert flags for other tests
-      await supabase.from('feature_flags').insert([
-        { name: 'evolution_tournament_enabled', enabled: true, description: 'Tournament agent' },
-        { name: 'evolution_evolve_pool_enabled', enabled: true, description: 'EvolvePool agent' },
-        { name: 'evolution_dry_run_only', enabled: false, description: 'Dry-run mode' },
-      ]);
     });
   });
 });

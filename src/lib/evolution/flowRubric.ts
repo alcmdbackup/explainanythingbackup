@@ -262,6 +262,41 @@ For each dimension, provide:
 Output ONLY valid JSON, no other text.`;
 }
 
+/** Parse LLM response from buildQualityCritiquePrompt into a Critique. Returns null on failure. */
+export function parseQualityCritiqueResponse(response: string, variationId: string): Critique | null {
+  try {
+    const data = extractJSON<{
+      scores?: Record<string, number>;
+      good_examples?: Record<string, string | string[]>;
+      bad_examples?: Record<string, string | string[]>;
+      notes?: Record<string, string>;
+    }>(response);
+    if (!data || !data.scores || typeof data.scores !== 'object') return null;
+
+    const toArrayRecord = (
+      obj: Record<string, string | string[]> | undefined,
+    ): Record<string, string[]> => {
+      if (!obj) return {};
+      const result: Record<string, string[]> = {};
+      for (const [k, v] of Object.entries(obj)) {
+        result[k] = Array.isArray(v) ? v : [v];
+      }
+      return result;
+    };
+
+    return {
+      variationId,
+      dimensionScores: data.scores,
+      goodExamples: toArrayRecord(data.good_examples),
+      badExamples: toArrayRecord(data.bad_examples),
+      notes: data.notes ?? {},
+      reviewer: 'llm',
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Score Normalization ─────────────────────────────────────────────────────
 
 export type ScaleType = '1-10' | '0-5';

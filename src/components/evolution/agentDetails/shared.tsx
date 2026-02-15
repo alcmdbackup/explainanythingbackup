@@ -51,6 +51,25 @@ export function CostDisplay({ cost }: { cost: number }): JSX.Element {
   return <span className="font-mono text-xs">{formatCostMicro(cost)}</span>;
 }
 
+/** Renders a Record<string, number> as inline dimension: score badges. */
+export function DimensionScoresDisplay({
+  scores,
+  className = '',
+}: {
+  scores: Record<string, number>;
+  className?: string;
+}): JSX.Element {
+  return (
+    <div className={`flex flex-wrap gap-2 ${className}`.trim()}>
+      {Object.entries(scores).map(([dim, score]) => (
+        <span key={dim} className="text-[var(--text-muted)] font-ui text-xs">
+          {dim}: <span className="font-mono">{score.toFixed(1)}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /** Truncated ID display (first 8 chars). Optionally clickable when href, runId, or onClick is provided.
  *  When runId is provided, auto-constructs a link to the variant detail on the run page. */
 export function ShortId({ id, runId, href, onClick }: {
@@ -62,8 +81,6 @@ export function ShortId({ id, runId, href, onClick }: {
 }): JSX.Element {
   const effectiveHref = href ?? (runId ? `/admin/quality/evolution/run/${runId}?tab=variants&variant=${id}` : undefined);
   if (effectiveHref) {
-    // Dynamic import avoidance: use <a> with manual navigation for lightweight rendering.
-    // This matches the existing Link pattern in the codebase.
     return (
       <a
         href={effectiveHref}

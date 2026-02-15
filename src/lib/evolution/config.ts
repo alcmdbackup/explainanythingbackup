@@ -33,7 +33,6 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
     sectionDecomposition: 0.10,
     flowCritique: 0.05,
   },
-  useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano' as AllowedLLMModelType,
   generationModel: 'gpt-4.1-mini' as AllowedLLMModelType,
 };

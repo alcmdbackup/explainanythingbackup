@@ -152,8 +152,8 @@ async function executeEvolutionRun(
     preparePipelineRun,
   } = await import('../src/lib/evolution/index');
 
-  const { fetchEvolutionFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
-  const featureFlags = await fetchEvolutionFeatureFlags(supabase);
+  const { getFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
+  const featureFlags = getFeatureFlags();
 
   const { ctx, agents, costTracker } = preparePipelineRun({
     runId,
@@ -607,7 +607,7 @@ async function main(): Promise<void> {
 
   // Mark batch complete
   await updateBatchRunStatus(batchId, {
-    status: failed > 0 ? 'completed' : 'completed',
+    status: 'completed',
     completed_at: new Date().toISOString(),
     runs_completed: completed,
     runs_failed: failed,

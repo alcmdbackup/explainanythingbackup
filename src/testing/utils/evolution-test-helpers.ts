@@ -2,7 +2,9 @@
 // Provides NOOP_SPAN, DB cleanup, test data factories, mock LLM client, and mock logger.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { EvolutionLLMClient, EvolutionLogger, SerializedPipelineState } from '@/lib/evolution/types';
+import type { CostTracker, EvolutionLLMClient, EvolutionLogger, EvolutionRunConfig, ExecutionContext, SerializedPipelineState } from '@/lib/evolution/types';
+import { PipelineStateImpl } from '@/lib/evolution/core/state';
+import { DEFAULT_EVOLUTION_CONFIG } from '@/lib/evolution/config';
 
 // ─── NOOP_SPAN ──────────────────────────────────────────────────
 // Mirrors the noopSpan in instrumentation.ts for use in mocked instrumentation modules.
@@ -346,4 +348,50 @@ export async function createTestAgentInvocation(
     });
 
   if (error) throw error;
+}
+
+// ─── Mock CostTracker ────────────────────────────────────────────
+
+/**
+ * Create a mock CostTracker with jest.fn() for all methods.
+ * Tracks per-agent costs in an internal Map for realistic behavior.
+ */
+export function createMockCostTracker(): CostTracker {
+  const agentCosts = new Map<string, number>();
+  return {
+    reserveBudget: jest.fn().mockResolvedValue(undefined),
+    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
+    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
+    getTotalSpent: jest.fn().mockReturnValue(0),
+    getAvailableBudget: jest.fn().mockReturnValue(5),
+    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
+  };
+}
+
+// ─── Mock ExecutionContext ───────────────────────────────────────
+
+/**
+ * Create a mock ExecutionContext with default state, LLM client, logger, and cost tracker.
+ * Pass overrides to customize any field.
+ */
+export function createMockExecutionContext(
+  overrides: Partial<ExecutionContext> = {},
+): ExecutionContext {
+  const state = overrides.state ?? new PipelineStateImpl('# Original Article\n\n## Intro\n\nOriginal text here. With some content.');
+  return {
+    payload: overrides.payload ?? {
+      originalText: state.originalText,
+      title: 'Test Article',
+      explanationId: 1,
+      runId: 'test-run-1',
+      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
+    },
+    state,
+    llmClient: overrides.llmClient ?? createMockEvolutionLLMClient(),
+    logger: overrides.logger ?? createMockEvolutionLogger(),
+    costTracker: overrides.costTracker ?? createMockCostTracker(),
+    runId: overrides.runId ?? 'test-run-1',
+    ...overrides,
+  };
 }

@@ -221,6 +221,11 @@ export class PoolSupervisor {
   }
 
   shouldStop(state: PipelineState, availableBudget: number): [boolean, string] {
+    // Quality threshold for single-article mode
+    if (this.cfg.singleArticle && this.isQualityThresholdMet(state, 8)) {
+      return [true, 'quality_threshold'];
+    }
+
     if (this._currentPhase === 'COMPETITION') {
       this.trackCompetitionMetrics(state);
       if (this._isPlateaued()) {
@@ -238,6 +243,18 @@ export class PoolSupervisor {
     }
 
     return [false, ''];
+  }
+
+  /** Check if the top variant's latest critique has all dimension scores >= threshold. */
+  private isQualityThresholdMet(state: PipelineState, threshold: number): boolean {
+    if (!state.allCritiques || state.allCritiques.length === 0) return false;
+    const topVariant = state.getTopByRating(1)[0];
+    if (!topVariant) return false;
+    const critique = [...state.allCritiques].reverse().find(c => c.variationId === topVariant.id);
+    if (!critique) return false;
+    const scores = Object.values(critique.dimensionScores);
+    if (scores.length === 0) return false;
+    return scores.every(s => s >= threshold);
   }
 
   private trackCompetitionMetrics(state: PipelineState): void {

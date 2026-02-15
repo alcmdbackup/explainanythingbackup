@@ -140,9 +140,9 @@ function startHeartbeat(runId: string): NodeJS.Timeout {
 // ─── Execute run ────────────────────────────────────────────────
 
 async function executeRun(run: ClaimedRun): Promise<void> {
-  // Fetch feature flags before deciding whether to run
-  const { fetchEvolutionFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
-  const featureFlags = await fetchEvolutionFeatureFlags(getSupabase());
+  // Read feature flags from env vars (sync, no DB)
+  const { getFeatureFlags } = await import('../src/lib/evolution/core/featureFlags');
+  const featureFlags = getFeatureFlags();
 
   log('info', 'Starting evolution run', {
     runId: run.id,
@@ -152,12 +152,10 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     flags: featureFlags,
   });
 
-  // Check dry-run: CLI flag OR feature flag
-  const isDryRun = DRY_RUN || featureFlags.dryRunOnly;
-  if (isDryRun) {
+  // Check dry-run: CLI flag
+  if (DRY_RUN) {
     log('info', 'DRY RUN: would execute full pipeline here', {
       runId: run.id,
-      source: DRY_RUN ? 'cli' : 'feature_flag',
     });
     const supabase = getSupabase();
     await supabase.from('content_evolution_runs').update({

@@ -1,10 +1,10 @@
 // Generation agent that creates text variations using 3 strategies.
 // Produces structural_transform, lexical_simplify, and grounding_enhance variants.
 
-import { v4 as uuidv4 } from 'uuid';
 import { AgentBase } from './base';
 import { FORMAT_RULES } from './formatRules';
 import { validateFormat } from './formatValidator';
+import { createTextVariation } from '../core/textVariationFactory';
 import type { AgentResult, ExecutionContext, PipelineState, AgentPayload, TextVariation, GenerationExecutionDetail } from '../types';
 import { BudgetExceededError } from '../types';
 
@@ -72,11 +72,8 @@ export class GenerationAgent extends AgentBase {
       ? ctx.state.metaFeedback.priorityImprovements.join('\n')
       : null;
     const feedbackUsed = feedback !== null;
-
-    // Track prompt lengths per strategy for execution detail
     const promptLengths = new Map<Strategy, number>();
 
-    // Run all strategy LLM calls in parallel, then mutate state sequentially
     const results = await Promise.allSettled(
       STRATEGIES.map(async (strategy) => {
         const prompt = buildPrompt(strategy, text, feedback);
@@ -109,15 +106,12 @@ export class GenerationAgent extends AgentBase {
       const promptLength = promptLengths.get(strategy) ?? 0;
 
       if (result.status === 'fulfilled' && result.value.text) {
-        const variation: TextVariation = {
-          id: uuidv4(),
+        const variation: TextVariation = createTextVariation({
           text: result.value.text,
           version: state.iteration + 1,
-          parentIds: [],
           strategy: result.value.strategy,
-          createdAt: Date.now() / 1000,
           iterationBorn: state.iteration,
-        };
+        });
         variations.push(variation);
         state.addToPool(variation);
         logger.info('Generated variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });

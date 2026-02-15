@@ -8,8 +8,9 @@ import {
   getImprovementSuggestions,
 } from './reflectionAgent';
 import { PipelineStateImpl } from '../core/state';
-import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, Critique, ReflectionExecutionDetail } from '../types';
+import type { EvolutionLLMClient, EvolutionRunConfig, Critique, ReflectionExecutionDetail } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG } from '../config';
+import { createMockExecutionContext, createMockEvolutionLLMClient } from '@/testing/utils/evolution-test-helpers';
 
 const VALID_CRITIQUE_JSON = JSON.stringify({
   scores: { clarity: 8, engagement: 6, precision: 9, voice_fidelity: 7, conciseness: 7 },
@@ -19,32 +20,14 @@ const VALID_CRITIQUE_JSON = JSON.stringify({
 });
 
 function makeMockLLMClient(response: string = VALID_CRITIQUE_JSON): EvolutionLLMClient {
-  return {
+  return createMockEvolutionLLMClient({
     complete: jest.fn().mockResolvedValue(response),
     completeStructured: jest.fn(),
-  };
+  });
 }
 
-function makeMockLogger(): EvolutionLogger {
-  return { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
-}
-
-function makeMockCostTracker(): CostTracker {
-  const agentCosts = new Map<string, number>();
-  return {
-    reserveBudget: jest.fn().mockResolvedValue(undefined),
-    recordSpend: jest.fn((name: string, cost: number) => { agentCosts.set(name, (agentCosts.get(name) ?? 0) + cost); }),
-    getAgentCost: jest.fn((name: string) => agentCosts.get(name) ?? 0),
-    getTotalSpent: jest.fn().mockReturnValue(0),
-    getAvailableBudget: jest.fn().mockReturnValue(5),
-    getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
-    getTotalReserved: jest.fn().mockReturnValue(0),
-  };
-}
-
-function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
+function makeCtx(overrides: Partial<import('../types').ExecutionContext> = {}) {
   const state = new PipelineStateImpl('# Original\n\n## Section\n\nOriginal text content here.');
-  // Seed with 3 variants
   for (let i = 0; i < 3; i++) {
     state.addToPool({
       id: `v-${i}`,
@@ -56,21 +39,7 @@ function makeCtx(overrides: Partial<ExecutionContext> = {}): ExecutionContext {
       iterationBorn: 0,
     });
   }
-  return {
-    payload: {
-      originalText: state.originalText,
-      title: 'Test',
-      explanationId: 1,
-      runId: 'test-run',
-      config: DEFAULT_EVOLUTION_CONFIG as EvolutionRunConfig,
-    },
-    state,
-    llmClient: makeMockLLMClient(),
-    logger: makeMockLogger(),
-    costTracker: makeMockCostTracker(),
-    runId: 'test-run',
-    ...overrides,
-  };
+  return createMockExecutionContext({ state, llmClient: makeMockLLMClient(), ...overrides });
 }
 
 describe('ReflectionAgent', () => {

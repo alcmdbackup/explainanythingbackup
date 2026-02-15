@@ -23,12 +23,12 @@ import {
   type FactorDefinition,
   type MultiLevelFactor,
   DEFAULT_ROUND1_FACTORS,
-} from '../src/lib/evolution/experiment/factorial';
+} from '../src/lib/experiments/evolution/factorial';
 import {
   analyzeExperiment,
   type ExperimentRun,
   type AnalysisResult,
-} from '../src/lib/evolution/experiment/analysis';
+} from '../src/lib/experiments/evolution/analysis';
 
 // ─── Types ────────────────────────────────────────────────────────
 

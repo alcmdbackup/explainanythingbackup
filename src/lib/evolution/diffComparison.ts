@@ -2,6 +2,7 @@
 // Separate from comparison.ts to avoid ESM contamination (unified/remark-parse are ESM-only).
 
 import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdiff/markdownASTdiff';
+import { run2PassReversal } from './core/reversalComparison';
 
 /**
  * Parse markdown string to MDAST root node.
@@ -62,15 +63,15 @@ export async function compareWithDiff(
     return { verdict: 'UNSURE', confidence: 0, changesFound: 0 };
   }
 
-  // Pass 1: Forward (original → edited)
-  const forwardPrompt = buildDiffJudgePrompt(forwardDiff);
-  const forwardResult = parseDiffVerdict(await callLLM(forwardPrompt));
-
-  // Pass 2: Reverse (edited → original)
-  const reversePrompt = buildDiffJudgePrompt(reverseDiff);
-  const reverseResult = parseDiffVerdict(await callLLM(reversePrompt));
-
-  return interpretDirectionReversal(forwardResult, reverseResult, changesFound);
+  return run2PassReversal<'ACCEPT' | 'REJECT' | 'UNSURE', DiffComparisonResult>({
+    buildPrompts: () => ({
+      forward: buildDiffJudgePrompt(forwardDiff),
+      reverse: buildDiffJudgePrompt(reverseDiff),
+    }),
+    callLLM,
+    parseResponse: parseDiffVerdict,
+    aggregate: (fwd, rev) => interpretDirectionReversal(fwd, rev, changesFound),
+  });
 }
 
 /** Build the blind judge prompt from a CriticMarkup diff string. Exported for unit testing. */

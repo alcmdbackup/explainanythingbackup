@@ -3,341 +3,29 @@
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState } from './state';
-import { getOrdinal, ordinalToEloScale, createRating } from './rating';
+import { getOrdinal, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState, PhaseConfig } from './supervisor';
-import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary, AgentExecutionDetail } from '../types';
+import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary } from '../types';
 import { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
 import { isTransientError } from './errorClassification';
 import type { EvolutionFeatureFlags } from './featureFlags';
 import { createAppSpan } from '../../../../instrumentation';
 import { v4 as uuidv4 } from 'uuid';
-import { extractStrategyConfig, hashStrategyConfig, labelStrategyConfig } from './strategyConfig';
+import { linkStrategyConfig, persistCostPrediction, persistAgentMetrics } from './metricsWriter';
+import { persistCheckpoint, persistVariants, markRunFailed, markRunPaused } from './persistence';
+import { persistAgentInvocation } from './pipelineUtilities';
 import { buildFlowCritiquePrompt, parseFlowCritiqueResponse } from '../flowRubric';
-import type { Critique } from '../types';
+import type { TextVariation } from '../types';
+import { runCritiqueBatch } from './critiqueBatch';
+import { autoLinkPrompt, feedHallOfFame } from './hallOfFameIntegration';
 
 /** Agent interface for pipeline execution. */
 export interface PipelineAgent {
   readonly name: string;
   execute(ctx: ExecutionContext): Promise<AgentResult>;
   canExecute(state: PipelineState): boolean;
-}
-
-/** Persist checkpoint to DB with retry. */
-async function persistCheckpoint(
-  runId: string,
-  state: PipelineState,
-  agentName: string,
-  phase: PipelinePhase,
-  logger: EvolutionLogger,
-  maxRetries = 3,
-  totalCostUsd?: number,
-  comparisonCache?: ComparisonCache,
-): Promise<void> {
-  const checkpoint = {
-    run_id: runId,
-    iteration: state.iteration,
-    phase,
-    last_agent: agentName,
-    state_snapshot: {
-      ...serializeState(state),
-      // COST-6: Persist cost tracker total spent for accurate budget on resume
-      ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
-      // ERR-3: Persist comparison cache to avoid re-running comparisons on resume
-      ...(comparisonCache && comparisonCache.size > 0 && { comparisonCacheEntries: comparisonCache.entries() }),
-    },
-  };
-
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      const supabase = await createSupabaseServiceClient();
-      const [, runUpdate] = await Promise.all([
-        supabase.from('evolution_checkpoints').upsert(checkpoint, {
-          onConflict: 'run_id,iteration,last_agent',
-        }),
-        supabase.from('content_evolution_runs').update({
-          current_iteration: state.iteration,
-          phase,
-          last_heartbeat: new Date().toISOString(),
-          runner_agents_completed: state.pool.length,
-          ...(totalCostUsd != null && { total_cost_usd: totalCostUsd }),
-        }).eq('id', runId),
-      ]);
-
-      if (runUpdate.error) throw runUpdate.error;
-      return;
-    } catch (error) {
-      if (attempt === maxRetries - 1) throw error;
-      logger.warn('Checkpoint write failed, retrying', { attempt, error: String(error) });
-      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-    }
-  }
-}
-
-/** Persist all pool variants to content_evolution_variants. Best-effort — errors are logged, not thrown. */
-async function persistVariants(
-  runId: string,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-  const topVariant = ctx.state.getTopByRating(1)[0];
-
-  const rows = ctx.state.pool.map((v) => ({
-    id: v.id,
-    run_id: runId,
-    explanation_id: ctx.payload.explanationId || null,
-    variant_content: v.text,
-    elo_score: ordinalToEloScale(getOrdinal(ctx.state.ratings.get(v.id) ?? createRating())),
-    generation: v.version,
-    parent_variant_id: v.parentIds.length > 0 ? v.parentIds[0] : null,
-    agent_name: v.strategy,
-    match_count: ctx.state.matchCounts.get(v.id) ?? 0,
-    is_winner: topVariant ? v.id === topVariant.id : false,
-  }));
-
-  if (rows.length === 0) return;
-
-  const { error } = await supabase
-    .from('content_evolution_variants')
-    .upsert(rows, { onConflict: 'id' });
-
-  if (error) {
-    logger.warn('Failed to persist variants (non-fatal)', { runId, error: error.message });
-  } else {
-    logger.info('Variants persisted', { runId, count: rows.length });
-  }
-}
-
-/** Mark run as failed in DB. Only transitions from non-terminal states. */
-async function markRunFailed(runId: string, agentName: string | null, error: unknown): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-  const message = agentName
-    ? `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`
-    : `Pipeline error: ${error instanceof Error ? error.message : String(error)}`;
-  await supabase.from('content_evolution_runs').update({
-    status: 'failed',
-    error_message: message.substring(0, 500),
-    completed_at: new Date().toISOString(),
-  }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
-}
-
-/** Mark run as paused (budget exceeded). */
-async function markRunPaused(runId: string, error: BudgetExceededError): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-  await supabase.from('content_evolution_runs').update({
-    status: 'paused',
-    error_message: error.message,
-  }).eq('id', runId);
-}
-
-/** Compute final Elo score from top-rated variant. Returns null if pool is empty. */
-function computeFinalElo(ctx: ExecutionContext): number | null {
-  const topVariant = ctx.state.getTopByRating(1)[0];
-  if (!topVariant) return null;
-  const ordinal = getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating());
-  return ordinalToEloScale(ordinal);
-}
-
-/** Update strategy_configs aggregates via RPC. Logs on failure. */
-async function updateStrategyAggregates(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
-  runId: string,
-  strategyId: string,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const finalElo = computeFinalElo(ctx);
-  if (finalElo === null) return;
-
-  const { error } = await supabase.rpc('update_strategy_aggregates', {
-    p_strategy_id: strategyId,
-    p_cost_usd: ctx.costTracker.getTotalSpent(),
-    p_final_elo: finalElo,
-  });
-
-  if (error) {
-    logger.warn('Failed to update strategy aggregates', { runId, strategyId, error: error.message });
-  } else {
-    logger.info('Strategy aggregates updated', { runId, strategyId, finalElo });
-  }
-}
-
-/** Link run to strategy config and update aggregates for Elo optimization dashboard. */
-async function linkStrategyConfig(
-  runId: string,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-
-  // If strategy_config_id is already set (pre-selected strategy), just update aggregates.
-  const { data: runRow } = await supabase
-    .from('content_evolution_runs')
-    .select('strategy_config_id')
-    .eq('id', runId)
-    .single();
-
-  if (runRow?.strategy_config_id) {
-    await updateStrategyAggregates(supabase, runId, runRow.strategy_config_id, ctx, logger);
-    return;
-  }
-
-  const stratConfig = extractStrategyConfig(ctx.payload.config, ctx.payload.config.budgetCaps ?? {});
-  const configHash = hashStrategyConfig(stratConfig);
-
-  // Get or create strategy_configs entry
-  const { data: existing } = await supabase
-    .from('strategy_configs')
-    .select('id')
-    .eq('config_hash', configHash)
-    .single();
-
-  let strategyId: string;
-  if (existing) {
-    strategyId = existing.id;
-  } else {
-    const { data: created, error: createErr } = await supabase
-      .from('strategy_configs')
-      .insert({
-        config_hash: configHash,
-        name: `Strategy ${configHash.slice(0, 6)}`,
-        label: labelStrategyConfig(stratConfig),
-        config: stratConfig,
-      })
-      .select('id')
-      .single();
-
-    if (createErr || !created) {
-      logger.warn('Failed to create strategy config', { runId, error: createErr?.message });
-      return;
-    }
-    strategyId = created.id;
-  }
-
-  // Link run to strategy
-  const { error: linkErr } = await supabase
-    .from('content_evolution_runs')
-    .update({ strategy_config_id: strategyId })
-    .eq('id', runId);
-
-  if (linkErr) {
-    logger.warn('Failed to link run to strategy config', { runId, strategyId, error: linkErr.message });
-    return;
-  }
-
-  await updateStrategyAggregates(supabase, runId, strategyId, ctx, logger);
-}
-
-/** Map a strategy name to its owning agent for cost attribution. */
-const STRATEGY_TO_AGENT: Record<string, string> = {
-  structural_transform: 'generation',
-  lexical_simplify: 'generation',
-  grounding_enhance: 'generation',
-  mutate_clarity: 'evolution',
-  mutate_structure: 'evolution',
-  crossover: 'evolution',
-  creative_exploration: 'evolution',
-  debate_synthesis: 'debate',
-  original_baseline: 'original',
-  outline_generation: 'outlineGeneration',
-  mutate_outline: 'outlineGeneration',
-};
-
-function getAgentForStrategy(strategy: string): string | null {
-  const direct = STRATEGY_TO_AGENT[strategy];
-  if (direct) return direct;
-  if (strategy.startsWith('critique_edit_')) return 'iterativeEditing';
-  if (strategy.startsWith('section_decomposition_')) return 'sectionDecomposition';
-  return null;
-}
-
-/** Validate and persist cost prediction, then refresh agent baselines. Non-fatal on failure. */
-async function persistCostPrediction(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
-  runId: string,
-  costEstimateDetail: unknown,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const { computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } = await import('../index');
-
-  const estimateParsed = RunCostEstimateSchema.safeParse(costEstimateDetail);
-  if (!estimateParsed.success) {
-    logger.warn('cost_estimate_detail failed Zod validation — skipping prediction', {
-      runId, errors: estimateParsed.error.issues.map(i => i.message),
-    });
-    return;
-  }
-
-  const prediction = computeCostPrediction(estimateParsed.data, ctx.costTracker.getAllAgentCosts());
-  const parsed = CostPredictionSchema.safeParse(prediction);
-  if (!parsed.success) {
-    logger.warn('Cost prediction failed Zod validation — skipping write', {
-      runId, errors: parsed.error.issues.map(i => i.message),
-    });
-    return;
-  }
-
-  const { error: predErr } = await supabase
-    .from('content_evolution_runs')
-    .update({ cost_prediction: parsed.data })
-    .eq('id', runId);
-  if (predErr) {
-    logger.warn('Failed to persist cost_prediction', { runId, error: predErr.message });
-  }
-
-  // Refresh baselines for future estimates (best-effort, non-blocking)
-  refreshAgentCostBaselines(30).catch((err: unknown) => {
-    logger.warn('refreshAgentCostBaselines failed (non-blocking)', {
-      runId, error: err instanceof Error ? err.message : String(err),
-    });
-  });
-}
-
-/** Persist per-agent cost metrics for Elo/dollar optimization analysis. */
-async function persistAgentMetrics(
-  runId: string,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  const supabase = await createSupabaseServiceClient();
-  const agentCosts = ctx.costTracker.getAllAgentCosts();
-
-  // DB-4: Batch all agent metrics into a single upsert (was N+1 loop)
-  const rows: Array<{
-    run_id: string; agent_name: string; cost_usd: number;
-    variants_generated: number; avg_elo: number; elo_gain: number; elo_per_dollar: number | null;
-  }> = [];
-
-  for (const [agentName, costUsd] of Object.entries(agentCosts)) {
-    const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
-    if (!variants.length) continue;
-
-    const eloSum = variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0);
-    const avgElo = eloSum / variants.length;
-    const eloGain = avgElo - 25;
-
-    rows.push({
-      run_id: runId,
-      agent_name: agentName,
-      cost_usd: costUsd,
-      variants_generated: variants.length,
-      avg_elo: avgElo,
-      elo_gain: eloGain,
-      elo_per_dollar: costUsd > 0 ? eloGain / costUsd : null,
-    });
-  }
-
-  if (rows.length > 0) {
-    const { error } = await supabase.from('evolution_run_agent_metrics').upsert(rows, { onConflict: 'run_id,agent_name' });
-    if (error) {
-      logger.warn('Failed to batch persist agent metrics', { runId, error: error.message });
-    }
-  }
-
-  logger.info('Agent metrics persisted', { runId, agentCount: rows.length });
 }
 
 /** Insert the original text as a baseline variant for rating comparison. Idempotent via BASELINE_STRATEGY check. */
@@ -492,225 +180,6 @@ export async function finalizePipelineRun(
 
   // Flush any remaining buffered log entries to DB
   if (logger.flush) await logger.flush();
-}
-
-/** Auto-link run to prompt by resolving from config or explanation title. Non-fatal on failure. */
-async function autoLinkPrompt(
-  runId: string,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  try {
-    const supabase = await createSupabaseServiceClient();
-
-    const { data: run } = await supabase
-      .from('content_evolution_runs')
-      .select('prompt_id, config')
-      .eq('id', runId)
-      .single();
-
-    if (run?.prompt_id) return;
-
-    const configPrompt = (run?.config as Record<string, unknown>)?.prompt;
-    if (typeof configPrompt === 'string' && configPrompt.trim()) {
-      const topicId = await findTopicByPrompt(supabase, configPrompt.trim());
-      if (topicId) {
-        await linkPromptToRun(supabase, runId, topicId);
-        logger.info('Auto-linked prompt via config JSONB', { runId, promptId: topicId });
-        return;
-      }
-    }
-
-    const { data: bankEntry } = await supabase
-      .from('hall_of_fame_entries')
-      .select('topic_id')
-      .eq('evolution_run_id', runId)
-      .limit(1)
-      .single();
-
-    if (bankEntry?.topic_id) {
-      await linkPromptToRun(supabase, runId, bankEntry.topic_id);
-      logger.info('Auto-linked prompt via bank entry', { runId, promptId: bankEntry.topic_id });
-      return;
-    }
-
-    if (ctx.payload.explanationId) {
-      const { data: explanation } = await supabase
-        .from('explanations')
-        .select('explanation_title')
-        .eq('id', ctx.payload.explanationId)
-        .single();
-
-      if (explanation?.explanation_title) {
-        const topicId = await findTopicByPrompt(supabase, explanation.explanation_title.trim());
-        if (topicId) {
-          await linkPromptToRun(supabase, runId, topicId);
-          logger.info('Auto-linked prompt via explanation title', { runId, promptId: topicId });
-          return;
-        }
-      }
-    }
-
-    logger.warn('Could not auto-link prompt_id (no match found)', { runId });
-  } catch (error) {
-    logger.warn('Auto-link prompt failed (non-fatal)', {
-      runId, error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-async function findTopicByPrompt(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
-  promptText: string,
-): Promise<string | null> {
-  const { data } = await supabase
-    .from('hall_of_fame_topics')
-    .select('id')
-    .ilike('prompt', promptText)
-    .is('deleted_at', null)
-    .single();
-  return data?.id ?? null;
-}
-
-async function linkPromptToRun(
-  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
-  runId: string,
-  topicId: string,
-): Promise<void> {
-  await supabase.from('content_evolution_runs')
-    .update({ prompt_id: topicId })
-    .eq('id', runId);
-}
-
-/** Feed top 3 variants into hall_of_fame_entries (hall of fame). Non-fatal on failure. */
-async function feedHallOfFame(
-  runId: string,
-  ctx: ExecutionContext,
-  logger: EvolutionLogger,
-): Promise<void> {
-  try {
-    const supabase = await createSupabaseServiceClient();
-    const top3 = ctx.state.getTopByRating(3);
-    if (top3.length === 0) {
-      logger.info('No variants to feed into hall of fame', { runId });
-      return;
-    }
-
-    // Resolve topic_id: prefer prompt_id already linked on the run
-    const { data: run } = await supabase
-      .from('content_evolution_runs')
-      .select('prompt_id')
-      .eq('id', runId)
-      .single();
-
-    let topicId: string | null = run?.prompt_id ?? null;
-
-    // Fallback: resolve topic from explanation title
-    if (!topicId && ctx.payload.explanationId) {
-      const { data: explanation } = await supabase
-        .from('explanations')
-        .select('explanation_title')
-        .eq('id', ctx.payload.explanationId)
-        .single();
-
-      if (explanation?.explanation_title) {
-        const trimmed = explanation.explanation_title.trim();
-        // Select or insert topic
-        const { data: existing } = await supabase
-          .from('hall_of_fame_topics')
-          .select('id')
-          .ilike('prompt', trimmed)
-          .is('deleted_at', null)
-          .single();
-
-        if (existing) {
-          topicId = existing.id;
-        } else {
-          const { data: created } = await supabase
-            .from('hall_of_fame_topics')
-            .insert({ prompt: trimmed, title: ctx.payload.title })
-            .select('id')
-            .single();
-          topicId = created?.id ?? null;
-        }
-      }
-    }
-
-    if (!topicId) {
-      logger.warn('Cannot feed hall of fame — no topic resolved', { runId });
-      return;
-    }
-
-    const model = ctx.payload.config.generationModel ?? 'deepseek-chat';
-    const runCost = ctx.costTracker.getTotalSpent();
-    // Split cost evenly across top 3 for per-entry attribution
-    const perEntryCost = runCost / top3.length;
-
-    // DB-5: Batch both hall-of-fame operations (was 3×2 N+1 loop → 2 batch calls)
-    const entryRows = top3.map((variant, i) => ({
-      topic_id: topicId,
-      content: variant.text,
-      generation_method: i === 0 ? 'evolution_winner' : 'evolution_top3',
-      model,
-      total_cost_usd: perEntryCost,
-      evolution_run_id: runId,
-      evolution_variant_id: variant.id,
-      rank: i + 1,
-      metadata: {},
-    }));
-
-    const { data: entries, error: entryErr } = await supabase
-      .from('hall_of_fame_entries')
-      .upsert(entryRows, { onConflict: 'evolution_run_id,rank' })
-      .select('id');
-
-    if (entryErr || !entries || entries.length === 0) {
-      logger.warn('Failed to batch upsert hall-of-fame entries', { runId, error: entryErr?.message });
-    } else {
-      const eloRows = entries.map((entry, i) => ({
-        topic_id: topicId,
-        entry_id: entry.id,
-        elo_rating: ordinalToEloScale(
-          getOrdinal(ctx.state.ratings.get(top3[i].id) ?? createRating()),
-        ),
-        match_count: 0,
-      }));
-      await supabase.from('hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
-    }
-
-    logger.info('Hall of fame updated', { runId, topicId, entriesInserted: top3.length });
-
-    // Auto re-rank after insertion (non-fatal). Dynamic import avoids circular deps.
-    try {
-      const { runHallOfFameComparisonInternal } = await import('@/lib/services/hallOfFameActions');
-      const result = await runHallOfFameComparisonInternal(topicId, 'system', 'gpt-4.1-nano', 1);
-      if (result.success) {
-        logger.info('Auto re-ranking completed', { runId, topicId, ...result.data });
-      } else {
-        logger.warn('Auto re-ranking failed', { runId, topicId, error: result.error?.message });
-      }
-    } catch (reRankError) {
-      logger.warn('Auto re-ranking threw (non-fatal)', {
-        runId, topicId, error: reRankError instanceof Error ? reRankError.message : String(reRankError),
-      });
-    }
-  } catch (error) {
-    logger.warn('Feed hall of fame failed (non-fatal)', {
-      runId, error: error instanceof Error ? error.message : String(error),
-    });
-  }
-}
-
-/** Check if the top variant's latest critique has all dimension scores >= threshold. */
-export function qualityThresholdMet(state: PipelineState, threshold: number): boolean {
-  if (!state.allCritiques || state.allCritiques.length === 0) return false;
-  const topVariant = state.getTopByRating(1)[0];
-  if (!topVariant) return false;
-  const critique = [...state.allCritiques].reverse().find(c => c.variationId === topVariant.id);
-  if (!critique) return false;
-  const scores = Object.values(critique.dimensionScores);
-  if (scores.length === 0) return false;
-  return scores.every(s => s >= threshold);
 }
 
 /**
@@ -963,14 +432,7 @@ export async function executeFullPipeline(
           poolSize: ctx.state.getPoolSize(),
         });
 
-        // Single-article quality threshold: stop early when all critique dimensions >= 8
-        if (ctx.payload.config.singleArticle && qualityThresholdMet(ctx.state, 8)) {
-          logger.info('Stopping pipeline', { reason: 'quality_threshold' });
-          stopReason = 'quality_threshold';
-          break;
-        }
-
-        // Check stopping conditions
+        // Check stopping conditions (includes quality threshold for single-article mode)
         const availableBudget = ctx.costTracker.getAvailableBudget();
         const [shouldStop, reason] = supervisor.shouldStop(ctx.state, availableBudget);
         if (shouldStop) {
@@ -1010,19 +472,18 @@ export async function executeFullPipeline(
           }
         }
 
-        // Feature-flag-gated editing + evolution agents
+        // Feature-flag-gated editing + always-on evolution agents
         executionOrder = await runGatedAgents([
           { configKey: 'runIterativeEditing', agent: agents.iterativeEditing, flagKey: 'iterativeEditingEnabled' },
           { configKey: 'runTreeSearch', agent: agents.treeSearch, flagKey: 'treeSearchEnabled' },
-          { configKey: 'runSectionDecomposition', agent: agents.sectionDecomposition, flagKey: 'sectionDecompositionEnabled' },
-          { configKey: 'runDebate', agent: agents.debate, flagKey: 'debateEnabled' },
-          { configKey: 'runEvolution', agent: agents.evolution, flagKey: 'evolvePoolEnabled' },
+          { configKey: 'runSectionDecomposition', agent: agents.sectionDecomposition },
+          { configKey: 'runDebate', agent: agents.debate },
+          { configKey: 'runEvolution', agent: agents.evolution },
         ], config, options.featureFlags, runId, ctx, phase, logger, executionOrder);
 
         // === Calibration (EXPANSION) or Tournament (COMPETITION) ===
         if (config.runCalibration) {
-          const useTournament = phase === 'COMPETITION' && options.featureFlags?.tournamentEnabled !== false;
-          const rankingAgent = useTournament ? agents.tournament : agents.calibration;
+          const rankingAgent = phase === 'COMPETITION' ? agents.tournament : agents.calibration;
           await runAgent(runId, rankingAgent, ctx, phase, logger, executionOrder++);
         }
 
@@ -1092,78 +553,6 @@ export async function executeFullPipeline(
     throw error;
   } finally {
     pipelineSpan.end();
-  }
-}
-
-// ─── Agent invocation persistence ────────────────────────────────
-
-const MAX_DETAIL_BYTES = 100_000;
-
-/** Slice known large arrays per detail type to fit within JSONB byte cap. */
-export function sliceLargeArrays(detail: AgentExecutionDetail): AgentExecutionDetail {
-  switch (detail.detailType) {
-    case 'tournament':
-      return { ...detail, rounds: detail.rounds.slice(0, 30) };
-    case 'calibration':
-      return {
-        ...detail,
-        entrants: detail.entrants.slice(0, 50).map(e => ({
-          ...e, matches: e.matches.slice(0, 20),
-        })),
-      };
-    case 'iterativeEditing':
-      return { ...detail, cycles: detail.cycles.slice(0, 10) };
-    default:
-      return detail;
-  }
-}
-
-/** Cap execution detail JSONB to 100KB via 2-phase truncation. */
-export function truncateDetail(detail: AgentExecutionDetail): AgentExecutionDetail {
-  const encoded = new TextEncoder().encode(JSON.stringify(detail));
-  if (encoded.length <= MAX_DETAIL_BYTES) return detail;
-
-  // Phase 1: Slice known large arrays
-  const sliced = sliceLargeArrays(detail);
-  const recheck = new TextEncoder().encode(JSON.stringify(sliced));
-  if (recheck.length <= MAX_DETAIL_BYTES) {
-    return { ...sliced, _truncated: true } as AgentExecutionDetail;
-  }
-
-  // Phase 2: Strip to base fields only
-  return {
-    detailType: detail.detailType,
-    totalCost: detail.totalCost,
-    _truncated: true,
-  } as AgentExecutionDetail;
-}
-
-/** Persist a per-agent-per-iteration invocation record. Non-blocking — logs warning on failure. */
-export async function persistAgentInvocation(
-  runId: string,
-  iteration: number,
-  agentName: string,
-  executionOrder: number,
-  result: AgentResult,
-  logger: EvolutionLogger,
-): Promise<void> {
-  try {
-    const supabase = await createSupabaseServiceClient();
-    await supabase.from('evolution_agent_invocations').upsert({
-      run_id: runId,
-      iteration,
-      agent_name: agentName,
-      execution_order: executionOrder,
-      success: result.success,
-      cost_usd: result.costUsd,
-      skipped: result.skipped ?? false,
-      error_message: result.error ?? null,
-      execution_detail: result.executionDetail ? truncateDetail(result.executionDetail) : {},
-    }, { onConflict: 'run_id,iteration,agent_name' });
-  } catch (err) {
-    logger.warn('Failed to persist agent invocation', {
-      agent: agentName, iteration, error: String(err),
-    });
   }
 }
 
@@ -1308,7 +697,6 @@ export async function runFlowCritiques(
   logger: EvolutionLogger,
 ): Promise<{ critiqued: number; costUsd: number }> {
   const { state, llmClient, costTracker } = ctx;
-  let critiqued = 0;
 
   // Critique all variants that don't already have a flow critique this iteration
   const existingFlowIds = new Set(
@@ -1319,45 +707,45 @@ export async function runFlowCritiques(
 
   const toCritique = state.pool.filter((v) => !existingFlowIds.has(v.id));
 
-  for (const variant of toCritique) {
-    try {
-      const prompt = buildFlowCritiquePrompt(variant.text);
-      const response = await llmClient.complete(prompt, 'flowCritique');
-      const result = parseFlowCritiqueResponse(response);
+  const { critiques, entries } = await runCritiqueBatch<TextVariation>(llmClient, {
+    items: toCritique,
+    buildPrompt: (variant) => buildFlowCritiquePrompt(variant.text),
+    agentName: 'flowCritique',
+    parseResponse: (raw, variant) => {
+      const result = parseFlowCritiqueResponse(raw);
+      if (!result) return null;
+      return {
+        variationId: variant.id,
+        dimensionScores: result.scores,
+        goodExamples: {},
+        badExamples: Object.fromEntries(
+          Object.entries(result.frictionSentences).filter(([, v]) => v.length > 0),
+        ),
+        notes: {},
+        reviewer: 'llm',
+        scale: '0-5' as const,
+      };
+    },
+    parallel: false,
+    logger,
+  });
 
-      if (result) {
-        const flowCritique: Critique = {
-          variationId: variant.id,
-          dimensionScores: result.scores,
-          goodExamples: {},
-          badExamples: Object.fromEntries(
-            Object.entries(result.frictionSentences).filter(([, v]) => v.length > 0),
-          ),
-          notes: {},
-          reviewer: 'llm',
-          scale: '0-5',
-        };
+  // Update state with successful flow critiques
+  if (critiques.length > 0) {
+    if (!state.allCritiques) state.allCritiques = [];
+    state.allCritiques.push(...critiques);
 
-        if (!state.allCritiques) state.allCritiques = [];
-        state.allCritiques.push(flowCritique);
-
-        // Write flow scores to dimensionScores with flow: prefix (visible to visualization)
-        if (!state.dimensionScores) state.dimensionScores = {};
-        if (!state.dimensionScores[variant.id]) state.dimensionScores[variant.id] = {};
-        for (const [dim, score] of Object.entries(result.scores)) {
-          state.dimensionScores[variant.id][`flow:${dim}`] = score;
+    if (!state.dimensionScores) state.dimensionScores = {};
+    for (const entry of entries) {
+      if (entry.status === 'success' && entry.critique) {
+        const variantId = entry.item.id;
+        if (!state.dimensionScores[variantId]) state.dimensionScores[variantId] = {};
+        for (const [dim, score] of Object.entries(entry.critique.dimensionScores)) {
+          state.dimensionScores[variantId][`flow:${dim}`] = score;
         }
-
-        critiqued++;
       }
-    } catch (err) {
-      if (err instanceof BudgetExceededError) throw err;
-      logger.warn('Flow critique failed for variant (non-fatal)', {
-        variantId: variant.id,
-        error: String(err),
-      });
     }
   }
 
-  return { critiqued, costUsd: costTracker.getAgentCost('flowCritique') };
+  return { critiqued: critiques.length, costUsd: costTracker.getAgentCost('flowCritique') };
 }

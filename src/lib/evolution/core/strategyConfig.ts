@@ -51,19 +51,13 @@ export interface StrategyConfigRow {
 
 // ─── Hashing ────────────────────────────────────────────────────
 
-/** Sort object keys alphabetically for stable serialization. */
-function sortKeys<V>(obj: Record<string, V>): Record<string, V> {
-  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
-}
-
-/** Generate a stable 12-char hash for a strategy config. Identical settings produce the same hash. */
+/** Generate a stable 12-char hash for a strategy config. Identical settings produce the same hash.
+ *  Only hashes: generationModel, judgeModel, iterations, enabledAgents (agentModels/budgetCaps excluded). */
 export function hashStrategyConfig(config: StrategyConfig): string {
   const normalized = {
     generationModel: config.generationModel,
     judgeModel: config.judgeModel,
-    agentModels: config.agentModels ? sortKeys(config.agentModels) : null,
     iterations: config.iterations,
-    budgetCaps: sortKeys(config.budgetCaps),
     // Only include when set — preserves hash for existing strategies without these fields
     ...(config.enabledAgents ? { enabledAgents: config.enabledAgents.slice().sort() } : {}),
     ...(config.singleArticle ? { singleArticle: true } : {}),
@@ -149,7 +143,6 @@ export function extractStrategyConfig(
   return {
     generationModel: runConfig.generationModel ?? 'deepseek-chat',
     judgeModel: runConfig.judgeModel ?? 'gpt-4.1-nano',
-    agentModels: runConfig.agentModels,
     iterations: runConfig.maxIterations ?? 15,
     budgetCaps: runConfig.budgetCaps ?? defaultBudgetCaps,
     enabledAgents: runConfig.enabledAgents,
