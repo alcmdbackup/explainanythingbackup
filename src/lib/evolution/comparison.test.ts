@@ -55,6 +55,21 @@ describe('parseWinner', () => {
     expect(parseWinner('  A  ')).toBe('A');
     expect(parseWinner('\nB\n')).toBe('B');
   });
+
+  // PARSE-4: Ambiguous heuristic tests — old startsWith('A') would match "ACTUALLY" as A
+  it('does not match "ACTUALLY" as A via startsWith', () => {
+    // Old code: startsWith('A') → 'A'. New code: firstWord is "ACTUALLY" → null
+    expect(parseWinner('Actually neither is great')).toBeNull();
+  });
+
+  it('returns B when only TEXT B is mentioned', () => {
+    expect(parseWinner('A is the winner. Text B is also good')).toBe('B');
+  });
+
+  it('parses DRAW and EQUAL as TIE', () => {
+    expect(parseWinner('It is a draw')).toBe('TIE');
+    expect(parseWinner('They are equal')).toBe('TIE');
+  });
 });
 
 describe('compareWithBiasMitigation', () => {

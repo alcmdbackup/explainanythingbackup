@@ -83,9 +83,12 @@ export async function fetchEvolutionFeatureFlags(
     }
   }
 
-  // Mutual exclusivity: treeSearch enabled → iterativeEditing forced off
-  if (flags.treeSearchEnabled) {
+  // CORE-2: Bidirectional mutex — treeSearch and iterativeEditing cannot both be enabled.
+  // treeSearch takes priority when both are set.
+  if (flags.treeSearchEnabled && flags.iterativeEditingEnabled) {
     flags.iterativeEditingEnabled = false;
+  } else if (flags.iterativeEditingEnabled) {
+    flags.treeSearchEnabled = false;
   }
 
   return flags;

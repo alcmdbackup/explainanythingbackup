@@ -21,6 +21,23 @@ import type {
 } from '@/lib/evolution/types';
 import { isOutlineVariant } from '@/lib/evolution/types';
 import type { AgentCostBreakdown, EvolutionVariant } from '@/lib/services/evolutionActions';
+import { z } from 'zod';
+
+// FE-1: Lightweight Zod schema for SerializedPipelineState system-boundary validation.
+// Validates minimum required shape before trusting the cast from DB JSON.
+const serializedPipelineStateSchema = z.object({
+  iteration: z.number(),
+  pool: z.array(z.object({ id: z.string() }).passthrough()),
+  ratings: z.record(z.string(), z.object({ mu: z.number(), sigma: z.number() })).optional(),
+  eloRatings: z.record(z.string(), z.number()).optional(),
+  matchCounts: z.record(z.string(), z.number()).optional(),
+}).passthrough();
+
+/** FE-1: Validate + cast checkpoint snapshot to SerializedPipelineState. */
+function parseSnapshot(raw: unknown): SerializedPipelineState {
+  serializedPipelineStateSchema.parse(raw);
+  return raw as SerializedPipelineState;
+}
 
 // ─── Types ───────────────────────────────────────────────────────
 
@@ -298,14 +315,11 @@ function computeEloDelta(
   before: Record<string, number>,
   after: Record<string, number>
 ): Record<string, number> {
-  const delta: Record<string, number> = {};
-  for (const [id, newElo] of Object.entries(after)) {
-    const oldElo = before[id] ?? 1200;
-    if (newElo !== oldElo) {
-      delta[id] = newElo - oldElo;
-    }
-  }
-  return delta;
+  return Object.fromEntries(
+    Object.entries(after)
+      .map(([id, newElo]) => [id, newElo - (before[id] ?? 1200)])
+      .filter(([, delta]) => delta !== 0)
+  );
 }
 
 function diffCheckpoints(
@@ -471,7 +485,8 @@ const _getEvolutionRunEloHistoryAction = withLogging(async (
     const iterationMap = new Map<number, SerializedPipelineState>();
     for (const cp of (checkpoints ?? [])) {
       if (!iterationMap.has(cp.iteration)) {
-        iterationMap.set(cp.iteration, cp.state_snapshot as SerializedPipelineState);
+        // FE-1: Validate checkpoint shape before trusting the cast
+        iterationMap.set(cp.iteration, parseSnapshot(cp.state_snapshot));
       }
     }
 
@@ -524,7 +539,8 @@ const _getEvolutionRunLineageAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    // FE-1: Validate checkpoint shape before trusting the cast
+    const snapshot = parseSnapshot(latestCp.state_snapshot);
     const state = deserializeState(snapshot);
 
     const { data: dbWinner } = await supabase
@@ -710,7 +726,10 @@ const _getEvolutionRunComparisonAction = withLogging(async (
       .limit(1)
       .maybeSingle();
 
-    const snapshot = latestCp?.state_snapshot as SerializedPipelineState | null;
+    // FE-1: Validate checkpoint shape; null-safe for maybeSingle()
+    const snapshot = latestCp?.state_snapshot
+      ? parseSnapshot(latestCp.state_snapshot)
+      : null;
     const originalText = snapshot?.originalText ?? '';
     const pool = snapshot?.pool ?? [];
     const allCritiques = snapshot?.allCritiques ?? null;
@@ -797,7 +816,8 @@ const _getEvolutionRunStepScoresAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    // FE-1: Validate checkpoint shape before trusting the cast
+    const snapshot = parseSnapshot(latestCp.state_snapshot);
     const state = deserializeState(snapshot);
 
     const stepDataList: VariantStepData[] = [];
@@ -840,7 +860,8 @@ const _getEvolutionRunTreeSearchAction = withLogging(async (
 
     if (cpError) throw cpError;
 
-    const snapshot = latestCp.state_snapshot as SerializedPipelineState;
+    // FE-1: Validate checkpoint shape before trusting the cast
+    const snapshot = parseSnapshot(latestCp.state_snapshot);
     const treeStates = snapshot.treeSearchStates ?? [];
     const treeResults = snapshot.treeSearchResults ?? [];
 
@@ -919,7 +940,8 @@ export async function buildVariantsFromCheckpoint(
       return { success: true, data: [], error: null };
     }
 
-    const snapshot = cpResult.data.state_snapshot as SerializedPipelineState;
+    // FE-1: Validate checkpoint shape before trusting the cast
+    const snapshot = parseSnapshot(cpResult.data.state_snapshot);
     const explanationId = runResult.data?.explanation_id ?? null;
     const pool = snapshot.pool ?? [];
     const matchCounts = snapshot.matchCounts ?? {};

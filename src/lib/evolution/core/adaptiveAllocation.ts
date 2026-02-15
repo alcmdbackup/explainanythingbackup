@@ -1,6 +1,11 @@
 /**
  * Adaptive budget allocation based on historical agent ROI data.
  * Shifts budget toward agents that produce the most Elo per dollar.
+ *
+ * MED-9: INTENTIONALLY UNUSED — This module is exported but not wired into
+ * the production pipeline. It requires sufficient historical data (10+ runs
+ * per agent) to produce meaningful allocations. Wire in after the evolution
+ * pipeline has accumulated enough data. See the TODO on computeAdaptiveBudgetCaps.
  */
 
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
@@ -50,13 +55,8 @@ export async function getAgentROILeaderboard(
       return [];
     }
 
-    // Aggregate by agent
-    const byAgent = new Map<string, {
-      costs: number[];
-      gains: number[];
-      epds: number[];
-    }>();
-
+    // Aggregate metrics by agent
+    const byAgent = new Map<string, { costs: number[]; gains: number[]; epds: number[] }>();
     for (const row of data) {
       const existing = byAgent.get(row.agent_name) ?? { costs: [], gains: [], epds: [] };
       if (row.cost_usd != null) existing.costs.push(row.cost_usd);
@@ -66,20 +66,15 @@ export async function getAgentROILeaderboard(
     }
 
     const leaderboard: AgentROI[] = [];
+    const avg = (arr: number[]) => arr.length > 0 ? arr.reduce((a, b) => a + b) / arr.length : 0;
     for (const [agentName, stats] of byAgent) {
-      const sampleSize = stats.costs.length;
-      if (sampleSize === 0) continue;
-
+      if (stats.costs.length === 0) continue;
       leaderboard.push({
         agentName,
-        avgCostUsd: stats.costs.reduce((a, b) => a + b, 0) / stats.costs.length,
-        avgEloGain: stats.gains.length > 0
-          ? stats.gains.reduce((a, b) => a + b, 0) / stats.gains.length
-          : 0,
-        avgEloPerDollar: stats.epds.length > 0
-          ? stats.epds.reduce((a, b) => a + b, 0) / stats.epds.length
-          : 0,
-        sampleSize,
+        avgCostUsd: avg(stats.costs),
+        avgEloGain: avg(stats.gains),
+        avgEloPerDollar: avg(stats.epds),
+        sampleSize: stats.costs.length,
       });
     }
 
@@ -147,46 +142,30 @@ export async function computeAdaptiveBudgetCaps(
     }
   }
 
-  // Apply floor and ceiling bounds, then normalize
-  // Use iterative approach to ensure bounds are respected after normalization
-  let needsAdjustment = true;
-  let iterations = 0;
-  const maxIterations = 10;
-
-  while (needsAdjustment && iterations < maxIterations) {
-    needsAdjustment = false;
-    iterations++;
-
-    // Apply bounds
+  // Apply floor/ceiling bounds with iterative normalization (max 10 iterations)
+  for (let iter = 0; iter < 10; iter++) {
+    let changed = false;
     for (const k of Object.keys(caps)) {
-      if (caps[k] < minFloor) {
-        caps[k] = minFloor;
-        needsAdjustment = true;
-      } else if (caps[k] > maxCeiling) {
-        caps[k] = maxCeiling;
-        needsAdjustment = true;
-      }
+      const bounded = Math.max(minFloor, Math.min(maxCeiling, caps[k]));
+      if (bounded !== caps[k]) { caps[k] = bounded; changed = true; }
     }
-
-    // Normalize to sum to 1.0
     const sum = Object.values(caps).reduce((a, b) => a + b, 0);
     if (sum > 0) {
       for (const k of Object.keys(caps)) {
         caps[k] = caps[k] / sum;
       }
     }
+    if (!changed) break;
   }
 
-  // Build reasoning
-  const topAgents = qualified.slice(0, 3).map(a =>
-    `${a.agentName}: ${a.avgEloPerDollar.toFixed(0)} Elo/$ (${a.sampleSize} samples)`
-  );
-
+  const topAgents = qualified.slice(0, 3)
+    .map(a => `${a.agentName}: ${a.avgEloPerDollar.toFixed(0)} Elo/$ (${a.sampleSize} samples)`)
+    .join(', ');
   return {
     caps,
     source: 'adaptive',
     leaderboard,
-    reasoning: `Allocated based on ${qualified.length} qualified agents. Top performers: ${topAgents.join(', ')}`,
+    reasoning: `Allocated based on ${qualified.length} qualified agents. Top performers: ${topAgents}`,
   };
 }
 

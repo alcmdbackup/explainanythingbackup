@@ -38,24 +38,48 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   generationModel: 'gpt-4.1-mini' as AllowedLLMModelType,
 };
 
-/** Merge per-run config overrides with defaults. Nested objects are shallow-merged individually.
+/**
+ * CFG-6: Deep merge for per-run config overrides.
+ * Rules: undefined → use default, {} → intentional empty, explicit values → override.
+ * Handles nested plain objects recursively; arrays and primitives are replaced outright.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function deepMerge(defaults: any, overrides: any): any {
+  if (
+    defaults === null || overrides === null ||
+    typeof defaults !== 'object' || typeof overrides !== 'object' ||
+    Array.isArray(defaults) || Array.isArray(overrides)
+  ) {
+    return overrides;
+  }
+  const result = { ...defaults };
+  for (const key of Object.keys(overrides)) {
+    const overrideVal = overrides[key];
+    if (overrideVal === undefined) continue; // undefined = use default
+    const defaultVal = defaults[key];
+    if (
+      defaultVal !== null && overrideVal !== null &&
+      typeof defaultVal === 'object' && typeof overrideVal === 'object' &&
+      !Array.isArray(defaultVal) && !Array.isArray(overrideVal)
+    ) {
+      result[key] = deepMerge(defaultVal, overrideVal);
+    } else {
+      result[key] = overrideVal;
+    }
+  }
+  return result;
+}
+
+/** Merge per-run config overrides with defaults. Nested objects are deep-merged.
  *  Auto-clamps expansion.maxIterations when maxIterations is too small for the default expansion window. */
 export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
-  const resolved = {
-    ...DEFAULT_EVOLUTION_CONFIG,
-    ...overrides,
-    plateau: { ...DEFAULT_EVOLUTION_CONFIG.plateau, ...overrides.plateau },
-    expansion: { ...DEFAULT_EVOLUTION_CONFIG.expansion, ...overrides.expansion },
-    generation: { ...DEFAULT_EVOLUTION_CONFIG.generation, ...overrides.generation },
-    calibration: { ...DEFAULT_EVOLUTION_CONFIG.calibration, ...overrides.calibration },
-    tournament: { ...DEFAULT_EVOLUTION_CONFIG.tournament, ...overrides.tournament },
-    budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...overrides.budgetCaps },
-  };
+  const resolved = deepMerge(DEFAULT_EVOLUTION_CONFIG, overrides) as EvolutionRunConfig;
 
-  // Auto-adjust expansion.maxIterations so supervisor validation passes.
-  // For short runs (e.g. 3 iterations), EXPANSION is skipped entirely.
+  // Auto-adjust expansion.maxIterations so supervisor validation passes
+  // Clone expansion to avoid mutating DEFAULT_EVOLUTION_CONFIG via shared reference
   const minCompetitionIters = resolved.plateau.window + 1;
   if (resolved.maxIterations <= resolved.expansion.maxIterations + minCompetitionIters) {
+    resolved.expansion = { ...resolved.expansion };
     const original = resolved.expansion.maxIterations;
     resolved.expansion.maxIterations = Math.max(0, resolved.maxIterations - minCompetitionIters);
     console.warn(

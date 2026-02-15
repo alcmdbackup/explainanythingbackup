@@ -116,6 +116,12 @@ function parseArgs(): CLIArgs {
     }
   }
 
+  // EXP-5: Validate no key overlap between --vary and --lock
+  const overlap = Object.keys(vary).filter((k) => k in lock);
+  if (overlap.length > 0) {
+    throw new Error(`--vary and --lock conflict: keys [${overlap.join(', ')}] appear in both`);
+  }
+
   return {
     command,
     round: parseInt(getValue('round') ?? '1', 10),

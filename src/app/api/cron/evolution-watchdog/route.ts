@@ -4,22 +4,19 @@
 import { NextResponse } from 'next/server';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { logger } from '@/lib/server_utilities';
+import { requireCronAuth } from '@/lib/utils/cronAuth';
 
-const STALE_THRESHOLD_MINUTES = 10;
+// SCRIPT-4: Configurable via env; defaults to 10 minutes
+const STALE_THRESHOLD_MINUTES = parseInt(process.env.STALE_THRESHOLD_MINUTES ?? '10', 10) || 10;
 
 export async function GET(request: Request): Promise<NextResponse> {
-  // Verify cron secret to prevent unauthorized access
-  const authHeader = request.headers.get('authorization');
-  const cronSecret = process.env.CRON_SECRET;
-
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Verify cron secret — fail-closed when CRON_SECRET is not configured
+  const authError = requireCronAuth(request);
+  if (authError) return authError;
 
   try {
     const supabase = await createSupabaseServiceClient();
 
-    // Find and mark stale runs
     const cutoff = new Date(Date.now() - STALE_THRESHOLD_MINUTES * 60 * 1000).toISOString();
 
     const { data: staleRuns, error: fetchError } = await supabase
@@ -41,7 +38,6 @@ export async function GET(request: Request): Promise<NextResponse> {
       });
     }
 
-    // Mark each stale run as failed
     const staleIds = staleRuns.map((r) => r.id);
     const { error: updateError } = await supabase
       .from('content_evolution_runs')

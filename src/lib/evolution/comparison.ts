@@ -36,15 +36,29 @@ Respond with ONLY one of these exact answers:
 Your answer:`;
 }
 
-/** Parse an LLM response into a winner label (A, B, TIE) or null if unparseable. */
+/** Parse an LLM response into a winner label (A, B, TIE) or null if unparseable.
+ * PARSE-4: Structured match priority — exact > phrase > contains. Avoids
+ * ambiguous matches like "ACTUALLY B" returning 'A' via startsWith. */
 export function parseWinner(response: string): string | null {
   const upper = response.trim().toUpperCase();
+
+  // 1. Exact single-token match
   if (['A', 'B', 'TIE'].includes(upper)) return upper;
-  if (upper.startsWith('A')) return 'A';
-  if (upper.startsWith('B')) return 'B';
-  if (upper.includes('TIE')) return 'TIE';
-  if (upper.includes('TEXT A') && !upper.includes('TEXT B')) return 'A';
-  if (upper.includes('TEXT B') && !upper.includes('TEXT A')) return 'B';
+
+  // 2. Phrase-level: check "TEXT A"/"TEXT B" first (more specific)
+  const hasTextA = upper.includes('TEXT A');
+  const hasTextB = upper.includes('TEXT B');
+  if (hasTextA && !hasTextB) return 'A';
+  if (hasTextB && !hasTextA) return 'B';
+
+  // 3. TIE keyword
+  if (upper.includes('TIE') || upper.includes('DRAW') || upper.includes('EQUAL')) return 'TIE';
+
+  // 4. Single-letter start — only if first word is exactly "A" or "B"
+  const firstWord = upper.split(/\s/)[0];
+  if (['A', 'A.', 'A,'].includes(firstWord)) return 'A';
+  if (['B', 'B.', 'B,'].includes(firstWord)) return 'B';
+
   return null;
 }
 

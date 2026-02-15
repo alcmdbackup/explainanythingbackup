@@ -107,4 +107,25 @@ describe('validateFormat', () => {
       }
     }
   });
+
+  // PARSE-5: Leading blank lines before H1 should be accepted
+  it('accepts leading blank lines before H1', () => {
+    const text = '\n\n' + VALID_ARTICLE;
+    const result = validateFormat(text);
+    expect(result.valid).toBe(true);
+  });
+
+  // PARSE-6: Code block stripping preserves content after last closed block
+  it('preserves content after last closed code block', () => {
+    const text = '# Title\n\n## Section\n\n```\ncode here\n```\n\nThis paragraph should survive. It has multiple sentences.\n\n## Another Section\n\nMore content here. With sentences.';
+    const result = validateFormat(text);
+    expect(result.valid).toBe(true);
+  });
+
+  it('strips unclosed trailing code fence without affecting prior content', () => {
+    const text = '# Title\n\n## Section\n\nGood paragraph here. With sentences.\n\n```\nunclosed code block';
+    const result = validateFormat(text);
+    // Should not report bullet issues from inside the unclosed block
+    expect(result.issues.includes('Contains bullet points')).toBe(false);
+  });
 });

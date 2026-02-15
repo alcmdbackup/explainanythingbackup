@@ -139,7 +139,8 @@ export class Tournament extends AgentBase {
   /** Get top quartile ordinal threshold. */
   private getTopQuartileOrdinal(ratings: Map<string, Rating>): number {
     if (ratings.size < 4) {
-      return ratings.size > 0 ? Math.max(...[...ratings.values()].map(getOrdinal)) : 0;
+      const ordinals = [...ratings.values()].map(getOrdinal);
+      return ordinals.length > 0 ? Math.max(...ordinals) : 0;
     }
     const sorted = [...ratings.values()].map(getOrdinal).sort((a, b) => b - a);
     return sorted[Math.floor(sorted.length / 4)];
@@ -215,10 +216,8 @@ export class Tournament extends AgentBase {
     const budgetPressure = 1 - (ctx.costTracker.getAvailableBudget() / ctx.payload.config.budgetCapUsd);
     const clampedPressure = Math.max(0, budgetPressure);
     const budgetCfg = budgetPressureConfig(clampedPressure);
-    let budgetTier: TournamentExecutionDetail['budgetTier'];
-    if (clampedPressure < 0.5) budgetTier = 'low';
-    else if (clampedPressure < 0.8) budgetTier = 'medium';
-    else budgetTier = 'high';
+    const budgetTier: TournamentExecutionDetail['budgetTier'] =
+      clampedPressure < 0.5 ? 'low' : clampedPressure < 0.8 ? 'medium' : 'high';
     const structured = ctx.payload.config.calibration.opponents > 3;
     const maxComparisons = Math.min(budgetCfg.maxComparisons, this.cfg.maxComparisons);
 
@@ -370,20 +369,17 @@ export class Tournament extends AgentBase {
         }
       }
 
-      // Sigma-based convergence: check eligible variants (in top K OR above baseline)
-      const topKForConvergence = topKConfig;
+      // Sigma-based convergence check for eligible variants (top K OR above baseline)
       const ratingEntries = [...state.ratings.entries()];
       const sortedByOrdinal = ratingEntries
-        .map(([, r]) => r)
-        .sort((a, b) => getOrdinal(b) - getOrdinal(a));
-      const topKSet = new Set(sortedByOrdinal.slice(0, topKForConvergence));
+        .map(([id, r]) => ({ id, r }))
+        .sort((a, b) => getOrdinal(b.r) - getOrdinal(a.r));
+      const topKIds = new Set(sortedByOrdinal.slice(0, topKConfig).map((e) => e.id));
       const eligibleForConvergence = sortedByOrdinal
-        .filter((r) => getOrdinal(r) >= 0 || topKSet.has(r));
-      const allConverged = eligibleForConvergence.length > 0 &&
-        eligibleForConvergence.every(
-          (r) => isConverged(r, this.cfg.convergenceSigmaThreshold),
-        );
-      if (allConverged) {
+        .filter((e) => getOrdinal(e.r) >= 0 || topKIds.has(e.id))
+        .map((e) => e.r);
+
+      if (eligibleForConvergence.length > 0 && eligibleForConvergence.every((r) => isConverged(r, this.cfg.convergenceSigmaThreshold))) {
         convergenceStreak++;
         if (convergenceStreak >= this.cfg.convergenceChecks) {
           logger.info('Tournament converged (sigma-based)', { round, comparisons: totalComparisons });

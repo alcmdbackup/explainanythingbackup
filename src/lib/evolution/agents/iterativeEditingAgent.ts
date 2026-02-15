@@ -302,13 +302,13 @@ export class IterativeEditingAgent extends AgentBase {
       });
     }
 
-    // Add rubric-based targets (quality + flow dimensions below threshold)
+    // Add rubric-based targets (quality dimensions below threshold)
     if (critique) {
-      const sorted = Object.entries(critique.dimensionScores)
+      const sortedDimensions = Object.entries(critique.dimensionScores)
         .filter(([, score]) => score < this.config.qualityThreshold)
-        .sort((a, b) => a[1] - b[1]); // weakest first
+        .sort((a, b) => a[1] - b[1]);
 
-      for (const [dim, score] of sorted) {
+      for (const [dim, score] of sortedDimensions) {
         targets.push({
           dimension: dim,
           description: `Improve ${dim}`,
@@ -323,11 +323,11 @@ export class IterativeEditingAgent extends AgentBase {
     if (variant && allCritiques) {
       const flowCritique = getFlowCritiqueForVariant(variant.id, allCritiques);
       if (flowCritique) {
-        const sorted = Object.entries(flowCritique.dimensionScores)
-          .filter(([, score]) => score < 3) // flow threshold: 3/5 ≈ 60%
+        const sortedFlowDimensions = Object.entries(flowCritique.dimensionScores)
+          .filter(([, score]) => score < 3)
           .sort((a, b) => a[1] - b[1]);
 
-        for (const [dim, score] of sorted) {
+        for (const [dim, score] of sortedFlowDimensions) {
           targets.push({
             dimension: dim,
             description: `Improve flow: ${dim}`,
@@ -339,18 +339,20 @@ export class IterativeEditingAgent extends AgentBase {
       }
     }
 
-    // Add open-ended targets
+    // Add open-ended review targets
     if (openReview && openReview.length > 0) {
       for (const suggestion of openReview) {
         targets.push({ description: suggestion });
       }
     }
 
-    // Return the highest-priority target not yet attempted this execution
-    const key = (t: EditTarget) => t.dimension || t.description;
-    const unattempted = targets.filter((t) => !this.attemptedTargets.has(key(t)));
+    // Return the highest-priority unattempted target
+    const targetKey = (t: EditTarget): string => t.dimension || t.description;
+    const unattempted = targets.filter((t) => !this.attemptedTargets.has(targetKey(t)));
     const pick = unattempted[0] ?? null;
-    if (pick) this.attemptedTargets.add(key(pick));
+    if (pick) {
+      this.attemptedTargets.add(targetKey(pick));
+    }
     return pick;
   }
 
@@ -367,14 +369,12 @@ function buildEditPrompt(text: string, target: EditTarget): string {
   if (target.dimension?.startsWith('step:')) {
     const stepName = target.dimension.slice(5);
 
-    let stepInstructions: string;
-    if (stepName === 'outline') {
-      stepInstructions = 'Create a better section outline with improved structure, coverage, and logical flow.';
-    } else if (stepName === 'expand') {
-      stepInstructions = 'Expand the outline sections into better prose with stronger examples, details, and grounding.';
-    } else {
-      stepInstructions = 'Polish the text for better readability, transitions, flow, and coherence.';
-    }
+    const stepInstructionsMap: Record<string, string> = {
+      outline: 'Create a better section outline with improved structure, coverage, and logical flow.',
+      expand: 'Expand the outline sections into better prose with stronger examples, details, and grounding.',
+    };
+
+    const stepInstructions = stepInstructionsMap[stepName] ?? 'Polish the text for better readability, transitions, flow, and coherence.';
 
     return `You are a writing expert. The ${stepName} step of this article scored ${target.score}/1.
 
@@ -392,11 +392,13 @@ ${FORMAT_RULES}
 Output ONLY the improved text, no explanations.`;
   }
 
+  const examplesText = target.badExamples?.map((e) => `- "${e}"`).join('\n') ?? '- See notes below';
+  const notesText = target.notes ? `Notes: ${target.notes}` : '';
   const weaknessSection = target.dimension
     ? `## Weakness to Fix: ${target.dimension.toUpperCase()} (score: ${target.score}/10)
 Problems identified:
-${target.badExamples?.map((e) => `- "${e}"`).join('\n') || '- See notes below'}
-${target.notes ? `Notes: ${target.notes}` : ''}`
+${examplesText}
+${notesText}`
     : `## Issue to Fix
 ${target.description}`;
 
@@ -424,7 +426,9 @@ function buildOpenReviewPrompt(text: string): string {
 Do NOT use a rubric or fixed dimensions. Focus on what strikes you as a reader — what would make this article meaningfully better?
 
 ## Article
-"""${text}"""
+<<<CONTENT>>>
+${text}
+<<</CONTENT>>>
 
 ## Output Format (JSON)
 {

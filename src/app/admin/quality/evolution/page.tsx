@@ -50,17 +50,14 @@ function getStartDate(range: DateRange): string | undefined {
   return d.toISOString();
 }
 
+const CONFIDENCE_STYLES: Record<string, { bg: string; text: string; title?: string }> = {
+  high: { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' },
+  medium: { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' },
+  low: { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' },
+};
+
 function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
-  switch (confidence) {
-    case 'high':
-      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
-    case 'medium':
-      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
-    case 'low':
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' };
-    default:
-      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
-  }
+  return CONFIDENCE_STYLES[confidence] ?? CONFIDENCE_STYLES.low;
 }
 
 function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
@@ -250,6 +247,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   const exceedsBudget = estimate && estimate.totalUsd > budgetNum;
 
   const selectClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
+  const handleSelectChange = (setter: (val: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => setter(e.target.value);
 
   return (
     <div
@@ -262,14 +260,14 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
       <div className="flex flex-wrap items-end gap-3">
         <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
           <span className="text-xs font-ui text-[var(--text-muted)]">Prompt</span>
-          <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={selectClass}>
+          <select value={promptId} onChange={handleSelectChange(setPromptId)} className={selectClass}>
             <option value="">Select prompt...</option>
             {prompts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </label>
         <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
           <span className="text-xs font-ui text-[var(--text-muted)]">Strategy</span>
-          <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className={selectClass}>
+          <select value={strategyId} onChange={handleSelectChange(setStrategyId)} className={selectClass}>
             <option value="">Select strategy...</option>
             {strategies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
@@ -391,6 +389,7 @@ function StartBatchCard({ pendingCount }: { pendingCount: number }) {
   };
 
   const inputClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
+  const handleInputChange = (setter: (val: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => setter(e.target.value);
 
   return (
     <div
@@ -408,7 +407,7 @@ function StartBatchCard({ pendingCount }: { pendingCount: number }) {
             min="1"
             max="10"
             value={parallel}
-            onChange={(e) => setParallel(e.target.value)}
+            onChange={handleInputChange(setParallel)}
             className={inputClass}
             data-testid="batch-parallel"
           />
@@ -420,7 +419,7 @@ function StartBatchCard({ pendingCount }: { pendingCount: number }) {
             min="1"
             max="100"
             value={maxRuns}
-            onChange={(e) => setMaxRuns(e.target.value)}
+            onChange={handleInputChange(setMaxRuns)}
             className={inputClass}
             data-testid="batch-max-runs"
           />
@@ -458,15 +457,30 @@ function StartBatchCard({ pendingCount }: { pendingCount: number }) {
 
 // ─── Queue dialog ───────────────────────────────────────────────
 
-function QueueDialog({
-  onQueue,
-  onClose,
-}: {
+interface QueueDialogProps {
   onQueue: (explanationId: number, budgetCapUsd: number) => void;
   onClose: () => void;
-}) {
+}
+
+function QueueDialog({ onQueue, onClose }: QueueDialogProps): JSX.Element {
   const [explanationId, setExplanationId] = useState('');
   const [budget, setBudget] = useState('5.00');
+
+  const handleSubmit = (): void => {
+    const id = parseInt(explanationId, 10);
+    const cap = parseFloat(budget);
+    if (!id || isNaN(id)) {
+      toast.error('Valid explanation ID required');
+      return;
+    }
+    if (!cap || cap <= 0) {
+      toast.error('Budget must be positive');
+      return;
+    }
+    onQueue(id, cap);
+  };
+
+  const inputClass = 'w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -484,7 +498,7 @@ function QueueDialog({
             value={explanationId}
             onChange={(e) => setExplanationId(e.target.value)}
             data-testid="queue-explanation-id"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+            className={inputClass}
             placeholder="e.g. 42"
           />
         </div>
@@ -497,7 +511,7 @@ function QueueDialog({
             value={budget}
             onChange={(e) => setBudget(e.target.value)}
             data-testid="queue-budget"
-            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
+            className={inputClass}
           />
         </div>
 
@@ -509,19 +523,7 @@ function QueueDialog({
             Cancel
           </button>
           <button
-            onClick={() => {
-              const id = parseInt(explanationId, 10);
-              const cap = parseFloat(budget);
-              if (!id || isNaN(id)) {
-                toast.error('Valid explanation ID required');
-                return;
-              }
-              if (!cap || cap <= 0) {
-                toast.error('Budget must be positive');
-                return;
-              }
-              onQueue(id, cap);
-            }}
+            onClick={handleSubmit}
             data-testid="queue-submit"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90"
           >
@@ -541,12 +543,15 @@ function VariantPanel({
   loading,
   onApplyWinner,
   onClose,
+  mutating,
 }: {
   run: EvolutionRun;
   variants: EvolutionVariant[];
   loading: boolean;
   onApplyWinner: (variantId: string) => void;
   onClose: () => void;
+  /** UI-3: Disables Apply buttons while a mutation is in flight. */
+  mutating?: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [costBreakdown, setCostBreakdown] = useState<AgentCostBreakdown[] | null>(null);
@@ -620,10 +625,11 @@ function VariantPanel({
                         {run.status === 'completed' && !v.is_winner && (
                           <button
                             onClick={() => onApplyWinner(v.id)}
+                            disabled={mutating}
                             data-testid={`apply-winner-${i}`}
-                            className="text-[var(--status-success)] hover:underline text-xs"
+                            className="text-[var(--status-success)] hover:underline text-xs disabled:opacity-50"
                           >
-                            Apply
+                            {mutating ? 'Applying...' : 'Apply'}
                           </button>
                         )}
                       </div>
@@ -749,6 +755,10 @@ export default function EvolutionAdminPage() {
     if (!selectedRun) return;
     if (selectedRun.explanation_id === null) {
       toast.error('Cannot apply winner: run has no explanation_id');
+      return;
+    }
+    // UI-2: Confirmation before irreversible winner application
+    if (!confirm(`Apply this variant as the winner for explanation #${selectedRun.explanation_id}? This will update the published article content.`)) {
       return;
     }
     setActionLoading(true);
@@ -1001,6 +1011,7 @@ export default function EvolutionAdminPage() {
           loading={variantsLoading}
           onApplyWinner={handleApplyWinner}
           onClose={() => { setSelectedRun(null); setVariants([]); }}
+          mutating={actionLoading}
         />
       )}
     </div>

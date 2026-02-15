@@ -77,4 +77,27 @@ describe('fetchEvolutionFeatureFlags', () => {
     );
     expect(flags).toEqual(DEFAULT_EVOLUTION_FLAGS);
   });
+
+  // CORE-2: Bidirectional mutex — treeSearch takes priority
+  it('disables iterativeEditing when treeSearch enabled (treeSearch priority)', async () => {
+    const flags = await fetchEvolutionFeatureFlags(
+      mockSupabase([
+        { name: 'evolution_tree_search_enabled', enabled: true },
+        { name: 'evolution_iterative_editing_enabled', enabled: true },
+      ]),
+    );
+    expect(flags.treeSearchEnabled).toBe(true);
+    expect(flags.iterativeEditingEnabled).toBe(false);
+  });
+
+  it('disables treeSearch when iterativeEditing enabled alone', async () => {
+    const flags = await fetchEvolutionFeatureFlags(
+      mockSupabase([
+        { name: 'evolution_iterative_editing_enabled', enabled: true },
+        { name: 'evolution_tree_search_enabled', enabled: false },
+      ]),
+    );
+    expect(flags.iterativeEditingEnabled).toBe(true);
+    expect(flags.treeSearchEnabled).toBe(false);
+  });
 });

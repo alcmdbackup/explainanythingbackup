@@ -2,7 +2,7 @@
 // Budget analysis tab showing cumulative burn curve and agent cost breakdown.
 // Visualizes spend progression relative to the budget cap.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import {
   getEvolutionRunBudgetAction,
@@ -80,28 +80,27 @@ export function BudgetTab({ runId }: { runId: string }): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async (): Promise<void> => {
     const result = await getEvolutionRunBudgetAction(runId);
     if (result.success && result.data) {
       setData(result.data);
     } else {
       setError(result.error?.message ?? 'Failed to load budget data');
     }
-  };
+  }, [runId]);
 
   useEffect(() => {
     setLoading(true);
     load().finally(() => setLoading(false));
-  }, [runId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [load]);
 
-  // Auto-refresh every 5s for active runs
   useEffect(() => {
     if (!data) return;
     const isActive = data.runStatus === 'running' || data.runStatus === 'claimed';
     if (!isActive) return;
     const interval = setInterval(load, 5000);
     return () => clearInterval(interval);
-  }, [data?.runStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [data?.runStatus, load]);
 
   if (loading) {
     return (
@@ -149,7 +148,6 @@ export function BudgetTab({ runId }: { runId: string }): JSX.Element {
             </span>
           </div>
 
-          {/* Per-agent comparison bars */}
           <div className="space-y-1.5">
             {Object.entries(prediction.perAgent)
               .sort(([, a], [, b]) => Math.max(b.estimated, b.actual) - Math.max(a.estimated, a.actual))
@@ -202,7 +200,6 @@ export function BudgetTab({ runId }: { runId: string }): JSX.Element {
         <AgentBarChart data={data?.agentBreakdown ?? []} />
       </div>
 
-      {/* Per-agent budget caps vs spend table */}
       {data && Object.keys(data.agentBudgetCaps).length > 0 && (
         <div
           className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4"

@@ -31,7 +31,12 @@ const TABS: { id: TabId; label: string }[] = [
   { id: 'logs', label: 'Logs' },
 ];
 
-function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (topicId?: string) => void }): JSX.Element {
+interface AddToHallOfFameDialogProps {
+  run: EvolutionRun;
+  onClose: (topicId?: string) => void;
+}
+
+function AddToHallOfFameDialog({ run, onClose }: AddToHallOfFameDialogProps): JSX.Element {
   const [prompt, setPrompt] = useState('');
   const [includeBaseline, setIncludeBaseline] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -46,17 +51,23 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
   const winner = variants.find((v) => v.is_winner) ?? variants[0];
   const baseline = variants.find((v) => v.agent_name === 'original_baseline' || v.generation === 0);
 
-  const handleSubmit = async () => {
-    if (!prompt.trim()) { toast.error('Prompt is required'); return; }
-    if (!winner) { toast.error('No winner variant found'); return; }
+  const handleSubmit = async (): Promise<void> => {
+    if (!prompt.trim()) {
+      toast.error('Prompt is required');
+      return;
+    }
+    if (!winner) {
+      toast.error('No winner variant found');
+      return;
+    }
     setSubmitting(true);
 
-    const metadata: Record<string, unknown> = {
-      winning_strategy: winner.agent_name,
-      winner_elo: winner.elo_score,
+    const createMetadata = (variant: EvolutionVariant): Record<string, unknown> => ({
+      winning_strategy: variant.agent_name,
+      winner_elo: variant.elo_score,
       variants_generated: run.variants_generated,
       explanation_id: run.explanation_id,
-    };
+    });
 
     const result = await addToHallOfFameAction({
       prompt: prompt.trim(),
@@ -66,7 +77,7 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
       total_cost_usd: run.total_cost_usd,
       evolution_run_id: run.id,
       evolution_variant_id: winner.id,
-      metadata,
+      metadata: createMetadata(winner),
     });
 
     if (!result.success) {
@@ -75,7 +86,6 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
       return;
     }
 
-    // Add baseline if requested
     if (includeBaseline && baseline) {
       await addToHallOfFameAction({
         prompt: prompt.trim(),
@@ -96,6 +106,7 @@ function AddToHallOfFameDialog({ run, onClose }: { run: EvolutionRun; onClose: (
       },
     });
     onClose();
+    setSubmitting(false);
   };
 
   return (
@@ -165,7 +176,10 @@ export default function EvolutionRunDetailPage(): JSX.Element {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const runId = params.runId as string;
+  const rawRunId = params.runId as string;
+  // FE-5: Validate UUID format before passing to server actions
+  const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawRunId);
+  const runId = isValidUuid ? rawRunId : '';
   const [run, setRun] = useState<EvolutionRun | null>(null);
   const [strategy, setStrategy] = useState<StrategyConfigRow | null>(null);
 
@@ -209,6 +223,14 @@ export default function EvolutionRunDetailPage(): JSX.Element {
     }, 5000);
     return () => clearInterval(interval);
   }, [run?.status, runId]);
+
+  if (!isValidUuid) {
+    return (
+      <div className="text-center py-12 text-[var(--status-error)]">
+        Invalid run ID format
+      </div>
+    );
+  }
 
   if (loading) {
     return (

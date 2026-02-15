@@ -80,42 +80,41 @@ export function parseFlowComparisonResponse(response: string): FlowComparisonRes
   let frictionSpotsA: string[] = [];
   let frictionSpotsB: string[] = [];
 
+  const parseChoice = (value: string): 'A' | 'B' | 'TIE' | null => {
+    const upper = value.trim().toUpperCase();
+    if (upper.startsWith('A')) return 'A';
+    if (upper.startsWith('B')) return 'B';
+    if (upper.includes('TIE')) return 'TIE';
+    return null;
+  };
+
+  const extractValue = (line: string): string => line.split(':').slice(1).join(':').trim();
+
   for (const line of response.trim().split('\n')) {
     const trimmed = line.trim();
     if (!trimmed) continue;
 
+    const upper = trimmed.toUpperCase();
+
     // Parse flow dimension scores
     for (const dim of Object.keys(FLOW_DIMENSIONS)) {
-      if (trimmed.toLowerCase().startsWith(`${dim}:`)) {
-        const value = trimmed.split(':').slice(1).join(':').trim().toUpperCase();
-        if (value.startsWith('A')) dimensionScores[dim] = 'A';
-        else if (value.startsWith('B')) dimensionScores[dim] = 'B';
-        else if (value.includes('TIE')) dimensionScores[dim] = 'TIE';
+      if (upper.startsWith(`${dim.toUpperCase()}:`)) {
+        const choice = parseChoice(extractValue(trimmed));
+        if (choice) dimensionScores[dim] = choice;
       }
     }
 
     // Parse friction spots
-    if (trimmed.toUpperCase().startsWith('FRICTION_A:')) {
-      frictionSpotsA = parseFrictionArray(trimmed.split(':').slice(1).join(':'));
-    }
-    if (trimmed.toUpperCase().startsWith('FRICTION_B:')) {
-      frictionSpotsB = parseFrictionArray(trimmed.split(':').slice(1).join(':'));
-    }
-
-    // Parse overall winner
-    if (trimmed.toUpperCase().includes('OVERALL_WINNER:')) {
-      const value = trimmed.split(':').slice(1).join(':').trim().toUpperCase();
-      if (value.startsWith('A')) winner = 'A';
-      else if (value.startsWith('B')) winner = 'B';
-      else if (value.includes('TIE')) winner = 'TIE';
-    }
-
-    // Parse confidence
-    if (trimmed.toUpperCase().includes('CONFIDENCE:')) {
-      const value = trimmed.split(':').slice(1).join(':').trim().toLowerCase();
-      if (value.includes('high')) confidence = 1.0;
-      else if (value.includes('low')) confidence = 0.5;
-      else confidence = 0.7;
+    if (upper.startsWith('FRICTION_A:')) {
+      frictionSpotsA = parseFrictionArray(extractValue(trimmed));
+    } else if (upper.startsWith('FRICTION_B:')) {
+      frictionSpotsB = parseFrictionArray(extractValue(trimmed));
+    } else if (upper.includes('OVERALL_WINNER:')) {
+      const choice = parseChoice(extractValue(trimmed));
+      if (choice) winner = choice;
+    } else if (upper.includes('CONFIDENCE:')) {
+      const value = extractValue(trimmed).toLowerCase();
+      confidence = value.includes('high') ? 1.0 : value.includes('low') ? 0.5 : 0.7;
     }
   }
 
@@ -123,9 +122,7 @@ export function parseFlowComparisonResponse(response: string): FlowComparisonRes
   if (winner === null && Object.keys(dimensionScores).length > 0) {
     const aWins = Object.values(dimensionScores).filter((v) => v === 'A').length;
     const bWins = Object.values(dimensionScores).filter((v) => v === 'B').length;
-    if (aWins > bWins) winner = 'A';
-    else if (bWins > aWins) winner = 'B';
-    else winner = 'TIE';
+    winner = aWins > bWins ? 'A' : bWins > aWins ? 'B' : 'TIE';
   }
 
   return { winner, dimensionScores, confidence, frictionSpotsA, frictionSpotsB };
@@ -157,7 +154,9 @@ export function buildFlowCritiquePrompt(text: string): string {
   return `You are an expert writing critic specializing in prose flow. Analyze this text across flow dimensions.
 
 ## Text to Analyze
-"""${text}"""
+<<<CONTENT>>>
+${text}
+<<</CONTENT>>>
 
 ## Flow Dimensions (score each 0-5)
 ${dimensionsList}
@@ -232,7 +231,9 @@ export function buildQualityCritiquePrompt(text: string): string {
   return `You are an expert writing critic. Analyze this text across multiple quality dimensions.
 
 ## Text to Analyze
-"""${text}"""
+<<<CONTENT>>>
+${text}
+<<</CONTENT>>>
 
 ## Dimensions to Evaluate
 ${dimensionsList}
@@ -300,10 +301,18 @@ export interface WeakestDimensionResult {
   normalizedScore: number;
 }
 
+// BEAM-2: When quality and flow dimensions have similar normalized scores,
+// prefer quality because revision actions understand quality dimension names.
+const CROSS_SCALE_MARGIN = 0.05;
+
 /**
  * Find the single weakest dimension across quality and flow critiques.
  * Normalizes both to [0, 1] before comparison so different scales are fair.
  * Falls back to quality-only when flow critique is absent.
+ *
+ * BEAM-2: Quality dimensions get a small preference (CROSS_SCALE_MARGIN)
+ * because revision prompts understand quality dimension names ("clarity",
+ * "depth") better than flow dimension names ("local_cohesion").
  */
 export function getWeakestDimensionAcrossCritiques(
   qualityCritique: Critique,
@@ -311,7 +320,7 @@ export function getWeakestDimensionAcrossCritiques(
 ): WeakestDimensionResult | null {
   let weakest: WeakestDimensionResult | null = null;
 
-  // Check quality dimensions
+  // Check quality dimensions first (preferred system)
   const qualityScale: ScaleType = qualityCritique.scale ?? '1-10';
   for (const [dim, score] of Object.entries(qualityCritique.dimensionScores)) {
     const normalized = normalizeScore(score, qualityScale);
@@ -320,12 +329,15 @@ export function getWeakestDimensionAcrossCritiques(
     }
   }
 
-  // Check flow dimensions
+  // Check flow dimensions — must beat quality by CROSS_SCALE_MARGIN to override
   if (flowCritique) {
     const flowScale: ScaleType = flowCritique.scale ?? '0-5';
     for (const [dim, score] of Object.entries(flowCritique.dimensionScores)) {
       const normalized = normalizeScore(score, flowScale);
-      if (weakest === null || normalized < weakest.normalizedScore) {
+      const threshold = weakest !== null && weakest.source === 'quality'
+        ? weakest.normalizedScore - CROSS_SCALE_MARGIN
+        : weakest?.normalizedScore ?? Infinity;
+      if (weakest === null || normalized < threshold) {
         weakest = { dimension: dim, source: 'flow', normalizedScore: normalized };
       }
     }

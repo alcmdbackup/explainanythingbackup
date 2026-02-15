@@ -54,20 +54,16 @@ export function VariantsTab({ runId }: { runId: string }) {
 
   // Build sparkline data per variant from Elo history
   const sparklineMap = useMemo(() => {
-    const map = new Map<string, { iteration: number; elo: number }[]>();
-    if (!eloHistory) return map;
-    // Match DB variants to in-memory IDs by strategy + position
-    // Since DB and in-memory IDs don't match, sparklines use in-memory history
-    for (const v of eloHistory.variants) {
-      const points: { iteration: number; elo: number }[] = [];
-      for (const h of eloHistory.history) {
-        if (h.ratings[v.id] !== undefined) {
-          points.push({ iteration: h.iteration, elo: h.ratings[v.id] });
-        }
-      }
-      map.set(v.shortId, points);
-    }
-    return map;
+    if (!eloHistory) return new Map<string, { iteration: number; elo: number }[]>();
+
+    return new Map(
+      eloHistory.variants.map(v => [
+        v.id,
+        eloHistory.history
+          .filter(h => h.ratings[v.id] !== undefined)
+          .map(h => ({ iteration: h.iteration, elo: h.ratings[v.id] }))
+      ])
+    );
   }, [eloHistory]);
 
   const strategies = useMemo(() => {
@@ -140,7 +136,7 @@ export function VariantsTab({ runId }: { runId: string }) {
                   <td className="p-3 font-mono text-xs text-[var(--text-muted)]">{v.id.substring(0, 8)}</td>
                   <td className="p-3 text-right font-semibold">{Math.round(v.elo_score)}</td>
                   <td className="p-3 text-center">
-                    <EloSparkline data={sparklineMap.get(v.id.substring(0, 8)) ?? []} />
+                    <EloSparkline data={sparklineMap.get(v.id) ?? []} />
                   </td>
                   <td className="p-3 text-right text-[var(--text-muted)]">{v.match_count}</td>
                   <td className="p-3 font-mono text-xs">{v.agent_name}</td>

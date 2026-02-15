@@ -75,6 +75,7 @@ function makeMockCostTracker(): CostTracker {
     getTotalSpent: jest.fn().mockReturnValue(0),
     getAvailableBudget: jest.fn().mockReturnValue(5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -227,24 +228,18 @@ describe('OutlineGenerationAgent', () => {
     expect(ctx.state.pool).toHaveLength(0);
   });
 
-  it('falls back to outline text when expand produces empty output', async () => {
+  it('returns success:false when expand produces empty output (HIGH-6)', async () => {
     const ctx = makeCtx({
       llmClient: makeMockLLMClient([
         VALID_OUTLINE,
         '0.85',
         '',         // empty expansion
-        '0.5',
-        VALID_POLISHED,
-        '0.9',
       ]),
     });
 
     const result = await agent.execute(ctx);
-    expect(result.success).toBe(true);
-    expect(ctx.state.pool).toHaveLength(1);
-    // Variant should use the outline text as fallback
-    const variant = ctx.state.pool[0];
-    expect(variant.text).toBe(VALID_OUTLINE);
+    expect(result.success).toBe(false);
+    expect(ctx.state.pool).toHaveLength(0);
   });
 
   it('uses expanded text when polish produces empty output', async () => {
@@ -326,6 +321,7 @@ describe('OutlineGenerationAgent', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn().mockReturnValue(5),
       getAllAgentCosts: jest.fn(() => ({ outlineGeneration: totalCost })),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
 
     // LLM client that increments cost per call
@@ -431,18 +427,18 @@ describe('OutlineGenerationAgent executionDetail', () => {
     expect(detail.variantId).toBe('');
   });
 
-  it('captures detail on expand fallback', async () => {
+  it('captures detail on expand failure (HIGH-6)', async () => {
     const ctx = makeCtx({
-      llmClient: makeMockLLMClient([VALID_OUTLINE, '0.85', '', '0.5', VALID_POLISHED, '0.9']),
+      llmClient: makeMockLLMClient([VALID_OUTLINE, '0.85', '']),
     });
     const result = await agent.execute(ctx);
 
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
     expect(result.executionDetail).toBeDefined();
     const detail = result.executionDetail as OutlineGenerationExecutionDetail;
-    // Only outline step completed before fallback
+    // Only outline step completed before empty expand
     expect(detail.steps).toHaveLength(1);
     expect(detail.steps[0].name).toBe('outline');
-    expect(detail.variantId).toBeTruthy();
+    expect(detail.variantId).toBe('');
   });
 });

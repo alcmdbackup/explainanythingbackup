@@ -7,7 +7,7 @@ import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
 import type { SupervisorResumeState, PhaseConfig } from './supervisor';
 import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary, AgentExecutionDetail } from '../types';
-import { BudgetExceededError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
+import { BudgetExceededError, LLMRefusalError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
 import { isTransientError } from './errorClassification';
 import type { EvolutionFeatureFlags } from './featureFlags';
@@ -33,13 +33,20 @@ async function persistCheckpoint(
   logger: EvolutionLogger,
   maxRetries = 3,
   totalCostUsd?: number,
+  comparisonCache?: ComparisonCache,
 ): Promise<void> {
   const checkpoint = {
     run_id: runId,
     iteration: state.iteration,
     phase,
     last_agent: agentName,
-    state_snapshot: serializeState(state),
+    state_snapshot: {
+      ...serializeState(state),
+      // COST-6: Persist cost tracker total spent for accurate budget on resume
+      ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
+      // ERR-3: Persist comparison cache to avoid re-running comparisons on resume
+      ...(comparisonCache && comparisonCache.size > 0 && { comparisonCacheEntries: comparisonCache.entries() }),
+    },
   };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -125,11 +132,12 @@ async function markRunPaused(runId: string, error: BudgetExceededError): Promise
   }).eq('id', runId);
 }
 
-/** Compute the final Elo score from the top-rated variant. Returns null if pool is empty. */
+/** Compute final Elo score from top-rated variant. Returns null if pool is empty. */
 function computeFinalElo(ctx: ExecutionContext): number | null {
   const topVariant = ctx.state.getTopByRating(1)[0];
   if (!topVariant) return null;
-  return ordinalToEloScale(getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating()));
+  const ordinal = getOrdinal(ctx.state.ratings.get(topVariant.id) ?? createRating());
+  return ordinalToEloScale(ordinal);
 }
 
 /** Update strategy_configs aggregates via RPC. Logs on failure. */
@@ -297,30 +305,39 @@ async function persistAgentMetrics(
   const supabase = await createSupabaseServiceClient();
   const agentCosts = ctx.costTracker.getAllAgentCosts();
 
+  // DB-4: Batch all agent metrics into a single upsert (was N+1 loop)
+  const rows: Array<{
+    run_id: string; agent_name: string; cost_usd: number;
+    variants_generated: number; avg_elo: number; elo_gain: number; elo_per_dollar: number | null;
+  }> = [];
+
   for (const [agentName, costUsd] of Object.entries(agentCosts)) {
     const variants = ctx.state.pool.filter((v) => getAgentForStrategy(v.strategy) === agentName);
-    if (variants.length === 0) continue;
+    if (!variants.length) continue;
 
-    const avgElo = variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0) / variants.length;
+    const eloSum = variants.reduce((s, v) => s + (ctx.state.ratings.get(v.id)?.mu ?? 25), 0);
+    const avgElo = eloSum / variants.length;
     const eloGain = avgElo - 25;
-    const eloPerDollar = costUsd > 0 ? eloGain / costUsd : null;
 
-    const { error } = await supabase.from('evolution_run_agent_metrics').upsert({
+    rows.push({
       run_id: runId,
       agent_name: agentName,
       cost_usd: costUsd,
       variants_generated: variants.length,
       avg_elo: avgElo,
       elo_gain: eloGain,
-      elo_per_dollar: eloPerDollar,
-    }, { onConflict: 'run_id,agent_name' });
+      elo_per_dollar: costUsd > 0 ? eloGain / costUsd : null,
+    });
+  }
 
+  if (rows.length > 0) {
+    const { error } = await supabase.from('evolution_run_agent_metrics').upsert(rows, { onConflict: 'run_id,agent_name' });
     if (error) {
-      logger.warn(`Failed to persist agent metrics for ${agentName}`, { runId, error: error.message });
+      logger.warn('Failed to batch persist agent metrics', { runId, error: error.message });
     }
   }
 
-  logger.info('Agent metrics persisted', { runId, agentCount: Object.keys(agentCosts).length });
+  logger.info('Agent metrics persisted', { runId, agentCount: rows.length });
 }
 
 /** Insert the original text as a baseline variant for rating comparison. Idempotent via BASELINE_STRATEGY check. */
@@ -364,23 +381,21 @@ export function buildRunSummary(
   }
 
   const matches = state.matchHistory;
-  const avgConfidence = matches.length > 0
+  const avgConfidence = matches.length
     ? matches.reduce((s, m) => s + m.confidence, 0) / matches.length : 0;
-  const decisiveRate = matches.length > 0
+  const decisiveRate = matches.length
     ? matches.filter((m) => m.confidence >= 0.7).length / matches.length : 0;
 
   const strategyEffectiveness: Record<string, { count: number; avgOrdinal: number }> = {};
   for (const v of state.pool) {
     const ord = getOrdinal(state.ratings.get(v.id) ?? createRating());
-    if (!strategyEffectiveness[v.strategy]) {
-      strategyEffectiveness[v.strategy] = { count: 0, avgOrdinal: 0 };
-    }
-    strategyEffectiveness[v.strategy].count++;
-    strategyEffectiveness[v.strategy].avgOrdinal += ord;
+    const entry = strategyEffectiveness[v.strategy] ??= { count: 0, avgOrdinal: 0 };
+    entry.count++;
+    entry.avgOrdinal += ord;
   }
 
-  for (const strategy of Object.values(strategyEffectiveness)) {
-    strategy.avgOrdinal /= strategy.count;
+  for (const entry of Object.values(strategyEffectiveness)) {
+    entry.avgOrdinal /= entry.count;
   }
 
   return {
@@ -631,52 +646,36 @@ async function feedHallOfFame(
     // Split cost evenly across top 3 for per-entry attribution
     const perEntryCost = runCost / top3.length;
 
-    for (let i = 0; i < top3.length; i++) {
-      const variant = top3[i];
-      const rank = i + 1;
-      const genMethod = rank === 1 ? 'evolution_winner' : 'evolution_top3';
+    // DB-5: Batch both hall-of-fame operations (was 3×2 N+1 loop → 2 batch calls)
+    const entryRows = top3.map((variant, i) => ({
+      topic_id: topicId,
+      content: variant.text,
+      generation_method: i === 0 ? 'evolution_winner' : 'evolution_top3',
+      model,
+      total_cost_usd: perEntryCost,
+      evolution_run_id: runId,
+      evolution_variant_id: variant.id,
+      rank: i + 1,
+      metadata: {},
+    }));
 
-      // Upsert: use evolution_run_id + rank as natural key (unique index)
-      const { data: entry, error: entryErr } = await supabase
-        .from('hall_of_fame_entries')
-        .upsert(
-          {
-            topic_id: topicId,
-            content: variant.text,
-            generation_method: genMethod,
-            model,
-            total_cost_usd: perEntryCost,
-            evolution_run_id: runId,
-            evolution_variant_id: variant.id,
-            rank,
-            metadata: {},
-          },
-          { onConflict: 'evolution_run_id,rank' },
-        )
-        .select('id')
-        .single();
+    const { data: entries, error: entryErr } = await supabase
+      .from('hall_of_fame_entries')
+      .upsert(entryRows, { onConflict: 'evolution_run_id,rank' })
+      .select('id');
 
-      if (entryErr || !entry) {
-        logger.warn('Failed to upsert hall-of-fame entry', {
-          runId, rank, error: entryErr?.message,
-        });
-        continue;
-      }
-
-      // Initialize Elo rating (skip if already exists from previous run)
-      const eloScore = ordinalToEloScale(
-        getOrdinal(ctx.state.ratings.get(variant.id) ?? createRating()),
-      );
-      await supabase.from('hall_of_fame_elo')
-        .upsert(
-          {
-            topic_id: topicId,
-            entry_id: entry.id,
-            elo_rating: eloScore,
-            match_count: 0,
-          },
-          { onConflict: 'topic_id,entry_id' },
-        );
+    if (entryErr || !entries || entries.length === 0) {
+      logger.warn('Failed to batch upsert hall-of-fame entries', { runId, error: entryErr?.message });
+    } else {
+      const eloRows = entries.map((entry, i) => ({
+        topic_id: topicId,
+        entry_id: entry.id,
+        elo_rating: ordinalToEloScale(
+          getOrdinal(ctx.state.ratings.get(top3[i].id) ?? createRating()),
+        ),
+        match_count: 0,
+      }));
+      await supabase.from('hall_of_fame_elo').upsert(eloRows, { onConflict: 'topic_id,entry_id' });
     }
 
     logger.info('Hall of fame updated', { runId, topicId, entriesInserted: top3.length });
@@ -739,27 +738,19 @@ export async function executeMinimalPipeline(
 
   insertBaselineVariant(ctx.state, runId);
 
-  let minimalExecutionOrder = 0;
+  let executionOrder = 0;
   for (const agent of agents) {
     if (!agent.canExecute(ctx.state)) {
-      logger.info('Skipping agent (preconditions not met)', { agent: agent.name });
+      logger.debug('Skipping agent (preconditions not met)', { agent: agent.name });
       continue;
     }
 
     try {
-      logger.info('Executing agent', { agent: agent.name, iteration: ctx.state.iteration });
       const result = await agent.execute(ctx);
-      logger.info('Agent completed', {
-        agent: agent.name,
-        success: result.success,
-        costUsd: result.costUsd,
-        variantsAdded: result.variantsAdded,
-      });
-      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, minimalExecutionOrder++, result, logger);
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent());
+      await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder++, result, logger);
+      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
     } catch (error) {
-      // Save partial progress before handling error
-      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent()).catch(() => {});
+      await persistCheckpoint(runId, ctx.state, agent.name, 'EXPANSION', logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
 
       if (error instanceof BudgetExceededError) {
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
@@ -852,6 +843,8 @@ export interface FullPipelineOptions {
   featureFlags?: EvolutionFeatureFlags;
   /** Start timestamp for run duration tracking. */
   startMs?: number;
+  /** ERR-3: Restore comparison cache entries from a previous checkpoint. */
+  resumeComparisonCacheEntries?: Array<[string, import('./comparisonCache').CachedMatch]>;
 }
 
 /**
@@ -883,12 +876,27 @@ export async function executeFullPipeline(
     }).eq('id', runId).in('status', ['claimed']);
 
     // Construct supervisor
-    const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
+    // CFG-3: Pass featureFlags to supervisor for future flag-gated phase behavior
+    const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config, options.featureFlags);
     const supervisor = new PoolSupervisor(supervisorCfg);
 
     // Inject comparison cache for cross-iteration deduplication
+    // ERR-3: Restore from checkpoint if available, otherwise create fresh
     if (!ctx.comparisonCache) {
-      ctx.comparisonCache = new ComparisonCache();
+      if (options.resumeComparisonCacheEntries && options.resumeComparisonCacheEntries.length > 0) {
+        ctx.comparisonCache = ComparisonCache.fromEntries(options.resumeComparisonCacheEntries);
+        logger.info('Restored comparison cache from checkpoint', { entries: options.resumeComparisonCacheEntries.length });
+      } else {
+        ctx.comparisonCache = new ComparisonCache();
+      }
+    }
+
+    // COST-5: Reservations are transient — a fresh/resumed CostTracker must start at zero.
+    // Non-zero here would mean orphaned reservations leaked across a resume boundary.
+    if (ctx.costTracker.getTotalReserved() !== 0) {
+      logger.warn('Unexpected non-zero reservation on resume', {
+        totalReserved: ctx.costTracker.getTotalReserved(),
+      });
     }
 
     // Restore from checkpoint if resuming
@@ -991,7 +999,7 @@ export async function executeFullPipeline(
               costUsd: flowResult.costUsd,
               iteration: ctx.state.iteration,
             });
-            await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent());
+            await persistCheckpoint(runId, ctx.state, 'flowCritique', phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
           } catch (error) {
             if (error instanceof BudgetExceededError) {
               logger.warn('Budget exceeded during flow critique', { error: error.message });
@@ -1036,7 +1044,7 @@ export async function executeFullPipeline(
         }
 
         // Persist iteration checkpoint with supervisor state
-        await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent());
+        await persistCheckpointWithSupervisor(runId, ctx.state, supervisor, phase, logger, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
       } finally {
         iterSpan.end();
       }
@@ -1140,9 +1148,6 @@ export async function persistAgentInvocation(
   logger: EvolutionLogger,
 ): Promise<void> {
   try {
-    const detail = result.executionDetail
-      ? truncateDetail(result.executionDetail)
-      : {};
     const supabase = await createSupabaseServiceClient();
     await supabase.from('evolution_agent_invocations').upsert({
       run_id: runId,
@@ -1153,7 +1158,7 @@ export async function persistAgentInvocation(
       cost_usd: result.costUsd,
       skipped: result.skipped ?? false,
       error_message: result.error ?? null,
-      execution_detail: detail,
+      execution_detail: result.executionDetail ? truncateDetail(result.executionDetail) : {},
     }, { onConflict: 'run_id,iteration,agent_name' });
   } catch (err) {
     logger.warn('Failed to persist agent invocation', {
@@ -1194,31 +1199,32 @@ async function runAgent(
     });
 
     try {
-      logger.debug('Executing agent', { agent: agent.name, iteration: ctx.state.iteration, phase, attempt });
       const result = await agent.execute(ctx);
       agentSpan.setAttributes({
         success: result.success ? 1 : 0,
         cost_usd: result.costUsd,
         variants_added: result.variantsAdded ?? 0,
       });
-      logger.info('Agent completed', {
-        agent: agent.name,
-        success: result.success,
-        costUsd: result.costUsd,
-        variantsAdded: result.variantsAdded,
-        matchesPlayed: result.matchesPlayed,
-      });
       await persistAgentInvocation(runId, ctx.state.iteration, agent.name, executionOrder, result, logger);
-      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent());
+      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache);
       return result;
     } catch (error) {
+      const errorMsg = (error as Error).message;
       agentSpan.recordException(error as Error);
-      agentSpan.setStatus({ code: 2, message: (error as Error).message });
+      agentSpan.setStatus({ code: 2, message: errorMsg });
 
       if (error instanceof BudgetExceededError) {
-        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent()).catch(() => {});
+        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
         logger.warn('Budget exceeded, pausing run', { agent: agent.name, error: error.message });
         await markRunPaused(runId, error);
+        throw error;
+      }
+
+      // ERR-6: Content policy refusals are permanent — never retry
+      if (error instanceof LLMRefusalError) {
+        await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
+        logger.error('LLM refusal (content policy) — not retryable', { agent: agent.name, error: error.message });
+        await markRunFailed(runId, agent.name, error);
         throw error;
       }
 
@@ -1237,7 +1243,7 @@ async function runAgent(
       }
 
       // Fatal error or retries exhausted
-      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent()).catch(() => {});
+      await persistCheckpoint(runId, ctx.state, agent.name, phase, logger, 3, ctx.costTracker.getTotalSpent(), ctx.comparisonCache).catch(() => {});
       logger.error('Agent failed', { agent: agent.name, error: String(error), attempts: attempt + 1 });
       await markRunFailed(runId, agent.name, error);
       throw error;
@@ -1257,6 +1263,7 @@ async function persistCheckpointWithSupervisor(
   phase: PipelinePhase,
   logger: EvolutionLogger,
   totalCostUsd?: number,
+  comparisonCache?: ComparisonCache,
 ): Promise<void> {
   const checkpoint = {
     run_id: runId,
@@ -1266,6 +1273,10 @@ async function persistCheckpointWithSupervisor(
     state_snapshot: {
       ...serializeState(state),
       supervisorState: supervisor.getResumeState(),
+      // COST-6: Persist cost tracker total spent for accurate budget on resume
+      ...(totalCostUsd != null && { costTrackerTotalSpent: totalCostUsd }),
+      // ERR-3: Persist comparison cache to avoid re-running comparisons on resume
+      ...(comparisonCache && comparisonCache.size > 0 && { comparisonCacheEntries: comparisonCache.entries() }),
     },
   };
 

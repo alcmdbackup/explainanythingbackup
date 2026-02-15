@@ -42,6 +42,24 @@ describe('resolveConfig', () => {
     expect(config.plateau.window).toBe(5);
     expect(config.plateau.threshold).toBe(DEFAULT_EVOLUTION_CONFIG.plateau.threshold);
   });
+
+  // CFG-6: Deep merge preserves partial nested overrides
+  it('deep merge preserves default nested fields when only one sub-field overridden', () => {
+    const config = resolveConfig({ plateau: { window: 10 } } as Partial<typeof DEFAULT_EVOLUTION_CONFIG>);
+    expect(config.plateau.window).toBe(10);
+    // threshold should be preserved from defaults
+    expect(config.plateau.threshold).toBe(DEFAULT_EVOLUTION_CONFIG.plateau.threshold);
+  });
+
+  it('deep merge replaces arrays outright (not element-wise)', () => {
+    const config = resolveConfig({ enabledAgents: ['debate'] });
+    expect(config.enabledAgents).toEqual(['debate']);
+  });
+
+  it('undefined override values fall back to defaults', () => {
+    const config = resolveConfig({ maxIterations: undefined });
+    expect(config.maxIterations).toBe(DEFAULT_EVOLUTION_CONFIG.maxIterations);
+  });
 });
 
 describe('resolveConfig — expansion auto-clamping', () => {

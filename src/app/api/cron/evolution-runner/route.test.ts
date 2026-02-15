@@ -181,19 +181,15 @@ describe('Evolution Runner Cron API', () => {
       expect(data.message).toBe('No pending runs');
     });
 
-    it('allows access when CRON_SECRET is not set (dev mode)', async () => {
+    it('returns 500 when CRON_SECRET is not set (fail-closed)', async () => {
       delete process.env.CRON_SECRET;
-
-      const mockSupabase = createMockSupabase();
-      mockSupabase.from().maybeSingle.mockResolvedValue({ data: null, error: null });
-      mockCreateSupabaseServiceClient.mockResolvedValue(mockSupabase as never);
 
       const request = createMockRequest();
       const response = await GET(request);
       const data = await response.json();
 
-      expect(response.status).toBe(200);
-      expect(data.message).toBe('No pending runs');
+      expect(response.status).toBe(500);
+      expect(data.error).toBe('Server misconfiguration: CRON_SECRET not set');
     });
   });
 

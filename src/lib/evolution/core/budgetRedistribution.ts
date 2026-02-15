@@ -89,20 +89,17 @@ export function computeEffectiveBudgetCaps(
 
   const originalManagedSum = Object.values(managedCaps).reduce((a, b) => a + b, 0);
 
-  // Determine active managed agents
+  // Determine active agents: required agents always active, optional subject to enabledAgents
   let activeAgents = Object.keys(managedCaps);
+  const enabledSet = enabledAgents ? new Set<string>(enabledAgents) : null;
+  const disabledInSingleArticle = singleArticle ? new Set<string>(SINGLE_ARTICLE_DISABLED) : null;
 
-  if (enabledAgents) {
-    const enabledSet = new Set<string>(enabledAgents);
-    activeAgents = activeAgents.filter(
-      a => REQUIRED_AGENTS.includes(a as AgentName) || enabledSet.has(a)
-    );
-  }
-
-  if (singleArticle) {
-    const disabled = new Set<string>(SINGLE_ARTICLE_DISABLED);
-    activeAgents = activeAgents.filter(a => !disabled.has(a));
-  }
+  activeAgents = activeAgents.filter(a => {
+    const isRequired = REQUIRED_AGENTS.includes(a as AgentName);
+    const isEnabledIfOptional = !enabledSet || enabledSet.has(a);
+    const isNotDisabledForMode = !disabledInSingleArticle || !disabledInSingleArticle.has(a);
+    return (isRequired || isEnabledIfOptional) && isNotDisabledForMode;
+  });
 
   // Filter caps to active agents only
   const activeCaps: Record<string, number> = {};
@@ -112,6 +109,7 @@ export function computeEffectiveBudgetCaps(
 
   // Scale up proportionally to preserve original managed sum
   const remainingSum = Object.values(activeCaps).reduce((a, b) => a + b, 0);
+  // COST-3: Handle empty enabledAgents (no active caps to scale)
   if (remainingSum === 0) return { ...activeCaps, ...unmanagedCaps };
 
   const scaleFactor = originalManagedSum / remainingSum;
@@ -119,6 +117,14 @@ export function computeEffectiveBudgetCaps(
   for (const [agent, cap] of Object.entries(activeCaps)) {
     result[agent] = cap * scaleFactor;
   }
+
+  // COST-3: Assert scaled sum ≈ originalManagedSum (within floating-point epsilon)
+  const scaledSum = Object.values(result).reduce((a, b) => a + b, 0);
+  if (Math.abs(scaledSum - originalManagedSum) > 1e-9) {
+    // Log but don't throw — numerical imprecision shouldn't crash the pipeline
+    console.warn(`Budget redistribution sum drift: expected ${originalManagedSum}, got ${scaledSum}`);
+  }
+
   // Merge back unmanaged agents (unchanged)
   return { ...result, ...unmanagedCaps };
 }

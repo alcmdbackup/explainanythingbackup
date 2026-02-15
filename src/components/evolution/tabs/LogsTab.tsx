@@ -9,6 +9,8 @@ import {
   type RunLogFilters,
 } from '@/lib/services/evolutionActions';
 
+const PAGE_SIZE = 100;
+
 /** Color mapping for log levels. */
 const LEVEL_COLORS: Record<string, string> = {
   info: 'text-blue-400',
@@ -46,6 +48,8 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
   const [iterationFilter, setIterationFilter] = useState<number | undefined>(initialIteration);
   const [variantFilter, setVariantFilter] = useState<string | undefined>(initialVariant);
 
+  const [displayLimit, setDisplayLimit] = useState(PAGE_SIZE);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoRefreshRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -55,7 +59,7 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
     if (agentFilter) filters.agentName = agentFilter;
     if (iterationFilter !== undefined) filters.iteration = iterationFilter;
     if (variantFilter) filters.variantId = variantFilter;
-    filters.limit = 500;
+    filters.limit = displayLimit;
 
     const result = await getEvolutionRunLogsAction(runId, filters);
     if (result.success) {
@@ -66,15 +70,13 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
       setError(result.error?.message ?? 'Failed to load logs');
     }
     setLoading(false);
-  }, [runId, levelFilter, agentFilter, iterationFilter, variantFilter]);
+  }, [runId, levelFilter, agentFilter, iterationFilter, variantFilter, displayLimit]);
 
-  // Initial load + filter changes
   useEffect(() => {
     setLoading(true);
     fetchLogs();
   }, [fetchLogs]);
 
-  // Auto-refresh every 5s while run is active
   useEffect(() => {
     const isActive = runStatus === 'running' || runStatus === 'claimed';
     if (isActive) {
@@ -85,10 +87,20 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
     };
   }, [runStatus, fetchLogs]);
 
-  // Auto-scroll to bottom on new logs while active
+  const isAtBottomRef = useRef(true);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const handleScroll = () => {
+      isAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 50;
+    };
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
+
   useEffect(() => {
     const isActive = runStatus === 'running' || runStatus === 'claimed';
-    if (isActive && scrollRef.current) {
+    if (isActive && isAtBottomRef.current && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [logs, runStatus]);
@@ -107,11 +119,11 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
     setAgentFilter(undefined);
     setIterationFilter(undefined);
     setVariantFilter(undefined);
+    setDisplayLimit(PAGE_SIZE);
   };
 
   const hasFilters = levelFilter || agentFilter || iterationFilter !== undefined || variantFilter;
 
-  // Collect unique agents and iterations for filter chips
   const agents = [...new Set(logs.map(l => l.agent_name).filter(Boolean))] as string[];
   const iterations = [...new Set(logs.map(l => l.iteration).filter((n): n is number => n !== null))].sort((a, b) => a - b);
 
@@ -120,7 +132,6 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
 
   return (
     <div className="space-y-3" data-testid="logs-tab">
-      {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-2 text-xs">
         {/* Level filters */}
         {['info', 'warn', 'error', 'debug'].map(level => (
@@ -177,7 +188,6 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
         </span>
       </div>
 
-      {/* Log entries */}
       <div
         ref={scrollRef}
         className="max-h-[600px] overflow-y-auto space-y-0.5 font-mono text-xs"
@@ -188,7 +198,7 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
             No log entries{hasFilters ? ' matching filters' : ' yet'}
           </div>
         ) : (
-          logs.map((entry) => (
+          logs.map(entry => (
             <div
               key={entry.id}
               className={`group px-3 py-1.5 rounded hover:bg-[var(--surface-elevated)] cursor-pointer ${LEVEL_BG[entry.level] ?? ''}`}
@@ -196,17 +206,14 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
               data-testid={`log-entry-${entry.id}`}
             >
               <div className="flex items-start gap-2">
-                {/* Timestamp */}
                 <span className="text-[var(--text-muted)] whitespace-nowrap shrink-0">
                   {new Date(entry.created_at).toLocaleTimeString()}
                 </span>
 
-                {/* Level badge */}
                 <span className={`${LEVEL_COLORS[entry.level] ?? ''} uppercase font-bold w-12 shrink-0`}>
                   {entry.level}
                 </span>
 
-                {/* Agent + iteration context */}
                 {entry.agent_name && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setAgentFilter(entry.agent_name!); }}
@@ -226,10 +233,8 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
                   </button>
                 )}
 
-                {/* Message */}
                 <span className="text-[var(--text-primary)] break-all">{entry.message}</span>
 
-                {/* Expand indicator */}
                 {entry.context && (
                   <span className="ml-auto text-[var(--text-muted)] opacity-0 group-hover:opacity-100 shrink-0">
                     {expandedIds.has(entry.id) ? '▼' : '▶'}
@@ -237,7 +242,6 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
                 )}
               </div>
 
-              {/* Expanded context JSON */}
               {expandedIds.has(entry.id) && entry.context && (
                 <pre className="mt-1 ml-14 p-2 bg-[var(--surface-secondary)] rounded text-[var(--text-muted)] overflow-x-auto whitespace-pre-wrap">
                   {JSON.stringify(entry.context, null, 2)}
@@ -247,6 +251,15 @@ export function LogsTab({ runId, runStatus, initialAgent, initialIteration, init
           ))
         )}
       </div>
+
+      {total !== null && logs.length < total && (
+        <button
+          onClick={() => setDisplayLimit(prev => prev + PAGE_SIZE)}
+          className="w-full py-2 text-xs text-[var(--accent-gold)] hover:underline border border-[var(--border-default)] rounded-page"
+        >
+          Load more ({logs.length} of {total})
+        </button>
+      )}
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { insertBaselineVariant, buildRunSummary, validateRunSummary, executeFull
 import type { PipelineAgent, PipelineAgents } from './pipeline';
 import { createDefaultAgents, preparePipelineRun } from '../index';
 import { PipelineStateImpl } from './state';
-import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError } from '../types';
+import { BASELINE_STRATEGY, EvolutionRunSummarySchema, BudgetExceededError, LLMRefusalError } from '../types';
 import type { ExecutionContext, EvolutionLLMClient, EvolutionLogger, CostTracker, EvolutionRunConfig, PipelineState } from '../types';
 import { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from '../config';
 import { DEFAULT_EVOLUTION_FLAGS } from './featureFlags';
@@ -56,6 +56,7 @@ function makeMockCostTracker(): CostTracker {
     getTotalSpent: jest.fn().mockReturnValue(1.5),
     getAvailableBudget: jest.fn().mockReturnValue(3.5),
     getAllAgentCosts: jest.fn(() => Object.fromEntries(agentCosts)),
+    getTotalReserved: jest.fn().mockReturnValue(0),
   };
 }
 
@@ -332,6 +333,7 @@ describe('executeFullPipeline — iterativeEditing integration', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -494,6 +496,7 @@ describe('executeFullPipeline — flowCritique integration', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -782,11 +785,16 @@ describe('persistAgentMetrics — 0-variant agent filtering', () => {
     const supabase = await createSupabaseServiceClient();
     const upsertCalls = (supabase.upsert as jest.Mock).mock.calls;
 
-    // Find upsert calls that look like agent metrics (have agent_name AND variants_generated)
+    // DB-4: Batch upsert — first arg is now an array of rows
     type MetricRow = { agent_name: string; [key: string]: unknown };
     const agentMetricUpserts: MetricRow[] = upsertCalls
-      .map((call: unknown[]) => call[0] as Record<string, unknown>)
-      .filter((row): row is MetricRow => row != null && typeof row === 'object' && 'agent_name' in row && 'variants_generated' in row);
+      .flatMap((call: unknown[]) => {
+        const arg = call[0];
+        if (Array.isArray(arg)) return arg as MetricRow[];
+        if (arg != null && typeof arg === 'object' && 'agent_name' in arg) return [arg as MetricRow];
+        return [];
+      })
+      .filter((row): row is MetricRow => 'variants_generated' in row);
 
     // generation has variants (structural_transform maps to generation) — should be upserted
     const generationUpsert = agentMetricUpserts.find((r) => r.agent_name === 'generation');
@@ -1018,6 +1026,7 @@ describe('executeFullPipeline — single-article mode', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: {
@@ -1132,6 +1141,7 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
       getTotalSpent: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     return {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'retry-test', config },
@@ -1248,6 +1258,25 @@ describe('executeFullPipeline — runAgent retry on transient errors', () => {
     expect(budgetCalibration.execute).toHaveBeenCalledTimes(1);
   });
 
+  it('does not retry LLMRefusalError (fails immediately)', async () => {
+    const executionOrder: string[] = [];
+    const refusalCalibration: PipelineAgent = {
+      name: 'calibration',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new LLMRefusalError('Content violates policy'); }),
+    };
+    const agents = makeAllAgentsWithOverride(executionOrder, { calibration: refusalCalibration });
+    const ctx = makeRetryCtx([2.0, 2.0, 2.0, 0.005]);
+
+    try {
+      await executeFullPipeline('retry-test', agents, ctx, ctx.logger, makePipelineOpts());
+    } catch {
+      // Expected — LLM refusals are permanent, not retried
+    }
+    // Refusal errors: exactly 1 call, no retry
+    expect(refusalCalibration.execute).toHaveBeenCalledTimes(1);
+  });
+
   it('preserves partial state from failed attempt (no rollback)', async () => {
     const executionOrder: string[] = [];
     let callCount = 0;
@@ -1312,6 +1341,7 @@ describe('executeFullPipeline — checkpoint writes total_cost_usd', () => {
         .mockReturnValueOnce(2.0)
         .mockReturnValue(0.005),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
+      getTotalReserved: jest.fn().mockReturnValue(0),
     };
     const ctx: ExecutionContext = {
       payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cost-test', config: config as EvolutionRunConfig },
@@ -1592,6 +1622,7 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
       recordSpend: jest.fn(),
       getAgentCost: jest.fn().mockReturnValue(0),
       getTotalSpent: jest.fn().mockReturnValue(0),
+      getTotalReserved: jest.fn().mockReturnValue(0),
       getAvailableBudget: jest.fn().mockReturnValue(2.0),
       getAllAgentCosts: jest.fn().mockReturnValue({}),
     };
@@ -1692,6 +1723,7 @@ describe('executeFullPipeline — kill detection', () => {
         recordSpend: jest.fn(),
         getAgentCost: jest.fn().mockReturnValue(0),
         getTotalSpent: jest.fn().mockReturnValue(0),
+        getTotalReserved: jest.fn().mockReturnValue(0),
         getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
         getAllAgentCosts: jest.fn().mockReturnValue({}),
       },

@@ -10,11 +10,14 @@ import { RenderCriticMarkupFromMDAstDiff } from '../../editorFiles/markdownASTdi
  * Returns null on parse failure (malformed markdown from LLM output).
  */
 async function parseToMdast(markdown: string): Promise<unknown | null> {
+  // AGENT-4: Separate import failures (fatal) from parse failures (recoverable).
+  // Import failures indicate a broken module resolution — should not silently return UNSURE.
+  const { unified } = await import('unified');
+  const { default: remarkParse } = await import('remark-parse');
   try {
-    const { unified } = await import('unified');
-    const { default: remarkParse } = await import('remark-parse');
     return unified().use(remarkParse).parse(markdown);
   } catch {
+    // Parse failure on malformed markdown — return null for UNSURE verdict
     return null;
   }
 }
@@ -110,17 +113,17 @@ export function interpretDirectionReversal(
   reverse: 'ACCEPT' | 'REJECT' | 'UNSURE',
   changesFound: number,
 ): DiffComparisonResult {
-  if (forward === 'ACCEPT' && reverse === 'REJECT') {
-    return { verdict: 'ACCEPT', confidence: 1.0, changesFound };
+  // High-confidence cases: disagreement between passes indicates stable improvement/regression
+  if ((forward === 'ACCEPT' && reverse === 'REJECT') || (forward === 'REJECT' && reverse === 'ACCEPT')) {
+    const verdict = forward === 'ACCEPT' ? 'ACCEPT' : 'REJECT';
+    return { verdict, confidence: 1.0, changesFound };
   }
 
-  if (forward === 'REJECT' && reverse === 'ACCEPT') {
-    return { verdict: 'REJECT', confidence: 1.0, changesFound };
-  }
-
+  // Medium confidence: both passes agree (but not both UNSURE)
   if (forward === reverse && forward !== 'UNSURE') {
     return { verdict: 'UNSURE', confidence: 0.5, changesFound };
   }
 
+  // Low confidence: mixed signals
   return { verdict: 'UNSURE', confidence: 0.3, changesFound };
 }

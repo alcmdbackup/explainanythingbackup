@@ -482,6 +482,111 @@ describe('Evolution Actions', () => {
     });
   });
 
+  // ─── COST-1: Pre-queue budget validation ───────────────────────
+
+  describe('queueEvolutionRunAction budget validation (COST-1)', () => {
+    it('rejects when estimated cost exceeds budget cap', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: {
+              id: 'strat-1',
+              config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 10, budgetCapUsd: 1.00 },
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: { id: 'run-x' }, error: null });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      // Estimate exceeds the $1.00 budget cap
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
+        totalUsd: 5.00,
+        perAgent: { generation: 3.0, calibration: 2.0 },
+        perIteration: 0.50,
+        confidence: 'medium',
+      });
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+        budgetCapUsd: 1.00,
+      });
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('exceeds budget cap');
+      // Should NOT have called insert
+      expect(mock.insert).not.toHaveBeenCalled();
+    });
+
+    it('accepts when estimated cost is null (no strategy config estimate)', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 42 }, error: null });
+        }
+        return Promise.resolve({
+          data: { id: 'run-ok', estimated_cost_usd: null },
+          error: null,
+        });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        explanationId: 42,
+        budgetCapUsd: 1.00,
+      });
+      expect(result.success).toBe(true);
+      expect(mock.insert).toHaveBeenCalled();
+    });
+
+    it('accepts when estimated cost is within budget cap', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: {
+              id: 'strat-1',
+              config: { generationModel: 'gpt-4.1-mini', iterations: 3 },
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: { id: 'run-ok', estimated_cost_usd: 2.0 }, error: null });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
+        totalUsd: 2.00,
+        perAgent: { generation: 1.0, calibration: 1.0 },
+        perIteration: 0.20,
+        confidence: 'medium',
+      });
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+        budgetCapUsd: 5.00,
+      });
+      expect(result.success).toBe(true);
+      expect(mock.insert).toHaveBeenCalled();
+    });
+  });
+
   // ─── Config propagation edge cases ─────────────────────────────
 
   describe('queueEvolutionRunAction config propagation edge cases', () => {

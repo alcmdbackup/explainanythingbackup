@@ -232,12 +232,13 @@ export class EvolutionAgent extends AgentBase {
           return { text: null as string | null, strategy, parentIds, version: 0 };
         }
 
-        const maxParentVersion = Math.max(...parents.filter((p) => parentIds.includes(p.id)).map((p) => p.version));
+        const parentVersions = parents.filter((p) => parentIds.includes(p.id)).map((p) => p.version);
+        const maxParentVersion = parentVersions.length > 0 ? Math.max(...parentVersions) : 0;
         return { text: generatedText.trim(), strategy, parentIds, version: maxParentVersion + 1 };
       }),
     );
 
-    // Re-throw BudgetExceededError so pipeline can pause the run
+    // Re-throw any BudgetExceededError so pipeline can pause the run
     for (const result of results) {
       if (result.status === 'rejected' && result.reason instanceof BudgetExceededError) {
         throw result.reason;
@@ -265,9 +266,9 @@ export class EvolutionAgent extends AgentBase {
         state.addToPool(variation);
         logger.info('Evolution variation', { strategy: variation.strategy, variationId: variation.id, textLength: variation.text.length });
         mutationDetails.push({ strategy, status: 'success', variantId: variation.id, textLength: variation.text.length });
-      } else if (result.status === 'fulfilled' && result.value.text === null) {
+      } else if (result.status === 'fulfilled') {
         mutationDetails.push({ strategy, status: 'format_rejected' });
-      } else if (result.status === 'rejected') {
+      } else {
         logger.error('Evolution error', { error: String(result.reason) });
         mutationDetails.push({ strategy, status: 'error', error: String(result.reason) });
       }

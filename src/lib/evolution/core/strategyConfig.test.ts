@@ -486,4 +486,34 @@ describe('strategyConfig', () => {
       expect(label).not.toContain('agents');
     });
   });
+
+  // CFG-8: Zod validation in extractStrategyConfig
+  describe('extractStrategyConfig validation', () => {
+    it('rejects invalid model names', () => {
+      expect(() =>
+        extractStrategyConfig(
+          { generationModel: 'not-a-real-model' as any },
+          baseConfig.budgetCaps,
+        ),
+      ).toThrow();
+    });
+
+    it('rejects negative maxIterations', () => {
+      expect(() =>
+        extractStrategyConfig(
+          { maxIterations: -1 },
+          baseConfig.budgetCaps,
+        ),
+      ).toThrow();
+    });
+
+    it('accepts valid input without throwing', () => {
+      expect(() =>
+        extractStrategyConfig(
+          { generationModel: 'deepseek-chat', judgeModel: 'gpt-4.1-nano', maxIterations: 10 },
+          baseConfig.budgetCaps,
+        ),
+      ).not.toThrow();
+    });
+  });
 });

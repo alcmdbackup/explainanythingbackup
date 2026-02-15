@@ -120,13 +120,20 @@ export async function beamSearch(
     }
 
     // Update beam for next depth — map parent critiques from current beam
+    // BEAM-3: Explicitly handle depth 1 (parent = root) vs depth 2+ (parent = beam member)
     const critiqueByNodeId = new Map(beam.map((b) => [b.node.id, b.critique]));
-    beam = rankedSurvivors.map((s) => ({
-      node: s.node,
-      text: s.text,
-      // Use parent's critique (from previous beam) as starting point for next re-critique
-      critique: critiqueByNodeId.get(s.node.parentNodeId ?? '') ?? rootCritique,
-    }));
+    beam = rankedSurvivors.map((s) => {
+      const parentId = s.node.parentNodeId;
+      // Depth 1 nodes: parentNodeId is root node ID, which is always in critiqueByNodeId
+      // Depth 2+ nodes: parentNodeId is previous beam member ID
+      // Fallback to rootCritique only if parent lookup fails (should not happen normally)
+      const parentCritique = parentId ? critiqueByNodeId.get(parentId) : undefined;
+      return {
+        node: s.node,
+        text: s.text,
+        critique: parentCritique ?? rootCritique,
+      };
+    });
 
     actualMaxDepth = depth;
     logger.debug('Beam search depth complete', {
@@ -225,6 +232,21 @@ async function generateCandidates(
 
   await Promise.allSettled(generationPromises);
 
+  // BEAM-1: Defensive cleanup — remove any tree nodes without a corresponding candidate.
+  // In the current code createChildNode is called after LLM success, so orphans shouldn't
+  // exist, but this guard protects against future refactors that move node creation earlier.
+  const candidateNodeIds = new Set(candidates.map((c) => c.node.id));
+  for (const nodeId of Object.keys(treeState.nodes)) {
+    if (nodeId === treeState.rootNodeId) continue;
+    if (!candidateNodeIds.has(nodeId) && !treeState.nodes[nodeId].pruned) {
+      // Check if node was created during this generation pass (no existing candidates reference it)
+      const isNewNode = beam.every((b) => b.node.id !== nodeId);
+      if (isNewNode) {
+        delete treeState.nodes[nodeId];
+      }
+    }
+  }
+
   // Propagate budget error after all promises settle (allSettled swallows thrown errors)
   if (budgetError) throw budgetError;
 
@@ -246,12 +268,15 @@ async function reCritiqueBeam(
         if (critique) {
           return { ...member, critique };
         }
+        // AGENT-9: Flag stale critique when re-critique returns null
+        logger.warn('Re-critique returned null, using stale critique', { nodeId: member.node.id });
       } catch (err) {
         if (err instanceof BudgetExceededError) {
           budgetError = err;
           return member; // Capture error, don't rethrow into allSettled
         }
-        logger.debug('Re-critique failed, using previous critique', { nodeId: member.node.id });
+        // AGENT-9: Flag stale critique on failure
+        logger.warn('Re-critique failed, using stale critique', { nodeId: member.node.id, error: String(err) });
       }
       return member;
     }),
@@ -296,9 +321,10 @@ async function runMiniTournament(
 
     if (!matchResults.has(aId)) matchResults.set(aId, new Map());
     if (!matchResults.has(bId)) matchResults.set(bId, new Map());
+
     matchResults.get(aId)!.set(bId, winner);
     // Store reverse mapping
-    const reverseWinner = winner === 'A' ? 'B' : winner === 'B' ? 'A' : 'TIE';
+    const reverseWinner: 'A' | 'B' | 'TIE' = winner === 'A' ? 'B' : winner === 'B' ? 'A' : 'TIE';
     matchResults.get(bId)!.set(aId, reverseWinner);
   }
 

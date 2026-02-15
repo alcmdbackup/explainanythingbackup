@@ -3,6 +3,7 @@
 
 import type { PipelineState, PipelinePhase, EvolutionRunConfig } from '../types';
 import type { AgentName } from './pipeline';
+import type { EvolutionFeatureFlags } from './featureFlags';
 import { REQUIRED_AGENTS } from './budgetRedistribution';
 import { getOrdinal } from './rating';
 
@@ -52,9 +53,14 @@ export interface SupervisorConfig {
   singleArticle: boolean;
   /** Optional agents to enable. Undefined = all agents (backward compat). */
   enabledAgents?: AgentName[];
+  /** CFG-3: Forward-compatible — reserved for future supervisor-level flag checks. */
+  featureFlags?: EvolutionFeatureFlags;
 }
 
-export function supervisorConfigFromRunConfig(cfg: EvolutionRunConfig): SupervisorConfig {
+export function supervisorConfigFromRunConfig(
+  cfg: EvolutionRunConfig,
+  featureFlags?: EvolutionFeatureFlags,
+): SupervisorConfig {
   return {
     maxIterations: cfg.maxIterations,
     minBudget: 0.01,
@@ -65,6 +71,7 @@ export function supervisorConfigFromRunConfig(cfg: EvolutionRunConfig): Supervis
     expansionMaxIterations: cfg.expansion.maxIterations,
     singleArticle: cfg.singleArticle ?? false,
     enabledAgents: cfg.enabledAgents,
+    featureFlags,
   };
 }
 
@@ -82,25 +89,24 @@ export class PoolSupervisor {
   }
 
   private validateConfig(cfg: SupervisorConfig): void {
-    const { expansionMinPool, expansionMaxIterations, maxIterations, plateauWindow, expansionDiversityThreshold } = cfg;
+    const {
+      expansionMinPool, expansionMaxIterations, maxIterations,
+      plateauWindow, expansionDiversityThreshold,
+    } = cfg;
 
     if (expansionDiversityThreshold < 0 || expansionDiversityThreshold > 1) {
       throw new Error(`expansionDiversityThreshold must be in [0,1], got ${expansionDiversityThreshold}`);
     }
 
     if (expansionMaxIterations === 0) return;
-
     if (expansionMinPool < 5) {
       throw new Error(`expansionMinPool must be >= 5, got ${expansionMinPool}`);
     }
-
     if (maxIterations <= expansionMaxIterations) {
       throw new Error(`maxIterations (${maxIterations}) must be > expansionMaxIterations (${expansionMaxIterations})`);
     }
-
-    const minViable = expansionMaxIterations + plateauWindow + 1;
-    if (maxIterations < minViable) {
-      throw new Error(`maxIterations (${maxIterations}) must be >= ${minViable}`);
+    if (maxIterations < expansionMaxIterations + plateauWindow + 1) {
+      throw new Error(`maxIterations (${maxIterations}) must be >= ${expansionMaxIterations + plateauWindow + 1}`);
     }
   }
 
@@ -120,9 +126,7 @@ export class PoolSupervisor {
   }
 
   private isDiversityReady(diversity: number | null): boolean {
-    return diversity !== null &&
-           !Number.isNaN(diversity) &&
-           diversity >= this.cfg.expansionDiversityThreshold;
+    return diversity !== null && !Number.isNaN(diversity) && diversity >= this.cfg.expansionDiversityThreshold;
   }
 
   beginIteration(state: PipelineState): void {
@@ -219,10 +223,9 @@ export class PoolSupervisor {
   shouldStop(state: PipelineState, availableBudget: number): [boolean, string] {
     if (this._currentPhase === 'COMPETITION') {
       this.trackCompetitionMetrics(state);
-
       if (this._isPlateaued()) {
-        const isDegenerateState = this.isDiversityValid(state.diversityScore) && state.diversityScore! < 0.01;
-        return [true, isDegenerateState ? 'Degenerate state detected' : 'Quality plateau detected'];
+        const isDegen = this.isDiversityValid(state.diversityScore) && state.diversityScore! < 0.01;
+        return [true, isDegen ? 'Degenerate state detected' : 'Quality plateau detected'];
       }
     }
 
@@ -284,11 +287,8 @@ export class PoolSupervisor {
 
   private _isPlateaued(): boolean {
     if (this.ordinalHistory.length < this.cfg.plateauWindow) return false;
-
     const recent = this.ordinalHistory.slice(-this.cfg.plateauWindow);
     const improvement = recent[recent.length - 1] - recent[0];
-    const plateauThresholdOrdinal = this.cfg.plateauThreshold * 6;
-
-    return improvement < plateauThresholdOrdinal;
+    return improvement < this.cfg.plateauThreshold * 6;
   }
 }

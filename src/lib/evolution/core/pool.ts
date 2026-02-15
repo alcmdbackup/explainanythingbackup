@@ -89,7 +89,19 @@ export class PoolManager {
     }
 
     // Deduplicate preserving order
-    return [...new Map(opponents.map((id) => [id, id])).values()].slice(0, n);
+    const deduped = [...new Map(opponents.map((id) => [id, id])).values()].slice(0, n);
+
+    // CORE-3: Pad from all available variants if fewer than n opponents after dedup
+    if (deduped.length < n) {
+      const used = new Set(deduped);
+      const allAvailable = [...sortedExisting, ...otherNew].filter((id) => !used.has(id));
+      for (const id of allAvailable) {
+        if (deduped.length >= n) break;
+        deduped.push(id);
+      }
+    }
+
+    return deduped;
   }
 
   /** Get top N parents by rating for evolution, excluding baseline variant. */

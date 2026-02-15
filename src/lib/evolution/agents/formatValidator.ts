@@ -10,6 +10,16 @@ function getValidationMode(): string {
   return process.env.FORMAT_VALIDATION_MODE ?? 'reject';
 }
 
+function findH1Lines(lines: string[]): number[] {
+  const h1Lines: number[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].startsWith('# ') && !lines[i].startsWith('## ')) {
+      h1Lines.push(i);
+    }
+  }
+  return h1Lines;
+}
+
 /** Validate article text format. Returns issues; empty issues + valid=true means compliant. */
 export function validateFormat(text: string): FormatResult {
   const mode = getValidationMode();
@@ -21,10 +31,7 @@ export function validateFormat(text: string): FormatResult {
   const lines = text.trim().split('\n');
 
   // Rule 1: Exactly one H1 title on the first non-empty line
-  const h1Lines = lines.reduce<number[]>((acc, line, i) => {
-    if (line.startsWith('# ') && !line.startsWith('## ')) acc.push(i);
-    return acc;
-  }, []);
+  const h1Lines = findH1Lines(lines);
 
   if (h1Lines.length === 0) {
     issues.push('Missing H1 title');
@@ -43,9 +50,14 @@ export function validateFormat(text: string): FormatResult {
     issues.push('No section headings (## or ###)');
   }
 
-  // Strip fenced code blocks before checking bullets/lists/tables
+  // Strip fenced code blocks before checking bullets/lists/tables.
+  // PARSE-6: First strip matched pairs, then only strip a truly unclosed trailing fence.
   let textNoCode = text.replace(/```[\s\S]*?```/g, '');
-  textNoCode = textNoCode.replace(/```[\s\S]*$/g, '');
+  // Only strip from an unclosed fence to EOF if one actually exists after pair removal
+  const remainingFences = (textNoCode.match(/```/g) ?? []).length;
+  if (remainingFences > 0) {
+    textNoCode = textNoCode.replace(/```[\s\S]*$/, '');
+  }
 
   // Strip horizontal rules before bullet check
   const textNoHr = textNoCode.replace(/^\s*[-*_](\s*[-*_]){2,}\s*$/gm, '');
@@ -64,13 +76,11 @@ export function validateFormat(text: string): FormatResult {
   }
 
   // Rule 4: Paragraphs must have 2+ sentences (with 25% tolerance)
-  const blocks = textNoCode
-    .split('\n\n')
-    .map((p) => p.trim())
-    .filter((p) => p.length > 0);
+  const blocks = textNoCode.split('\n\n').map((p) => p.trim()).filter((p) => p.length > 0);
 
   const paragraphs: string[] = [];
   for (const block of blocks) {
+    // Skip non-paragraph blocks: headings, rules, emphasis lines, labels
     if (block.startsWith('#')) continue;
     if (/^[-*_](\s*[-*_]){2,}\s*$/.test(block)) continue;
     if (/^\*[^*\n]+\*$/.test(block)) continue;
@@ -78,9 +88,11 @@ export function validateFormat(text: string): FormatResult {
     paragraphs.push(block);
   }
 
+  // Count paragraphs with fewer than 2 sentences
   let shortCount = 0;
   for (const para of paragraphs) {
-    const sentences = (para.match(/[.!?][""\u201d\u2019]?(?:\s|$)/g) ?? []).length;
+    const sentencePattern = /[.!?][""\u201d\u2019]?(?:\s|$)/g;
+    const sentences = (para.match(sentencePattern) ?? []).length;
     if (sentences < 2) shortCount++;
   }
 

@@ -96,6 +96,7 @@ export { toggleAgent } from './core/agentToggle';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
 export { parseArticleIntoSections } from './section/sectionParser';
 export { stitchSections, stitchWithReplacements } from './section/sectionStitcher';
+export type { StitchResult } from './section/sectionStitcher';
 
 // ─── Agent Factory ───────────────────────────────────────────────
 

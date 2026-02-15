@@ -427,10 +427,63 @@ async function main(): Promise<void> {
   console.log('║           Batch Evolution Run CLI                         ║');
   console.log('╚═══════════════════════════════════════════════════════════╝\n');
 
-  // Handle resume
+  // EXP-4: Resume an interrupted/failed batch
   if (args.resumeId) {
-    console.log(`Resume not yet implemented. Batch ID: ${args.resumeId}`);
-    console.log('Run with --config to start a new batch.');
+    const supabase = getSupabaseClient();
+    const { data: batch, error: fetchErr } = await supabase
+      .from('batch_runs')
+      .select('id, execution_plan, status, config, runs_completed, runs_failed, spent_usd')
+      .eq('id', args.resumeId)
+      .single();
+
+    if (fetchErr || !batch) {
+      console.error(`Batch not found: ${args.resumeId}`);
+      process.exit(1);
+    }
+
+    if (batch.status === 'completed') {
+      console.log('Batch already completed — nothing to resume.');
+      return;
+    }
+
+    type PlanRun = { status: string; generationModel: string; iterations: number; prompt: string; runId?: string; actualCost?: number; topElo?: number };
+    const execPlan = (batch.execution_plan ?? []) as PlanRun[];
+    const remaining = execPlan.filter((r) => r.status === 'pending' || r.status === 'failed');
+    console.log(`Resuming batch ${args.resumeId}: ${remaining.length} runs remaining out of ${execPlan.length}`);
+
+    if (remaining.length === 0) {
+      console.log('No pending/failed runs to resume.');
+      return;
+    }
+
+    // Re-run the batch execution loop with the existing batch ID
+    await updateBatchRunStatus(batch.id, { status: 'running' });
+
+    let completed = batch.runs_completed ?? 0;
+    let failed = batch.runs_failed ?? 0;
+    let totalSpent = batch.spent_usd ?? 0;
+
+    for (const run of remaining) {
+      run.status = 'pending'; // Reset for re-execution
+      try {
+        const result = await executeEvolutionRun(run as never, batch.id, (batch.config as { name: string })?.name ?? 'resumed');
+        run.status = 'completed';
+        run.runId = result.runId;
+        run.actualCost = result.actualCost;
+        run.topElo = result.topElo;
+        totalSpent += result.actualCost;
+        completed++;
+        console.log(`✓ Completed: cost=${formatCost(result.actualCost)}, reason=${result.stopReason}`);
+      } catch (error) {
+        run.status = 'failed';
+        failed++;
+        console.error(`✗ Failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      await updateBatchRunStatus(batch.id, { runs_completed: completed, runs_failed: failed, spent_usd: totalSpent, execution_plan: execPlan });
+    }
+
+    await updateBatchRunStatus(batch.id, { status: 'completed', completed_at: new Date().toISOString(), runs_completed: completed, runs_failed: failed, spent_usd: totalSpent });
+    console.log(`\nResume complete: ${completed} completed, ${failed} failed, ${formatCost(totalSpent)} spent`);
     return;
   }
 
@@ -481,39 +534,75 @@ async function main(): Promise<void> {
   let completed = 0;
   let failed = 0;
   let totalSpent = 0;
+  let interrupted = false;
 
-  const plannedRuns = plan.runs.filter(r => r.status === 'pending');
-
-  for (let i = 0; i < plannedRuns.length; i++) {
-    const run = plannedRuns[i];
-    const progress = `[${i + 1}/${plannedRuns.length}]`;
-
-    console.log(`${progress} Starting: ${run.generationModel} | ${run.iterations} iters | "${run.prompt.slice(0, 30)}..."`);
-
-    try {
-      const result = await executeEvolutionRun(run, batchId, plan.config.name);
-
-      run.status = 'completed';
-      run.runId = result.runId;
-      run.actualCost = result.actualCost;
-      run.topElo = result.topElo;
-      totalSpent += result.actualCost;
-      completed++;
-
-      console.log(`${progress} ✓ Completed: cost=${formatCost(result.actualCost)}, elo=${result.topElo.toFixed(0)}, reason=${result.stopReason}`);
-    } catch (error) {
-      run.status = 'failed';
-      failed++;
-      console.error(`${progress} ✗ Failed: ${error instanceof Error ? error.message : String(error)}`);
-    }
-
-    // Update batch progress
+  // EXP-1: Handle SIGINT/SIGTERM — mark batch as interrupted and exit gracefully
+  const handleSignal = async (signal: string): Promise<void> => {
+    console.log(`\nReceived ${signal}, marking batch as interrupted...`);
+    interrupted = true;
     await updateBatchRunStatus(batchId, {
+      status: 'interrupted',
+      completed_at: new Date().toISOString(),
       runs_completed: completed,
       runs_failed: failed,
       spent_usd: totalSpent,
       execution_plan: plan.runs,
     });
+    process.exit(0);
+  };
+  process.on('SIGINT', () => void handleSignal('SIGINT'));
+  process.on('SIGTERM', () => void handleSignal('SIGTERM'));
+
+  const plannedRuns = plan.runs.filter(r => r.status === 'pending');
+
+  // EXP-2: Track created run IDs for cleanup on fatal failure
+  const createdRunIds: string[] = [];
+
+  try {
+    for (let i = 0; i < plannedRuns.length; i++) {
+      if (interrupted) break;
+      const run = plannedRuns[i];
+      const progress = `[${i + 1}/${plannedRuns.length}]`;
+
+      console.log(`${progress} Starting: ${run.generationModel} | ${run.iterations} iters | "${run.prompt.slice(0, 30)}..."`);
+
+      try {
+        const result = await executeEvolutionRun(run, batchId, plan.config.name);
+
+        run.status = 'completed';
+        run.runId = result.runId;
+        run.actualCost = result.actualCost;
+        run.topElo = result.topElo;
+        totalSpent += result.actualCost;
+        completed++;
+        createdRunIds.push(result.runId);
+
+        console.log(`${progress} ✓ Completed: cost=${formatCost(result.actualCost)}, elo=${result.topElo.toFixed(0)}, reason=${result.stopReason}`);
+      } catch (error) {
+        run.status = 'failed';
+        failed++;
+        console.error(`${progress} ✗ Failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+
+      // Update batch progress
+      await updateBatchRunStatus(batchId, {
+        runs_completed: completed,
+        runs_failed: failed,
+        spent_usd: totalSpent,
+        execution_plan: plan.runs,
+      });
+    }
+  } catch (fatalError) {
+    // EXP-2: Clean up on fatal (non-per-run) failure
+    console.error('Fatal batch error, cleaning up...', fatalError instanceof Error ? fatalError.message : String(fatalError));
+    await updateBatchRunStatus(batchId, {
+      status: 'failed',
+      completed_at: new Date().toISOString(),
+      runs_completed: completed,
+      runs_failed: failed,
+      spent_usd: totalSpent,
+    });
+    throw fatalError;
   }
 
   // Mark batch complete

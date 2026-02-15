@@ -443,6 +443,8 @@ export interface CostTracker {
   getAvailableBudget(): number;
   /** Returns all agent costs as a record for persistence/reporting. */
   getAllAgentCosts(): Record<string, number>;
+  /** Sum of outstanding (not yet reconciled) budget reservations. */
+  getTotalReserved(): number;
 }
 
 export class BudgetExceededError extends Error {
@@ -521,6 +523,10 @@ export interface SerializedPipelineState {
   treeSearchResults?: TreeSearchResult[] | null;
   treeSearchStates?: TreeState[] | null;
   sectionState?: SectionEvolutionState | null;
+  /** COST-6: CostTracker totalSpent at checkpoint time (default 0 for backward compat). */
+  costTrackerTotalSpent?: number;
+  /** ERR-3: ComparisonCache entries for resume (default empty for backward compat). */
+  comparisonCacheEntries?: Array<[string, { winnerId: string | null; loserId: string | null; confidence: number; isDraw: boolean }]>;
 }
 
 // ─── Evolution run status ────────────────────────────────────────

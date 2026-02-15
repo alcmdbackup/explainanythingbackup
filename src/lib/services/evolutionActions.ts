@@ -107,12 +107,13 @@ const _estimateRunCostAction = withLogging(async (
     }
 
     type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
-    const config = strategy.config as {
+    type StrategyConfig = {
       generationModel?: string;
       judgeModel?: string;
       iterations?: number;
       agentModels?: Record<string, string>;
     };
+    const config = strategy.config as StrategyConfig;
 
     const { estimateRunCostWithAgentModels } = await import('@/lib/evolution');
 
@@ -188,6 +189,8 @@ const _queueEvolutionRunAction = withLogging(async (
             judgeModel: strategyConfig.judgeModel as ModelType | undefined,
             maxIterations: strategyConfig.iterations,
             agentModels: strategyConfig.agentModels as Record<string, ModelType> | undefined,
+            // CFG-1: Pass budget caps so estimator can clamp per-agent costs
+            budgetCaps: strategyConfig.budgetCaps as Record<string, number> | undefined,
           },
           5000,
         );
@@ -207,6 +210,14 @@ const _queueEvolutionRunAction = withLogging(async (
           error: err instanceof Error ? err.message : String(err),
         });
       }
+    }
+
+    // COST-1: Reject if estimated cost exceeds budget cap (skip if no estimate available)
+    if (estimatedCostUsd !== null && estimatedCostUsd > budgetCap) {
+      throw new Error(
+        `Estimated cost $${estimatedCostUsd.toFixed(2)} exceeds budget cap $${budgetCap.toFixed(2)}. ` +
+        'Increase the budget cap or use a cheaper strategy.',
+      );
     }
 
     const source = input.explanationId ? 'explanation' : `prompt:${input.promptId}`;
@@ -428,74 +439,33 @@ export const getEvolutionVariantsAction = serverReadRequestId(_getEvolutionVaria
 // ─── Apply winner ────────────────────────────────────────────────
 
 const _applyWinnerAction = withLogging(async (
-  input: { explanationId: number; variantId: string; runId: string }
+  input: { explanationId: number | null; variantId: string; runId: string }
 ): Promise<{ success: boolean; error: ErrorResponse | null }> => {
   try {
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // Get current content
-    const { data: current, error: fetchError } = await supabase
-      .from('explanations')
-      .select('content')
-      .eq('id', input.explanationId)
-      .single();
+    // HIGH-2: Atomic RPC — content_history + explanations + variant winner flag in one transaction.
+    // SCRIPT-7: Skips content_history + explanations update for prompt-based runs (explanation_id IS NULL).
+    // SCRIPT-2: RPC validates variant_content is non-empty before applying.
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('apply_evolution_winner', {
+      p_explanation_id: input.explanationId,
+      p_variant_id: input.variantId,
+      p_run_id: input.runId,
+      p_applied_by: adminUserId,
+    });
 
-    if (fetchError || !current) {
-      throw new Error(`Explanation ${input.explanationId} not found`);
+    if (rpcError) {
+      logger.error('apply_evolution_winner RPC failed', { error: rpcError.message });
+      throw new Error(rpcError.message);
     }
-
-    // Get winning variant content
-    const { data: variant, error: variantError } = await supabase
-      .from('content_evolution_variants')
-      .select('variant_content')
-      .eq('id', input.variantId)
-      .single();
-
-    if (variantError || !variant) {
-      throw new Error(`Variant ${input.variantId} not found`);
-    }
-
-    // Save history FIRST (for rollback)
-    const { error: historyError } = await supabase
-      .from('content_history')
-      .insert({
-        explanation_id: input.explanationId,
-        previous_content: current.content,
-        new_content: variant.variant_content,
-        source: 'evolution_pipeline',
-        evolution_run_id: input.runId,
-        applied_by: adminUserId,
-      });
-
-    if (historyError) {
-      logger.error('Error saving content history', { error: historyError.message });
-      throw historyError;
-    }
-
-    // Update article
-    const { error: updateError } = await supabase
-      .from('explanations')
-      .update({ content: variant.variant_content })
-      .eq('id', input.explanationId);
-
-    if (updateError) {
-      logger.error('Error applying winner', { error: updateError.message });
-      throw updateError;
-    }
-
-    // Mark variant as winner
-    await supabase
-      .from('content_evolution_variants')
-      .update({ is_winner: true })
-      .eq('id', input.variantId);
 
     await logAdminAction({
       adminUserId,
       action: 'apply_evolution_winner',
       entityType: 'explanation',
-      entityId: String(input.explanationId),
-      details: { variantId: input.variantId, runId: input.runId },
+      entityId: String(input.explanationId ?? 'prompt-based'),
+      details: { variantId: input.variantId, runId: input.runId, rpcResult },
     });
 
     logger.info('Applied evolution winner', {
@@ -505,12 +475,23 @@ const _applyWinnerAction = withLogging(async (
     });
 
     // Phase E: Auto-trigger quality eval on the updated article (fire-and-forget)
-    triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
-      logger.warn('Post-evolution eval trigger failed (non-blocking)', {
-        explanationId: input.explanationId,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    });
+    // Only for explanation-based runs — prompt-based runs have no article to evaluate.
+    if (input.explanationId !== null) {
+      const { data: variant } = await supabase
+        .from('content_evolution_variants')
+        .select('variant_content')
+        .eq('id', input.variantId)
+        .single();
+
+      if (variant?.variant_content) {
+        triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
+          logger.warn('Post-evolution eval trigger failed (non-blocking)', {
+            explanationId: input.explanationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    }
 
     return { success: true, error: null };
   } catch (error) {

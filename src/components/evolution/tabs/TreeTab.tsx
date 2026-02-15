@@ -8,6 +8,9 @@ import {
   type TreeSearchData,
 } from '@/lib/services/evolutionVisualizationActions';
 
+// FE-3: Module-level D3 import promise prevents race conditions on re-render
+const d3Promise = typeof window !== 'undefined' ? import('d3') : null;
+
 interface TreeTabProps {
   runId: string;
 }
@@ -47,19 +50,21 @@ export function TreeTab({ runId }: TreeTabProps) {
       {data.trees.length > 1 && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-[var(--text-muted)] font-ui">Search:</span>
-          {data.trees.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => setSelectedTreeIdx(idx)}
-              className={`px-3 py-1 text-xs rounded-page border font-ui ${
-                idx === selectedTreeIdx
-                  ? 'border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--surface-elevated)]'
-                  : 'border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]'
-              }`}
-            >
-              Tree {idx + 1}
-            </button>
-          ))}
+          {data.trees.map((_, idx) => {
+            const isSelected = idx === selectedTreeIdx;
+            const baseClass = 'px-3 py-1 text-xs rounded-page border font-ui';
+            const selectedClass = 'border-[var(--accent-gold)] text-[var(--accent-gold)] bg-[var(--surface-elevated)]';
+            const unselectedClass = 'border-[var(--border-default)] text-[var(--text-muted)] hover:text-[var(--text-secondary)]';
+            return (
+              <button
+                key={idx}
+                onClick={() => setSelectedTreeIdx(idx)}
+                className={`${baseClass} ${isSelected ? selectedClass : unselectedClass}`}
+              >
+                Tree {idx + 1}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -112,7 +117,7 @@ function TreeGraph({ tree }: TreeGraphProps) {
   const renderTree = useCallback(async () => {
     if (!svgRef.current || tree.nodes.length === 0) return;
 
-    const d3 = await import('d3');
+    const d3 = await d3Promise!;
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
 
@@ -122,9 +127,10 @@ function TreeGraph({ tree }: TreeGraphProps) {
     // Group nodes by depth
     const layers = new Map<number, typeof tree.nodes>();
     for (const node of tree.nodes) {
-      const layer = layers.get(node.depth) ?? [];
-      layer.push(node);
-      layers.set(node.depth, layer);
+      if (!layers.has(node.depth)) {
+        layers.set(node.depth, []);
+      }
+      layers.get(node.depth)!.push(node);
     }
 
     const sortedLayers = Array.from(layers.entries()).sort((a, b) => a[0] - b[0]);
@@ -290,13 +296,12 @@ function TreeGraph({ tree }: TreeGraphProps) {
                 <span className="ml-1 text-[var(--accent-gold)]">&#9733;</span>
               )}
             </span>
-            <span className={`text-xs font-ui px-2 py-0.5 rounded-page ${
-              selectedNode.pruned
-                ? 'bg-[var(--surface-secondary)] text-[var(--text-muted)]'
-                : 'bg-[var(--surface-secondary)] text-[var(--text-primary)]'
-            }`}>
-              {selectedNode.pruned ? 'pruned' : `depth ${selectedNode.depth}`}
-            </span>
+            {(() => {
+              const baseClass = 'text-xs font-ui px-2 py-0.5 rounded-page bg-[var(--surface-secondary)]';
+              const textClass = selectedNode.pruned ? 'text-[var(--text-muted)]' : 'text-[var(--text-primary)]';
+              const label = selectedNode.pruned ? 'pruned' : `depth ${selectedNode.depth}`;
+              return <span className={`${baseClass} ${textClass}`}>{label}</span>;
+            })()}
           </div>
           <div className="text-xs text-[var(--text-muted)] space-y-1 font-ui">
             <div>Action: <span className="font-mono">{selectedNode.revisionAction.type}</span></div>

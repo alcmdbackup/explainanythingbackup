@@ -19,7 +19,9 @@ function buildCritiquePrompt(text: string, dimensions: readonly string[]): strin
   return `You are an expert writing critic. Analyze this text across multiple quality dimensions.
 
 ## Text to Analyze
-"""${text}"""
+<<<CONTENT>>>
+${text}
+<<</CONTENT>>>
 
 ## Dimensions to Evaluate
 ${dimensionsList}
@@ -110,14 +112,13 @@ export class ReflectionAgent extends AgentBase {
     logger.info('Reflection start', { numVariants: topVariants.length, dimensions: [...this.dimensions] });
 
     // Run all critique LLM calls in parallel
-    const results = await Promise.allSettled(
-      topVariants.map(async (variant) => {
-        const prompt = buildCritiquePrompt(variant.text, this.dimensions);
-        logger.debug('Critique call', { variantId: variant.id.slice(0, 8) });
-        const response = await llmClient.complete(prompt, this.name);
-        return { response, variantId: variant.id };
-      }),
-    );
+    const critiqueCalls = topVariants.map(async (variant) => {
+      const prompt = buildCritiquePrompt(variant.text, this.dimensions);
+      logger.debug('Critique call', { variantId: variant.id.slice(0, 8) });
+      const response = await llmClient.complete(prompt, this.name);
+      return { response, variantId: variant.id };
+    });
+    const results = await Promise.allSettled(critiqueCalls);
 
     // Re-throw BudgetExceededError so pipeline can pause the run
     for (const result of results) {
@@ -126,7 +127,7 @@ export class ReflectionAgent extends AgentBase {
       }
     }
 
-    // Parse and collect results sequentially, tracking per-variant detail
+    // Collect and parse results, tracking per-variant detail
     const critiques: Critique[] = [];
     const variantDetails: ReflectionExecutionDetail['variantsCritiqued'] = [];
 
@@ -135,17 +136,14 @@ export class ReflectionAgent extends AgentBase {
       const variantId = topVariants[i].id;
 
       if (result.status === 'fulfilled') {
-        const { response } = result.value;
-        const critique = parseCritiqueResponse(response, variantId);
+        const critique = parseCritiqueResponse(result.value.response, variantId);
         if (critique) {
           critiques.push(critique);
           const scores = Object.values(critique.dimensionScores);
-          const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+          const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b) / scores.length : 0;
           logger.info('Critique generated', { variantId: variantId.slice(0, 8), avgScore: avgScore.toFixed(1) });
           variantDetails.push({
-            variantId,
-            status: 'success',
-            avgScore,
+            variantId, status: 'success', avgScore,
             dimensionScores: { ...critique.dimensionScores },
             goodExamples: critique.goodExamples,
             badExamples: critique.badExamples,

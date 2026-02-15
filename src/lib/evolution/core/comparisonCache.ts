@@ -39,4 +39,18 @@ export class ComparisonCache {
   clear(): void {
     this.cache.clear();
   }
+
+  /** Serialize cache entries for checkpoint persistence. */
+  entries(): Array<[string, CachedMatch]> {
+    return [...this.cache.entries()];
+  }
+
+  /** Restore cache from serialized entries. */
+  static fromEntries(entries: Array<[string, CachedMatch]>): ComparisonCache {
+    const cache = new ComparisonCache();
+    for (const [key, value] of entries) {
+      cache.cache.set(key, value);
+    }
+    return cache;
+  }
 }
