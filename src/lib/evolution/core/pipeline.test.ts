@@ -15,9 +15,10 @@ import type { Rating } from './rating';
 // ─── Mocks for executeFullPipeline integration tests ────────────
 
 jest.mock('@/lib/utils/supabase/server', () => {
-  // Thenable chain mock: supports from().update().eq(), from().upsert(), from().select().eq().single(), from().insert().select().single(), rpc()
+  // Thenable chain mock: supports from().update().eq().in(), from().upsert(), from().select().eq().single(), from().insert().select().single(), rpc()
   const chain: Record<string, jest.Mock> = {};
   chain.eq = jest.fn().mockReturnValue(chain);
+  chain.in = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.single = jest.fn().mockResolvedValue({ data: null, error: null });
   chain.update = jest.fn().mockReturnValue(chain);
   chain.upsert = jest.fn().mockResolvedValue({ data: null, error: null });
@@ -1553,5 +1554,94 @@ describe('sliceLargeArrays', () => {
   it('returns other detail types unchanged', () => {
     const result = sliceLargeArrays(generationDetailFixture);
     expect(result).toEqual(generationDetailFixture);
+  });
+});
+
+// ─── markRunFailed in outer catch (defense-in-depth) ─────────────
+
+describe('executeFullPipeline — marks run as failed on unhandled error', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockImplementation(async () => {
+        return { success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 };
+      }),
+    };
+  }
+
+  it('calls markRunFailed with status guard when agent throws and retries exhausted', async () => {
+    const fatalAgent: PipelineAgent = {
+      name: 'generation',
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn(async () => { throw new Error('Unrecoverable error'); }),
+    };
+
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Test article.');
+    const costTracker: CostTracker = {
+      reserveBudget: jest.fn().mockResolvedValue(undefined),
+      recordSpend: jest.fn(),
+      getAgentCost: jest.fn().mockReturnValue(0),
+      getTotalSpent: jest.fn().mockReturnValue(0),
+      getAvailableBudget: jest.fn().mockReturnValue(2.0),
+      getAllAgentCosts: jest.fn().mockReturnValue({}),
+    };
+    const ctx: ExecutionContext = {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'fail-test', config: config as EvolutionRunConfig },
+      state, llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(), costTracker, runId: 'fail-test',
+    };
+
+    const agents: PipelineAgents = {
+      generation: fatalAgent,
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+      reflection: makeSpyAgent('reflection'),
+      debate: makeSpyAgent('debate'),
+      proximity: makeSpyAgent('proximity'),
+      metaReview: makeSpyAgent('metaReview'),
+    };
+
+    try {
+      await executeFullPipeline('fail-test', agents, ctx, ctx.logger, {
+        supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+        startMs: Date.now(),
+      });
+    } catch {
+      // Expected — pipeline re-throws
+    }
+
+    // Verify markRunFailed was called: update() with status: 'failed' and .in() with status guard
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const failedUpdate = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg?.status === 'failed' && arg?.completed_at;
+      },
+    );
+    expect(failedUpdate).toBeDefined();
+    expect(failedUpdate![0].error_message).toContain('Unrecoverable error');
+
+    // Verify .in() was called with the status guard
+    const inCalls = (supabase.in as jest.Mock).mock.calls;
+    const statusGuardCall = inCalls.find(
+      (call: unknown[]) => call[0] === 'status',
+    );
+    expect(statusGuardCall).toBeDefined();
+    expect(statusGuardCall![1]).toEqual(expect.arrayContaining(['pending', 'claimed', 'running']));
   });
 });

@@ -334,6 +334,19 @@ describe('PoolSupervisor', () => {
     it('rejects maxIterations <= expansionMaxIterations', () => {
       expect(() => new PoolSupervisor(makeConfig({ maxIterations: 5, expansionMaxIterations: 5 }))).toThrow();
     });
+    it('accepts expansion.maxIterations: 0 with small maxIterations (auto-clamped config)', () => {
+      // After resolveConfig auto-clamps for short runs (e.g. maxIterations: 3),
+      // expansion.maxIterations becomes 0. Supervisor must accept this.
+      const supervisor = new PoolSupervisor(makeConfig({
+        maxIterations: 3,
+        expansionMaxIterations: 0,
+        plateauWindow: 2,
+      }));
+      expect(supervisor.currentPhase).toBe('EXPANSION');
+      // At iteration 0 with expansionMaxIterations=0, should immediately transition to COMPETITION
+      const state = makeState(0, 0);
+      expect(supervisor.detectPhase(state)).toBe('COMPETITION');
+    });
   });
 
   describe('singleArticle mode', () => {

@@ -89,10 +89,10 @@ const _estimateRunCostAction = withLogging(async (
       throw new Error('budgetCapUsd must be a number between 0.01 and 100');
     }
 
-    const isValidTextLength = typeof input.textLength === 'number' &&
-                              isFinite(input.textLength) &&
-                              input.textLength >= 100;
-    const textLength = Math.min(isValidTextLength ? input.textLength! : 5000, 100000);
+    const rawLength = typeof input.textLength === 'number' && isFinite(input.textLength) && input.textLength >= 100
+      ? input.textLength
+      : 5000;
+    const textLength = Math.min(rawLength, 100000);
 
     const supabase = await createSupabaseServiceClient();
 
@@ -175,12 +175,6 @@ const _queueEvolutionRunAction = withLogging(async (
     }
 
     const budgetCap = input.budgetCapUsd ?? strategyConfig?.budgetCapUsd ?? 5.00;
-
-    // Require at least explanationId or promptId
-    if (!input.explanationId && !input.promptId) {
-      throw new Error('Either explanationId or promptId is required');
-    }
-
 
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
@@ -312,11 +306,7 @@ async function buildRunConfig(
     runConfig.judgeModel = strategyConfig.judgeModel;
   }
 
-  const hasBudgetCaps = strategyConfig.budgetCaps != null &&
-                        typeof strategyConfig.budgetCaps === 'object' &&
-                        !Array.isArray(strategyConfig.budgetCaps) &&
-                        Object.keys(strategyConfig.budgetCaps).length > 0;
-  if (hasBudgetCaps) {
+  if (strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0) {
     runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
   }
 
@@ -621,6 +611,18 @@ const _triggerEvolutionRunAction = withLogging(async (
 
     return { success: true, error: null };
   } catch (error) {
+    // Mark run as failed so it doesn't stay stuck in 'running'/'pending' forever
+    try {
+      const supabase = await createSupabaseServiceClient();
+      await supabase.from('content_evolution_runs').update({
+        status: 'failed',
+        error_message: ((error as Error).message || 'Pipeline trigger failed').substring(0, 500),
+        completed_at: new Date().toISOString(),
+      }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
+    } catch (dbError) {
+      // Log but don't throw — original error takes priority
+      logger.error('Failed to mark run as failed', { runId, dbError: String(dbError) });
+    }
     return { success: false, error: handleError(error, 'triggerEvolutionRunAction', { runId }) };
   }
 }, 'triggerEvolutionRunAction');

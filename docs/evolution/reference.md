@@ -34,6 +34,7 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
     treeSearch: 0.10,
     outlineGeneration: 0.10,
     sectionDecomposition: 0.10,
+    flowCritique: 0.05,
   },
   useEmbeddings: false,
   judgeModel: 'gpt-4.1-nano',    // Cheap model for A/B comparison judgments
@@ -42,6 +43,17 @@ Default configuration (`DEFAULT_EVOLUTION_CONFIG` in `config.ts`):
 ```
 
 Per-run overrides stored in `content_evolution_runs.config` (JSONB). Merged via `resolveConfig()` with deep spread for nested objects. When a run is queued with a linked strategy, `queueEvolutionRunAction` copies the following fields from the strategy config into the run's config JSONB as a snapshot: `iterations` → `maxIterations`, `generationModel`, `judgeModel`, `budgetCaps`. This ensures the run executes with the config it was queued with, even if the strategy is later edited.
+
+### Auto-Clamping for Short Runs
+
+`resolveConfig()` auto-clamps `expansion.maxIterations` when `maxIterations` is too small for the default expansion window. This prevents `PoolSupervisor.validateConfig()` from throwing when strategies specify low iteration counts (e.g., `maxIterations: 3`).
+
+Formula: if `maxIterations <= expansion.maxIterations + plateau.window + 1`, clamp to `max(0, maxIterations - plateau.window - 1)`. A `console.warn` is emitted when clamping occurs.
+
+Examples with defaults (`expansion.maxIterations=8`, `plateau.window=3`):
+- `maxIterations: 3` → expansion clamped to 0 (EXPANSION skipped entirely)
+- `maxIterations: 10` → expansion clamped to 6
+- `maxIterations: 15` → no clamping (15 > 8 + 3 + 1 = 12)
 
 **Note:** `maxIterations=N` means the pipeline executes exactly N agent iterations. The for-loop runs `i < maxIterations` iterations, and the `shouldStop()` safety check fires when `state.iteration > maxIterations` (not `>=`).
 
@@ -82,8 +94,9 @@ Per-agent budget caps as a percentage of total run budget (`budgetCapUsd`, defau
 | TreeSearchAgent | 0.10 | 10% |
 | OutlineGenerationAgent | 0.10 | 10% |
 | SectionDecompositionAgent | 0.10 | 10% |
+| FlowCritiqueAgent | 0.05 | 5% |
 
-Caps intentionally sum to >1.0 (1.10) because not all agents run every iteration.
+Caps intentionally sum to >1.0 (1.15) because not all agents run every iteration.
 
 ### Budget Enforcement
 
@@ -124,6 +137,14 @@ When an agent throws a transient error (socket timeout, ECONNRESET, 429, 5xx, Op
 Agents with **internal** protection (IterativeEditingAgent, CalibrationRanker) catch transient errors within their loops, treating them as soft rejections. The pipeline retry acts as a second defense layer for errors that escape agent-level handling.
 
 Retry amplification: OpenAI SDK retries 3× internally (`maxRetries: 3` in `llms.ts`), then the pipeline retries the entire agent once — up to 8 total LLM attempts for a persistent transient error.
+
+### Run Failure Marking (Defense-in-Depth)
+
+Failed runs are marked at two layers to prevent zombie runs (stuck in 'running' forever):
+
+1. **Pipeline layer** (`pipeline.ts:markRunFailed`): Called in the `executeFullPipeline` outer catch. Accepts `agentName: string | null` — when null, formats as "Pipeline error: ...". Sets `status='failed'`, `error_message` (truncated to 500 chars), and `completed_at`. Uses `.in('status', ['pending', 'claimed', 'running'])` guard to only transition non-terminal states (idempotent if both layers fire).
+
+2. **Action layer** (`evolutionActions.ts:triggerEvolutionRunAction` catch): Inline DB update with identical status guard. Wrapped in its own try-catch so a DB error here never masks the original pipeline error.
 
 ### Budget Edge Cases
 - Budget of $0: Stops immediately at the first `shouldStop()` check (available < $0.01).

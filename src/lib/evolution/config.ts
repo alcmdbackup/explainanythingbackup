@@ -38,9 +38,10 @@ export const DEFAULT_EVOLUTION_CONFIG: EvolutionRunConfig = {
   generationModel: 'gpt-4.1-mini' as AllowedLLMModelType,
 };
 
-/** Merge per-run config overrides with defaults. Nested objects are shallow-merged individually. */
+/** Merge per-run config overrides with defaults. Nested objects are shallow-merged individually.
+ *  Auto-clamps expansion.maxIterations when maxIterations is too small for the default expansion window. */
 export function resolveConfig(overrides: Partial<EvolutionRunConfig>): EvolutionRunConfig {
-  return {
+  const resolved = {
     ...DEFAULT_EVOLUTION_CONFIG,
     ...overrides,
     plateau: { ...DEFAULT_EVOLUTION_CONFIG.plateau, ...overrides.plateau },
@@ -50,6 +51,19 @@ export function resolveConfig(overrides: Partial<EvolutionRunConfig>): Evolution
     tournament: { ...DEFAULT_EVOLUTION_CONFIG.tournament, ...overrides.tournament },
     budgetCaps: { ...DEFAULT_EVOLUTION_CONFIG.budgetCaps, ...overrides.budgetCaps },
   };
+
+  // Auto-adjust expansion.maxIterations so supervisor validation passes.
+  // For short runs (e.g. 3 iterations), EXPANSION is skipped entirely.
+  const minCompetitionIters = resolved.plateau.window + 1;
+  if (resolved.maxIterations <= resolved.expansion.maxIterations + minCompetitionIters) {
+    const original = resolved.expansion.maxIterations;
+    resolved.expansion.maxIterations = Math.max(0, resolved.maxIterations - minCompetitionIters);
+    console.warn(
+      `[resolveConfig] Auto-clamped expansion.maxIterations: ${original} → ${resolved.expansion.maxIterations} (maxIterations=${resolved.maxIterations})`
+    );
+  }
+
+  return resolved;
 }
 
 // ─── Rating constants ────────────────────────────────────────────

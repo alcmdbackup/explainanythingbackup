@@ -5,7 +5,7 @@ import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { serializeState } from './state';
 import { getOrdinal, ordinalToEloScale, createRating } from './rating';
 import { PoolSupervisor, supervisorConfigFromRunConfig } from './supervisor';
-import type { SupervisorResumeState } from './supervisor';
+import type { SupervisorResumeState, PhaseConfig } from './supervisor';
 import type { PipelineState, EvolutionLogger, PipelinePhase, AgentResult, ExecutionContext, EvolutionRunSummary, AgentExecutionDetail } from '../types';
 import { BudgetExceededError, BASELINE_STRATEGY, EvolutionRunSummarySchema } from '../types';
 import { ComparisonCache } from './comparisonCache';
@@ -103,13 +103,17 @@ async function persistVariants(
   }
 }
 
-/** Mark run as failed in DB. */
-async function markRunFailed(runId: string, agentName: string, error: unknown): Promise<void> {
+/** Mark run as failed in DB. Only transitions from non-terminal states. */
+async function markRunFailed(runId: string, agentName: string | null, error: unknown): Promise<void> {
   const supabase = await createSupabaseServiceClient();
+  const message = agentName
+    ? `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`
+    : `Pipeline error: ${error instanceof Error ? error.message : String(error)}`;
   await supabase.from('content_evolution_runs').update({
     status: 'failed',
-    error_message: `Agent ${agentName}: ${error instanceof Error ? error.message : String(error)}`,
-  }).eq('id', runId);
+    error_message: message.substring(0, 500),
+    completed_at: new Date().toISOString(),
+  }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
 }
 
 /** Mark run as paused (budget exceeded). */
@@ -239,6 +243,49 @@ function getAgentForStrategy(strategy: string): string | null {
   if (strategy.startsWith('critique_edit_')) return 'iterativeEditing';
   if (strategy.startsWith('section_decomposition_')) return 'sectionDecomposition';
   return null;
+}
+
+/** Validate and persist cost prediction, then refresh agent baselines. Non-fatal on failure. */
+async function persistCostPrediction(
+  supabase: Awaited<ReturnType<typeof createSupabaseServiceClient>>,
+  runId: string,
+  costEstimateDetail: unknown,
+  ctx: ExecutionContext,
+  logger: EvolutionLogger,
+): Promise<void> {
+  const { computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } = await import('../index');
+
+  const estimateParsed = RunCostEstimateSchema.safeParse(costEstimateDetail);
+  if (!estimateParsed.success) {
+    logger.warn('cost_estimate_detail failed Zod validation — skipping prediction', {
+      runId, errors: estimateParsed.error.issues.map(i => i.message),
+    });
+    return;
+  }
+
+  const prediction = computeCostPrediction(estimateParsed.data, ctx.costTracker.getAllAgentCosts());
+  const parsed = CostPredictionSchema.safeParse(prediction);
+  if (!parsed.success) {
+    logger.warn('Cost prediction failed Zod validation — skipping write', {
+      runId, errors: parsed.error.issues.map(i => i.message),
+    });
+    return;
+  }
+
+  const { error: predErr } = await supabase
+    .from('content_evolution_runs')
+    .update({ cost_prediction: parsed.data })
+    .eq('id', runId);
+  if (predErr) {
+    logger.warn('Failed to persist cost_prediction', { runId, error: predErr.message });
+  }
+
+  // Refresh baselines for future estimates (best-effort, non-blocking)
+  refreshAgentCostBaselines(30).catch((err: unknown) => {
+    logger.warn('refreshAgentCostBaselines failed (non-blocking)', {
+      runId, error: err instanceof Error ? err.message : String(err),
+    });
+  });
 }
 
 /** Persist per-agent cost metrics for Elo/dollar optimization analysis. */
@@ -411,40 +458,7 @@ export async function finalizePipelineRun(
       .single();
 
     if (runRow?.cost_estimate_detail) {
-      const { computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } = await import('../index');
-      const estimateParsed = RunCostEstimateSchema.safeParse(runRow.cost_estimate_detail);
-      if (!estimateParsed.success) {
-        logger.warn('cost_estimate_detail failed Zod validation — skipping prediction', {
-          runId, errors: estimateParsed.error.issues.map(i => i.message),
-        });
-      } else {
-        const actualCosts = ctx.costTracker.getAllAgentCosts();
-        const prediction = computeCostPrediction(
-          estimateParsed.data,
-          actualCosts,
-        );
-        const parsed = CostPredictionSchema.safeParse(prediction);
-        if (!parsed.success) {
-          logger.warn('Cost prediction failed Zod validation — skipping write', {
-            runId, errors: parsed.error.issues.map(i => i.message),
-          });
-        } else {
-          const { error: predErr } = await supabase
-            .from('content_evolution_runs')
-            .update({ cost_prediction: parsed.data })
-            .eq('id', runId);
-          if (predErr) {
-            logger.warn('Failed to persist cost_prediction', { runId, error: predErr.message });
-          }
-        }
-
-        // Refresh baselines for future estimates (best-effort, non-blocking)
-        refreshAgentCostBaselines(30).catch((err: unknown) => {
-          logger.warn('refreshAgentCostBaselines failed (non-blocking)', {
-            runId, error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
+      await persistCostPrediction(supabase, runId, runRow.cost_estimate_detail, ctx, logger);
     }
   } catch (err) {
     logger.warn('Cost prediction computation failed (non-blocking)', {
@@ -801,6 +815,35 @@ export interface PipelineAgents {
 /** Type-safe agent name union derived from PipelineAgents keys. */
 export type AgentName = keyof PipelineAgents;
 
+/** Entry for a conditionally-executed agent gated by phase config and feature flags. */
+interface GatedAgentEntry {
+  configKey: keyof PhaseConfig;
+  agent: PipelineAgent | undefined;
+  flagKey?: keyof EvolutionFeatureFlags;
+}
+
+/** Run agents gated by phase config and feature flags. Returns updated executionOrder. */
+async function runGatedAgents(
+  entries: GatedAgentEntry[],
+  config: PhaseConfig,
+  featureFlags: EvolutionFeatureFlags | undefined,
+  runId: string,
+  ctx: ExecutionContext,
+  phase: PipelinePhase,
+  logger: EvolutionLogger,
+  executionOrder: number,
+): Promise<number> {
+  for (const { configKey, agent, flagKey } of entries) {
+    if (!config[configKey] || !agent) continue;
+    if (flagKey && featureFlags?.[flagKey] === false) {
+      logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
+      continue;
+    }
+    await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
+  }
+  return executionOrder;
+}
+
 /** Options for full pipeline execution. */
 export interface FullPipelineOptions {
   /** Restore supervisor state from a previous checkpoint. */
@@ -920,23 +963,10 @@ export async function executeFullPipeline(
         }
 
         // Pre-edit agents: outline generation + quality critique (run before flow critique + editing)
-        const preEditAgents: Array<{
-          configKey: keyof typeof config;
-          agent: PipelineAgent | undefined;
-          flagKey?: keyof EvolutionFeatureFlags;
-        }> = [
+        executionOrder = await runGatedAgents([
           { configKey: 'runOutlineGeneration', agent: agents.outlineGeneration, flagKey: 'outlineGenerationEnabled' },
           { configKey: 'runReflection', agent: agents.reflection },
-        ];
-
-        for (const { configKey, agent, flagKey } of preEditAgents) {
-          if (!config[configKey] || !agent) continue;
-          if (flagKey && options.featureFlags?.[flagKey] === false) {
-            logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
-            continue;
-          }
-          await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
-        }
+        ], config, options.featureFlags, runId, ctx, phase, logger, executionOrder);
 
         // === Flow Critique (step 3b) — runs after quality critique, before editing agents ===
         if (config.runReflection && options.featureFlags?.flowCritiqueEnabled === true) {
@@ -959,26 +989,13 @@ export async function executeFullPipeline(
         }
 
         // Feature-flag-gated editing + evolution agents
-        const flagGatedAgents: Array<{
-          configKey: keyof typeof config;
-          agent: PipelineAgent | undefined;
-          flagKey?: keyof EvolutionFeatureFlags;
-        }> = [
+        executionOrder = await runGatedAgents([
           { configKey: 'runIterativeEditing', agent: agents.iterativeEditing, flagKey: 'iterativeEditingEnabled' },
           { configKey: 'runTreeSearch', agent: agents.treeSearch, flagKey: 'treeSearchEnabled' },
           { configKey: 'runSectionDecomposition', agent: agents.sectionDecomposition, flagKey: 'sectionDecompositionEnabled' },
           { configKey: 'runDebate', agent: agents.debate, flagKey: 'debateEnabled' },
           { configKey: 'runEvolution', agent: agents.evolution, flagKey: 'evolvePoolEnabled' },
-        ];
-
-        for (const { configKey, agent, flagKey } of flagGatedAgents) {
-          if (!config[configKey] || !agent) continue;
-          if (flagKey && options.featureFlags?.[flagKey] === false) {
-            logger.info(`${agent.name} agent disabled by feature flag`, { iteration: ctx.state.iteration });
-            continue;
-          }
-          await runAgent(runId, agent, ctx, phase, logger, executionOrder++);
-        }
+        ], config, options.featureFlags, runId, ctx, phase, logger, executionOrder);
 
         // === Calibration (EXPANSION) or Tournament (COMPETITION) ===
         if (config.runCalibration) {
@@ -1046,6 +1063,8 @@ export async function executeFullPipeline(
     pipelineSpan.setStatus({ code: 2, message: (error as Error).message });
     // Flush buffered log entries on error so they're visible in admin UI
     if (logger.flush) await logger.flush().catch(() => {});
+    // Mark run as failed if not already in a terminal status
+    await markRunFailed(runId, null, error);
     throw error;
   } finally {
     pipelineSpan.end();

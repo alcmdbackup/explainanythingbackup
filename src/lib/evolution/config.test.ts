@@ -44,6 +44,41 @@ describe('resolveConfig', () => {
   });
 });
 
+describe('resolveConfig — expansion auto-clamping', () => {
+  it('clamps expansion.maxIterations to 0 when maxIterations is 3', () => {
+    const config = resolveConfig({ maxIterations: 3 });
+    // minCompetitionIters = plateau.window(3) + 1 = 4
+    // 3 <= 8 + 4, so clamp to max(0, 3 - 4) = 0
+    expect(config.expansion.maxIterations).toBe(0);
+  });
+
+  it('clamps expansion.maxIterations to 6 when maxIterations is 10', () => {
+    const config = resolveConfig({ maxIterations: 10 });
+    // 10 <= 8 + 4, so clamp to max(0, 10 - 4) = 6
+    expect(config.expansion.maxIterations).toBe(6);
+  });
+
+  it('does not clamp when maxIterations is large enough (15)', () => {
+    const config = resolveConfig({ maxIterations: 15 });
+    // 15 > 8 + 4 = 12, so no clamping
+    expect(config.expansion.maxIterations).toBe(DEFAULT_EVOLUTION_CONFIG.expansion.maxIterations);
+  });
+
+  it('logs console.warn when clamping occurs', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resolveConfig({ maxIterations: 3 });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('Auto-clamped'));
+    warnSpy.mockRestore();
+  });
+
+  it('does not log console.warn when no clamping needed', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    resolveConfig({ maxIterations: 15 });
+    expect(warnSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
 describe('budgetCaps completeness', () => {
   it('includes entries for all LLM-calling agents including pairwise', () => {
     const caps = DEFAULT_EVOLUTION_CONFIG.budgetCaps;

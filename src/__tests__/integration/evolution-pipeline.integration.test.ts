@@ -283,6 +283,135 @@ describe('Evolution Pipeline Integration Tests', () => {
     });
   });
 
+  describe('Config auto-clamping', () => {
+    it('resolveConfig clamps expansion.maxIterations for short runs', async () => {
+      if (!tablesReady) return;
+
+      const { resolveConfig } = await import('@/lib/evolution/config');
+      const clamped = resolveConfig({ maxIterations: 3 });
+
+      // maxIterations=3 → expansion clamped to max(0, 3 - plateau.window(3) - 1) = 0
+      expect(clamped.expansion.maxIterations).toBe(0);
+      expect(clamped.maxIterations).toBe(3);
+    });
+
+    it('auto-clamped config runs minimal pipeline without supervisor crash', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId);
+      const runId = run.id as string;
+
+      const mockLLM = createMockEvolutionLLMClient({
+        complete: jest.fn().mockResolvedValue(VALID_VARIANT_TEXT),
+      });
+
+      // Build context with clamped config (maxIterations=3 → expansion=0)
+      const { resolveConfig } = await import('@/lib/evolution/config');
+      const config = resolveConfig({ maxIterations: 3 });
+      const state = new PipelineStateImpl('Test auto-clamp integration.');
+      const costTracker = new CostTrackerImpl(config.budgetCapUsd, config.budgetCaps);
+      const logger = createMockEvolutionLogger();
+
+      const ctx: ExecutionContext = {
+        payload: {
+          originalText: state.originalText,
+          title: 'Auto-Clamp Test',
+          explanationId: testExplanationId,
+          runId,
+          config,
+        },
+        state,
+        llmClient: mockLLM,
+        logger,
+        costTracker,
+        runId,
+      };
+
+      state.startNewIteration();
+      const agents = [new GenerationAgent(), new CalibrationRanker()];
+      await executeMinimalPipeline(runId, agents, ctx, logger);
+
+      const { data: updatedRun } = await supabase
+        .from('content_evolution_runs')
+        .select('status')
+        .eq('id', runId)
+        .single();
+
+      expect(updatedRun!.status).toBe('completed');
+    });
+  });
+
+  describe('Status guard', () => {
+    it('does not overwrite terminal status (completed) via status-guarded update', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      });
+      const runId = run.id as string;
+
+      // Attempt a status-guarded update that mimics markRunFailed's SQL
+      const { data, error } = await supabase
+        .from('content_evolution_runs')
+        .update({
+          status: 'failed',
+          error_message: 'Should not overwrite completed',
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', runId)
+        .in('status', ['pending', 'claimed', 'running'])
+        .select('status')
+        .single();
+
+      // The .in guard should prevent the update — row stays completed
+      // Supabase returns null data (no rows matched) rather than an error
+      if (data) {
+        // If somehow returned, it must still be completed
+        expect(data.status).toBe('completed');
+      }
+
+      // Verify run is still completed
+      const { data: verify } = await supabase
+        .from('content_evolution_runs')
+        .select('status, error_message')
+        .eq('id', runId)
+        .single();
+
+      expect(verify!.status).toBe('completed');
+      expect(verify!.error_message).not.toBe('Should not overwrite completed');
+    });
+
+    it('does overwrite non-terminal status (running) via status-guarded update', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'running',
+      });
+      const runId = run.id as string;
+
+      await supabase
+        .from('content_evolution_runs')
+        .update({
+          status: 'failed',
+          error_message: 'Agent generation: test error',
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', runId)
+        .in('status', ['pending', 'claimed', 'running']);
+
+      const { data: verify } = await supabase
+        .from('content_evolution_runs')
+        .select('status, error_message, completed_at')
+        .eq('id', runId)
+        .single();
+
+      expect(verify!.status).toBe('failed');
+      expect(verify!.error_message).toBe('Agent generation: test error');
+      expect(verify!.completed_at).toBeTruthy();
+    });
+  });
+
   describe.skip('Staging (real OpenAI)', () => {
     it('runs minimal pipeline with real OpenAI', async () => {
       if (!process.env.OPENAI_API_KEY) return;
