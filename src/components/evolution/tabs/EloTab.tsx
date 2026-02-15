@@ -2,16 +2,17 @@
 // Elo rating history chart showing variant performance trajectories across iterations.
 // Renders a Recharts line chart with strategy-colored lines and top-N filtering.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { STRATEGY_PALETTE } from '@/components/evolution/VariantCard';
+import { useAutoRefresh } from '@/components/evolution/AutoRefreshProvider';
 import {
   getEvolutionRunEloHistoryAction,
   type EloHistoryData,
 } from '@/lib/services/evolutionVisualizationActions';
 
 const EloChart = dynamic(() => import('recharts').then((mod) => {
-  const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } = mod;
+  const { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer, Label } = mod;
 
   function Chart({ data, variants, topN }: {
     data: EloHistoryData['history'];
@@ -34,20 +35,31 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
       return row;
     });
 
+    // Contextual Y-axis minimum: round down to nearest 50 below the overall min
+    const allRatings = data.flatMap(h => Object.values(h.ratings));
+    const minRating = allRatings.length > 0 ? Math.min(...allRatings) : 800;
+    const yMin = Math.floor(minRating / 50) * 50;
+
     const variantMap = new Map(variants.map(v => [v.id, v]));
 
     return (
       <ResponsiveContainer width="100%" height={400}>
         <LineChart data={chartData}>
-          <XAxis dataKey="iteration" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} />
-          <YAxis domain={[800, 'auto']} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={50} />
+          <XAxis dataKey="iteration" tick={{ fontSize: 10, fill: 'var(--text-muted)' }}>
+            <Label value="Iteration" position="insideBottom" offset={-2} fontSize={10} fill="var(--text-muted)" />
+          </XAxis>
+          <YAxis domain={[yMin, 'auto']} tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={50}>
+            <Label value="Elo" angle={-90} position="insideLeft" fontSize={10} fill="var(--text-muted)" />
+          </YAxis>
           <Tooltip
             contentStyle={{ background: 'var(--surface-elevated)', border: '1px solid var(--border-default)', borderRadius: 6, fontSize: 11 }}
             formatter={(value, name) => {
               const v = variantMap.get(String(name));
-              return [Math.round(Number(value ?? 0)), v ? `${v.shortId} (${v.strategy})` : String(name)];
+              const label = v ? `${v.shortId} (${v.strategy}) — click in Variants tab` : String(name);
+              return [Math.round(Number(value ?? 0)), label];
             }}
           />
+          <ReferenceLine y={1200} stroke="var(--text-muted)" strokeDasharray="4 4" strokeOpacity={0.5} label={{ value: 'Baseline 1200', fill: 'var(--text-muted)', fontSize: 9, position: 'right' }} />
           {variants.map(v => {
             const isTop = topIds.has(v.id);
             return (
@@ -72,24 +84,29 @@ const EloChart = dynamic(() => import('recharts').then((mod) => {
 }), { ssr: false, loading: () => <div className="h-[400px] bg-[var(--surface-secondary)] rounded-book animate-pulse" /> });
 
 export function EloTab({ runId }: { runId: string }) {
+  const { refreshKey, reportRefresh, reportError } = useAutoRefresh();
   const [data, setData] = useState<EloHistoryData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [topN, setTopN] = useState(5);
+  const initialLoad = useRef(true);
 
   useEffect(() => {
     async function load() {
-      setLoading(true);
+      if (initialLoad.current) setLoading(true);
       const result = await getEvolutionRunEloHistoryAction(runId);
       if (result.success && result.data) {
         setData(result.data);
+        reportRefresh();
       } else {
-        setError(result.error?.message ?? 'Failed to load Elo history');
+        const msg = result.error?.message ?? 'Failed to load Elo history';
+        setError(msg);
+        if (!initialLoad.current) reportError(msg);
       }
-      setLoading(false);
+      if (initialLoad.current) { setLoading(false); initialLoad.current = false; }
     }
     load();
-  }, [runId]);
+  }, [runId, refreshKey, reportRefresh, reportError]);
 
   if (loading) return <div className="h-[400px] bg-[var(--surface-elevated)] rounded-book animate-pulse" />;
   if (error) return <div className="text-[var(--status-error)] text-sm p-4">{error}</div>;
@@ -109,7 +126,7 @@ export function EloTab({ runId }: { runId: string }) {
             onChange={e => setTopN(Number(e.target.value))}
             className="w-24"
           />
-          <span>{topN}</span>
+          <span data-testid="elo-top-label">{topN} of {data?.variants.length ?? 0}</span>
         </div>
       </div>
       <div className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4">

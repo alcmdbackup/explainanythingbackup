@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import type { AgentROI } from '@/lib/evolution/core/adaptiveAllocation';
+import { formatCost } from '@/lib/utils/formatters';
 
 interface CostBreakdownPieProps {
   agents: AgentROI[];
@@ -133,7 +134,7 @@ export function CostBreakdownPie({ agents, loading }: CostBreakdownPieProps) {
           Cost Distribution
         </CardTitle>
         <p className="text-xs font-ui text-[var(--text-muted)] mt-1">
-          Total: ${totalCost.toFixed(2)} across {agents.reduce((s, a) => s + a.sampleSize, 0)} samples
+          Total: {formatCost(totalCost)} across {agents.reduce((s, a) => s + a.sampleSize, 0)} samples
         </p>
       </CardHeader>
       <CardContent>
@@ -196,7 +197,7 @@ export function CostBreakdownPie({ agents, loading }: CostBreakdownPieProps) {
                   {slice.percentage.toFixed(1)}%
                 </span>
                 <span className="font-mono text-xs text-[var(--text-secondary)]">
-                  ${slice.totalCost.toFixed(2)}
+                  {formatCost(slice.totalCost)}
                 </span>
               </div>
             ))}

@@ -1,9 +1,10 @@
 // Detail view for TournamentAgent showing round-by-round match brackets and exit conditions.
 
 import type { TournamentExecutionDetail } from '@/lib/evolution/types';
+import { formatScore } from '@/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, Metric, ShortId } from './shared';
 
-export function TournamentDetail({ detail }: { detail: TournamentExecutionDetail }): JSX.Element {
+export function TournamentDetail({ detail, runId }: { detail: TournamentExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="tournament-detail">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -26,9 +27,9 @@ export function TournamentDetail({ detail }: { detail: TournamentExecutionDetail
               <div className="flex flex-wrap gap-1.5">
                 {r.pairs.map((p, j) => (
                   <div key={j} className="flex items-center gap-1 text-[var(--text-muted)]">
-                    <ShortId id={p.variantA} />
+                    <ShortId id={p.variantA} runId={runId} />
                     <span>vs</span>
-                    <ShortId id={p.variantB} />
+                    <ShortId id={p.variantB} runId={runId} />
                   </div>
                 ))}
               </div>
@@ -39,7 +40,7 @@ export function TournamentDetail({ detail }: { detail: TournamentExecutionDetail
       <div className="flex items-center gap-4 text-xs text-[var(--text-muted)] font-ui">
         <span>Convergence: {detail.convergenceStreak} streak</span>
         <span>Stale: {detail.staleRounds}</span>
-        <span>Pressure: {detail.budgetPressure.toFixed(2)}</span>
+        <span>Pressure: {formatScore(detail.budgetPressure)}</span>
         <span>Cost: <CostDisplay cost={detail.totalCost} /></span>
       </div>
     </div>

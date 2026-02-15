@@ -63,7 +63,7 @@ Three mechanisms prevent beam slots from converging to similar variants:
 | `src/lib/evolution/treeOfThought/evaluator.ts` | Stage 1 (parent-relative filter), Stage 2 (sibling mini-tournament with local OpenSkill ratings) |
 | `src/lib/evolution/treeOfThought/index.ts` | Barrel exports |
 | `src/lib/evolution/agents/treeSearchAgent.ts` | AgentBase implementation: root selection, budget reservation, pool injection |
-| `src/components/evolution/tabs/TreeTab.tsx` | Tree search visualization tab with D3 rendering |
+| `src/components/evolution/tabs/LineageTab.tsx` | Tree search visualization (merged into Lineage tab with Full DAG / Pruned Tree toggle) |
 
 ## Testing
 

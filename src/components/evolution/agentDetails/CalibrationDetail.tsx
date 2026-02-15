@@ -1,9 +1,10 @@
 // Detail view for CalibrationAgent showing per-entrant match results and rating changes.
 
 import type { CalibrationExecutionDetail } from '@/lib/evolution/types';
+import { formatScore, formatScore1 } from '@/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function CalibrationDetail({ detail }: { detail: CalibrationExecutionDetail }): JSX.Element {
+export function CalibrationDetail({ detail, runId }: { detail: CalibrationExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="calibration-detail">
       <DetailSection title="Entrants">
@@ -12,11 +13,11 @@ export function CalibrationDetail({ detail }: { detail: CalibrationExecutionDeta
             <div key={i} className="px-3 py-2 bg-[var(--surface-elevated)] rounded-page text-xs">
               <div className="flex items-center justify-between mb-1">
                 <div className="flex items-center gap-2">
-                  <ShortId id={e.variantId} />
+                  <ShortId id={e.variantId} runId={runId} />
                   {e.earlyExit && <StatusBadge status="early_exit" />}
                 </div>
                 <span className="font-mono text-[var(--text-muted)]">
-                  μ {e.ratingBefore.mu.toFixed(1)} → {e.ratingAfter.mu.toFixed(1)}
+                  μ {formatScore1(e.ratingBefore.mu)} → {formatScore1(e.ratingAfter.mu)}
                 </span>
               </div>
               <div className="flex flex-wrap gap-1.5 mt-1">
@@ -28,7 +29,7 @@ export function CalibrationDetail({ detail }: { detail: CalibrationExecutionDeta
                         ? 'bg-[var(--status-success)]/15 text-[var(--status-success)]'
                         : 'bg-[var(--status-error)]/15 text-[var(--status-error)]'
                     }`}
-                    title={`vs ${m.opponentId} (conf: ${m.confidence.toFixed(2)}${m.cacheHit ? ', cached' : ''})`}
+                    title={`vs ${m.opponentId} (conf: ${formatScore(m.confidence)}${m.cacheHit ? ', cached' : ''})`}
                   >
                     {m.winner === e.variantId ? 'W' : 'L'}
                   </span>
@@ -40,7 +41,7 @@ export function CalibrationDetail({ detail }: { detail: CalibrationExecutionDeta
       </DetailSection>
       <div className="grid grid-cols-3 gap-4">
         <Metric label="Total Matches" value={detail.totalMatches} />
-        <Metric label="Avg Confidence" value={detail.avgConfidence.toFixed(2)} />
+        <Metric label="Avg Confidence" value={formatScore(detail.avgConfidence)} />
         <Metric label="Cost" value={<CostDisplay cost={detail.totalCost} />} />
       </div>
     </div>

@@ -100,9 +100,9 @@ describe('VariantsTab', () => {
       expect(screen.getByTestId('variants-tab')).toBeInTheDocument();
     });
 
-    // Should show both variant IDs (truncated to 8 chars)
-    expect(screen.getByText('aaaa-111')).toBeInTheDocument();
-    expect(screen.getByText('dddd-444')).toBeInTheDocument();
+    // Should show both variant IDs (truncated to 6 chars inline in rank cell)
+    expect(screen.getByText('aaaa-1')).toBeInTheDocument();
+    expect(screen.getByText('dddd-4')).toBeInTheDocument();
 
     // Should show Elo scores
     expect(screen.getByText('1400')).toBeInTheDocument();
@@ -142,16 +142,16 @@ describe('VariantsTab', () => {
     });
 
     // Both rows visible initially
-    expect(screen.getByText('aaaa-111')).toBeInTheDocument();
-    expect(screen.getByText('dddd-444')).toBeInTheDocument();
+    expect(screen.getByText('aaaa-1')).toBeInTheDocument();
+    expect(screen.getByText('dddd-4')).toBeInTheDocument();
 
     // Filter to 'generation' only
     const select = screen.getByRole('combobox');
     fireEvent.change(select, { target: { value: 'generation' } });
 
     // Only the generation variant should be visible
-    expect(screen.queryByText('aaaa-111')).not.toBeInTheDocument();
-    expect(screen.getByText('dddd-444')).toBeInTheDocument();
+    expect(screen.queryByText('aaaa-1')).not.toBeInTheDocument();
+    expect(screen.getByText('dddd-4')).toBeInTheDocument();
   });
 
   it('expand/collapse variant text', async () => {
@@ -190,7 +190,7 @@ describe('VariantsTab', () => {
     // Table headers should exist but no data rows
     expect(screen.getByText('Rank')).toBeInTheDocument();
     expect(screen.getByText('Elo')).toBeInTheDocument();
-    // No variant IDs
-    expect(screen.queryByText(/^[a-f0-9]{8}$/)).not.toBeInTheDocument();
+    // No variant IDs (6-char truncation)
+    expect(screen.queryByText(/^[a-f0-9]{6}$/)).not.toBeInTheDocument();
   });
 });

@@ -2,9 +2,11 @@
 // Prompt Registry admin page. Provides CRUD management for evolution pipeline prompts
 // with filtering by status, inline editing, and archive/delete confirmation dialogs.
 
-import { useState, useCallback, useEffect } from 'react';
+import { Fragment, useState, useCallback, useEffect } from 'react';
+import Link from 'next/link';
 import { logger } from '@/lib/client_utilities';
 import { toast } from 'sonner';
+import { EvolutionBreadcrumb, TableSkeleton, EmptyState } from '@/components/evolution';
 import {
   getPromptsAction,
   createPromptAction,
@@ -13,6 +15,9 @@ import {
   deletePromptAction,
 } from '@/lib/services/promptRegistryActions';
 import type { PromptMetadata } from '@/lib/evolution/types';
+import { getPromptRunsAction, type StrategyRunEntry } from '@/lib/services/eloBudgetActions';
+import { buildRunUrl, buildExplanationUrl } from '@/lib/utils/evolutionUrls';
+import { formatCostDetailed } from '@/lib/utils/formatters';
 
 type StatusFilter = 'all' | 'active' | 'archived';
 
@@ -268,6 +273,11 @@ export default function PromptRegistryPage() {
   const [confirmArchive, setConfirmArchive] = useState<PromptMetadata | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<PromptMetadata | null>(null);
 
+  // Expansion state for runs
+  const [expandedPromptId, setExpandedPromptId] = useState<string | null>(null);
+  const [promptRuns, setPromptRuns] = useState<StrategyRunEntry[]>([]);
+  const [promptRunsLoading, setPromptRunsLoading] = useState(false);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -298,6 +308,19 @@ export default function PromptRegistryPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const togglePromptRuns = async (promptId: string) => {
+    if (expandedPromptId === promptId) {
+      setExpandedPromptId(null);
+      return;
+    }
+    setExpandedPromptId(promptId);
+    setPromptRunsLoading(true);
+    const result = await getPromptRunsAction(promptId, 10);
+    if (result.success && result.data) setPromptRuns(result.data);
+    else setPromptRuns([]);
+    setPromptRunsLoading(false);
+  };
 
   // ─── Handlers ───────────────────────────────────────────────
 
@@ -382,6 +405,10 @@ export default function PromptRegistryPage() {
 
   return (
     <div className="space-y-6">
+      <EvolutionBreadcrumb items={[
+        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Prompt Registry' },
+      ]} />
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
@@ -447,22 +474,23 @@ export default function PromptRegistryPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)] font-body">
-                  Loading...
+                <td colSpan={7} className="p-0">
+                  <TableSkeleton columns={7} rows={4} />
                 </td>
               </tr>
             ) : prompts.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-[var(--text-muted)] font-body">
-                  No prompts found. Click &quot;Add Prompt&quot; to create one.
+                <td colSpan={7}>
+                  <EmptyState message="No prompts found" suggestion="Click 'Add Prompt' to create one" />
                 </td>
               </tr>
             ) : (
               prompts.map((p) => (
+                <Fragment key={p.id}>
                 <tr
-                  key={p.id}
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]"
+                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
                   data-testid={`prompt-row-${p.id}`}
+                  onClick={() => togglePromptRuns(p.id)}
                 >
                   {/* Title */}
                   <td className="p-3 text-[var(--text-primary)] font-ui font-medium whitespace-nowrap">
@@ -504,7 +532,7 @@ export default function PromptRegistryPage() {
                   </td>
 
                   {/* Actions */}
-                  <td className="p-3">
+                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex gap-2">
                       <button
                         onClick={() => setEditingPrompt(p)}
@@ -537,6 +565,60 @@ export default function PromptRegistryPage() {
                     </div>
                   </td>
                 </tr>
+                {expandedPromptId === p.id && (
+                  <tr data-testid={`prompt-runs-${p.id}`}>
+                    <td colSpan={7} className="p-4 bg-[var(--surface-elevated)]">
+                      <div className="text-sm font-ui font-semibold text-[var(--text-primary)] mb-2">
+                        Runs using this prompt
+                      </div>
+                      {promptRunsLoading ? (
+                        <div className="text-xs text-[var(--text-muted)] font-ui">Loading runs...</div>
+                      ) : promptRuns.length === 0 ? (
+                        <div className="text-xs text-[var(--text-muted)] font-ui">No runs found for this prompt</div>
+                      ) : (
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="text-[var(--text-muted)] font-ui">
+                              <th className="p-1.5 text-left">Run</th>
+                              <th className="p-1.5 text-left">Explanation</th>
+                              <th className="p-1.5 text-center">Status</th>
+                              <th className="p-1.5 text-right">Cost</th>
+                              <th className="p-1.5 text-right">Iters</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {promptRuns.map((run) => (
+                              <tr key={run.runId} className="border-t border-[var(--border-default)]">
+                                <td className="p-1.5">
+                                  <Link href={buildRunUrl(run.runId)} className="font-mono text-[var(--accent-gold)] hover:underline">
+                                    {run.runId.substring(0, 8)}
+                                  </Link>
+                                </td>
+                                <td className="p-1.5 text-[var(--text-primary)] truncate max-w-[200px]">
+                                  {run.explanationId ? (
+                                    <Link href={buildExplanationUrl(run.explanationId)} className="hover:text-[var(--accent-gold)] hover:underline">
+                                      {run.explanationTitle}
+                                    </Link>
+                                  ) : run.explanationTitle}
+                                </td>
+                                <td className="p-1.5 text-center">
+                                  <span className={`px-1.5 py-0.5 rounded-page ${
+                                    run.status === 'completed' ? 'bg-[var(--status-success)]/20 text-[var(--status-success)]'
+                                      : run.status === 'failed' ? 'bg-[var(--status-error)]/20 text-[var(--status-error)]'
+                                      : 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]'
+                                  }`}>{run.status}</span>
+                                </td>
+                                <td className="p-1.5 text-right font-mono text-[var(--text-secondary)]">{formatCostDetailed(run.totalCostUsd)}</td>
+                                <td className="p-1.5 text-right text-[var(--text-muted)]">{run.iterations}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))
             )}
           </tbody>

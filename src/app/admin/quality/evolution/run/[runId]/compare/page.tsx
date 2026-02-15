@@ -4,8 +4,8 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
 import { diffWordsWithSpace } from 'diff';
+import { EvolutionBreadcrumb } from '@/components/evolution';
 import {
   getEvolutionRunComparisonAction,
   type ComparisonData,
@@ -87,17 +87,14 @@ export default function EvolutionComparePage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="text-xs text-[var(--text-muted)]">
-        <Link href="/admin/quality/evolution" className="hover:text-[var(--accent-gold)]">Evolution</Link>
-        <span className="mx-1">/</span>
-        <Link href={`/admin/quality/evolution/run/${runId}`} className="hover:text-[var(--accent-gold)]">Run</Link>
-        <span className="mx-1">/</span>
-        <span>Compare</span>
-      </div>
+      <EvolutionBreadcrumb items={[
+        { label: 'Pipeline Runs', href: '/admin/quality/evolution' },
+        { label: `Run ${runId.substring(0, 8)}`, href: `/admin/quality/evolution/run/${runId}` },
+        { label: 'Compare' },
+      ]} />
 
       <h1 className="text-3xl font-display font-bold text-[var(--text-primary)]">
-        Before / After Comparison
+        Before &amp; After Comparison
       </h1>
 
       {/* Text diff */}

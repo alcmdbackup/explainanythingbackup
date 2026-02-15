@@ -1,5 +1,5 @@
 // Unit tests for evolution watchdog cron endpoint.
-// Covers auth, stale run detection, and SCRIPT-4 env-configurable threshold.
+// Covers auth, stale run detection, per-run structured error, and configurable threshold.
 
 import { GET } from './route';
 
@@ -16,33 +16,37 @@ jest.mock('@/lib/server_utilities', () => ({
   },
 }));
 
-jest.mock('@/lib/utils/cronAuth', () => ({
-  requireCronAuth: jest.fn(),
-}));
-
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
-import { requireCronAuth } from '@/lib/utils/cronAuth';
 
-function makeRequest(): Request {
+function makeRequest(bearer = 'Bearer test-secret'): Request {
   return {
     headers: {
-      get: (name: string) => name.toLowerCase() === 'authorization' ? 'Bearer test-secret' : null,
+      get: (name: string) => name.toLowerCase() === 'authorization' ? bearer : null,
     },
   } as unknown as Request;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (requireCronAuth as jest.Mock).mockReturnValue(null); // auth passes
+  process.env.CRON_SECRET = 'test-secret';
+});
+
+afterEach(() => {
+  delete process.env.CRON_SECRET;
 });
 
 describe('evolution-watchdog', () => {
-  it('returns error when auth fails', async () => {
-    const errorResponse = { status: 401, json: async () => ({ error: 'Unauthorized' }) };
-    (requireCronAuth as jest.Mock).mockReturnValue(errorResponse);
+  it('returns 401 when auth fails', async () => {
+    const response = await GET(makeRequest('Bearer wrong-secret'));
+    const body = await response.json();
+    expect(response.status).toBe(401);
+    expect(body.error).toBe('Unauthorized');
+  });
 
+  it('returns 401 when CRON_SECRET is not configured (fail-closed)', async () => {
+    delete process.env.CRON_SECRET;
     const response = await GET(makeRequest());
-    expect(response).toBe(errorResponse);
+    expect(response.status).toBe(401);
   });
 
   it('returns ok with 0 stale runs when none found', async () => {
@@ -61,23 +65,23 @@ describe('evolution-watchdog', () => {
     expect(body.staleRunsFound).toBe(0);
   });
 
-  it('marks stale runs as failed', async () => {
+  it('marks stale runs as failed with structured error', async () => {
     const staleRuns = [
       { id: 'run-1', runner_id: 'r1', last_heartbeat: '2020-01-01', current_iteration: 1, phase: 'running' },
     ];
 
     const updateMock = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({ error: null }),
+      eq: jest.fn().mockResolvedValue({ error: null }),
     });
 
-    const mockSupabase = {
-      from: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnThis(),
-        in: jest.fn().mockReturnThis(),
-        lt: jest.fn().mockResolvedValue({ data: staleRuns, error: null }),
-        update: updateMock,
-      }),
-    };
+    const fromMock = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockResolvedValue({ data: staleRuns, error: null }),
+      update: updateMock,
+    });
+
+    const mockSupabase = { from: fromMock };
     (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mockSupabase);
 
     const response = await GET(makeRequest());
@@ -85,11 +89,15 @@ describe('evolution-watchdog', () => {
     expect(body.staleRunsFound).toBe(1);
     expect(body.markedFailed).toEqual(['run-1']);
     expect(updateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'failed' }),
+      expect.objectContaining({ status: 'failed', runner_id: null }),
     );
+    // Verify structured error message
+    const updateArg = updateMock.mock.calls[0][0] as Record<string, unknown>;
+    const parsedError = JSON.parse(updateArg.error_message as string);
+    expect(parsedError.source).toBe('evolution-watchdog');
+    expect(parsedError.lastIteration).toBe(1);
   });
 
-  // SCRIPT-4: Verify the stale threshold produces expected cutoff range
   it('uses configurable stale threshold (defaults to 10 min)', async () => {
     let capturedCutoff = '';
     const mockSupabase = {

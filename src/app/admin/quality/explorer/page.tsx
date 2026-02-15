@@ -2,8 +2,10 @@
 // Unified Dimensional Explorer page for cross-cutting analysis of evolution runs, articles, and tasks.
 // Supports table, matrix, and trend views with multi-dimensional filtering.
 
-import { Fragment, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
+import { Fragment, Suspense, useState, useCallback, useEffect, useRef, type ReactNode } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { EvolutionBreadcrumb, TableSkeleton } from '@/components/evolution';
 import { logger } from '@/lib/client_utilities';
 import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
@@ -33,7 +35,7 @@ import {
 // ─── Dynamic Recharts imports ─────────────────────────────────────
 
 const TrendChart = dynamic(() => import('recharts').then((mod) => {
-  const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } = mod;
+  const { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, Label } = mod;
 
   const SERIES_COLORS = [
     'var(--accent-gold)',
@@ -45,7 +47,7 @@ const TrendChart = dynamic(() => import('recharts').then((mod) => {
     'var(--text-muted)',
   ];
 
-  function Chart({ data }: { data: ExplorerTrendResult }) {
+  function Chart({ data, metricLabel }: { data: ExplorerTrendResult; metricLabel?: string }) {
     if (data.series.length === 0) {
       return (
         <div className="h-[300px] flex items-center justify-center text-sm text-[var(--text-muted)] font-body">
@@ -76,11 +78,15 @@ const TrendChart = dynamic(() => import('recharts').then((mod) => {
             dataKey="date"
             tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
             tickFormatter={(v: string) => v.slice(5)}
-          />
+          >
+            <Label value="Date" position="insideBottom" offset={-2} fontSize={10} fill="var(--text-muted)" />
+          </XAxis>
           <YAxis
             tick={{ fontSize: 10, fill: 'var(--text-muted)' }}
-            width={50}
-          />
+            width={55}
+          >
+            {metricLabel && <Label value={metricLabel} angle={-90} position="insideLeft" fontSize={10} fill="var(--text-muted)" offset={5} />}
+          </YAxis>
           <Tooltip
             contentStyle={{
               background: 'var(--surface-elevated)',
@@ -110,12 +116,6 @@ const TrendChart = dynamic(() => import('recharts').then((mod) => {
 // ─── Types ───────────────────────────────────────────────────────
 
 type ViewMode = 'table' | 'matrix' | 'trend';
-
-const VIEW_MODES: { id: ViewMode; label: string }[] = [
-  { id: 'table', label: 'Table' },
-  { id: 'matrix', label: 'Matrix' },
-  { id: 'trend', label: 'Trend' },
-];
 
 const UNITS: { id: UnitOfAnalysis; label: string }[] = [
   { id: 'run', label: 'Run' },
@@ -176,15 +176,6 @@ function ChartSkeleton(): JSX.Element {
   return <div className="h-[300px] bg-[var(--surface-secondary)] rounded-book animate-pulse" />;
 }
 
-function TableSkeleton(): JSX.Element {
-  return (
-    <div className="space-y-2">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="h-10 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
-      ))}
-    </div>
-  );
-}
 
 function StatCard({ label, value, loading }: { label: string; value: string; loading: boolean }): JSX.Element {
   return (
@@ -390,34 +381,137 @@ function truncate(s: string | null, max: number): string {
   return s.length > max ? s.slice(0, max) + '...' : s;
 }
 
+// ─── URL param helpers ───────────────────────────────────────────
+
+/** Read a comma-separated URL param as string array, defaulting to []. */
+function readArrayParam(params: URLSearchParams, key: string): string[] {
+  const v = params.get(key);
+  return v ? v.split(',').filter(Boolean) : [];
+}
+
 // ─── Main Component ──────────────────────────────────────────────
 
+/** Suspense wrapper — useSearchParams requires this to avoid hydration mismatch. */
 export default function ExplorerPage(): JSX.Element {
-  // View state
-  const [viewMode, setViewMode] = useState<ViewMode>('table');
-  const [unit, setUnit] = useState<UnitOfAnalysis>('run');
+  return (
+    <Suspense fallback={<ExplorerSkeleton />}>
+      <ExplorerContent />
+    </Suspense>
+  );
+}
 
-  // Filter state
-  const [promptFilter, setPromptFilter] = useState<string[]>([]);
-  const [strategyFilter, setStrategyFilter] = useState<string[]>([]);
-  const [pipelineFilter, setPipelineFilter] = useState<string[]>([]);
-  const [datePreset, setDatePreset] = useState<DatePreset>('last30d');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+function ExplorerSkeleton(): JSX.Element {
+  return (
+    <div className="space-y-6">
+      <div className="h-10 w-48 bg-[var(--surface-elevated)] rounded animate-pulse" />
+      <div className="h-12 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+      <div className="h-64 bg-[var(--surface-elevated)] rounded-book animate-pulse" />
+    </div>
+  );
+}
+
+function ExplorerContent(): JSX.Element {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // Read initial state from URL params (enables deep-linking)
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    (searchParams.get('view') as ViewMode) || 'table'
+  );
+  const [unit, setUnit] = useState<UnitOfAnalysis>(
+    (searchParams.get('unit') as UnitOfAnalysis) || 'run'
+  );
+
+  // Filter state — initialized from URL
+  const [promptFilter, setPromptFilter] = useState<string[]>(readArrayParam(searchParams, 'prompts'));
+  const [strategyFilter, setStrategyFilter] = useState<string[]>(readArrayParam(searchParams, 'strategies'));
+  const [pipelineFilter, setPipelineFilter] = useState<string[]>(readArrayParam(searchParams, 'pipelines'));
+  const [datePreset, setDatePreset] = useState<DatePreset>(
+    (searchParams.get('datePreset') as DatePreset) || 'last30d'
+  );
+  const [dateFrom, setDateFrom] = useState(searchParams.get('dateFrom') ?? '');
+  const [dateTo, setDateTo] = useState(searchParams.get('dateTo') ?? '');
 
   // Dropdown options (loaded once)
   const [promptOptions, setPromptOptions] = useState<{ id: string; label: string }[]>([]);
   const [strategyOptions, setStrategyOptions] = useState<{ id: string; label: string }[]>([]);
 
-  // Matrix controls
-  const [matrixRow, setMatrixRow] = useState<ExplorerDimension>('strategy');
-  const [matrixCol, setMatrixCol] = useState<ExplorerDimension>('prompt');
-  const [matrixMetric, setMatrixMetric] = useState<ExplorerMetric>('avgElo');
+  // Matrix controls — initialized from URL
+  const [matrixRow, setMatrixRow] = useState<ExplorerDimension>(
+    (searchParams.get('matrixRow') as ExplorerDimension) || 'strategy'
+  );
+  const [matrixCol, setMatrixCol] = useState<ExplorerDimension>(
+    (searchParams.get('matrixCol') as ExplorerDimension) || 'prompt'
+  );
+  const [matrixMetric, setMatrixMetric] = useState<ExplorerMetric>(
+    (searchParams.get('metric') as ExplorerMetric) || 'avgElo'
+  );
 
-  // Trend controls
-  const [trendGroupBy, setTrendGroupBy] = useState<ExplorerDimension>('strategy');
-  const [trendMetric, setTrendMetric] = useState<ExplorerMetric>('avgElo');
-  const [trendBucket, setTrendBucket] = useState<TimeBucket>('week');
+  // Trend controls — initialized from URL
+  const [trendGroupBy, setTrendGroupBy] = useState<ExplorerDimension>(
+    (searchParams.get('groupBy') as ExplorerDimension) || 'strategy'
+  );
+  const [trendMetric, setTrendMetric] = useState<ExplorerMetric>(
+    (searchParams.get('trendMetric') as ExplorerMetric) || 'avgElo'
+  );
+  const [trendBucket, setTrendBucket] = useState<TimeBucket>(
+    (searchParams.get('bucket') as TimeBucket) || 'week'
+  );
+
+  // Sync state changes to URL params (shallow replace, no scroll)
+  const syncToUrl = useCallback((updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams.toString());
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === '' || value === undefined) {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : '?', { scroll: false });
+  }, [router, searchParams]);
+
+  // Wrap setters to also sync to URL
+  const setViewModeAndSync = useCallback((v: ViewMode) => {
+    setViewMode(v);
+    syncToUrl({ view: v === 'table' ? null : v });
+  }, [syncToUrl]);
+
+  const setUnitAndSync = useCallback((v: UnitOfAnalysis) => {
+    setUnit(v);
+    syncToUrl({ unit: v === 'run' ? null : v });
+  }, [syncToUrl]);
+
+  const setPromptFilterAndSync = useCallback((v: string[]) => {
+    setPromptFilter(v);
+    syncToUrl({ prompts: v.length ? v.join(',') : null });
+  }, [syncToUrl]);
+
+  const setStrategyFilterAndSync = useCallback((v: string[]) => {
+    setStrategyFilter(v);
+    syncToUrl({ strategies: v.length ? v.join(',') : null });
+  }, [syncToUrl]);
+
+  const setPipelineFilterAndSync = useCallback((v: string[]) => {
+    setPipelineFilter(v);
+    syncToUrl({ pipelines: v.length ? v.join(',') : null });
+  }, [syncToUrl]);
+
+  const setDatePresetAndSync = useCallback((v: DatePreset) => {
+    setDatePreset(v);
+    syncToUrl({ datePreset: v === 'last30d' ? null : v });
+  }, [syncToUrl]);
+
+  const setDateFromAndSync = useCallback((v: string) => {
+    setDateFrom(v);
+    syncToUrl({ dateFrom: v || null });
+  }, [syncToUrl]);
+
+  const setDateToAndSync = useCallback((v: string) => {
+    setDateTo(v);
+    syncToUrl({ dateTo: v || null });
+  }, [syncToUrl]);
 
   // Data state
   const [loading, setLoading] = useState(true);
@@ -553,6 +647,10 @@ export default function ExplorerPage(): JSX.Element {
 
   return (
     <div className="space-y-6">
+      <EvolutionBreadcrumb items={[
+        { label: 'Dashboard', href: '/admin/evolution-dashboard' },
+        { label: 'Explorer' },
+      ]} />
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
@@ -572,10 +670,34 @@ export default function ExplorerPage(): JSX.Element {
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
-        <ButtonGroup options={VIEW_MODES} value={viewMode} onChange={setViewMode} />
-
-        {viewMode === 'table' && (
-          <ButtonGroup options={UNITS} value={unit} onChange={setUnit} />
+        {viewMode === 'table' ? (
+          <>
+            <ButtonGroup options={UNITS} value={unit} onChange={setUnitAndSync} />
+            <button
+              onClick={() => setViewModeAndSync('matrix')}
+              className="text-xs font-ui text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
+            >
+              Advanced Views &rsaquo;
+            </button>
+          </>
+        ) : (
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-ui text-[var(--text-muted)]">Advanced:</span>
+            <ButtonGroup
+              options={[
+                { id: 'matrix' as ViewMode, label: 'Matrix' },
+                { id: 'trend' as ViewMode, label: 'Trend' },
+              ]}
+              value={viewMode}
+              onChange={setViewModeAndSync}
+            />
+            <button
+              onClick={() => setViewModeAndSync('table')}
+              className="text-xs font-ui text-[var(--text-muted)] hover:text-[var(--accent-gold)] transition-colors"
+            >
+              &lsaquo; Back to Table
+            </button>
+          </div>
         )}
       </div>
 
@@ -586,27 +708,27 @@ export default function ExplorerPage(): JSX.Element {
               label="Prompts"
               items={promptOptions}
               selected={promptFilter}
-              onChange={setPromptFilter}
+              onChange={setPromptFilterAndSync}
               placeholder="All prompts"
             />
             <SearchableMultiSelect
               label="Strategies"
               items={strategyOptions}
               selected={strategyFilter}
-              onChange={setStrategyFilter}
+              onChange={setStrategyFilterAndSync}
               placeholder="All strategies"
             />
             <SearchableMultiSelect
               label="Pipeline Types"
               items={PIPELINE_TYPE_OPTIONS}
               selected={pipelineFilter}
-              onChange={setPipelineFilter}
+              onChange={setPipelineFilterAndSync}
               placeholder="All pipelines"
             />
             <SelectControl
               label="Date Range"
               value={datePreset}
-              onChange={(v) => setDatePreset(v as DatePreset)}
+              onChange={(v) => setDatePresetAndSync(v as DatePreset)}
               options={DATE_PRESETS}
             />
             {datePreset === 'custom' && (
@@ -616,7 +738,7 @@ export default function ExplorerPage(): JSX.Element {
                   <input
                     type="date"
                     value={dateFrom}
-                    onChange={(e) => setDateFrom(e.target.value)}
+                    onChange={(e) => setDateFromAndSync(e.target.value)}
                     className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
                   />
                 </label>
@@ -625,7 +747,7 @@ export default function ExplorerPage(): JSX.Element {
                   <input
                     type="date"
                     value={dateTo}
-                    onChange={(e) => setDateTo(e.target.value)}
+                    onChange={(e) => setDateToAndSync(e.target.value)}
                     className="px-3 py-1.5 text-sm font-ui bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-gold)]"
                   />
                 </label>
@@ -700,19 +822,19 @@ export default function ExplorerPage(): JSX.Element {
             <SelectControl
               label="Row Dimension"
               value={matrixRow}
-              onChange={(v) => setMatrixRow(v as ExplorerDimension)}
+              onChange={(v) => { setMatrixRow(v as ExplorerDimension); syncToUrl({ matrixRow: v }); }}
               options={DIMENSIONS}
             />
             <SelectControl
               label="Column Dimension"
               value={matrixCol}
-              onChange={(v) => setMatrixCol(v as ExplorerDimension)}
+              onChange={(v) => { setMatrixCol(v as ExplorerDimension); syncToUrl({ matrixCol: v }); }}
               options={DIMENSIONS}
             />
             <SelectControl
               label="Metric"
               value={matrixMetric}
-              onChange={(v) => setMatrixMetric(v as ExplorerMetric)}
+              onChange={(v) => { setMatrixMetric(v as ExplorerMetric); syncToUrl({ metric: v }); }}
               options={METRICS}
             />
           </div>
@@ -739,19 +861,19 @@ export default function ExplorerPage(): JSX.Element {
             <SelectControl
               label="Group By"
               value={trendGroupBy}
-              onChange={(v) => setTrendGroupBy(v as ExplorerDimension)}
+              onChange={(v) => { setTrendGroupBy(v as ExplorerDimension); syncToUrl({ groupBy: v }); }}
               options={DIMENSIONS}
             />
             <SelectControl
               label="Metric"
               value={trendMetric}
-              onChange={(v) => setTrendMetric(v as ExplorerMetric)}
+              onChange={(v) => { setTrendMetric(v as ExplorerMetric); syncToUrl({ trendMetric: v }); }}
               options={METRICS}
             />
             <SelectControl
               label="Time Bucket"
               value={trendBucket}
-              onChange={(v) => setTrendBucket(v as TimeBucket)}
+              onChange={(v) => { setTrendBucket(v as TimeBucket); syncToUrl({ bucket: v }); }}
               options={TIME_BUCKETS}
             />
           </div>
@@ -766,7 +888,7 @@ export default function ExplorerPage(): JSX.Element {
               {loading ? (
                 <ChartSkeleton />
               ) : trendData ? (
-                <TrendChart data={trendData} />
+                <TrendChart data={trendData} metricLabel={METRICS.find(m => m.id === trendMetric)?.label} />
               ) : (
                 <div className="h-[300px] flex items-center justify-center text-[var(--text-muted)] font-body text-sm">
                   No trend data available

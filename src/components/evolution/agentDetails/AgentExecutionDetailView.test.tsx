@@ -20,7 +20,7 @@ describe('AgentExecutionDetailView', () => {
     expect(screen.getByTestId('generation-detail')).toBeInTheDocument();
     expect(screen.getByText('narrative')).toBeInTheDocument();
     expect(screen.getByText('1200 chars')).toBeInTheDocument();
-    expect(screen.getByText('1 format issue')).toBeInTheDocument();
+    expect(screen.getByText(/1 format issue/)).toBeInTheDocument();
   });
 
   it('routes calibration detail type correctly', () => {

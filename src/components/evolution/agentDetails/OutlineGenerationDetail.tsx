@@ -1,14 +1,15 @@
 // Detail view for OutlineGenerationAgent showing pipeline step metrics and weakest step.
 
 import type { OutlineGenerationExecutionDetail } from '@/lib/evolution/types';
+import { formatScore } from '@/lib/utils/formatters';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function OutlineGenerationDetail({ detail }: { detail: OutlineGenerationExecutionDetail }): JSX.Element {
+export function OutlineGenerationDetail({ detail, runId }: { detail: OutlineGenerationExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="outline-generation-detail">
       <div className="flex items-center gap-3 text-xs">
         <span className="font-ui text-[var(--text-muted)]">Variant:</span>
-        <ShortId id={detail.variantId} />
+        <ShortId id={detail.variantId} runId={runId} />
         {detail.weakestStep && (
           <span className="text-[var(--status-warning)] font-ui">
             weakest: <span className="font-mono">{detail.weakestStep}</span>
@@ -27,7 +28,7 @@ export function OutlineGenerationDetail({ detail }: { detail: OutlineGenerationE
                 {s.name === detail.weakestStep && <StatusBadge status="weakest" />}
               </div>
               <div className="flex items-center gap-3 text-[var(--text-muted)] font-mono">
-                <span>score: {s.score.toFixed(2)}</span>
+                <span>score: {formatScore(s.score)}</span>
                 <span>{s.inputLength}→{s.outputLength}</span>
                 <CostDisplay cost={s.costUsd} />
               </div>

@@ -1,15 +1,16 @@
 'use client';
-// Evolution Dashboard overview page. Shows quick links, operational charts, and recent runs.
+// Evolution Dashboard overview page. Shows summary metrics, quick links, operational charts, and recent runs.
 
-import { useState, useCallback } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import {
   AutoRefreshProvider,
   RefreshIndicator,
-  EvolutionStatusBadge,
+  useAutoRefresh,
 } from '@/components/evolution';
-import { ElapsedTime } from '@/components/evolution/ElapsedTime';
+import { formatCost } from '@/lib/utils/formatters';
+import { RunsTable, getBaseColumns } from '@/components/evolution/RunsTable';
 import {
   getEvolutionDashboardDataAction,
   type DashboardData,
@@ -104,25 +105,76 @@ function QuickLinkCard({ title, description, href, icon }: QuickLinkCardProps): 
   );
 }
 
+// ─── Summary metric card ────────────────────────────────────────
+
+function SummaryCard({ label, value, subValue, testId }: {
+  label: string;
+  value: string | number;
+  subValue?: string;
+  testId?: string;
+}): JSX.Element {
+  return (
+    <div
+      className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4"
+      data-testid={testId}
+    >
+      <div className="text-xs font-ui text-[var(--text-muted)] uppercase tracking-wide">{label}</div>
+      <div className="text-2xl font-display font-bold text-[var(--text-primary)] mt-1">{value}</div>
+      {subValue && <div className="text-xs text-[var(--text-muted)] mt-0.5">{subValue}</div>}
+    </div>
+  );
+}
+
 // ─── Main page ──────────────────────────────────────────────────
 
 export default function EvolutionDashboardOverviewPage() {
+  return (
+    <AutoRefreshProvider isActive={true} intervalMs={15000}>
+      <DashboardContent />
+    </AutoRefreshProvider>
+  );
+}
+
+function DashboardContent() {
+  const { refreshKey, reportRefresh, reportError } = useAutoRefresh();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const handleRefresh = useCallback(async () => {
-    const dashResult = await getEvolutionDashboardDataAction();
-
-    if (dashResult.success) {
-      setDashboardData(dashResult.data);
-      setError(null);
-    } else {
-      setError(dashResult.error?.message ?? 'Dashboard data failed');
+  useEffect(() => {
+    async function load() {
+      const dashResult = await getEvolutionDashboardDataAction();
+      if (dashResult.success) {
+        setDashboardData(dashResult.data);
+        setError(null);
+        reportRefresh();
+      } else {
+        const msg = dashResult.error?.message ?? 'Dashboard data failed';
+        setError(msg);
+        reportError(msg);
+      }
     }
-  }, []);
+    load();
+  }, [refreshKey, reportRefresh, reportError]);
+
+  // Compute summary metrics from dashboard data
+  const avgCost = useMemo(() => {
+    if (!dashboardData?.recentRuns.length) return '—';
+    const completed = dashboardData.recentRuns.filter(r => r.status === 'completed');
+    if (completed.length === 0) return '—';
+    const avg = completed.reduce((s, r) => s + r.total_cost_usd, 0) / completed.length;
+    return formatCost(avg);
+  }, [dashboardData]);
+
+  const spendTrend = useMemo(() => {
+    if (!dashboardData) return undefined;
+    const { monthlySpend, previousMonthSpend } = dashboardData;
+    if (previousMonthSpend === 0) return undefined;
+    const pct = ((monthlySpend - previousMonthSpend) / previousMonthSpend) * 100;
+    const sign = pct >= 0 ? '+' : '';
+    return `${sign}${pct.toFixed(0)}% vs last month`;
+  }, [dashboardData]);
 
   return (
-    <AutoRefreshProvider onRefresh={handleRefresh}>
       <div className="space-y-6">
         <div className="flex justify-between items-start">
           <div>
@@ -130,7 +182,7 @@ export default function EvolutionDashboardOverviewPage() {
               Evolution Dashboard
             </h1>
             <p className="text-sm text-[var(--text-muted)] mt-1">
-              Overview of the content evolution pipeline
+              At-a-glance metrics and trends for the content evolution pipeline
             </p>
           </div>
           <RefreshIndicator />
@@ -141,6 +193,33 @@ export default function EvolutionDashboardOverviewPage() {
             {error}
           </div>
         )}
+
+        {/* Summary metrics */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <SummaryCard
+            label="Active Runs"
+            value={dashboardData?.activeRuns ?? '—'}
+            subValue={dashboardData ? `${dashboardData.queueDepth} queued` : undefined}
+            testId="summary-active-runs"
+          />
+          <SummaryCard
+            label="Success Rate (7d)"
+            value={dashboardData ? `${dashboardData.successRate7d}%` : '—'}
+            subValue={dashboardData ? `${dashboardData.articlesEvolvedCount} articles evolved` : undefined}
+            testId="summary-success-rate"
+          />
+          <SummaryCard
+            label="Avg Cost / Run"
+            value={avgCost}
+            testId="summary-avg-cost"
+          />
+          <SummaryCard
+            label="Monthly Spend"
+            value={dashboardData ? formatCost(dashboardData.monthlySpend) : '—'}
+            subValue={spendTrend}
+            testId="summary-monthly-spend"
+          />
+        </div>
 
         <div>
           <h2 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Quick Links</h2>
@@ -179,51 +258,15 @@ export default function EvolutionDashboardOverviewPage() {
 
         <div>
           <h3 className="text-sm font-semibold text-[var(--text-secondary)] mb-3">Recent Runs</h3>
-          <div className="overflow-x-auto border border-[var(--border-default)] rounded-book">
-            <table className="w-full text-sm" data-testid="dashboard-runs-table">
-              <thead className="bg-[var(--surface-elevated)]">
-                <tr>
-                  <th className="p-3 text-left">Explanation</th>
-                  <th className="p-3 text-left">Status</th>
-                  <th className="p-3 text-left">Phase</th>
-                  <th className="p-3 text-right">Iteration</th>
-                  <th className="p-3 text-right">Cost</th>
-                  <th className="p-3 text-left">Duration</th>
-                  <th className="p-3 text-left">Created</th>
-                </tr>
-              </thead>
-              <tbody>
-                {!dashboardData && (
-                  <tr><td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">Loading...</td></tr>
-                )}
-                {dashboardData && dashboardData.recentRuns.length === 0 && (
-                  <tr><td colSpan={7} className="p-8 text-center text-[var(--text-muted)]">No runs found</td></tr>
-                )}
-                {dashboardData && dashboardData.recentRuns.length > 0 &&
-                  dashboardData.recentRuns.map((run: DashboardRun) => (
-                    <tr key={run.id} className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)]">
-                      <td className="p-3">
-                        <Link
-                          href={`/admin/quality/evolution/run/${run.id}`}
-                          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                        >
-                          #{run.explanation_id}
-                        </Link>
-                      </td>
-                      <td className="p-3"><EvolutionStatusBadge status={run.status} /></td>
-                      <td className="p-3 text-[var(--text-secondary)] text-xs">{run.phase}</td>
-                      <td className="p-3 text-right text-[var(--text-muted)]">{run.current_iteration}</td>
-                      <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
-                      <td className="p-3"><ElapsedTime startedAt={run.started_at} completedAt={run.completed_at} status={run.status} /></td>
-                      <td className="p-3 text-[var(--text-muted)] text-xs">{new Date(run.created_at).toLocaleDateString()}</td>
-                    </tr>
-                  ))
-                }
-              </tbody>
-            </table>
-          </div>
+          <RunsTable<DashboardRun>
+            runs={dashboardData?.recentRuns ?? []}
+            columns={getBaseColumns<DashboardRun>()}
+            loading={!dashboardData}
+            compact
+            maxRows={5}
+            testId="dashboard-runs-table"
+          />
         </div>
       </div>
-    </AutoRefreshProvider>
   );
 }

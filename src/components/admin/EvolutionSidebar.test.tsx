@@ -50,11 +50,11 @@ describe('EvolutionSidebar', () => {
     expect(pipelineRuns.className).toContain('bg-[var(--accent-gold)]');
   });
 
-  it('renders Start Pipeline label for pipeline runs', () => {
+  it('renders Pipeline Runs label for pipeline runs', () => {
     render(<EvolutionSidebar />);
 
     const pipelineRuns = screen.getByTestId('evolution-sidebar-nav-pipeline-runs');
-    expect(pipelineRuns).toHaveTextContent('Start Pipeline');
+    expect(pipelineRuns).toHaveTextContent('Pipeline Runs');
   });
 
   it('has Back to Admin link pointing to /admin', () => {

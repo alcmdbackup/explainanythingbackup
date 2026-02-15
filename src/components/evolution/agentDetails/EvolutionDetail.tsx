@@ -2,8 +2,9 @@
 
 import type { EvolutionExecutionDetail } from '@/lib/evolution/types';
 import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
+import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function EvolutionDetail({ detail }: { detail: EvolutionExecutionDetail }): JSX.Element {
+export function EvolutionDetail({ detail, runId }: { detail: EvolutionExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="evolution-detail">
       <div className="flex items-center gap-3 text-xs">
@@ -16,7 +17,7 @@ export function EvolutionDetail({ detail }: { detail: EvolutionExecutionDetail }
         <div className="flex flex-wrap gap-2">
           {detail.parents.map((p, i) => (
             <div key={i} className="flex items-center gap-1 text-xs">
-              <ShortId id={p.id} />
+              <ShortId id={p.id} runId={runId} />
               <span className="font-mono text-[var(--text-muted)]">#{p.ordinal}</span>
             </div>
           ))}
@@ -34,9 +35,9 @@ export function EvolutionDetail({ detail }: { detail: EvolutionExecutionDetail }
                 <StatusBadge status={m.status} />
               </div>
               <div className="flex items-center gap-3 text-[var(--text-muted)]">
-                {m.variantId && <ShortId id={m.variantId} />}
+                {m.variantId && <ShortId id={m.variantId} runId={runId} />}
                 {m.textLength !== undefined && <span>{m.textLength} chars</span>}
-                {m.error && <span className="text-[var(--status-error)]" title={m.error}>error</span>}
+                {m.error && <AgentErrorBlock error={m.error} />}
               </div>
             </div>
           ))}

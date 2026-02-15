@@ -3,12 +3,12 @@
 import type { SectionDecompositionExecutionDetail } from '@/lib/evolution/types';
 import { StatusBadge, DetailSection, CostDisplay, ShortId, Metric } from './shared';
 
-export function SectionDecompositionDetail({ detail }: { detail: SectionDecompositionExecutionDetail }): JSX.Element {
+export function SectionDecompositionDetail({ detail, runId }: { detail: SectionDecompositionExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="section-decomposition-detail">
       <div className="flex items-center gap-3 text-xs">
         <span className="font-ui text-[var(--text-muted)]">Target:</span>
-        <ShortId id={detail.targetVariantId} />
+        <ShortId id={detail.targetVariantId} runId={runId} />
         <span className="text-[var(--text-muted)]">
           weakness: <span className="font-mono">{detail.weakness.dimension}</span>
         </span>
@@ -38,7 +38,7 @@ export function SectionDecompositionDetail({ detail }: { detail: SectionDecompos
       </DetailSection>
       <div className="grid grid-cols-3 gap-4">
         <Metric label="Improved" value={`${detail.sectionsImproved}/${detail.totalEligible}`} />
-        <Metric label="New Variant" value={detail.newVariantId ? <ShortId id={detail.newVariantId} /> : '—'} />
+        <Metric label="New Variant" value={detail.newVariantId ? <ShortId id={detail.newVariantId} runId={runId} /> : '—'} />
         <Metric label="Cost" value={<CostDisplay cost={detail.totalCost} />} />
       </div>
     </div>

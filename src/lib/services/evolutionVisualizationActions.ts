@@ -62,6 +62,7 @@ export interface DashboardRun {
   current_iteration: number;
   total_cost_usd: number;
   budget_cap_usd: number;
+  error_message: string | null;
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -223,7 +224,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
       supabase.from('content_evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
       supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),
       supabase.from('content_evolution_runs').select('status, total_cost_usd, created_at').gte('created_at', thirtyDaysAgo),
-      supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
+      supabase.from('content_evolution_runs').select('id, explanation_id, status, phase, current_iteration, total_cost_usd, budget_cap_usd, error_message, started_at, completed_at, created_at').order('created_at', { ascending: false }).limit(20),
       supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfPreviousMonth).lt('created_at', firstOfMonth),
       supabase.from('content_evolution_runs').select('explanation_id').eq('status', 'completed'),
       supabase.from('hall_of_fame_entries').select('id', { count: 'exact', head: true }).is('deleted_at', null),
@@ -1099,3 +1100,95 @@ const _getAgentInvocationsForRunAction = withLogging(async (
 }, 'getAgentInvocationsForRunAction');
 
 export const getAgentInvocationsForRunAction = serverReadRequestId(_getAgentInvocationsForRunAction);
+
+// ─── Variant Detail ─────────────────────────────────────────────
+
+/** Detailed variant data extracted from checkpoint state for debugging. */
+export interface VariantDetail {
+  id: string;
+  text: string;
+  elo: number;
+  strategy: string;
+  iterationBorn: number;
+  costUsd: number | null;
+  parentIds: string[];
+  parentTexts: Record<string, string>;
+  matches: Array<{
+    opponentId: string;
+    won: boolean;
+    confidence: number;
+    dimensionScores: Record<string, string>;
+  }>;
+  dimensionScores: Record<string, number> | null;
+}
+
+/** Get detailed debugging data for a specific variant from checkpoint state. */
+const _getVariantDetailAction = withLogging(async (
+  runId: string,
+  variantId: string,
+): Promise<ActionResult<VariantDetail | null>> => {
+  try {
+    await requireAdmin();
+    validateRunId(runId);
+    const supabase = await createSupabaseServiceClient();
+
+    const { data: cpData, error: cpError } = await supabase
+      .from('evolution_checkpoints')
+      .select('state_snapshot')
+      .eq('run_id', runId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (cpError) throw cpError;
+    if (!cpData) return { success: true, data: null, error: null };
+
+    const snapshot = cpData.state_snapshot as SerializedPipelineState;
+    const pool = snapshot.pool ?? [];
+    const variant = pool.find(v => v.id === variantId);
+    if (!variant) return { success: true, data: null, error: null };
+
+    const eloLookup = buildEloLookup(snapshot);
+
+    // Extract matches involving this variant
+    const matches = (snapshot.matchHistory ?? [])
+      .filter(m => m.variationA === variantId || m.variationB === variantId)
+      .map(m => ({
+        opponentId: m.variationA === variantId ? m.variationB : m.variationA,
+        won: m.winner === variantId,
+        confidence: m.confidence,
+        dimensionScores: m.dimensionScores,
+      }));
+
+    // Get parent texts for diff
+    const parentTexts: Record<string, string> = {};
+    for (const pid of variant.parentIds) {
+      const parent = pool.find(v => v.id === pid);
+      if (parent) parentTexts[pid] = parent.text;
+    }
+
+    // Get dimension scores if available
+    const dimensionScores = snapshot.dimensionScores?.[variantId] ?? null;
+
+    return {
+      success: true,
+      data: {
+        id: variant.id,
+        text: variant.text,
+        elo: eloLookup[variant.id] ?? 1200,
+        strategy: variant.strategy,
+        iterationBorn: variant.iterationBorn,
+        costUsd: variant.costUsd ?? null,
+        parentIds: variant.parentIds,
+        parentTexts,
+        matches,
+        dimensionScores,
+      },
+      error: null,
+    };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'getVariantDetailAction', { runId, variantId }) };
+  }
+}, 'getVariantDetailAction');
+
+export const getVariantDetailAction = serverReadRequestId(_getVariantDetailAction);

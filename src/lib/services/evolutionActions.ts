@@ -89,10 +89,10 @@ const _estimateRunCostAction = withLogging(async (
       throw new Error('budgetCapUsd must be a number between 0.01 and 100');
     }
 
-    const rawLength = typeof input.textLength === 'number' && isFinite(input.textLength) && input.textLength >= 100
-      ? input.textLength
-      : 5000;
-    const textLength = Math.min(rawLength, 100000);
+    const isValidTextLength = typeof input.textLength === 'number' &&
+                              isFinite(input.textLength) &&
+                              input.textLength >= 100;
+    const textLength = Math.min(isValidTextLength ? input.textLength! : 5000, 100000);
 
     const supabase = await createSupabaseServiceClient();
 
@@ -107,13 +107,12 @@ const _estimateRunCostAction = withLogging(async (
     }
 
     type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
-    type StrategyConfig = {
+    const config = strategy.config as {
       generationModel?: string;
       judgeModel?: string;
       iterations?: number;
       agentModels?: Record<string, string>;
     };
-    const config = strategy.config as StrategyConfig;
 
     const { estimateRunCostWithAgentModels } = await import('@/lib/evolution');
 
@@ -177,6 +176,12 @@ const _queueEvolutionRunAction = withLogging(async (
 
     const budgetCap = input.budgetCapUsd ?? strategyConfig?.budgetCapUsd ?? 5.00;
 
+    // Require at least explanationId or promptId
+    if (!input.explanationId && !input.promptId) {
+      throw new Error('Either explanationId or promptId is required');
+    }
+
+
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
     if (strategyConfig) {
@@ -189,8 +194,6 @@ const _queueEvolutionRunAction = withLogging(async (
             judgeModel: strategyConfig.judgeModel as ModelType | undefined,
             maxIterations: strategyConfig.iterations,
             agentModels: strategyConfig.agentModels as Record<string, ModelType> | undefined,
-            // CFG-1: Pass budget caps so estimator can clamp per-agent costs
-            budgetCaps: strategyConfig.budgetCaps as Record<string, number> | undefined,
           },
           5000,
         );
@@ -317,18 +320,20 @@ async function buildRunConfig(
     runConfig.judgeModel = strategyConfig.judgeModel;
   }
 
-  if (strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0) {
+  const hasBudgetCaps = strategyConfig.budgetCaps != null &&
+                        typeof strategyConfig.budgetCaps === 'object' &&
+                        !Array.isArray(strategyConfig.budgetCaps) &&
+                        Object.keys(strategyConfig.budgetCaps).length > 0;
+  if (hasBudgetCaps) {
     runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
   }
 
-  // Validate processed config before inserting a run into DB.
   // validateStrategyConfig skips absent/falsy model names and null iterations.
   const { validateStrategyConfig } = await import('@/lib/evolution/core/configValidation');
   const iterations = runConfig.maxIterations as number | undefined;
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
     judgeModel: (runConfig.judgeModel as string) ?? '',
-    // Cast: StrategyConfig.iterations is typed as `number` but validator checks `!= null`
     iterations: (iterations ?? null) as unknown as number,
     budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
     enabledAgents: runConfig.enabledAgents as import('@/lib/evolution/core/pipeline').AgentName[] | undefined,
@@ -439,33 +444,74 @@ export const getEvolutionVariantsAction = serverReadRequestId(_getEvolutionVaria
 // ─── Apply winner ────────────────────────────────────────────────
 
 const _applyWinnerAction = withLogging(async (
-  input: { explanationId: number | null; variantId: string; runId: string }
+  input: { explanationId: number; variantId: string; runId: string }
 ): Promise<{ success: boolean; error: ErrorResponse | null }> => {
   try {
     const adminUserId = await requireAdmin();
     const supabase = await createSupabaseServiceClient();
 
-    // HIGH-2: Atomic RPC — content_history + explanations + variant winner flag in one transaction.
-    // SCRIPT-7: Skips content_history + explanations update for prompt-based runs (explanation_id IS NULL).
-    // SCRIPT-2: RPC validates variant_content is non-empty before applying.
-    const { data: rpcResult, error: rpcError } = await supabase.rpc('apply_evolution_winner', {
-      p_explanation_id: input.explanationId,
-      p_variant_id: input.variantId,
-      p_run_id: input.runId,
-      p_applied_by: adminUserId,
-    });
+    // Get current content
+    const { data: current, error: fetchError } = await supabase
+      .from('explanations')
+      .select('content')
+      .eq('id', input.explanationId)
+      .single();
 
-    if (rpcError) {
-      logger.error('apply_evolution_winner RPC failed', { error: rpcError.message });
-      throw new Error(rpcError.message);
+    if (fetchError || !current) {
+      throw new Error(`Explanation ${input.explanationId} not found`);
     }
+
+    // Get winning variant content
+    const { data: variant, error: variantError } = await supabase
+      .from('content_evolution_variants')
+      .select('variant_content')
+      .eq('id', input.variantId)
+      .single();
+
+    if (variantError || !variant) {
+      throw new Error(`Variant ${input.variantId} not found`);
+    }
+
+    // Save history FIRST (for rollback)
+    const { error: historyError } = await supabase
+      .from('content_history')
+      .insert({
+        explanation_id: input.explanationId,
+        previous_content: current.content,
+        new_content: variant.variant_content,
+        source: 'evolution_pipeline',
+        evolution_run_id: input.runId,
+        applied_by: adminUserId,
+      });
+
+    if (historyError) {
+      logger.error('Error saving content history', { error: historyError.message });
+      throw historyError;
+    }
+
+    // Update article
+    const { error: updateError } = await supabase
+      .from('explanations')
+      .update({ content: variant.variant_content })
+      .eq('id', input.explanationId);
+
+    if (updateError) {
+      logger.error('Error applying winner', { error: updateError.message });
+      throw updateError;
+    }
+
+    // Mark variant as winner
+    await supabase
+      .from('content_evolution_variants')
+      .update({ is_winner: true })
+      .eq('id', input.variantId);
 
     await logAdminAction({
       adminUserId,
       action: 'apply_evolution_winner',
       entityType: 'explanation',
-      entityId: String(input.explanationId ?? 'prompt-based'),
-      details: { variantId: input.variantId, runId: input.runId, rpcResult },
+      entityId: String(input.explanationId),
+      details: { variantId: input.variantId, runId: input.runId },
     });
 
     logger.info('Applied evolution winner', {
@@ -475,23 +521,12 @@ const _applyWinnerAction = withLogging(async (
     });
 
     // Phase E: Auto-trigger quality eval on the updated article (fire-and-forget)
-    // Only for explanation-based runs — prompt-based runs have no article to evaluate.
-    if (input.explanationId !== null) {
-      const { data: variant } = await supabase
-        .from('content_evolution_variants')
-        .select('variant_content')
-        .eq('id', input.variantId)
-        .single();
-
-      if (variant?.variant_content) {
-        triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
-          logger.warn('Post-evolution eval trigger failed (non-blocking)', {
-            explanationId: input.explanationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
-    }
+    triggerPostEvolutionEval(input.explanationId, variant.variant_content).catch((err) => {
+      logger.warn('Post-evolution eval trigger failed (non-blocking)', {
+        explanationId: input.explanationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
 
     return { success: true, error: null };
   } catch (error) {
@@ -609,17 +644,26 @@ const _triggerEvolutionRunAction = withLogging(async (
 
     return { success: true, error: null };
   } catch (error) {
-    // Mark run as failed so it doesn't stay stuck in 'running'/'pending' forever
+    // Mark run as failed in DB so it doesn't stay stuck in 'running' status.
+    // Pipeline-level markRunFailed requires agentName which isn't available here,
+    // so we update the DB directly matching the watchdog pattern.
     try {
-      const supabase = await createSupabaseServiceClient();
-      await supabase.from('content_evolution_runs').update({
+      const failSupabase = await createSupabaseServiceClient();
+      const structuredError = JSON.stringify({
+        message: error instanceof Error ? error.message : String(error),
+        source: 'triggerEvolutionRunAction',
+        timestamp: new Date().toISOString(),
+      });
+      await failSupabase.from('content_evolution_runs').update({
         status: 'failed',
-        error_message: ((error as Error).message || 'Pipeline trigger failed').substring(0, 500),
+        error_message: structuredError,
         completed_at: new Date().toISOString(),
       }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
-    } catch (dbError) {
-      // Log but don't throw — original error takes priority
-      logger.error('Failed to mark run as failed', { runId, dbError: String(dbError) });
+    } catch (dbErr) {
+      logger.error('Failed to mark run as failed in DB', {
+        runId,
+        dbError: dbErr instanceof Error ? dbErr.message : String(dbErr),
+      });
     }
     return { success: false, error: handleError(error, 'triggerEvolutionRunAction', { runId }) };
   }
@@ -872,7 +916,70 @@ async function triggerPostEvolutionEval(
   logger.info('Post-evolution eval completed', { explanationId });
 }
 
-// ─── Kill evolution run ───────────────────────────────────────────
+// ─── Run Logs ─────────────────────────────────────────────────────
+
+export interface RunLogEntry {
+  id: number;
+  created_at: string;
+  level: string;
+  agent_name: string | null;
+  iteration: number | null;
+  variant_id: string | null;
+  request_id: string | null;
+  cost_usd: number | null;
+  duration_ms: number | null;
+  message: string;
+  context: Record<string, unknown> | null;
+}
+
+export interface RunLogFilters {
+  level?: string;
+  agentName?: string;
+  iteration?: number;
+  variantId?: string;
+  /** Max rows to return (default 200). */
+  limit?: number;
+  /** Offset for pagination. */
+  offset?: number;
+}
+
+const _getEvolutionRunLogsAction = withLogging(async (
+  runId: string,
+  filters?: RunLogFilters,
+): Promise<{ success: boolean; data: RunLogEntry[] | null; total: number | null; error: ErrorResponse | null }> => {
+  try {
+    await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    let query = supabase
+      .from('evolution_run_logs')
+      .select('id, created_at, level, agent_name, iteration, variant_id, request_id, cost_usd, duration_ms, message, context', { count: 'exact' })
+      .eq('run_id', runId)
+      .order('created_at', { ascending: true });
+
+    if (filters?.level) query = query.eq('level', filters.level);
+    if (filters?.agentName) query = query.eq('agent_name', filters.agentName);
+    if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
+    if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
+
+    const limit = filters?.limit ?? 200;
+    const offset = filters?.offset ?? 0;
+    query = query.range(offset, offset + limit - 1);
+
+    const { data, error, count } = await query;
+
+    if (error) {
+      logger.error('Error fetching run logs', { error: error.message, runId });
+      throw error;
+    }
+
+    return { success: true, data: (data as RunLogEntry[]) ?? [], total: count, error: null };
+  } catch (error) {
+    return { success: false, data: null, total: null, error: handleError(error, 'getEvolutionRunLogsAction', { runId }) };
+  }
+}, 'getEvolutionRunLogsAction');
+
+export const getEvolutionRunLogsAction = serverReadRequestId(_getEvolutionRunLogsAction);
 
 const _killEvolutionRunAction = withLogging(async (
   runId: string
@@ -914,65 +1021,3 @@ const _killEvolutionRunAction = withLogging(async (
 }, 'killEvolutionRunAction');
 
 export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
-
-// ─── Run Logs ─────────────────────────────────────────────────────
-
-export interface RunLogEntry {
-  id: number;
-  created_at: string;
-  level: string;
-  agent_name: string | null;
-  iteration: number | null;
-  variant_id: string | null;
-  message: string;
-  context: Record<string, unknown> | null;
-}
-
-export interface RunLogFilters {
-  level?: string;
-  agentName?: string;
-  iteration?: number;
-  variantId?: string;
-  /** Max rows to return (default 200). */
-  limit?: number;
-  /** Offset for pagination. */
-  offset?: number;
-}
-
-const _getEvolutionRunLogsAction = withLogging(async (
-  runId: string,
-  filters?: RunLogFilters,
-): Promise<{ success: boolean; data: RunLogEntry[] | null; total: number | null; error: ErrorResponse | null }> => {
-  try {
-    await requireAdmin();
-    const supabase = await createSupabaseServiceClient();
-
-    let query = supabase
-      .from('evolution_run_logs')
-      .select('id, created_at, level, agent_name, iteration, variant_id, message, context', { count: 'exact' })
-      .eq('run_id', runId)
-      .order('created_at', { ascending: true });
-
-    if (filters?.level) query = query.eq('level', filters.level);
-    if (filters?.agentName) query = query.eq('agent_name', filters.agentName);
-    if (filters?.iteration !== undefined) query = query.eq('iteration', filters.iteration);
-    if (filters?.variantId) query = query.eq('variant_id', filters.variantId);
-
-    const limit = filters?.limit ?? 200;
-    const offset = filters?.offset ?? 0;
-    query = query.range(offset, offset + limit - 1);
-
-    const { data, error, count } = await query;
-
-    if (error) {
-      logger.error('Error fetching run logs', { error: error.message, runId });
-      throw error;
-    }
-
-    return { success: true, data: (data as RunLogEntry[]) ?? [], total: count, error: null };
-  } catch (error) {
-    return { success: false, data: null, total: null, error: handleError(error, 'getEvolutionRunLogsAction', { runId }) };
-  }
-}, 'getEvolutionRunLogsAction');
-
-export const getEvolutionRunLogsAction = serverReadRequestId(_getEvolutionRunLogsAction);

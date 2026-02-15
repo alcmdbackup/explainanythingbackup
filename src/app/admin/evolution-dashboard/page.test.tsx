@@ -18,14 +18,18 @@ jest.mock('@/lib/services/evolutionVisualizationActions', () => ({
   getEvolutionDashboardDataAction: (...args: unknown[]) => mockGetDashboardData(...args),
 }));
 
-// Mock AutoRefreshProvider to immediately call onRefresh
+// Mock AutoRefreshProvider and useAutoRefresh for the new shared-tick API
 jest.mock('@/components/evolution', () => ({
-  AutoRefreshProvider: ({ children, onRefresh }: { children: React.ReactNode; onRefresh: () => void }) => {
-    // Call onRefresh on mount
-    React.useEffect(() => { onRefresh(); }, [onRefresh]);
-    return <div>{children}</div>;
-  },
+  AutoRefreshProvider: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   RefreshIndicator: () => <div data-testid="refresh-indicator" />,
+  useAutoRefresh: () => ({
+    refreshKey: 1,
+    lastRefreshed: null,
+    isActive: false,
+    triggerRefresh: () => {},
+    reportRefresh: () => {},
+    reportError: () => {},
+  }),
   EvolutionStatusBadge: ({ status }: { status: string }) => <span>{status}</span>,
 }));
 
@@ -58,6 +62,7 @@ const mockDashboardData: DashboardData = {
       current_iteration: 5,
       total_cost_usd: 1.25,
       budget_cap_usd: 5.0,
+      error_message: null,
       started_at: '2026-02-05T10:00:00Z',
       completed_at: '2026-02-05T12:00:00Z',
       created_at: '2026-02-05T09:00:00Z',
@@ -102,5 +107,48 @@ describe('EvolutionDashboardOverviewPage', () => {
     render(<EvolutionDashboardOverviewPage />);
 
     expect(screen.getByText('Evolution Dashboard')).toBeInTheDocument();
+  });
+
+  it('renders summary metric cards with dashboard data', async () => {
+    render(<EvolutionDashboardOverviewPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('summary-active-runs')).toHaveTextContent('2');
+    });
+    expect(screen.getByTestId('summary-active-runs')).toHaveTextContent('5 queued');
+    expect(screen.getByTestId('summary-success-rate')).toHaveTextContent('85%');
+    expect(screen.getByTestId('summary-success-rate')).toHaveTextContent('12 articles evolved');
+    expect(screen.getByTestId('summary-monthly-spend')).toHaveTextContent('$42.50');
+    expect(screen.getByTestId('summary-avg-cost')).toHaveTextContent('$1.25');
+  });
+
+  it('renders summary cards with loading placeholders when data is null', () => {
+    mockGetDashboardData.mockResolvedValue(createSuccessResponse(null));
+    render(<EvolutionDashboardOverviewPage />);
+
+    // Before data loads, cards should show "—"
+    expect(screen.getByTestId('summary-active-runs')).toHaveTextContent('—');
+    expect(screen.getByTestId('summary-success-rate')).toHaveTextContent('—');
+  });
+
+  it('limits recent runs table to 5 rows', async () => {
+    const manyRuns = Array.from({ length: 10 }, (_, i) => ({
+      ...mockDashboardData.recentRuns[0],
+      id: `run-${i}`,
+    }));
+    mockGetDashboardData.mockResolvedValue(createSuccessResponse({
+      ...mockDashboardData,
+      recentRuns: manyRuns,
+    }));
+
+    render(<EvolutionDashboardOverviewPage />);
+
+    await waitFor(() => {
+      const table = screen.getByTestId('dashboard-runs-table');
+      expect(table).toBeInTheDocument();
+    });
+
+    // RunsTable with maxRows=5 should show "View all" link
+    expect(screen.getByText(/View all/)).toBeInTheDocument();
   });
 });

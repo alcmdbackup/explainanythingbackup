@@ -10,7 +10,7 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 |-------|---------|
 | `/admin/evolution-dashboard` | Evolution overview: quick links, run/spend charts, recent runs table |
 | `/admin/quality/evolution` | Run management: queue new runs via Start Run card (prompt + strategy + budget selector), filter by status/date, variant panel, apply winner, rollback, cost charts |
-| `/admin/quality/evolution/run/[runId]` | Run detail: 7-tab deep dive (Timeline, Elo, Lineage, Tree, Budget, Variants, Logs) + Add to Hall of Fame dialog |
+| `/admin/quality/evolution/run/[runId]` | Run detail: 5-tab deep dive (Timeline, Elo, Lineage, Variants, Logs) + Add to Hall of Fame dialog. Budget is embedded in Timeline; tree search is a toggle within Lineage. |
 | `/admin/quality/evolution/run/[runId]/compare` | Before/after text diff, stats summary (includes generationDepth) |
 
 ## Key Files
@@ -29,11 +29,12 @@ Built with Recharts for standard charts and D3.js for the variant lineage DAG. R
 | `agentDetails/shared.tsx` | Shared UI primitives (`StatusBadge`, `DetailSection`, `Metric`, `CostDisplay`, `ShortId`) used across all detail views |
 | `agentDetails/*.tsx` | 12 agent-specific detail views (one per agent type) showing structured execution metrics |
 | `tabs/EloTab.tsx` | Rating trajectory line chart with top-N filtering (ordinal values mapped to Elo scale) |
-| `tabs/LineageTab.tsx` | Lineage DAG tab wrapper (dynamic import) |
-| `tabs/BudgetTab.tsx` | Cumulative burn curve + agent cost breakdown + estimated vs actual comparison panel |
+| `tabs/LineageTab.tsx` | Lineage DAG + tree search toggle (Full DAG / Pruned Tree views). Absorbed former TreeTab. |
 | `tabs/VariantsTab.tsx` | Sortable variant table with sparklines and step score expansion |
+| `tabs/LogsTab.tsx` | Structured log viewer with search, time-delta, inline cost/duration badges, context tree, pagination, and JSON/CSV export |
 | `StepScoreBar.tsx` | Horizontal bar chart showing per-step scores for outline variants |
-| `tabs/TreeTab.tsx` | Tree search visualization: depth-layered beam search tree with winning path highlighting, pruned branch dimming, and node detail panel |
+| `TableSkeleton.tsx` | Shared table loading skeleton with configurable columns and rows |
+| `EmptyState.tsx` | Shared empty state with message, suggestion, icon, and optional action |
 
 ### Server Actions (`src/lib/services/evolutionVisualizationActions.ts`)
 

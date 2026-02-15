@@ -48,6 +48,9 @@ describe('LogBuffer', () => {
       agent_name: 'generation',
       iteration: 1,
       variant_id: null,
+      request_id: null,
+      cost_usd: null,
+      duration_ms: null,
       message: 'Test message',
       context: { agent: 'generation', iteration: 1 },
     });
@@ -58,6 +61,9 @@ describe('LogBuffer', () => {
       agent_name: 'calibration',
       iteration: 2,
       variant_id: 'v-1',
+      request_id: null,
+      cost_usd: null,
+      duration_ms: null,
       message: 'Warning msg',
       context: { agent: 'calibration', iteration: 2, variationId: 'v-1' },
     });

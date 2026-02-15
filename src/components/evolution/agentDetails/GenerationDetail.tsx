@@ -2,8 +2,9 @@
 
 import type { GenerationExecutionDetail } from '@/lib/evolution/types';
 import { StatusBadge, DetailSection, CostDisplay, ShortId } from './shared';
+import { AgentErrorBlock } from './AgentErrorBlock';
 
-export function GenerationDetail({ detail }: { detail: GenerationExecutionDetail }): JSX.Element {
+export function GenerationDetail({ detail, runId }: { detail: GenerationExecutionDetail; runId?: string }): JSX.Element {
   return (
     <div className="space-y-3" data-testid="generation-detail">
       <DetailSection title="Strategies">
@@ -18,13 +19,11 @@ export function GenerationDetail({ detail }: { detail: GenerationExecutionDetail
                 <StatusBadge status={s.status} />
               </div>
               <div className="flex items-center gap-3 text-[var(--text-muted)]">
-                {s.variantId && <ShortId id={s.variantId} />}
+                {s.variantId && <ShortId id={s.variantId} runId={runId} />}
                 {s.textLength !== undefined && <span>{s.textLength} chars</span>}
-                {s.error && <span className="text-[var(--status-error)]" title={s.error}>error</span>}
-                {s.formatIssues && s.formatIssues.length > 0 && (
-                  <span className="text-[var(--status-warning)]" title={s.formatIssues.join(', ')}>
-                    {s.formatIssues.length} format issue{s.formatIssues.length > 1 ? 's' : ''}
-                  </span>
+                {s.error && <AgentErrorBlock error={s.error} formatIssues={s.formatIssues ?? undefined} />}
+                {!s.error && s.formatIssues && s.formatIssues.length > 0 && (
+                  <AgentErrorBlock error={`${s.formatIssues.length} format issue${s.formatIssues.length > 1 ? 's' : ''}`} formatIssues={s.formatIssues} variant="inline" />
                 )}
               </div>
             </div>

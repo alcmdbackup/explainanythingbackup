@@ -3,7 +3,6 @@
 // Queue new runs, view variant rankings, apply winning content, rollback, and view quality impact.
 
 import { Fragment, useState, useCallback, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import {
   queueEvolutionRunAction,
@@ -11,7 +10,6 @@ import {
   getEvolutionVariantsAction,
   applyWinnerAction,
   triggerEvolutionRunAction,
-  killEvolutionRunAction,
   getEvolutionCostBreakdownAction,
   getEvolutionHistoryAction,
   rollbackEvolutionAction,
@@ -25,11 +23,10 @@ import { getPromptsAction } from '@/lib/services/promptRegistryActions';
 import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
 import { dispatchEvolutionBatchAction } from '@/lib/services/evolutionBatchActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
-import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
-import { isTestEntry, validateStrategyConfig } from '@/lib/evolution/core/configValidation';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
-import { ElapsedTime } from '@/components/evolution/ElapsedTime';
+import { RunsTable, getBaseColumns, type RunsColumnDef } from '@/components/evolution/RunsTable';
+import { buildExplanationUrl } from '@/lib/utils/evolutionUrls';
 
 // ─── Date range options ──────────────────────────────────────────
 
@@ -50,14 +47,17 @@ function getStartDate(range: DateRange): string | undefined {
   return d.toISOString();
 }
 
-const CONFIDENCE_STYLES: Record<string, { bg: string; text: string; title?: string }> = {
-  high: { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' },
-  medium: { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' },
-  low: { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' },
-};
-
 function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
-  return CONFIDENCE_STYLES[confidence] ?? CONFIDENCE_STYLES.low;
+  switch (confidence) {
+    case 'high':
+      return { bg: 'bg-[var(--status-success)]/10', text: 'text-[var(--status-success)]' };
+    case 'medium':
+      return { bg: 'bg-[var(--accent-gold)]/10', text: 'text-[var(--accent-gold)]' };
+    case 'low':
+      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]', title: 'No historical data yet — estimate is heuristic-based' };
+    default:
+      return { bg: 'bg-[var(--text-muted)]/10', text: 'text-[var(--text-muted)]' };
+  }
 }
 
 function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
@@ -157,7 +157,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   const [budget, setBudget] = useState('5.00');
   const [submitting, setSubmitting] = useState(false);
   const [prompts, setPrompts] = useState<{ id: string; label: string }[]>([]);
-  const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
+  const [strategies, setStrategies] = useState<{ id: string; label: string }[]>([]);
   const [estimate, setEstimate] = useState<CostEstimateResult | null>(null);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -169,14 +169,10 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         getStrategiesAction({ status: 'active' }),
       ]);
       if (pRes.success && pRes.data) {
-        setPrompts(
-          pRes.data
-            .filter(p => !isTestEntry(p.title))
-            .map(p => ({ id: p.id, label: p.title }))
-        );
+        setPrompts(pRes.data.map(p => ({ id: p.id, label: p.title })));
       }
       if (sRes.success && sRes.data) {
-        setStrategies(sRes.data.filter(s => !isTestEntry(s.name)));
+        setStrategies(sRes.data.map(s => ({ id: s.id, label: s.name })));
       }
     })();
   }, []);
@@ -196,14 +192,6 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
 
     return () => clearTimeout(timer);
   }, [strategyId]);
-
-  const configWarnings = useMemo(() => {
-    if (!strategyId) return [];
-    const selected = strategies.find(s => s.id === strategyId);
-    if (!selected) return [];
-    const { errors } = validateStrategyConfig(selected.config);
-    return errors;
-  }, [strategyId, strategies]);
 
   const handleStart = async (): Promise<void> => {
     if (!promptId) {
@@ -247,7 +235,6 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   const exceedsBudget = estimate && estimate.totalUsd > budgetNum;
 
   const selectClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
-  const handleSelectChange = (setter: (val: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => setter(e.target.value);
 
   return (
     <div
@@ -260,16 +247,16 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
       <div className="flex flex-wrap items-end gap-3">
         <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
           <span className="text-xs font-ui text-[var(--text-muted)]">Prompt</span>
-          <select value={promptId} onChange={handleSelectChange(setPromptId)} className={selectClass}>
+          <select value={promptId} onChange={(e) => setPromptId(e.target.value)} className={selectClass}>
             <option value="">Select prompt...</option>
             {prompts.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
         </label>
         <label className="relative z-10 flex flex-col gap-1 flex-1 min-w-[180px]">
           <span className="text-xs font-ui text-[var(--text-muted)]">Strategy</span>
-          <select value={strategyId} onChange={handleSelectChange(setStrategyId)} className={selectClass}>
+          <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className={selectClass}>
             <option value="">Select strategy...</option>
-            {strategies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {strategies.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1 w-28">
@@ -284,23 +271,13 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         </label>
         <button
           onClick={handleStart}
-          disabled={submitting || !promptId || !strategyId || configWarnings.length > 0}
+          disabled={submitting || !promptId || !strategyId}
           data-testid="start-run-btn"
           className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? 'Running...' : 'Start Pipeline'}
         </button>
       </div>
-
-      {configWarnings.length > 0 && (
-        <div className="space-y-1" data-testid="config-warnings">
-          {configWarnings.map((w, i) => (
-            <div key={i} className="text-xs text-[var(--status-error)] bg-[var(--status-error)]/10 px-2 py-1 rounded">
-              {w}
-            </div>
-          ))}
-        </div>
-      )}
 
       {estimateLoading && (
         <div className="text-xs text-[var(--text-muted)]" data-testid="estimate-loading">
@@ -365,20 +342,17 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   );
 }
 
-// ─── Start Batch card ────────────────────────────────────────────
+// ─── Batch Dispatch inline ───────────────────────────────────────
 
-function StartBatchCard({ pendingCount }: { pendingCount: number }) {
-  const [parallel, setParallel] = useState('5');
-  const [maxRuns, setMaxRuns] = useState('10');
-  const [dryRun, setDryRun] = useState(false);
+function BatchDispatchButtons({ pendingCount }: { pendingCount: number }) {
   const [dispatching, setDispatching] = useState(false);
 
-  const handleDispatch = async (overrideMaxRuns?: number): Promise<void> => {
+  const handleDispatch = async (maxRuns?: number) => {
     setDispatching(true);
     const result = await dispatchEvolutionBatchAction({
-      parallel: parseInt(parallel, 10) || 5,
-      maxRuns: overrideMaxRuns ?? (parseInt(maxRuns, 10) || 10),
-      dryRun,
+      parallel: 5,
+      maxRuns: maxRuns ?? 10,
+      dryRun: false,
     });
     if (result.success) {
       toast.success('Batch dispatched — runs will appear as they are claimed');
@@ -388,99 +362,41 @@ function StartBatchCard({ pendingCount }: { pendingCount: number }) {
     setDispatching(false);
   };
 
-  const inputClass = 'px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)] text-sm font-ui';
-  const handleInputChange = (setter: (val: string) => void) => (e: React.ChangeEvent<HTMLInputElement>) => setter(e.target.value);
-
   return (
-    <div
-      className="bg-[var(--surface-elevated)] border border-[var(--border-default)] rounded-book p-4 space-y-3"
-      data-testid="start-batch-card"
-    >
-      <h3 className="text-sm font-semibold text-[var(--text-secondary)] uppercase tracking-wide">
-        Batch Dispatch (GitHub Actions)
-      </h3>
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1 w-28">
-          <span className="text-xs font-ui text-[var(--text-muted)]">Parallel</span>
-          <input
-            type="number"
-            min="1"
-            max="10"
-            value={parallel}
-            onChange={handleInputChange(setParallel)}
-            className={inputClass}
-            data-testid="batch-parallel"
-          />
-        </label>
-        <label className="flex flex-col gap-1 w-28">
-          <span className="text-xs font-ui text-[var(--text-muted)]">Max Runs</span>
-          <input
-            type="number"
-            min="1"
-            max="100"
-            value={maxRuns}
-            onChange={handleInputChange(setMaxRuns)}
-            className={inputClass}
-            data-testid="batch-max-runs"
-          />
-        </label>
-        <label className="flex items-center gap-2 self-center pt-4">
-          <input
-            type="checkbox"
-            checked={dryRun}
-            onChange={(e) => setDryRun(e.target.checked)}
-            className="accent-[var(--accent-gold)]"
-            data-testid="batch-dry-run"
-          />
-          <span className="text-xs font-ui text-[var(--text-muted)]">Dry run</span>
-        </label>
-        <button
-          onClick={() => handleDispatch()}
-          disabled={dispatching}
-          data-testid="dispatch-batch-btn"
-          className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
-        >
-          {dispatching ? 'Dispatching...' : 'Dispatch Batch'}
-        </button>
+    <div className="flex items-center gap-2" data-testid="batch-dispatch-section">
+      <button
+        onClick={() => handleDispatch()}
+        disabled={dispatching}
+        data-testid="dispatch-batch-btn"
+        className="px-3 py-1.5 border border-[var(--border-default)] rounded-page font-ui text-xs text-[var(--text-secondary)] hover:bg-[var(--surface-elevated)] disabled:opacity-50"
+      >
+        {dispatching ? 'Dispatching...' : 'Batch Dispatch'}
+      </button>
+      {pendingCount > 0 && (
         <button
           onClick={() => handleDispatch(pendingCount)}
-          disabled={dispatching || pendingCount === 0}
+          disabled={dispatching}
           data-testid="trigger-all-pending-btn"
-          className="px-4 py-2 border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded-page font-ui text-sm hover:bg-[var(--accent-gold)]/10 disabled:opacity-50"
+          className="px-3 py-1.5 border border-[var(--accent-gold)] text-[var(--accent-gold)] rounded-page font-ui text-xs hover:bg-[var(--accent-gold)]/10 disabled:opacity-50"
         >
-          {pendingCount > 0 ? `Trigger All Pending (${pendingCount})` : 'No Pending Runs'}
+          Trigger All Pending ({pendingCount})
         </button>
-      </div>
+      )}
     </div>
   );
 }
 
 // ─── Queue dialog ───────────────────────────────────────────────
 
-interface QueueDialogProps {
+function QueueDialog({
+  onQueue,
+  onClose,
+}: {
   onQueue: (explanationId: number, budgetCapUsd: number) => void;
   onClose: () => void;
-}
-
-function QueueDialog({ onQueue, onClose }: QueueDialogProps): JSX.Element {
+}) {
   const [explanationId, setExplanationId] = useState('');
   const [budget, setBudget] = useState('5.00');
-
-  const handleSubmit = (): void => {
-    const id = parseInt(explanationId, 10);
-    const cap = parseFloat(budget);
-    if (!id || isNaN(id)) {
-      toast.error('Valid explanation ID required');
-      return;
-    }
-    if (!cap || cap <= 0) {
-      toast.error('Budget must be positive');
-      return;
-    }
-    onQueue(id, cap);
-  };
-
-  const inputClass = 'w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]';
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -498,7 +414,7 @@ function QueueDialog({ onQueue, onClose }: QueueDialogProps): JSX.Element {
             value={explanationId}
             onChange={(e) => setExplanationId(e.target.value)}
             data-testid="queue-explanation-id"
-            className={inputClass}
+            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
             placeholder="e.g. 42"
           />
         </div>
@@ -511,7 +427,7 @@ function QueueDialog({ onQueue, onClose }: QueueDialogProps): JSX.Element {
             value={budget}
             onChange={(e) => setBudget(e.target.value)}
             data-testid="queue-budget"
-            className={inputClass}
+            className="w-full px-3 py-2 border border-[var(--border-default)] rounded-page bg-[var(--surface-secondary)] text-[var(--text-primary)]"
           />
         </div>
 
@@ -523,7 +439,19 @@ function QueueDialog({ onQueue, onClose }: QueueDialogProps): JSX.Element {
             Cancel
           </button>
           <button
-            onClick={handleSubmit}
+            onClick={() => {
+              const id = parseInt(explanationId, 10);
+              const cap = parseFloat(budget);
+              if (!id || isNaN(id)) {
+                toast.error('Valid explanation ID required');
+                return;
+              }
+              if (!cap || cap <= 0) {
+                toast.error('Budget must be positive');
+                return;
+              }
+              onQueue(id, cap);
+            }}
             data-testid="queue-submit"
             className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page hover:opacity-90"
           >
@@ -543,15 +471,12 @@ function VariantPanel({
   loading,
   onApplyWinner,
   onClose,
-  mutating,
 }: {
   run: EvolutionRun;
   variants: EvolutionVariant[];
   loading: boolean;
   onApplyWinner: (variantId: string) => void;
   onClose: () => void;
-  /** UI-3: Disables Apply buttons while a mutation is in flight. */
-  mutating?: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [costBreakdown, setCostBreakdown] = useState<AgentCostBreakdown[] | null>(null);
@@ -576,7 +501,16 @@ function VariantPanel({
               Run Variants
             </h2>
             <p className="text-sm text-[var(--text-muted)]">
-              Explanation #{run.explanation_id} &middot; {run.variants_generated} variants &middot;{' '}
+              {run.explanation_id ? (
+                <Link
+                  href={buildExplanationUrl(run.explanation_id)}
+                  className="text-[var(--accent-gold)] hover:underline"
+                >
+                  Explanation #{run.explanation_id}
+                </Link>
+              ) : (
+                <span>Run {run.id.substring(0, 8)}</span>
+              )} &middot; {run.variants_generated} variants &middot;{' '}
               <EvolutionStatusBadge status={run.status} />
             </p>
           </div>
@@ -625,11 +559,10 @@ function VariantPanel({
                         {run.status === 'completed' && !v.is_winner && (
                           <button
                             onClick={() => onApplyWinner(v.id)}
-                            disabled={mutating}
                             data-testid={`apply-winner-${i}`}
-                            className="text-[var(--status-success)] hover:underline text-xs disabled:opacity-50"
+                            className="text-[var(--status-success)] hover:underline text-xs"
                           >
-                            {mutating ? 'Applying...' : 'Apply'}
+                            Apply
                           </button>
                         )}
                       </div>
@@ -665,7 +598,6 @@ function VariantPanel({
 // ─── Main page ──────────────────────────────────────────────────
 
 export default function EvolutionAdminPage() {
-  const router = useRouter();
   const [runs, setRuns] = useState<EvolutionRun[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -678,6 +610,93 @@ export default function EvolutionAdminPage() {
   const [selectedRun, setSelectedRun] = useState<EvolutionRun | null>(null);
   const [variants, setVariants] = useState<EvolutionVariant[]>([]);
   const [variantsLoading, setVariantsLoading] = useState(false);
+
+  // Full column set for evolution runs table
+  const evolutionColumns = useMemo<RunsColumnDef<EvolutionRun>[]>(() => {
+    const base = getBaseColumns<EvolutionRun>();
+    // Insert Run ID before Explanation, add Variants/Est/Budget after Cost
+    const runIdCol: RunsColumnDef<EvolutionRun> = {
+      key: 'runId',
+      header: 'Run ID',
+      render: (run) => (
+        <Link
+          href={`/admin/quality/evolution/run/${run.id}`}
+          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+          title={run.id}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {run.id.substring(0, 8)}
+        </Link>
+      ),
+    };
+    // Override explanation column to show as plain text (Run ID is the link)
+    const explCol: RunsColumnDef<EvolutionRun> = {
+      key: 'explanation',
+      header: 'Explanation',
+      render: (run) => run.explanation_id ? (
+        <Link
+          href={buildExplanationUrl(run.explanation_id)}
+          className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
+          onClick={(e) => e.stopPropagation()}
+          title={`View explanation #${run.explanation_id}`}
+        >
+          #{run.explanation_id}
+        </Link>
+      ) : (
+        <span className="text-[var(--text-muted)]">&mdash;</span>
+      ),
+    };
+    const variantsCol: RunsColumnDef<EvolutionRun> = {
+      key: 'variants',
+      header: 'Variants',
+      align: 'right',
+      render: (run) => <span>{run.variants_generated}</span>,
+    };
+    const estCol: RunsColumnDef<EvolutionRun> = {
+      key: 'estimate',
+      header: 'Est.',
+      align: 'right',
+      render: (run) => run.estimated_cost_usd != null ? (
+        <span className={`font-mono ${getEstimateColorClass(run)}`}>
+          ${run.estimated_cost_usd.toFixed(2)}
+        </span>
+      ) : (
+        <span className="text-[var(--text-muted)]">&mdash;</span>
+      ),
+    };
+    const budgetCol: RunsColumnDef<EvolutionRun> = {
+      key: 'budget',
+      header: 'Budget',
+      align: 'right',
+      render: (run) => <span className="text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</span>,
+    };
+    // Override created column to include time
+    const createdWithTimeCol: RunsColumnDef<EvolutionRun> = {
+      key: 'created',
+      header: 'Created',
+      render: (run) => (
+        <span className="text-[var(--text-muted)] text-xs">
+          {new Date(run.created_at).toLocaleDateString()}{' '}
+          <span className="opacity-70">
+            {new Date(run.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </span>
+      ),
+    };
+    // Build: RunID, Explanation, Status, Phase, Variants, Cost, Est, Budget, Duration, Created
+    return [
+      runIdCol,
+      explCol,
+      base.find(c => c.key === 'status')!,
+      base.find(c => c.key === 'phase')!,
+      variantsCol,
+      base.find(c => c.key === 'cost')!,
+      estCol,
+      budgetCol,
+      base.find(c => c.key === 'duration')!,
+      createdWithTimeCol,
+    ];
+  }, []);
 
   const loadRuns = useCallback(async () => {
     setLoading(true);
@@ -726,19 +745,6 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
-  const handleKill = async (runId: string): Promise<void> => {
-    if (!confirm('Kill this evolution run? In-flight LLM calls will still complete.')) return;
-    setActionLoading(true);
-    const result = await killEvolutionRunAction(runId);
-    if (result.success) {
-      toast.success('Run killed');
-      loadRuns();
-    } else {
-      toast.error(result.error?.message || 'Failed to kill run');
-    }
-    setActionLoading(false);
-  };
-
   const handleViewVariants = async (run: EvolutionRun): Promise<void> => {
     setSelectedRun(run);
     setVariantsLoading(true);
@@ -755,10 +761,6 @@ export default function EvolutionAdminPage() {
     if (!selectedRun) return;
     if (selectedRun.explanation_id === null) {
       toast.error('Cannot apply winner: run has no explanation_id');
-      return;
-    }
-    // UI-2: Confirmation before irreversible winner application
-    if (!confirm(`Apply this variant as the winner for explanation #${selectedRun.explanation_id}? This will update the published article content.`)) {
       return;
     }
     setActionLoading(true);
@@ -816,10 +818,10 @@ export default function EvolutionAdminPage() {
       <div className="flex justify-between items-start">
         <div>
           <h1 className="text-4xl font-display font-bold text-[var(--text-primary)]">
-            Content Evolution
+            Pipeline Runs
           </h1>
           <p className="text-[var(--text-muted)] text-sm mt-1">
-            Evolve article content via Elo-ranked variant generation
+            Queue, manage, and monitor evolution pipeline runs
           </p>
         </div>
         <div className="flex gap-2">
@@ -859,7 +861,7 @@ export default function EvolutionAdminPage() {
 
       <SummaryCards runs={runs} />
       <StartRunCard onQueued={loadRuns} />
-      <StartBatchCard pendingCount={runs.filter((r) => r.status === 'pending').length} />
+      <BatchDispatchButtons pendingCount={runs.filter((r) => r.status === 'pending').length} />
 
       {error && (
         <div className="p-3 bg-[var(--status-error)]/10 border border-[var(--status-error)] rounded-page text-[var(--status-error)]">
@@ -867,135 +869,48 @@ export default function EvolutionAdminPage() {
         </div>
       )}
 
-      <div className="overflow-x-auto border border-[var(--border-default)] rounded-book" data-testid="evolution-runs-table">
-        <table className="w-full text-sm">
-          <thead className="bg-[var(--surface-elevated)]">
-            <tr>
-              <th className="p-3 text-left">Run ID</th>
-              <th className="p-3 text-left">Explanation</th>
-              <th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Phase</th>
-              <th className="p-3 text-right">Variants</th>
-              <th className="p-3 text-right">Cost</th>
-              <th className="p-3 text-right">Est.</th>
-              <th className="p-3 text-right">Budget</th>
-              <th className="p-3 text-left">Duration</th>
-              <th className="p-3 text-left">Created</th>
-              <th className="p-3 text-left">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={11} className="p-8 text-center text-[var(--text-muted)]">Loading...</td>
-              </tr>
-            ) : runs.length === 0 ? (
-              <tr>
-                <td colSpan={11} className="p-8 text-center text-[var(--text-muted)]">
-                  No evolution runs found
-                </td>
-              </tr>
-            ) : (
-              runs.map((run) => (
-                <tr
-                  key={run.id}
-                  className="border-t border-[var(--border-default)] hover:bg-[var(--surface-secondary)] cursor-pointer"
-                  data-testid={`run-row-${run.id}`}
-                  onClick={() => router.push(`/admin/quality/evolution/run/${run.id}`)}
-                >
-                  <td className="p-3">
-                    <Link
-                      href={`/admin/quality/evolution/run/${run.id}`}
-                      className="font-mono text-xs text-[var(--accent-gold)] hover:underline"
-                      title={run.id}
-                    >
-                      {run.id.substring(0, 8)}
-                    </Link>
-                  </td>
-                  <td className="p-3">
-                    {run.explanation_id ? (
-                      <span className="font-mono text-xs text-[var(--text-secondary)]">
-                        #{run.explanation_id}
-                      </span>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="p-3">
-                    <EvolutionStatusBadge status={run.status} />
-                  </td>
-                  <td className="p-3 text-[var(--text-secondary)] text-xs">{run.phase}</td>
-                  <td className="p-3 text-right">{run.variants_generated}</td>
-                  <td className="p-3 text-right font-mono">${run.total_cost_usd.toFixed(2)}</td>
-                  <td className="p-3 text-right font-mono">
-                    {run.estimated_cost_usd != null ? (
-                      <span className={getEstimateColorClass(run)}>
-                        ${run.estimated_cost_usd.toFixed(2)}
-                      </span>
-                    ) : (
-                      <span className="text-[var(--text-muted)]">—</span>
-                    )}
-                  </td>
-                  <td className="p-3 text-right text-[var(--text-muted)]">${run.budget_cap_usd.toFixed(2)}</td>
-                  <td className="p-3"><ElapsedTime startedAt={run.started_at} completedAt={run.completed_at} status={run.status} /></td>
-                  <td className="p-3 text-[var(--text-muted)] text-xs">
-                    {new Date(run.created_at).toLocaleDateString()}{' '}
-                    <span className="text-[var(--text-muted)]/70">
-                      {new Date(run.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                    </span>
-                  </td>
-                  <td className="p-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => handleViewVariants(run)}
-                        data-testid={`view-variants-${run.id}`}
-                        className="text-[var(--accent-gold)] hover:underline text-xs"
-                      >
-                        Variants
-                      </button>
-                      {run.status === 'pending' && (
-                        <button
-                          onClick={() => handleTrigger(run.id)}
-                          disabled={actionLoading}
-                          data-testid={`trigger-run-${run.id}`}
-                          className="text-[var(--accent-gold)] hover:underline text-xs disabled:opacity-50"
-                        >
-                          Trigger
-                        </button>
-                      )}
-                      {(run.status === 'running' || run.status === 'claimed') && (
-                        <button
-                          onClick={() => handleKill(run.id)}
-                          disabled={actionLoading}
-                          data-testid={`kill-run-${run.id}`}
-                          className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
-                        >
-                          Kill
-                        </button>
-                      )}
-                      {run.status === 'completed' && (
-                        <button
-                          onClick={() => handleRollback(run)}
-                          disabled={actionLoading}
-                          data-testid={`rollback-${run.id}`}
-                          className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
-                        >
-                          Rollback
-                        </button>
-                      )}
-                      {run.error_message && (
-                        <span className="text-[var(--status-error)] text-xs truncate max-w-[150px]" title={run.error_message}>
-                          {run.error_message}
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+      <RunsTable<EvolutionRun>
+        runs={runs}
+        columns={evolutionColumns}
+        loading={loading}
+        renderActions={(run) => (
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleViewVariants(run)}
+              data-testid={`view-variants-${run.id}`}
+              className="text-[var(--accent-gold)] hover:underline text-xs"
+            >
+              Variants
+            </button>
+            {run.status === 'pending' && (
+              <button
+                onClick={() => handleTrigger(run.id)}
+                disabled={actionLoading}
+                data-testid={`trigger-run-${run.id}`}
+                className="text-[var(--accent-gold)] hover:underline text-xs disabled:opacity-50"
+              >
+                Trigger
+              </button>
             )}
-          </tbody>
-        </table>
-      </div>
+            {run.status === 'completed' && (
+              <button
+                onClick={() => handleRollback(run)}
+                disabled={actionLoading}
+                data-testid={`rollback-${run.id}`}
+                className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
+              >
+                Rollback
+              </button>
+            )}
+            {run.error_message && (
+              <span className="text-[var(--status-error)] text-xs truncate max-w-[150px]" title={run.error_message}>
+                {run.error_message}
+              </span>
+            )}
+          </div>
+        )}
+        testId="evolution-runs-table"
+      />
 
       {showQueueDialog && (
         <QueueDialog
@@ -1011,7 +926,6 @@ export default function EvolutionAdminPage() {
           loading={variantsLoading}
           onApplyWinner={handleApplyWinner}
           onClose={() => { setSelectedRun(null); setVariants([]); }}
-          mutating={actionLoading}
         />
       )}
     </div>
