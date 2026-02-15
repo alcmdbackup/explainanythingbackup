@@ -8,6 +8,7 @@ import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logg
 import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
 import { resolveConfig as _resolveConfig } from './config';
 import { computeEffectiveBudgetCaps as _computeEffectiveBudgetCaps } from './core/budgetRedistribution';
+import { validateRunConfig as _validateRunConfig } from './core/configValidation';
 import type { EvolutionRunConfig, EvolutionLLMClient, ExecutionContext } from './types';
 import type { PipelineAgents } from './core/pipeline';
 import type { CostTrackerImpl } from './core/costTracker';
@@ -90,6 +91,7 @@ export { isTransientError } from './core/errorClassification';
 export { fetchEvolutionFeatureFlags, DEFAULT_EVOLUTION_FLAGS } from './core/featureFlags';
 export type { EvolutionFeatureFlags } from './core/featureFlags';
 export { computeEffectiveBudgetCaps, validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES, MUTEX_AGENTS } from './core/budgetRedistribution';
+export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
 export { toggleAgent } from './core/agentToggle';
 export type { ArticleSection, ParsedArticle, SectionVariation, SectionEvolutionState } from './section/types';
 export { parseArticleIntoSections } from './section/sectionParser';
@@ -149,6 +151,13 @@ export interface PreparedPipelineRun {
  */
 export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineRun {
   const config = _resolveConfig(inputs.configOverrides ?? {});
+
+  // Validate complete config after resolveConfig merges defaults
+  const validation = _validateRunConfig(config);
+  if (!validation.valid) {
+    throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
+  }
+
   // Redistribute budget caps based on enabled agents (before CostTracker creation)
   config.budgetCaps = _computeEffectiveBudgetCaps(
     config.budgetCaps,

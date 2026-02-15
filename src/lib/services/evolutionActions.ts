@@ -310,6 +310,23 @@ async function buildRunConfig(
     runConfig.budgetCaps = { ...strategyConfig.budgetCaps };
   }
 
+  // Validate processed config before inserting a run into DB.
+  // validateStrategyConfig skips absent/falsy model names and null iterations.
+  const { validateStrategyConfig } = await import('@/lib/evolution/core/configValidation');
+  const iterations = runConfig.maxIterations as number | undefined;
+  const validation = validateStrategyConfig({
+    generationModel: (runConfig.generationModel as string) ?? '',
+    judgeModel: (runConfig.judgeModel as string) ?? '',
+    // Cast: StrategyConfig.iterations is typed as `number` but validator checks `!= null`
+    iterations: (iterations ?? null) as unknown as number,
+    budgetCaps: (runConfig.budgetCaps as Record<string, number>) ?? {},
+    enabledAgents: runConfig.enabledAgents as import('@/lib/evolution/core/pipeline').AgentName[] | undefined,
+    singleArticle: strategyConfig.singleArticle,
+  });
+  if (!validation.valid) {
+    throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
+  }
+
   return runConfig;
 }
 
@@ -873,6 +890,49 @@ async function triggerPostEvolutionEval(
 
   logger.info('Post-evolution eval completed', { explanationId });
 }
+
+// ─── Kill evolution run ───────────────────────────────────────────
+
+const _killEvolutionRunAction = withLogging(async (
+  runId: string
+): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
+  try {
+    const adminUserId = await requireAdmin();
+    const supabase = await createSupabaseServiceClient();
+
+    // Only kill runs in non-terminal states
+    const { data, error } = await supabase
+      .from('content_evolution_runs')
+      .update({
+        status: 'failed',
+        error_message: 'Manually killed by admin',
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', runId)
+      .in('status', ['pending', 'claimed', 'running'])
+      .select()
+      .single();
+
+    if (error || !data) {
+      throw new Error(`Cannot kill run ${runId}: run not found or already in terminal state`);
+    }
+
+    await logAdminAction({
+      adminUserId,
+      action: 'kill_evolution_run',
+      entityType: 'evolution_run',
+      entityId: runId,
+    });
+
+    logger.info('Evolution run killed by admin', { runId, adminUserId });
+
+    return { success: true, data: data as EvolutionRun, error: null };
+  } catch (error) {
+    return { success: false, data: null, error: handleError(error, 'killEvolutionRunAction', { runId }) };
+  }
+}, 'killEvolutionRunAction');
+
+export const killEvolutionRunAction = serverReadRequestId(_killEvolutionRunAction);
 
 // ─── Run Logs ─────────────────────────────────────────────────────
 

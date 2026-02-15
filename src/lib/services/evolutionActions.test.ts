@@ -1,4 +1,4 @@
-// Tests for evolution server actions: cost breakdown, history, rollback, date filtering, and cost estimation.
+// Tests for evolution server actions: cost breakdown, history, rollback, date filtering, cost estimation, and kill.
 
 import {
   getEvolutionCostBreakdownAction,
@@ -9,6 +9,7 @@ import {
   getEvolutionVariantsAction,
   getEvolutionRunByIdAction,
   triggerEvolutionRunAction,
+  killEvolutionRunAction,
 } from './evolutionActions';
 import { createSupabaseServiceClient } from '@/lib/utils/supabase/server';
 import { requireAdmin } from '@/lib/services/adminAuth';
@@ -618,6 +619,52 @@ describe('Evolution Actions', () => {
     });
   });
 
+  // ─── Config validation at queue time ───────────────────────────
+
+  describe('queueEvolutionRunAction config validation', () => {
+    it('rejects a strategy with an invalid model name', async () => {
+      const mock = createChainMock();
+      let singleCallCount = 0;
+      mock.single.mockImplementation(() => {
+        singleCallCount++;
+        if (singleCallCount === 1) {
+          return Promise.resolve({ data: { id: 'prompt-1' }, error: null });
+        }
+        if (singleCallCount === 2) {
+          return Promise.resolve({
+            data: {
+              id: 'strat-bad',
+              config: {
+                generationModel: 'nonexistent-model',
+                judgeModel: 'gpt-4.1-nano',
+                iterations: 5,
+                budgetCaps: { generation: 0.2 },
+              },
+            },
+            error: null,
+          });
+        }
+        return Promise.resolve({ data: { id: 'run-1' }, error: null });
+      });
+      (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+      mockEstimateRunCostWithAgentModels.mockResolvedValueOnce({
+        totalUsd: 1.0, perAgent: {}, perIteration: 0.1, confidence: 'low',
+      });
+
+      const { queueEvolutionRunAction } = await import('./evolutionActions');
+      const result = await queueEvolutionRunAction({
+        promptId: 'prompt-1',
+        strategyId: '12345678-1234-4123-8123-123456789abc',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('Invalid strategy config');
+      expect(result.error?.message).toContain('nonexistent-model');
+      // Should NOT have inserted a run into DB
+      expect(mock.insert).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── Estimate Run Cost ──────────────────────────────────────────
 
   describe('estimateRunCostAction', () => {
@@ -931,5 +978,103 @@ describe('triggerEvolutionRunAction', () => {
     // Should still return the original pipeline error, not the DB error
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
+  });
+});
+
+// ─── killEvolutionRunAction ─────────────────────────────────────
+
+describe('killEvolutionRunAction', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (requireAdmin as jest.Mock).mockResolvedValue('admin-123');
+  });
+
+  it('kills a running run and sets error_message', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: { id: 'run-1', status: 'failed', error_message: 'Manually killed by admin', completed_at: '2026-01-01T00:00:00Z' },
+      error: null,
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await killEvolutionRunAction('run-1');
+    expect(result.success).toBe(true);
+    expect(result.data?.error_message).toBe('Manually killed by admin');
+
+    // Verify update was called with correct status
+    expect(mock.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      error_message: 'Manually killed by admin',
+    }));
+    // Verify .in() status guard
+    expect(mock.in).toHaveBeenCalledWith('status', ['pending', 'claimed', 'running']);
+  });
+
+  it('kills a pending run (pre-execution kill)', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: { id: 'run-2', status: 'failed', error_message: 'Manually killed by admin' },
+      error: null,
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await killEvolutionRunAction('run-2');
+    expect(result.success).toBe(true);
+  });
+
+  it('kills a claimed run', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: { id: 'run-3', status: 'failed', error_message: 'Manually killed by admin' },
+      error: null,
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await killEvolutionRunAction('run-3');
+    expect(result.success).toBe(true);
+  });
+
+  it('fails for a completed run (terminal state)', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'no rows returned', code: 'PGRST116' },
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await killEvolutionRunAction('run-completed');
+    expect(result.success).toBe(false);
+    expect(result.error?.message).toContain('already in terminal state');
+  });
+
+  it('fails for an already-failed run', async () => {
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: null,
+      error: { message: 'no rows returned', code: 'PGRST116' },
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    const result = await killEvolutionRunAction('run-failed');
+    expect(result.success).toBe(false);
+  });
+
+  it('logs admin action with correct entity info', async () => {
+    const { logAdminAction } = await import('@/lib/services/auditLog');
+    const mock = createChainMock();
+    mock.single.mockResolvedValueOnce({
+      data: { id: 'run-audit', status: 'failed', error_message: 'Manually killed by admin' },
+      error: null,
+    });
+    (createSupabaseServiceClient as jest.Mock).mockResolvedValue(mock);
+
+    await killEvolutionRunAction('run-audit');
+
+    expect(logAdminAction).toHaveBeenCalledWith({
+      adminUserId: 'admin-123',
+      action: 'kill_evolution_run',
+      entityType: 'evolution_run',
+      entityId: 'run-audit',
+    });
   });
 });

@@ -59,6 +59,7 @@ import {
   applyWinnerAction,
   rollbackEvolutionAction,
   getEvolutionCostBreakdownAction,
+  killEvolutionRunAction,
 } from '@/lib/services/evolutionActions';
 import { getEvolutionComparisonAction } from '@/lib/services/contentQualityActions';
 
@@ -542,6 +543,89 @@ describe('Evolution Server Actions Integration Tests', () => {
       expect(result.data!.improvement).toBeGreaterThan(0);
       expect(result.data!.before).toBeTruthy();
       expect(result.data!.after).toBeTruthy();
+    });
+  });
+
+  // ─── Kill action ───────────────────────────────────────────────
+
+  describe('Kill action', () => {
+    it('kills a running run — status transitions to failed with error_message', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'running',
+        started_at: new Date().toISOString(),
+      });
+      const runId = run.id as string;
+
+      const result = await killEvolutionRunAction(runId);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeTruthy();
+      expect(result.data!.status).toBe('failed');
+      expect(result.data!.error_message).toBe('Manually killed by admin');
+      expect(result.data!.completed_at).toBeTruthy();
+    });
+
+    it('rejects kill of a completed run', async () => {
+      if (!tablesReady) return;
+
+      const run = await createTestEvolutionRun(supabase, testExplanationId, {
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+      });
+      const runId = run.id as string;
+
+      const result = await killEvolutionRunAction(runId);
+
+      expect(result.success).toBe(false);
+      expect(result.error?.message).toContain('not found or already in terminal state');
+    });
+  });
+
+  // ─── Config validation at queue time ──────────────────────────
+
+  describe('Config validation', () => {
+    it('rejects queue with invalid model name in strategy config', async () => {
+      if (!tablesReady) return;
+
+      const promptText = `${TEST_PREFIX}_invalid_config_${Date.now()}`;
+      const { data: prompt } = await supabase
+        .from('hall_of_fame_topics')
+        .insert({ title: promptText, prompt: promptText })
+        .select('id')
+        .single();
+
+      const { data: strategy } = await supabase
+        .from('strategy_configs')
+        .insert({
+          name: `${TEST_PREFIX}_invalid_model`,
+          label: 'Invalid model test',
+          config: {
+            generationModel: 'nonexistent-model-xyz',
+            judgeModel: 'gpt-4.1-nano',
+            iterations: 5,
+            budgetCaps: { generation: 0.2 },
+          },
+          config_hash: `test_invalid_${Date.now()}`,
+        })
+        .select('id')
+        .single();
+
+      try {
+        const result = await queueEvolutionRunAction({
+          explanationId: testExplanationId,
+          promptId: prompt!.id,
+          strategyId: strategy!.id,
+        });
+
+        expect(result.success).toBe(false);
+        expect(result.error?.message).toContain('Invalid strategy config');
+        expect(result.error?.message).toContain('nonexistent-model-xyz');
+      } finally {
+        await supabase.from('strategy_configs').delete().eq('id', strategy!.id);
+        await supabase.from('hall_of_fame_topics').delete().eq('id', prompt!.id);
+      }
     });
   });
 });

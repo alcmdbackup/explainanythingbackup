@@ -1,0 +1,10 @@
+{
+  "branch": "fix/invalid_config_still_present_stage_20260214",
+  "created_at": "2026-02-14T00:00:00Z",
+  "prerequisites": {},
+  "relevantDocs": [
+    "docs/evolution/README.md",
+    "docs/evolution/architecture.md",
+    "docs/evolution/visualization.md"
+  ]
+}

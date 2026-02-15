@@ -122,7 +122,7 @@ export async function createTestStrategyConfig(
       config_hash: `test_hash_${uniqueSuffix}`,
       name: `test_strategy_${uniqueSuffix}`,
       label: 'Test strategy',
-      config: { generationModel: 'test', judgeModel: 'test', iterations: 1, budgetCaps: {} },
+      config: { generationModel: 'gpt-4.1-mini', judgeModel: 'gpt-4.1-nano', iterations: 1, budgetCaps: {} },
     })
     .select('id')
     .single();

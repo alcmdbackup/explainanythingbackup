@@ -1636,12 +1636,184 @@ describe('executeFullPipeline — marks run as failed on unhandled error', () =>
     expect(failedUpdate).toBeDefined();
     expect(failedUpdate![0].error_message).toContain('Unrecoverable error');
 
-    // Verify .in() was called with the status guard
+    // Verify .in() was called with the markRunFailed status guard (not the claimed→running guard)
     const inCalls = (supabase.in as jest.Mock).mock.calls;
-    const statusGuardCall = inCalls.find(
-      (call: unknown[]) => call[0] === 'status',
+    const failedStatusGuard = inCalls.find(
+      (call: unknown[]) => call[0] === 'status' && Array.isArray(call[1]) && call[1].includes('running'),
     );
-    expect(statusGuardCall).toBeDefined();
-    expect(statusGuardCall![1]).toEqual(expect.arrayContaining(['pending', 'claimed', 'running']));
+    expect(failedStatusGuard).toBeDefined();
+    expect(failedStatusGuard![1]).toEqual(expect.arrayContaining(['pending', 'claimed', 'running']));
+  });
+});
+
+// ─── Kill detection tests ────────────────────────────────────────
+
+describe('executeFullPipeline — kill detection', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+    };
+  }
+
+  function makeKillAgents(): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation'),
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+      reflection: makeSpyAgent('reflection'),
+      debate: makeSpyAgent('debate'),
+      proximity: makeSpyAgent('proximity'),
+      metaReview: makeSpyAgent('metaReview'),
+    };
+  }
+
+  function makeKillCtx(budgetCalls: number[]): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 5,
+      expansion: { maxIterations: 1, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Kill detection test.');
+    let budgetIdx = 0;
+    return {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'kill-test', config },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker: {
+        reserveBudget: jest.fn().mockResolvedValue(undefined),
+        recordSpend: jest.fn(),
+        getAgentCost: jest.fn().mockReturnValue(0),
+        getTotalSpent: jest.fn().mockReturnValue(0),
+        getAvailableBudget: jest.fn(() => budgetCalls[budgetIdx++] ?? 0.005),
+        getAllAgentCosts: jest.fn().mockReturnValue({}),
+      },
+      runId: 'kill-test',
+    };
+  }
+
+  it('detects kill at iteration start — status check returns failed', async () => {
+    // Override the Supabase mock: .single() returns 'failed' status on iteration status check
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // .single() is called for the iteration status check — return 'failed'
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'failed' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 2.0]);
+
+    const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    expect(result.stopReason).toBe('killed');
+    // Pipeline should NOT have run any agents since kill detected at iteration start
+    expect(agents.generation.execute).not.toHaveBeenCalled();
+  });
+
+  it('skips completion update and finalizePipelineRun when killed', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // Return 'failed' on first single() (iteration status check) to trigger kill
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'failed' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 2.0]);
+
+    await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Verify: no 'completed' status update was made
+    const updateCalls = (supabase.update as jest.Mock).mock.calls;
+    const completedUpdate = updateCalls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown>;
+        return arg?.status === 'completed';
+      },
+    );
+    expect(completedUpdate).toBeUndefined();
+  });
+
+  it('continues normally when status check returns running', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // Return 'running' on single() — pipeline should proceed normally
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 0.005]);
+
+    const result = await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Pipeline ran at least one agent
+    expect(agents.generation.execute).toHaveBeenCalled();
+    expect(result.stopReason).not.toBe('killed');
+  });
+
+  it('claimed→running guard uses .in(status, [claimed]) to prevent overwrite', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // Normal flow: single() returns running
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 0.005]);
+
+    await executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+      featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+      startMs: Date.now(),
+    });
+
+    // Verify .in() was called with ['claimed'] for the claimed→running transition guard
+    const inCalls = (supabase.in as jest.Mock).mock.calls;
+    const claimedGuard = inCalls.find(
+      (call: unknown[]) => call[0] === 'status' && Array.isArray(call[1]) && call[1].length === 1 && call[1][0] === 'claimed',
+    );
+    expect(claimedGuard).toBeDefined();
+  });
+
+  it('DB error on status check propagates to catch block (fail-safe)', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+
+    // .single() throws (DB connection error)
+    (supabase.single as jest.Mock).mockRejectedValue(new Error('DB connection lost'));
+
+    const agents = makeKillAgents();
+    const ctx = makeKillCtx([2.0, 2.0, 2.0]);
+
+    // Pipeline should throw — catch block calls markRunFailed
+    await expect(
+      executeFullPipeline('kill-test', agents, ctx, ctx.logger, {
+        supervisorResume: { phase: 'COMPETITION', strategyRotationIndex: 0, ordinalHistory: [], diversityHistory: [] },
+        featureFlags: { ...DEFAULT_EVOLUTION_FLAGS },
+        startMs: Date.now(),
+      }),
+    ).rejects.toThrow('DB connection lost');
   });
 });

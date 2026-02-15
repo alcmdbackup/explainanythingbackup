@@ -865,7 +865,7 @@ export async function executeFullPipeline(
   ctx: ExecutionContext,
   logger: EvolutionLogger,
   options: FullPipelineOptions = {},
-): Promise<{ stopReason: string; supervisorState: SupervisorResumeState }> {
+): Promise<{ stopReason: string; supervisorState?: SupervisorResumeState }> {
   const pipelineSpan = createAppSpan('evolution.pipeline.full', {
     run_id: runId,
     max_iterations: ctx.payload.config.maxIterations,
@@ -874,11 +874,13 @@ export async function executeFullPipeline(
 
   try {
     const supabase = await createSupabaseServiceClient();
+
+    // Guard: only transition from 'claimed' — .in() prevents overwriting a kill
     await supabase.from('content_evolution_runs').update({
       status: 'running',
       started_at: new Date().toISOString(),
       pipeline_type: ctx.payload.config.singleArticle ? 'single' : 'full',
-    }).eq('id', runId);
+    }).eq('id', runId).in('status', ['claimed']);
 
     // Construct supervisor
     const supervisorCfg = supervisorConfigFromRunConfig(ctx.payload.config);
@@ -910,6 +912,18 @@ export async function executeFullPipeline(
     for (let i = ctx.state.iteration; i < ctx.payload.config.maxIterations; i++) {
       ctx.state.startNewIteration();
       let executionOrder = 0;
+
+      // Check if run was externally killed
+      const { data: statusCheck } = await supabase
+        .from('content_evolution_runs')
+        .select('status')
+        .eq('id', runId)
+        .single();
+      if (statusCheck?.status === 'failed') {
+        stopReason = 'killed';
+        logger.info('Run was externally killed — stopping pipeline', { runId });
+        break;
+      }
 
       // Phase detection and config
       supervisor.beginIteration(ctx.state);
@@ -1028,20 +1042,22 @@ export async function executeFullPipeline(
       }
     }
 
-    // Mark run completed
+    // Mark run completed (skip if killed — preserve the kill attribution)
     const totalCost = ctx.costTracker.getTotalSpent();
-    await supabase.from('content_evolution_runs').update({
-      status: 'completed',
-      completed_at: new Date().toISOString(),
-      total_variants: ctx.state.getPoolSize(),
-      variants_generated: ctx.state.getPoolSize(),
-      total_cost_usd: totalCost,
-      error_message: stopReason === 'completed' ? null : stopReason,
-    }).eq('id', runId);
+    if (stopReason !== 'killed') {
+      await supabase.from('content_evolution_runs').update({
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        total_variants: ctx.state.getPoolSize(),
+        variants_generated: ctx.state.getPoolSize(),
+        total_cost_usd: totalCost,
+        error_message: stopReason === 'completed' ? null : stopReason,
+      }).eq('id', runId).in('status', ['running']);
 
-    // Persist summary, variants, agent metrics, and strategy config
-    const durationSeconds = (Date.now() - (options.startMs ?? Date.now())) / 1000;
-    await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor);
+      // Persist summary, variants, agent metrics, and strategy config
+      const durationSeconds = (Date.now() - (options.startMs ?? Date.now())) / 1000;
+      await finalizePipelineRun(runId, ctx, logger, stopReason, durationSeconds, supervisor);
+    }
 
     pipelineSpan.setAttributes({
       stop_reason: stopReason,

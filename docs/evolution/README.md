@@ -53,6 +53,14 @@ The evolution system uses **two distinct rating systems** for different purposes
 | **OpenSkill** (Bayesian, mu/sigma) | Within a single pipeline run | [Rating & Comparison](./rating_and_comparison.md) | Ranks variants during evolution. Converges via sigma decay. |
 | **Elo** (K-factor 32) | Across all runs in the Hall of Fame | [Hall of Fame](./hall_of_fame.md) | Compares articles across generation methods. Fixed K-factor updates. |
 
+## Config Validation & Kill Mechanism
+
+The pipeline includes two operational safety features:
+
+- **Config validation** — Strategy configs are validated at queue time (`validateStrategyConfig`) and run time (`validateRunConfig`). The admin UI shows inline warnings when a problematic strategy is selected and disables the "Start Pipeline" button. See [Architecture — Config Validation](./architecture.md#config-validation).
+- **Kill mechanism** — Running/claimed runs can be killed by an admin via the dashboard Kill button. The pipeline detects the kill at the next iteration boundary using a three-checkpoint defense-in-depth design. See [Architecture — Kill Mechanism](./architecture.md#kill-mechanism).
+- **Test name filtering** — Prompts and strategies with "test" in their name are hidden from the Start Pipeline dropdowns via the `isTestEntry()` predicate. Admin management pages still show all entries.
+
 ## Code Layout
 
 The evolution system lives under `src/lib/evolution/` with integration points in `src/lib/services/`, `src/components/evolution/`, and `scripts/`. See [Reference — Key Files](./reference.md#key-files) for the complete file index.

@@ -91,6 +91,7 @@ The strategy creation form (`strategies/page.tsx`) renders agent checkboxes. Req
 - `src/lib/evolution/core/budgetRedistribution.ts` — Agent classification, budget redistribution, validation
 - `src/lib/evolution/core/agentToggle.ts` — Pure toggle utility for UI state
 - `src/lib/evolution/core/supervisor.ts` — `isEnabled()` gating in `getPhaseConfig()`
+- `src/lib/evolution/core/configValidation.ts` — Config validation (`validateStrategyConfig`, `validateRunConfig`, `isTestEntry`)
 
 ## Append-Only Pool
 
@@ -113,8 +114,33 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
 | Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes | Queue a new run. Checkpoint data may allow manual investigation. |
 | All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues but may hit degenerate state stop (diversity < 0.01). |
+| Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
+| Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
 **Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
+
+## Kill Mechanism
+
+A running or claimed evolution run can be killed externally by an admin via `killEvolutionRunAction`. The kill uses a three-checkpoint defense-in-depth design:
+
+1. **Claimed→running guard** (`pipeline.ts`): The status transition uses `.in('status', ['claimed'])` so a concurrent kill (which sets status to `'failed'`) prevents the pipeline from overwriting it with `'running'`.
+2. **Iteration-level status check** (`pipeline.ts`): At the top of each iteration loop, the pipeline reads the run's current status from the database. If status is `'failed'`, the loop breaks with `stopReason = 'killed'`.
+3. **Completion guard** (`pipeline.ts`): After the loop, the completion update is wrapped in `if (stopReason !== 'killed')` with an additional `.in('status', ['running'])` guard. Killed runs skip `finalizePipelineRun()` (no summary/metrics for partial runs).
+
+The kill action sets `error_message: 'Manually killed by admin'` and `completed_at` to preserve attribution. In-flight LLM calls will still complete but their results are discarded at the next iteration boundary.
+
+**Catch-block interaction**: If an agent throws after the kill check passes but before the next iteration, `markRunFailed()` fires with `.in('status', ['pending', 'claimed', 'running'])`. Since the run is already `'failed'`, this is a no-op — the kill attribution is preserved.
+
+## Config Validation
+
+Strategy configs and resolved run configs are validated at two points:
+
+1. **Strategy-level** (`buildRunConfig()` in `evolutionActions.ts`): Calls `validateStrategyConfig()` on the processed config before inserting a run into the database. Lenient — skips checks on absent fields since partial configs get defaults from `resolveConfig()`.
+2. **Run-level** (`preparePipelineRun()` in `index.ts`): Calls `validateRunConfig()` on the complete config after `resolveConfig()` merges defaults. Strict — all fields must be present and valid.
+
+Validation checks include: model names against the `allowedLLMModelSchema` enum, budget cap keys/values, agent dependency and mutex constraints via `validateAgentSelection()`, iteration bounds, supervisor constraints (expansion minPool, maxIterations relationships), and nested object bounds.
+
+Both functions return all errors (no short-circuit) so admins see everything at once. The validation module (`configValidation.ts`) is a pure module with no Node.js-only imports — safe for both server code and `'use client'` components.
 
 ## Stopping Conditions
 
@@ -166,6 +192,7 @@ The PoolSupervisor evaluates stopping conditions at the start of each iteration:
    └─ Checkpoint after each agent + supervisor state at end-of-iteration
 
 4. Stopping Conditions (checked at iteration start)
+   ├─ External kill (status check reads 'failed' → stopReason='killed', skip completion)
    ├─ Quality threshold (single-article only: all critique dimensions >= 8)
    ├─ Quality plateau (top ordinal change < 0.12 over 3 iterations)
    ├─ Budget exhausted (available < $0.01)

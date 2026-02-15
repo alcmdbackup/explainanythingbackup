@@ -11,6 +11,7 @@ import {
   getEvolutionVariantsAction,
   applyWinnerAction,
   triggerEvolutionRunAction,
+  killEvolutionRunAction,
   getEvolutionCostBreakdownAction,
   getEvolutionHistoryAction,
   rollbackEvolutionAction,
@@ -24,6 +25,8 @@ import { getPromptsAction } from '@/lib/services/promptRegistryActions';
 import { getStrategiesAction } from '@/lib/services/strategyRegistryActions';
 import { dispatchEvolutionBatchAction } from '@/lib/services/evolutionBatchActions';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
+import type { StrategyConfigRow } from '@/lib/evolution/core/strategyConfig';
+import { isTestEntry, validateStrategyConfig } from '@/lib/evolution/core/configValidation';
 import Link from 'next/link';
 import { EvolutionStatusBadge } from '@/components/evolution';
 import { ElapsedTime } from '@/components/evolution/ElapsedTime';
@@ -157,7 +160,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
   const [budget, setBudget] = useState('5.00');
   const [submitting, setSubmitting] = useState(false);
   const [prompts, setPrompts] = useState<{ id: string; label: string }[]>([]);
-  const [strategies, setStrategies] = useState<{ id: string; label: string }[]>([]);
+  const [strategies, setStrategies] = useState<StrategyConfigRow[]>([]);
   const [estimate, setEstimate] = useState<CostEstimateResult | null>(null);
   const [estimateLoading, setEstimateLoading] = useState(false);
   const [showBreakdown, setShowBreakdown] = useState(false);
@@ -169,10 +172,14 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         getStrategiesAction({ status: 'active' }),
       ]);
       if (pRes.success && pRes.data) {
-        setPrompts(pRes.data.map(p => ({ id: p.id, label: p.title })));
+        setPrompts(
+          pRes.data
+            .filter(p => !isTestEntry(p.title))
+            .map(p => ({ id: p.id, label: p.title }))
+        );
       }
       if (sRes.success && sRes.data) {
-        setStrategies(sRes.data.map(s => ({ id: s.id, label: s.name })));
+        setStrategies(sRes.data.filter(s => !isTestEntry(s.name)));
       }
     })();
   }, []);
@@ -192,6 +199,14 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
 
     return () => clearTimeout(timer);
   }, [strategyId]);
+
+  const configWarnings = useMemo(() => {
+    if (!strategyId) return [];
+    const selected = strategies.find(s => s.id === strategyId);
+    if (!selected) return [];
+    const { errors } = validateStrategyConfig(selected.config);
+    return errors;
+  }, [strategyId, strategies]);
 
   const handleStart = async (): Promise<void> => {
     if (!promptId) {
@@ -256,7 +271,7 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
           <span className="text-xs font-ui text-[var(--text-muted)]">Strategy</span>
           <select value={strategyId} onChange={(e) => setStrategyId(e.target.value)} className={selectClass}>
             <option value="">Select strategy...</option>
-            {strategies.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+            {strategies.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1 w-28">
@@ -271,13 +286,23 @@ function StartRunCard({ onQueued }: { onQueued: () => void }) {
         </label>
         <button
           onClick={handleStart}
-          disabled={submitting || !promptId || !strategyId}
+          disabled={submitting || !promptId || !strategyId || configWarnings.length > 0}
           data-testid="start-run-btn"
           className="px-4 py-2 bg-[var(--accent-gold)] text-[var(--surface-primary)] rounded-page font-ui text-sm hover:opacity-90 disabled:opacity-50"
         >
           {submitting ? 'Running...' : 'Start Pipeline'}
         </button>
       </div>
+
+      {configWarnings.length > 0 && (
+        <div className="space-y-1" data-testid="config-warnings">
+          {configWarnings.map((w, i) => (
+            <div key={i} className="text-xs text-[var(--status-error)] bg-[var(--status-error)]/10 px-2 py-1 rounded">
+              {w}
+            </div>
+          ))}
+        </div>
+      )}
 
       {estimateLoading && (
         <div className="text-xs text-[var(--text-muted)]" data-testid="estimate-loading">
@@ -350,7 +375,7 @@ function StartBatchCard({ pendingCount }: { pendingCount: number }) {
   const [dryRun, setDryRun] = useState(false);
   const [dispatching, setDispatching] = useState(false);
 
-  const handleDispatch = async (overrideMaxRuns?: number) => {
+  const handleDispatch = async (overrideMaxRuns?: number): Promise<void> => {
     setDispatching(true);
     const result = await dispatchEvolutionBatchAction({
       parallel: parseInt(parallel, 10) || 5,
@@ -695,6 +720,19 @@ export default function EvolutionAdminPage() {
     setActionLoading(false);
   };
 
+  const handleKill = async (runId: string): Promise<void> => {
+    if (!confirm('Kill this evolution run? In-flight LLM calls will still complete.')) return;
+    setActionLoading(true);
+    const result = await killEvolutionRunAction(runId);
+    if (result.success) {
+      toast.success('Run killed');
+      loadRuns();
+    } else {
+      toast.error(result.error?.message || 'Failed to kill run');
+    }
+    setActionLoading(false);
+  };
+
   const handleViewVariants = async (run: EvolutionRun): Promise<void> => {
     setSelectedRun(run);
     setVariantsLoading(true);
@@ -913,6 +951,16 @@ export default function EvolutionAdminPage() {
                           className="text-[var(--accent-gold)] hover:underline text-xs disabled:opacity-50"
                         >
                           Trigger
+                        </button>
+                      )}
+                      {(run.status === 'running' || run.status === 'claimed') && (
+                        <button
+                          onClick={() => handleKill(run.id)}
+                          disabled={actionLoading}
+                          data-testid={`kill-run-${run.id}`}
+                          className="text-[var(--status-error)] hover:underline text-xs disabled:opacity-50"
+                        >
+                          Kill
                         </button>
                       )}
                       {run.status === 'completed' && (
