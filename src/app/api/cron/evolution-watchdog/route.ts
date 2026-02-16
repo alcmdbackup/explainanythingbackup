@@ -17,7 +17,6 @@ function getStaleThresholdMinutes(): number {
 }
 
 export async function GET(request: Request): Promise<NextResponse> {
-  // Verify cron secret — fail closed when not configured
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
 
@@ -30,12 +29,12 @@ export async function GET(request: Request): Promise<NextResponse> {
   try {
     const supabase = await createSupabaseServiceClient();
 
-    // Find and mark stale runs
+    // Find stale claimed/running runs
     const cutoff = new Date(Date.now() - thresholdMinutes * 60 * 1000).toISOString();
 
     const { data: staleRuns, error: fetchError } = await supabase
       .from('content_evolution_runs')
-      .select('id, runner_id, last_heartbeat, current_iteration, phase')
+      .select('id, runner_id, last_heartbeat, current_iteration, phase, continuation_count')
       .in('status', ['claimed', 'running'])
       .lt('last_heartbeat', cutoff);
 
@@ -44,53 +43,110 @@ export async function GET(request: Request): Promise<NextResponse> {
       return NextResponse.json({ error: 'Failed to query stale runs' }, { status: 500 });
     }
 
-    if (!staleRuns || staleRuns.length === 0) {
-      return NextResponse.json({
-        status: 'ok',
-        staleRunsFound: 0,
-        thresholdMinutes,
-        timestamp: new Date().toISOString(),
-      });
+    const markedFailed: string[] = [];
+    const markedContinuation: string[] = [];
+
+    for (const run of (staleRuns ?? [])) {
+      const { data: recentCheckpoint } = await supabase
+        .from('evolution_checkpoints')
+        .select('created_at')
+        .eq('run_id', run.id)
+        .gt('created_at', run.last_heartbeat)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (recentCheckpoint) {
+        const { error: updateError } = await supabase
+          .from('content_evolution_runs')
+          .update({
+            status: 'continuation_pending',
+            runner_id: null,
+            continuation_count: (run.continuation_count ?? 0) + 1,
+          })
+          .eq('id', run.id)
+          .in('status', ['running', 'claimed']);
+
+        if (updateError) {
+          logger.error('Watchdog continuation transition error', { runId: run.id, error: updateError.message });
+        } else {
+          markedContinuation.push(run.id);
+          logger.info('Watchdog recovered stale run via checkpoint', { runId: run.id });
+        }
+      } else {
+        const structuredError = JSON.stringify({
+          message: `Run abandoned: no heartbeat for ${thresholdMinutes} minutes (likely serverless timeout)`,
+          source: 'evolution-watchdog',
+          lastIteration: run.current_iteration ?? null,
+          lastPhase: run.phase ?? null,
+          lastHeartbeat: run.last_heartbeat,
+          threshold: `${thresholdMinutes}min`,
+          timestamp: new Date().toISOString(),
+        });
+
+        const { error: updateError } = await supabase
+          .from('content_evolution_runs')
+          .update({
+            status: 'failed',
+            error_message: structuredError,
+            runner_id: null,
+          })
+          .eq('id', run.id);
+
+        if (updateError) {
+          logger.error('Watchdog update error for run', { runId: run.id, error: updateError.message });
+        } else {
+          markedFailed.push(run.id);
+        }
+      }
     }
 
-    // Mark each stale run as failed with structured error messages
-    for (const run of staleRuns) {
-      const structuredError = JSON.stringify({
-        message: `Run abandoned: no heartbeat for ${thresholdMinutes} minutes (likely serverless timeout)`,
-        source: 'evolution-watchdog',
-        lastIteration: run.current_iteration ?? null,
-        lastPhase: run.phase ?? null,
-        lastHeartbeat: run.last_heartbeat,
-        threshold: `${thresholdMinutes}min`,
-        timestamp: new Date().toISOString(),
-      });
+    // Find stale continuation_pending runs not resumed within 30 minutes
+    const continuationCutoff = new Date(Date.now() - 30 * 60_000).toISOString();
+    const { data: staleContinuations } = await supabase
+      .from('content_evolution_runs')
+      .select('id, last_heartbeat')
+      .eq('status', 'continuation_pending')
+      .lt('last_heartbeat', continuationCutoff);
 
+    const abandonedContinuations: string[] = [];
+    for (const run of (staleContinuations ?? [])) {
       const { error: updateError } = await supabase
         .from('content_evolution_runs')
         .update({
           status: 'failed',
-          error_message: structuredError,
-          runner_id: null,
+          error_message: JSON.stringify({
+            message: 'Continuation run abandoned: not resumed within 30 minutes',
+            source: 'evolution-watchdog',
+            lastHeartbeat: run.last_heartbeat,
+            timestamp: new Date().toISOString(),
+          }),
         })
-        .eq('id', run.id);
+        .eq('id', run.id)
+        .eq('status', 'continuation_pending'); // guard: only if still continuation_pending
 
-      if (updateError) {
-        logger.error('Watchdog update error for run', { runId: run.id, error: updateError.message });
+      if (!updateError) {
+        abandonedContinuations.push(run.id);
       }
     }
 
-    const staleIds = staleRuns.map((r) => r.id);
+    const totalActions = markedFailed.length + markedContinuation.length + abandonedContinuations.length;
 
-    logger.warn('Watchdog marked stale runs as failed', {
-      count: staleRuns.length,
-      runIds: staleIds,
-      thresholdMinutes,
-    });
+    if (totalActions > 0) {
+      logger.warn('Watchdog processed stale runs', {
+        markedFailed: markedFailed.length,
+        recoveredViaContinuation: markedContinuation.length,
+        abandonedContinuations: abandonedContinuations.length,
+        thresholdMinutes,
+      });
+    }
 
     return NextResponse.json({
       status: 'ok',
-      staleRunsFound: staleRuns.length,
-      markedFailed: staleIds,
+      staleRunsFound: (staleRuns ?? []).length,
+      markedFailed,
+      recoveredViaContinuation: markedContinuation,
+      abandonedContinuations,
       thresholdMinutes,
       timestamp: new Date().toISOString(),
     });

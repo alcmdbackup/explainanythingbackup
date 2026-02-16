@@ -1,17 +1,18 @@
-// Tests for EvolutionStatusBadge component rendering all 6 statuses.
+// Tests for EvolutionStatusBadge component rendering all 7 statuses (incl. continuation_pending).
 import { render, screen } from '@testing-library/react';
 import { EvolutionStatusBadge } from './EvolutionStatusBadge';
 import type { EvolutionRunStatus } from '@/lib/evolution/types';
 
-const ALL_STATUSES: EvolutionRunStatus[] = ['pending', 'claimed', 'running', 'completed', 'failed', 'paused'];
+const ALL_STATUSES: EvolutionRunStatus[] = ['pending', 'claimed', 'running', 'completed', 'failed', 'paused', 'continuation_pending'];
 
 describe('EvolutionStatusBadge', () => {
   it.each(ALL_STATUSES)('renders badge for %s status', (status) => {
     render(<EvolutionStatusBadge status={status} />);
     const badge = screen.getByTestId(`status-badge-${status}`);
     expect(badge).toBeInTheDocument();
-    // "claimed" displays as "starting" for user clarity
-    expect(badge).toHaveTextContent(status === 'claimed' ? 'starting' : status);
+    // "claimed" displays as "starting", "continuation_pending" as "resuming" for user clarity
+    const expectedText = status === 'claimed' ? 'starting' : status === 'continuation_pending' ? 'resuming' : status;
+    expect(badge).toHaveTextContent(expectedText);
   });
 
   it('applies custom className', () => {
@@ -44,6 +45,7 @@ describe('EvolutionStatusBadge', () => {
       completed: '\u2713',
       failed: '\u2717',
       paused: '\u23F8',
+      continuation_pending: '\u21BB',
     };
     for (const status of ALL_STATUSES) {
       const { unmount } = render(<EvolutionStatusBadge status={status} />);

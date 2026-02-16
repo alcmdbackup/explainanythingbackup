@@ -1105,7 +1105,7 @@ describe('killEvolutionRunAction', () => {
       error_message: 'Manually killed by admin',
     }));
     // Verify .in() status guard
-    expect(mock.in).toHaveBeenCalledWith('status', ['pending', 'claimed', 'running']);
+    expect(mock.in).toHaveBeenCalledWith('status', ['pending', 'claimed', 'running', 'continuation_pending']);
   });
 
   it('kills a pending run (pre-execution kill)', async () => {

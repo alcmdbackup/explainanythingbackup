@@ -42,9 +42,9 @@ const DATE_RANGE_DAYS: Record<DateRange, number | null> = {
 function getStartDate(range: DateRange): string | undefined {
   const days = DATE_RANGE_DAYS[range];
   if (days === null) return undefined;
-  const d = new Date();
-  d.setDate(d.getDate() - days);
-  return d.toISOString();
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString();
 }
 
 function getConfidenceStyle(confidence: string): { bg: string; text: string; title?: string } {
@@ -72,9 +72,10 @@ function ConfidenceBadge({ confidence }: { confidence: string }): JSX.Element {
   );
 }
 
-/** Color class based on how close estimate is to actual cost. */
 function getEstimateColorClass(run: EvolutionRun): string {
-  if (run.status !== 'completed' || run.total_cost_usd === 0) return 'text-[var(--text-muted)]';
+  if (run.status !== 'completed' || run.total_cost_usd === 0) {
+    return 'text-[var(--text-muted)]';
+  }
 
   const deviation = Math.abs(run.total_cost_usd - (run.estimated_cost_usd ?? 0))
     / Math.max(run.estimated_cost_usd ?? 0, 0.001);
@@ -723,6 +724,7 @@ export default function EvolutionAdminPage() {
   const handleQueue = async (explanationId: number, budgetCapUsd: number): Promise<void> => {
     setActionLoading(true);
     const result = await queueEvolutionRunAction({ explanationId, budgetCapUsd });
+
     if (result.success) {
       toast.success('Evolution run queued');
       setShowQueueDialog(false);
@@ -730,18 +732,21 @@ export default function EvolutionAdminPage() {
     } else {
       toast.error(result.error?.message || 'Failed to queue run');
     }
+
     setActionLoading(false);
   };
 
   const handleTrigger = async (runId: string): Promise<void> => {
     setActionLoading(true);
     const result = await triggerEvolutionRunAction(runId);
+
     if (result.success) {
       toast.success('Evolution run triggered');
       loadRuns();
     } else {
       toast.error(result.error?.message || 'Failed to trigger run');
     }
+
     setActionLoading(false);
   };
 
@@ -749,26 +754,31 @@ export default function EvolutionAdminPage() {
     setSelectedRun(run);
     setVariantsLoading(true);
     const result = await getEvolutionVariantsAction(run.id);
+
     if (result.success && result.data) {
       setVariants(result.data);
     } else {
       toast.error('Failed to load variants');
     }
+
     setVariantsLoading(false);
   };
 
   const handleApplyWinner = async (variantId: string): Promise<void> => {
     if (!selectedRun) return;
+
     if (selectedRun.explanation_id === null) {
       toast.error('Cannot apply winner: run has no explanation_id');
       return;
     }
+
     setActionLoading(true);
     const result = await applyWinnerAction({
       explanationId: selectedRun.explanation_id,
       variantId,
       runId: selectedRun.id,
     });
+
     if (result.success) {
       toast.success('Winner applied to article');
       handleViewVariants(selectedRun);
@@ -776,6 +786,7 @@ export default function EvolutionAdminPage() {
     } else {
       toast.error(result.error?.message || 'Failed to apply winner');
     }
+
     setActionLoading(false);
   };
 
@@ -845,6 +856,7 @@ export default function EvolutionAdminPage() {
             <option value="">All Statuses</option>
             <option value="pending">Pending</option>
             <option value="running">Running</option>
+            <option value="continuation_pending">Resuming</option>
             <option value="completed">Completed</option>
             <option value="failed">Failed</option>
             <option value="paused">Paused</option>

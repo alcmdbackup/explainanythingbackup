@@ -62,8 +62,6 @@ export interface ContentHistoryRow {
   applied_at: string;
 }
 
-// ─── Estimate run cost ──────────────────────────────────────────
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 export interface CostEstimateResult {
@@ -134,8 +132,6 @@ const _estimateRunCostAction = withLogging(async (
 
 export const estimateRunCostAction = serverReadRequestId(_estimateRunCostAction);
 
-// ─── Queue a new evolution run ───────────────────────────────────
-
 const _queueEvolutionRunAction = withLogging(async (
   input: {
     explanationId?: number;
@@ -159,7 +155,9 @@ const _queueEvolutionRunAction = withLogging(async (
         .eq('id', input.promptId)
         .is('deleted_at', null)
         .single();
-      if (!prompt) throw new Error(`Prompt not found: ${input.promptId}`);
+      if (!prompt) {
+        throw new Error(`Prompt not found: ${input.promptId}`);
+      }
     }
 
     let strategyConfig: QueueStrategyConfig | null = null;
@@ -170,7 +168,11 @@ const _queueEvolutionRunAction = withLogging(async (
         .select('id, config')
         .eq('id', input.strategyId)
         .single();
-      if (!strategy) throw new Error(`Strategy not found: ${input.strategyId}`);
+
+      if (!strategy) {
+        throw new Error(`Strategy not found: ${input.strategyId}`);
+      }
+
       strategyConfig = strategy.config as QueueStrategyConfig;
     }
 
@@ -178,6 +180,7 @@ const _queueEvolutionRunAction = withLogging(async (
 
     let estimatedCostUsd: number | null = null;
     let costEstimateDetail: Record<string, unknown> | null = null;
+
     if (strategyConfig) {
       try {
         type ModelType = import('@/lib/schemas/schemas').AllowedLLMModelType;
@@ -209,7 +212,6 @@ const _queueEvolutionRunAction = withLogging(async (
       }
     }
 
-    // COST-1: Reject if estimated cost exceeds budget cap (skip if no estimate available)
     if (estimatedCostUsd !== null && estimatedCostUsd > budgetCap) {
       throw new Error(
         `Estimated cost $${estimatedCostUsd.toFixed(2)} exceeds budget cap $${budgetCap.toFixed(2)}. ` +
@@ -227,6 +229,7 @@ const _queueEvolutionRunAction = withLogging(async (
       cost_estimate_detail: costEstimateDetail,
       source,
     };
+
     if (Object.keys(runConfig).length > 0) insertRow.config = runConfig;
     if (input.explanationId) insertRow.explanation_id = input.explanationId;
     if (input.promptId) insertRow.prompt_id = input.promptId;
@@ -264,8 +267,6 @@ const _queueEvolutionRunAction = withLogging(async (
 
 export const queueEvolutionRunAction = serverReadRequestId(_queueEvolutionRunAction);
 
-// ─── Helper: Build run config from strategy ──────────────────────
-
 type QueueStrategyConfig = {
   generationModel?: string;
   judgeModel?: string;
@@ -283,8 +284,8 @@ async function buildRunConfig(
 ): Promise<Record<string, unknown>> {
   if (!strategyConfig) return {};
 
-  // Validate enabledAgents via Zod, warn and omit on failure
   let enabledAgents: string[] | undefined;
+
   if (strategyConfig.enabledAgents) {
     const { enabledAgentsSchema } = await import('@/lib/evolution/core/budgetRedistribution');
     const parsed = enabledAgentsSchema.safeParse(strategyConfig.enabledAgents);
@@ -297,7 +298,6 @@ async function buildRunConfig(
     }
   }
 
-  // Build overrides — only include fields that are explicitly set
   const runConfig: Record<string, unknown> = {
     ...(enabledAgents && { enabledAgents }),
     ...(strategyConfig.singleArticle && { singleArticle: true }),
@@ -307,7 +307,6 @@ async function buildRunConfig(
     ...(strategyConfig.budgetCaps && Object.keys(strategyConfig.budgetCaps).length > 0 && { budgetCaps: { ...strategyConfig.budgetCaps } }),
   };
 
-  // Validate before inserting — validateStrategyConfig skips absent/falsy fields
   const { validateStrategyConfig } = await import('@/lib/evolution/core/configValidation');
   const validation = validateStrategyConfig({
     generationModel: (runConfig.generationModel as string) ?? '',
@@ -317,14 +316,13 @@ async function buildRunConfig(
     enabledAgents: runConfig.enabledAgents as import('@/lib/evolution/core/pipeline').AgentName[] | undefined,
     singleArticle: strategyConfig.singleArticle,
   });
+
   if (!validation.valid) {
     throw new Error(`Invalid strategy config: ${validation.errors.join('; ')}`);
   }
 
   return runConfig;
 }
-
-// ─── List evolution runs ─────────────────────────────────────────
 
 const _getEvolutionRunsAction = withLogging(async (
   filters?: { explanationId?: number; status?: EvolutionRunStatus; startDate?: string }
@@ -364,8 +362,6 @@ const _getEvolutionRunsAction = withLogging(async (
 
 export const getEvolutionRunsAction = serverReadRequestId(_getEvolutionRunsAction);
 
-// ─── Get single evolution run by ID (lightweight polling) ────────
-
 const _getEvolutionRunByIdAction = withLogging(async (
   runId: string
 ): Promise<{ success: boolean; data: EvolutionRun | null; error: ErrorResponse | null }> => {
@@ -385,8 +381,6 @@ const _getEvolutionRunByIdAction = withLogging(async (
 }, 'getEvolutionRunByIdAction');
 
 export const getEvolutionRunByIdAction = serverReadRequestId(_getEvolutionRunByIdAction);
-
-// ─── Get variants for a run ──────────────────────────────────────
 
 const _getEvolutionVariantsAction = withLogging(async (
   runId: string
@@ -418,8 +412,6 @@ const _getEvolutionVariantsAction = withLogging(async (
 }, 'getEvolutionVariantsAction');
 
 export const getEvolutionVariantsAction = serverReadRequestId(_getEvolutionVariantsAction);
-
-// ─── Apply winner ────────────────────────────────────────────────
 
 const _applyWinnerAction = withLogging(async (
   input: { explanationId: number; variantId: string; runId: string }
@@ -617,7 +609,7 @@ const _triggerEvolutionRunAction = withLogging(async (
         status: 'failed',
         error_message: structuredError,
         completed_at: new Date().toISOString(),
-      }).eq('id', runId).in('status', ['pending', 'claimed', 'running']);
+      }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
     } catch (dbErr) {
       logger.error('Failed to mark run as failed in DB', {
         runId,
@@ -956,7 +948,7 @@ const _killEvolutionRunAction = withLogging(async (
         completed_at: new Date().toISOString(),
       })
       .eq('id', runId)
-      .in('status', ['pending', 'claimed', 'running'])
+      .in('status', ['pending', 'claimed', 'running', 'continuation_pending'])
       .select()
       .single();
 

@@ -463,6 +463,20 @@ export class LLMRefusalError extends Error {
   }
 }
 
+export class CheckpointNotFoundError extends Error {
+  constructor(runId: string) {
+    super(`No checkpoint found for run ${runId}`);
+    this.name = 'CheckpointNotFoundError';
+  }
+}
+
+export class CheckpointCorruptedError extends Error {
+  constructor(runId: string, cause?: string) {
+    super(`Checkpoint corrupted for run ${runId}${cause ? `: ${cause}` : ''}`);
+    this.name = 'CheckpointCorruptedError';
+  }
+}
+
 // ─── Evolution run config (per-run overrides) ────────────────────
 
 export interface EvolutionRunConfig {
@@ -528,7 +542,7 @@ export interface SerializedPipelineState {
 
 // ─── Evolution run status ────────────────────────────────────────
 
-export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused';
+export type EvolutionRunStatus = 'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'paused' | 'continuation_pending';
 
 export type PipelineType = 'full' | 'minimal' | 'batch' | 'single';
 

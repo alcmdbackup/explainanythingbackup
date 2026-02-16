@@ -45,6 +45,7 @@ interface ClaimedRun {
   explanation_id: number | null;
   config: Record<string, unknown>;
   budget_cap_usd: number;
+  continuation_count?: number;
 }
 
 async function claimNextRun(): Promise<ClaimedRun | null> {
@@ -140,11 +141,16 @@ function startHeartbeat(runId: string): NodeJS.Timeout {
 // ─── Execute run ────────────────────────────────────────────────
 
 async function executeRun(run: ClaimedRun): Promise<void> {
+  const isResume = (run.continuation_count ?? 0) > 0;
+
+
   log('info', 'Starting evolution run', {
     runId: run.id,
     explanationId: run.explanation_id,
     budget: run.budget_cap_usd,
     dryRun: DRY_RUN,
+    isResume,
+    continuationCount: run.continuation_count,
   });
 
   // Check dry-run: CLI flag
@@ -161,44 +167,90 @@ async function executeRun(run: ClaimedRun): Promise<void> {
     return;
   }
 
-  // Batch runner does not support prompt-based runs (no explanation_id)
-  if (run.explanation_id === null) {
+  // Batch runner does not support prompt-based runs (no explanation_id) for NEW runs
+  if (run.explanation_id === null && !isResume) {
     log('warn', 'Skipping run with null explanation_id (batch runner does not support prompt-based runs)', { runId: run.id });
     await markRunFailed(run.id, 'Batch runner does not support prompt-based runs (null explanation_id). Use the cron runner instead.');
     return;
   }
 
-  // Dynamic import to avoid loading heavy deps during dry-run
-  const {
-    executeFullPipeline,
-    preparePipelineRun,
-  } = await import('../src/lib/evolution/index');
-
-  const originalText = await fetchOriginalText(run.explanation_id);
-  const { ctx, agents, costTracker } = preparePipelineRun({
-    runId: run.id,
-    originalText,
-    title: `Explanation #${run.explanation_id}`,
-    explanationId: run.explanation_id,
-    configOverrides: run.config as Record<string, unknown>,
-    llmClientId: RUNNER_ID,
-  });
-  const logger = ctx.logger;
-
   const heartbeat = startHeartbeat(run.id);
-
   const startMs = Date.now();
+
   try {
-    const result = await executeFullPipeline(run.id, agents, ctx, logger, { startMs });
-    const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
-    log('info', 'Run completed', {
-      runId: run.id,
-      stopReason: result.stopReason,
-      poolSize: ctx.state.getPoolSize(),
-      totalCost: costTracker.getTotalSpent(),
-      duration_seconds: durationSeconds,
-      cost_usd: costTracker.getTotalSpent(),
-    });
+    if (isResume) {
+      // === RESUME PATH ===
+      const {
+        executeFullPipeline,
+        prepareResumedPipelineRun,
+        loadCheckpointForResume,
+        CheckpointNotFoundError,
+        CheckpointCorruptedError,
+      } = await import('../src/lib/evolution/index');
+
+      let checkpointData;
+      try {
+        checkpointData = await loadCheckpointForResume(run.id);
+      } catch (err) {
+        if (err instanceof CheckpointNotFoundError || err instanceof CheckpointCorruptedError) {
+          log('error', 'Failed to load checkpoint for resume', { runId: run.id, error: String(err) });
+          await markRunFailed(run.id, String(err));
+          return;
+        }
+        throw err;
+      }
+
+      const { ctx, agents, costTracker, supervisorResume, resumeComparisonCacheEntries } = prepareResumedPipelineRun({
+        runId: run.id,
+        title: run.explanation_id ? `Explanation #${run.explanation_id}` : 'Prompt-based run',
+        explanationId: run.explanation_id,
+        configOverrides: run.config as Record<string, unknown>,
+        llmClientId: RUNNER_ID,
+        checkpointData,
+      });
+
+      const result = await executeFullPipeline(run.id, agents, ctx, ctx.logger, {
+        startMs,
+        supervisorResume,
+        resumeComparisonCacheEntries,
+        continuationCount: run.continuation_count,
+      });
+
+      const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
+      log('info', 'Resumed run completed', {
+        runId: run.id,
+        stopReason: result.stopReason,
+        poolSize: ctx.state.getPoolSize(),
+        totalCost: costTracker.getTotalSpent(),
+        duration_seconds: durationSeconds,
+      });
+    } else {
+      // === NEW RUN PATH ===
+      const {
+        executeFullPipeline,
+        preparePipelineRun,
+      } = await import('../src/lib/evolution/index');
+
+      const originalText = await fetchOriginalText(run.explanation_id!);
+      const { ctx, agents, costTracker } = preparePipelineRun({
+        runId: run.id,
+        originalText,
+        title: `Explanation #${run.explanation_id}`,
+        explanationId: run.explanation_id,
+        configOverrides: run.config as Record<string, unknown>,
+        llmClientId: RUNNER_ID,
+      });
+
+      const result = await executeFullPipeline(run.id, agents, ctx, ctx.logger, { startMs });
+      const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
+      log('info', 'Run completed', {
+        runId: run.id,
+        stopReason: result.stopReason,
+        poolSize: ctx.state.getPoolSize(),
+        totalCost: costTracker.getTotalSpent(),
+        duration_seconds: durationSeconds,
+      });
+    }
   } catch (error) {
     const durationSeconds = ((Date.now() - startMs) / 1000).toFixed(1);
     log('error', 'Run failed', { runId: run.id, error: String(error), duration_seconds: durationSeconds });
@@ -217,7 +269,7 @@ async function markRunFailed(runId: string, errorMessage: string): Promise<void>
       status: 'failed',
       error_message: errorMessage.slice(0, 2000),
       runner_id: null,
-    }).eq('id', runId);
+    }).eq('id', runId).in('status', ['pending', 'claimed', 'running', 'continuation_pending']);
   } catch (err) {
     log('error', 'Failed to mark run as failed', { runId, error: String(err) });
   }

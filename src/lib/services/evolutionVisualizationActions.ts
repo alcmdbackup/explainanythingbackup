@@ -219,7 +219,7 @@ const _getEvolutionDashboardDataAction = withLogging(async (): Promise<ActionRes
     const firstOfPreviousMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
 
     const [activeRes, queueRes, last7dRes, monthSpendRes, last30dRes, recentRes, prevMonthSpendRes, evolvedRes, bankRes] = await Promise.all([
-      supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed']),
+      supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).in('status', ['running', 'claimed', 'continuation_pending']),
       supabase.from('content_evolution_runs').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
       supabase.from('content_evolution_runs').select('status, created_at').gte('created_at', sevenDaysAgo).in('status', ['completed', 'failed', 'paused']),
       supabase.from('content_evolution_runs').select('total_cost_usd').gte('created_at', firstOfMonth),

@@ -1,7 +1,7 @@
 // Unit tests for CostTrackerImpl.
 // Verifies budget reservation with 30% margin, per-agent caps, and total budget enforcement.
 
-import { CostTrackerImpl } from './costTracker';
+import { CostTrackerImpl, createCostTrackerFromCheckpoint } from './costTracker';
 import { BudgetExceededError } from '../types';
 
 const testBudgetCaps: Record<string, number> = {
@@ -193,5 +193,56 @@ describe('CostTrackerImpl', () => {
   it('recordSpend rejects negative costs', () => {
     const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
     expect(() => tracker.recordSpend('generation', -0.5)).toThrow('negative cost');
+  });
+
+  // ─── restoreSpent() tests ──────────────────────────────────────
+
+  it('restoreSpent sets totalSpent baseline', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.restoreSpent(2.0);
+    expect(tracker.getTotalSpent()).toBe(2.0);
+    expect(tracker.getAvailableBudget()).toBe(3.0);
+  });
+
+  it('restoreSpent throws if called after spending has begun', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.recordSpend('generation', 0.10);
+    expect(() => tracker.restoreSpent(1.0)).toThrow('cannot restore after spending has begun');
+  });
+
+  it('restoreSpent throws on negative amount', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    expect(() => tracker.restoreSpent(-1.0)).toThrow('negative amount');
+  });
+
+  it('restoreSpent then recordSpend accumulates correctly', () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.restoreSpent(2.0);
+    tracker.recordSpend('generation', 0.50);
+    expect(tracker.getTotalSpent()).toBe(2.50);
+    expect(tracker.getAvailableBudget()).toBe(2.50);
+  });
+
+  it('restoreSpent affects budget reservation check', async () => {
+    const tracker = new CostTrackerImpl(5.0, testBudgetCaps);
+    tracker.restoreSpent(4.90);
+    // Total budget = 5.0, spent = 4.90. Reserve 0.10 * 1.3 = 0.13 → 5.03 > 5.0
+    await expect(tracker.reserveBudget('generation', 0.10)).rejects.toThrow(BudgetExceededError);
+  });
+});
+
+describe('createCostTrackerFromCheckpoint', () => {
+  it('creates tracker with restored totalSpent', () => {
+    const config = { budgetCapUsd: 5.0, budgetCaps: testBudgetCaps } as import('../types').EvolutionRunConfig;
+    const tracker = createCostTrackerFromCheckpoint(config, 1.50);
+    expect(tracker.getTotalSpent()).toBe(1.50);
+    expect(tracker.getAvailableBudget()).toBe(3.50);
+  });
+
+  it('creates tracker that can then record additional spend', () => {
+    const config = { budgetCapUsd: 5.0, budgetCaps: testBudgetCaps } as import('../types').EvolutionRunConfig;
+    const tracker = createCostTrackerFromCheckpoint(config, 2.0);
+    tracker.recordSpend('generation', 0.30);
+    expect(tracker.getTotalSpent()).toBe(2.30);
   });
 });

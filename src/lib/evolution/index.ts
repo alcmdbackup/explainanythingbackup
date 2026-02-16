@@ -3,7 +3,7 @@
 
 // Local imports for factories (re-exports below don't create local bindings)
 import { PipelineStateImpl as _PipelineStateImpl } from './core/state';
-import { createCostTracker as _createCostTracker } from './core/costTracker';
+import { createCostTracker as _createCostTracker, createCostTrackerFromCheckpoint as _createCostTrackerFromCheckpoint } from './core/costTracker';
 import { createDbEvolutionLogger as _createDbEvolutionLogger } from './core/logger';
 import { createEvolutionLLMClient as _createEvolutionLLMClient } from './core/llmClient';
 import { resolveConfig as _resolveConfig } from './config';
@@ -52,7 +52,7 @@ export { DEFAULT_EVOLUTION_CONFIG, resolveConfig } from './config';
 export { PipelineStateImpl, serializeState, deserializeState } from './core/state';
 export { createRating, updateRating, updateDraw, getOrdinal, isConverged, eloToRating, ordinalToEloScale, DEFAULT_CONVERGENCE_SIGMA } from './core/rating';
 export type { Rating } from './core/rating';
-export { createCostTracker } from './core/costTracker';
+export { createCostTracker, createCostTrackerFromCheckpoint } from './core/costTracker';
 export { estimateRunCostWithAgentModels, computeCostPrediction, refreshAgentCostBaselines, RunCostEstimateSchema, CostPredictionSchema } from './core/costEstimator';
 export type { RunCostEstimate, CostPrediction } from './core/costEstimator';
 export { ComparisonCache } from './core/comparisonCache';
@@ -88,6 +88,9 @@ export { ProximityAgent, cosineSimilarity } from './agents/proximityAgent';
 export { PoolDiversityTracker, DIVERSITY_THRESHOLDS } from './core/diversityTracker';
 export type { DiversityStatus } from './core/diversityTracker';
 export { isTransientError } from './core/errorClassification';
+export { loadCheckpointForResume, checkpointAndMarkContinuationPending } from './core/persistence';
+export type { CheckpointResumeData } from './core/persistence';
+export { CheckpointNotFoundError, CheckpointCorruptedError } from './types';
 export { createTextVariation } from './core/textVariationFactory';
 export { computeEffectiveBudgetCaps, validateAgentSelection, enabledAgentsSchema, REQUIRED_AGENTS, OPTIONAL_AGENTS, AGENT_DEPENDENCIES } from './core/budgetRedistribution';
 export { isTestEntry, validateStrategyConfig, validateRunConfig } from './core/configValidation';
@@ -190,4 +193,78 @@ export function preparePipelineRun(inputs: PipelineRunInputs): PreparedPipelineR
   };
 
   return { ctx, agents: createDefaultAgents(), config, costTracker, logger };
+}
+
+// ─── Resumed Pipeline Run Factory ───────────────────────────────
+
+/** Inputs for prepareResumedPipelineRun(). */
+export interface ResumedPipelineRunInputs {
+  runId: string;
+  title: string;
+  explanationId: number | null;
+  configOverrides?: Partial<EvolutionRunConfig>;
+  llmClientId: string;
+  /** Checkpoint data from loadCheckpointForResume(). */
+  checkpointData: import('./core/persistence').CheckpointResumeData;
+}
+
+/** Output of prepareResumedPipelineRun() — everything needed to call executeFullPipeline with resume. */
+export interface PreparedResumedPipelineRun {
+  ctx: ExecutionContext;
+  agents: PipelineAgents;
+  config: EvolutionRunConfig;
+  costTracker: CostTrackerImpl;
+  logger: import('./types').EvolutionLogger;
+  supervisorResume?: import('./core/supervisor').SupervisorResumeState;
+  resumeComparisonCacheEntries?: Array<[string, import('./core/comparisonCache').CachedMatch]>;
+}
+
+/**
+ * Create a fully-configured pipeline context from checkpoint data for resume.
+ * Mirrors preparePipelineRun but restores state, cost tracker, and supervisor from checkpoint.
+ */
+export function prepareResumedPipelineRun(inputs: ResumedPipelineRunInputs): PreparedResumedPipelineRun {
+  const { checkpointData } = inputs;
+  const config = _resolveConfig(inputs.configOverrides ?? {});
+
+  const validation = _validateRunConfig(config);
+  if (!validation.valid) {
+    throw new Error(`Invalid run config: ${validation.errors.join('; ')}`);
+  }
+
+  config.budgetCaps = _computeEffectiveBudgetCaps(
+    config.budgetCaps,
+    config.enabledAgents,
+    config.singleArticle ?? false,
+  );
+
+  // Restore cost tracker with prior spend from checkpoint
+  const costTracker = _createCostTrackerFromCheckpoint(config, checkpointData.costTrackerTotalSpent);
+  const logger = _createDbEvolutionLogger(inputs.runId);
+  const llmClient = _createEvolutionLLMClient(inputs.llmClientId, costTracker, logger);
+
+  const ctx: ExecutionContext = {
+    payload: {
+      originalText: checkpointData.state.originalText,
+      title: inputs.title,
+      explanationId: inputs.explanationId,
+      runId: inputs.runId,
+      config,
+    },
+    state: checkpointData.state,
+    llmClient,
+    logger,
+    costTracker,
+    runId: inputs.runId,
+  };
+
+  return {
+    ctx,
+    agents: createDefaultAgents(),
+    config,
+    costTracker,
+    logger,
+    supervisorResume: checkpointData.supervisorState,
+    resumeComparisonCacheEntries: checkpointData.comparisonCacheEntries,
+  };
 }

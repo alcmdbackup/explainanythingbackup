@@ -125,12 +125,29 @@ State is checkpointed to `evolution_checkpoints` table after every agent executi
 | Agent throws non-transient error | Partial state checkpointed, run marked `failed` via `markRunFailed` (status guard: only transitions from pending/claimed/running) | Variants generated before failure are preserved. Queue a new run to retry. |
 | triggerEvolutionRunAction catch | Defense-in-depth: inline DB update marks run `failed` with same status guard, wrapped in try-catch to prevent masking the original error | Both layers are idempotent — safe if both fire for the same failure. |
 | Budget exceeded | Run marked `paused`, not `failed` | Admin can increase budget. Batch runner or trigger action loads latest checkpoint and resumes. |
-| Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes | Queue a new run. Checkpoint data may allow manual investigation. |
+| Runner crashes (no heartbeat) | Watchdog cron marks run `failed` after 10 minutes (with defense-in-depth: checks for recent checkpoint before marking stale `running` run) | Queue a new run. Checkpoint data may allow manual investigation. |
+| Timeout approaching (serverless) | Pipeline checkpoints and yields via `continuation_pending`. Cron resumes on next cycle. Max 10 continuations. | Automatic — no manual intervention needed. |
 | All variants rejected by format validator | Pool doesn't grow for that iteration | Pipeline continues but may hit degenerate state stop (diversity < 0.01). |
 | Admin kill (`killEvolutionRunAction`) | Run set to `failed` with `error_message: 'Manually killed by admin'`. Pipeline detects at next iteration boundary, breaks with `stopReason: 'killed'`, skips completion update. | No recovery needed — intentional stop. In-flight LLM calls complete but results discarded. |
 | Invalid config (model name, budget caps, agent constraints) | `validateStrategyConfig()` or `validateRunConfig()` rejects with error list. Run is not queued/started. | Admin fixes strategy config in UI. Inline warnings show validation errors on strategy selection. |
 
 **Resume mechanism**: The batch runner and `triggerEvolutionRunAction` both support loading the latest checkpoint from `evolution_checkpoints.state_snapshot`, deserializing `PipelineState`, and restoring `supervisorState` (phase, rotation index, history) to continue from the next scheduled agent.
+
+### Continuation-Passing (Timeout Recovery)
+
+When a pipeline run approaches the serverless timeout limit (800s on Vercel Pro), it checkpoints state and yields via `continuation_pending` status. The cron runner resumes it on the next cycle.
+
+**Flow:**
+1. Per-iteration time-check: adaptive safety margin `min(120s, max(60s, 10% elapsed))`
+2. If timeout approaching → `checkpointAndMarkContinuationPending()` via atomic RPC
+3. Run status transitions: `running → continuation_pending`
+4. Next cron cycle: `claim_evolution_run` RPC prioritizes `continuation_pending` over `pending`
+5. Cron runner detects resume via `continuation_count > 0`, loads checkpoint, restores state
+
+**Guard rails:**
+- Max 10 continuations per run (prevents infinite loops)
+- Watchdog marks stale `continuation_pending` runs as `failed` after 30 minutes
+- Defense-in-depth: watchdog checks for recent checkpoint before marking stale `running` run as `failed`
 
 ## Kill Mechanism
 

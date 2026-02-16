@@ -1909,3 +1909,145 @@ describe('executeFullPipeline — kill detection', () => {
     ).rejects.toThrow('DB connection lost');
   });
 });
+
+// ─── Continuation-passing tests ──────────────────────────────────
+
+describe('continuation-passing', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  function makeSpyAgent(name: string): PipelineAgent {
+    return {
+      name,
+      canExecute: jest.fn().mockReturnValue(true),
+      execute: jest.fn().mockResolvedValue({ success: true, costUsd: 0, variantsAdded: 0, matchesPlayed: 0 }),
+    };
+  }
+
+  function makeContinuationAgents(): PipelineAgents {
+    return {
+      generation: makeSpyAgent('generation'),
+      calibration: makeSpyAgent('calibration'),
+      tournament: makeSpyAgent('tournament'),
+      evolution: makeSpyAgent('evolution'),
+    };
+  }
+
+  function makeContinuationCtx(): ExecutionContext {
+    const config = resolveConfig({
+      maxIterations: 10,
+      expansion: { maxIterations: 3, minPool: 5, diversityThreshold: 0.25, minIterations: 3 },
+      plateau: { window: 2, threshold: 0.02 },
+    });
+    const state = new PipelineStateImpl('Continuation test text.');
+    return {
+      payload: { originalText: state.originalText, title: 'Test', explanationId: 1, runId: 'cont-test', config },
+      state,
+      llmClient: { complete: jest.fn(), completeStructured: jest.fn() } as unknown as EvolutionLLMClient,
+      logger: makeMockLogger(),
+      costTracker: {
+        reserveBudget: jest.fn().mockResolvedValue(undefined),
+        recordSpend: jest.fn(),
+        getAgentCost: jest.fn().mockReturnValue(0),
+        getTotalSpent: jest.fn().mockReturnValue(0.50),
+        getTotalReserved: jest.fn().mockReturnValue(0),
+        getAvailableBudget: jest.fn().mockReturnValue(4.50),
+        getAllAgentCosts: jest.fn().mockReturnValue({}),
+      },
+      runId: 'cont-test',
+    };
+  }
+
+  it('max-continuation guard marks run failed when limit reached', async () => {
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 10, // at limit
+    });
+
+    expect(result.stopReason).toBe('max_continuations_exceeded');
+  });
+
+  it('max-continuation guard allows run below limit', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now(),
+      continuationCount: 9, // below limit
+    });
+
+    // Should not be max_continuations_exceeded
+    expect(result.stopReason).not.toBe('max_continuations_exceeded');
+  });
+
+  it('time-check yields continuation_timeout when approaching deadline', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Set startMs to 700s ago with maxDuration of 740s → only 40s remaining < 60s margin
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now() - 700_000,
+      maxDurationMs: 740_000,
+      continuationCount: 0,
+    });
+
+    expect(result.stopReason).toBe('continuation_timeout');
+  });
+
+  it('time-check does NOT yield when plenty of time remains', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    // Set startMs to 10s ago with maxDuration of 740s → 730s remaining >> 60s margin
+    const result = await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now() - 10_000,
+      maxDurationMs: 740_000,
+      continuationCount: 0,
+    });
+
+    expect(result.stopReason).not.toBe('continuation_timeout');
+  });
+
+  it('continuation_timeout calls checkpointAndMarkContinuationPending RPC', async () => {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { createSupabaseServiceClient } = require('@/lib/utils/supabase/server');
+    const supabase = await createSupabaseServiceClient();
+    (supabase.single as jest.Mock).mockResolvedValue({ data: { status: 'running' }, error: null });
+
+    const agents = makeContinuationAgents();
+    const ctx = makeContinuationCtx();
+
+    await executeFullPipeline('cont-test', agents, ctx, ctx.logger, {
+      startMs: Date.now() - 700_000,
+      maxDurationMs: 740_000,
+      continuationCount: 0,
+    });
+
+    // Verify the checkpoint_and_continue RPC was called
+    expect(supabase.rpc).toHaveBeenCalledWith(
+      'checkpoint_and_continue',
+      expect.objectContaining({
+        p_run_id: 'cont-test',
+      }),
+    );
+  });
+});
